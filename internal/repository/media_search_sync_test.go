@@ -87,7 +87,7 @@ func searchPlayableWorksFixture(t *testing.T) *Container {
 func TestMetadataSearchCountsPlayableTopLevelWorks(t *testing.T) {
 	repos := searchPlayableWorksFixture(t)
 	ids, total, err := repos.MediaView.SearchMetadataIDs(t.Context(), "Searchable", 0, 10, MetadataSearchFilter{
-		MediaQueryFilter: MediaQueryFilter{IncludeNSFW: true},
+		MediaQueryFilter: MediaQueryFilter{},
 		Kinds:            []string{model.MetadataKindMovie, model.MetadataKindSeries},
 		ForcePostgres:    true,
 	})

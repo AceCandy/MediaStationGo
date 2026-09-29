@@ -23,7 +23,7 @@ func TestDoubanBindingImmediateAndForced(t *testing.T) {
 		t.Run(tc.local+"_"+tc.remote, func(t *testing.T) {
 			scraper, repos, closeServer := newTestScraper(t)
 			defer closeServer()
-			item := model.MetadataItem{Kind: tc.local, Title: "Original", Overview: "已有简介", Source: "tmdb", NSFW: true}
+			item := model.MetadataItem{Kind: tc.local, Title: "Original", Overview: "已有简介", Source: "tmdb"}
 			if err := repos.Metadata.Create(t.Context(), &item, []model.MetadataIdentifier{{Provider: "douban", EntityKind: tc.local, ExternalID: "99"}, {Provider: "tmdb", EntityKind: tc.local, ExternalID: "12345"}}); err != nil {
 				t.Fatal(err)
 			}
@@ -99,7 +99,7 @@ func TestDoubanBindingImmediateAndForced(t *testing.T) {
 				t.Fatalf("binding = %v, %v", degraded, err)
 			}
 			got, err := repos.Metadata.FindByID(t.Context(), item.ID)
-			if err != nil || got.Title != "豆瓣中文名" || got.Overview != "已有简介" || got.Rating != 8.2 || got.Kind != tc.local || got.Source != "tmdb" || !got.NSFW {
+			if err != nil || got.Title != "豆瓣中文名" || got.Overview != "已有简介" || got.Rating != 8.2 || got.Kind != tc.local || got.Source != "tmdb" {
 				t.Fatalf("bound metadata = %#v, %v", got, err)
 			}
 			ids, err := repos.Metadata.ListIdentifiers(t.Context(), item.ID)

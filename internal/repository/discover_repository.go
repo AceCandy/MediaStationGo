@@ -72,9 +72,6 @@ func (r *MediaViewRepository) FindDiscoverLibraryItems(ctx context.Context, item
 		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
 		Joins("JOIN libraries AS lib ON lib.id = m.library_id AND lib.enabled = TRUE AND lib.deleted_at IS NULL").
 		Where("ident.provider = 'tmdb' AND (ident.entity_kind, ident.external_id) IN ?", pairs)
-	if !filter.IncludeNSFW {
-		q = q.Where("COALESCE(work.nsfw, FALSE) = FALSE AND COALESCE(mi.nsfw, FALSE) = FALSE")
-	}
 	err := applyMediaViewFilter(q, filter).
 		Select("DISTINCT ident.external_id::bigint AS tm_db_id, CASE WHEN work.kind = 'series' THEN 'tv' ELSE 'movie' END AS media_type").Scan(&out).Error
 	return out, err

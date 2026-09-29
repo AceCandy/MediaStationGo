@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +52,7 @@ func (r ProbeBackfillResult) Metrics() map[string]int64 {
 }
 
 type mediaProbeRunner interface {
-	Probe(ctx context.Context, path string) (*ProbeResult, error)
+	ProbeFile(ctx context.Context, file *os.File) (*ProbeResult, error)
 	ProbeHTTP(ctx context.Context, rawURL string) (*ProbeResult, error)
 }
 
@@ -75,6 +76,8 @@ type MediaProbeService struct {
 	autoMu      sync.Mutex
 	autoPending bool
 	autoRunning bool
+	// ponytail: 单进程全局锁仅协调隔离与扫描删除；扫描量大时再按库拆分。
+	cleanupMu sync.RWMutex
 }
 
 func NewMediaProbeService(repo *repository.Container, probe mediaProbeRunner) *MediaProbeService {
@@ -100,46 +103,64 @@ func (s *MediaProbeService) SetTaskTracker(log *zap.Logger, tasks *TaskTrackerSe
 }
 
 func (s *MediaProbeService) ProbeMedia(ctx context.Context, mediaID string) (*ProbeResult, error) {
-	result, _, err := s.probeMedia(ctx, mediaID)
+	result, _, err := s.probeMedia(ctx, mediaID, false)
 	return result, err
 }
 
-func (s *MediaProbeService) probeMedia(ctx context.Context, mediaID string) (*ProbeResult, mediaProbeSource, error) {
+func (s *MediaProbeService) probeMedia(ctx context.Context, mediaID string, cleanup bool) (*ProbeResult, bool, error) {
 	if s == nil || s.repo == nil || s.repo.Media == nil || s.probe == nil {
-		return nil, mediaProbeSource{}, errors.New("media probe unavailable")
+		return nil, false, errors.New("media probe unavailable")
 	}
 	media, err := s.repo.Media.FindByID(ctx, strings.TrimSpace(mediaID))
 	if err != nil || media == nil {
 		if err != nil {
-			return nil, mediaProbeSource{}, err
+			return nil, false, err
 		}
-		return nil, mediaProbeSource{}, ErrMediaNotFound
+		return nil, false, ErrMediaNotFound
 	}
 	source, err := s.resolveSource(ctx, media)
 	if err != nil {
-		return nil, mediaProbeSource{}, err
+		return nil, false, err
 	}
 	var result *ProbeResult
 	if source.url != "" {
 		select {
 		case <-ctx.Done():
-			return nil, mediaProbeSource{}, ctx.Err()
+			return nil, false, ctx.Err()
 		case <-time.After(remoteMediaProbeDelay()):
 		}
 		result, err = s.probe.ProbeHTTP(ctx, source.url)
 	} else {
-		result, err = s.probe.Probe(ctx, source.path)
+		file, openErr := os.Open(source.path)
+		if openErr != nil {
+			return nil, false, openErr
+		}
+		defer file.Close()
+		info, statErr := file.Stat()
+		if statErr != nil || !sameProbeFile(source.file, info) {
+			return nil, false, ErrMediaProbeSourceChanged
+		}
+		// 持有句柄直到回填清理/结果写入结束，防止原文件释放后 inode 被复用。
+		source.file = info
+		result, err = s.probe.ProbeFile(ctx, file)
 	}
 	if err != nil {
-		return nil, source, err
+		if cleanup {
+			deleted, cleanupErr := s.removeBrokenProbeSource(ctx, mediaID, source, err)
+			if cleanupErr != nil {
+				cleanupErr = fmt.Errorf("清理损坏视频失败: %w", probeCleanupCause(cleanupErr))
+			}
+			return nil, deleted, errors.Join(err, cleanupErr)
+		}
+		return nil, false, err
 	}
 	if err := s.persist(ctx, media.ID, source, result); err != nil {
-		return nil, mediaProbeSource{}, err
+		return nil, false, err
 	}
 	if s.cache != nil {
 		s.cache.DeletePrefix(ctx, "media:")
 	}
-	return result, mediaProbeSource{}, nil
+	return result, false, nil
 }
 
 func remoteMediaProbeDelay() time.Duration {
@@ -278,7 +299,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 			if _, err := UnmarshalProbeDocument(row.ProbeJSON, row.SchemaVersion); err == nil {
 				result.Skipped++
 			} else {
-				probed, source, err := s.probeMedia(ctx, row.MediaID)
+				probed, deleted, err := s.probeMedia(ctx, row.MediaID, true)
 				if errors.Is(err, errMediaProbeSourceUnavailable) {
 					result.Skipped++
 				} else if err != nil || probed == nil || probed.Document == nil {
@@ -287,17 +308,15 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 					if err == nil {
 						err = errors.New("complete probe document unavailable")
 					}
-					if pathErr := (*os.PathError)(nil); errors.As(err, &pathErr) {
+					if pathErr, ok := err.(*os.PathError); ok {
 						err = pathErr.Err
 					}
 					reason := sanitizeTaskLogError(err).Error()
 					if row.Path != "" {
 						reason = strings.ReplaceAll(reason, row.Path, "[redacted-path]")
 					}
-					if deleted, deleteErr := s.removeBrokenProbeSource(ctx, row.MediaID, source, err); deleted {
+					if deleted {
 						reason += " (损坏视频已删除)"
-					} else if deleteErr != nil {
-						reason += " (删除损坏视频失败)"
 					}
 					result.Details = []string{fmt.Sprintf("❌️ %s %s %s", row.MediaID, row.Path, reason)}
 				} else {
@@ -327,6 +346,11 @@ func (s *MediaProbeService) removeBrokenProbeSource(ctx context.Context, mediaID
 	if !source.local || source.path == "" || source.file == nil || ctx.Err() != nil || !errors.As(probeErr, &exitErr) || !strings.Contains(strings.ToLower(string(exitErr.Stderr)), "moov atom not found") {
 		return false, nil
 	}
+	if runtime.GOOS != "linux" {
+		return false, errors.New("当前平台不支持安全清理，文件已保留")
+	}
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
 	media, err := s.repo.Media.FindByID(ctx, mediaID)
 	if err != nil || media == nil {
 		return false, err
@@ -336,13 +360,61 @@ func (s *MediaProbeService) removeBrokenProbeSource(ctx context.Context, mediaID
 		return false, err
 	}
 	info, err := os.Lstat(source.path)
-	if err != nil || !info.Mode().IsRegular() || !os.SameFile(source.file, info) {
+	if err != nil || !sameProbeFile(source.file, info) {
 		return false, err
 	}
-	if err := os.Remove(source.path); err != nil {
+	return removeQuarantinedProbeSource(ctx, source, renameNoReplace)
+}
+
+func sameProbeFile(before, after os.FileInfo) bool {
+	return before != nil && after != nil && after.Mode().IsRegular() && os.SameFile(before, after) &&
+		before.Size() == after.Size() && before.ModTime().Equal(after.ModTime())
+}
+
+// removeQuarantinedProbeSource 的调用方须持有探测文件句柄及 cleanupMu。
+// 移后复核可识别检查与重命名之间的替换；恢复绝不覆盖原路径的新文件。
+func removeQuarantinedProbeSource(ctx context.Context, source mediaProbeSource, rename func(string, string) error) (bool, error) {
+	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	return true, nil
+	dir, err := os.MkdirTemp(filepath.Dir(source.path), ".probe-cleanup-")
+	if err != nil {
+		return false, fmt.Errorf("创建清理隔离目录失败: %w", probeCleanupCause(err))
+	}
+	defer os.Remove(dir) // 只删除空目录，恢复失败时必须保留其中的文件。
+	target := filepath.Join(dir, "source")
+	moveErr := rename(source.path, target)
+	info, statErr := os.Lstat(target)
+	if moveErr != nil && os.IsNotExist(statErr) {
+		return false, fmt.Errorf("隔离损坏视频失败: %w", probeCleanupCause(moveErr))
+	}
+	err = errors.Join(moveErr, statErr, ctx.Err())
+	if err == nil && !sameProbeFile(source.file, info) {
+		err = ErrMediaProbeSourceChanged
+	}
+	if err == nil {
+		err = os.Remove(target)
+		if err == nil {
+			return true, nil
+		}
+	}
+	if restoreErr := rename(target, source.path); restoreErr != nil {
+		return false, fmt.Errorf("清理中止；恢复失败（%v），请从原目录下 %s 手动恢复", probeCleanupCause(restoreErr), filepath.Join(filepath.Base(dir), "source"))
+	}
+	return false, fmt.Errorf("清理中止，文件已恢复: %w", probeCleanupCause(err))
+}
+
+// 清理日志只显示系统原因，恢复位置由受控相对路径单独提供。
+func probeCleanupCause(err error) error {
+	var pathErr *os.PathError
+	var linkErr *os.LinkError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err
+	}
+	if errors.As(err, &linkErr) {
+		return linkErr.Err
+	}
+	return err
 }
 
 func pendingProbeQuery(query *gorm.DB, automatic bool) *gorm.DB {
@@ -676,6 +748,12 @@ func (s *MediaProbeService) persist(ctx context.Context, mediaID string, source 
 		identity, err := currentSourceIdentity(&current, rawMappings)
 		if err != nil || identity != source.identity {
 			return ErrMediaProbeSourceChanged
+		}
+		if source.local {
+			info, err := os.Stat(source.path)
+			if err != nil || !sameProbeFile(source.file, info) {
+				return ErrMediaProbeSourceChanged
+			}
 		}
 		if probeJSON == "" {
 			return nil

@@ -73,8 +73,7 @@ func (p *ProfileService) UpdateProfile(ctx context.Context, userID string, patch
 		updates["hide_adult"] = *patch.HideAdult
 	}
 	if len(updates) > 0 {
-		if err := p.repo.DB.Model(&model.User{}).Where("id = ?", userID).
-			Updates(updates).Error; err != nil {
+		if err := p.repo.User.UpdateFields(ctx, userID, updates); err != nil {
 			return nil, err
 		}
 	}

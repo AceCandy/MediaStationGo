@@ -231,8 +231,10 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   Movie/Series requests (except playback-date ordering) share `hongGuoWorkScope`
   with library browsing, alongside ordinary/NFO work candidates. Only requested
   played filters compute completed identities. Global MAX file-date sorting uses
-  one necessary file-date aggregate; title/rating/latest-time requests use file
-  existence instead. Album titles/global times are computed once at work level.
+  one necessary file-date aggregate; title/rating/latest-time requests use the
+  current library_ids intersected with allowed minus hidden libraries. Only NULL
+  membership falls back to file existence; [] is known empty. Album titles/global
+  times are computed once at work level.
   `hongGuoGlobalCandidates` retains default Movie/Episode and explicit child kinds;
   playback-date ordering retains its visible-state contract. Do not load artwork
   or poster counters here. `globalItemsWithCount(...,false)` omits the count for
@@ -421,35 +423,47 @@ Library-scoped Emby Items and Latest, including when unrelated NFO media exists.
 `hongGuoLibraryPageSupported` gates ordinary work-layer requests.
 `hongGuoLibraryNodes(ctx, p, workIDs)` aggregates page files by source work
 before joining display metadata, artwork and favorites.
+`hongGuoWorkMembers` owns membership/date/state qualification without album
+projection. `HongGuoWorkIdentitySQL` and `HongGuoReadyWorkSQL` serve completed-album
+work lists; `FilterHongGuoWorkIDs` bounds alias `w` using native work/album indexes.
 
 ### 3. Contracts
 
-Filter visible files and effective playback state before logical album grouping
-and pagination. Count and page share materialized work candidates. Latest omits
-the work count and orders by stored `latest_media_added_at`, then logical ID;
+Intersect maintained membership with permissions, group logical albums, then
+sort candidates. State-filtered pages qualify 50 logical cards per batch, refilling
+until the effective offset/page is satisfied. Exact count and batches share a
+read-only repeatable-read snapshot. Latest omits the work count and orders by
+stored `latest_media_added_at`, then logical ID;
 adding an episode can move an existing work forward across libraries. Albums
 take MAX over all member source-work timestamps, not just visible member seasons.
-Count-free descending Latest prefilters source works by persisted `library_ids`
-for the requested library, then sorts lightweight logical works by global album
-time, with no inner LIMIT. NULL membership goes to the original exact checks.
-Do not filter the album title/time CTE by library, and do not store an album's
-membership on its first season. A LATERAL match reuses the original scoped file/state query for
-that work's source members; aggregate only visible members, apply played/type
-filters, then LIMIT. Only matched member IDs reach page hydration. Keep global
+Library DateLastContentAdded/Latest uses `hongGuoLibraryLatestWorks` after the
+parent permission check: one logical-identity GROUP BY takes global MAX time
+and BOOL_OR visible membership. NULL membership retains the original exact checks.
+Do not collect full-catalog titles or member-ID arrays in this aggregate. After
+the 50-card LIMIT, resolve visible members by native album/work keys through a
+bounded LATERAL lookup, then apply the original state rules and refill as needed.
+Do not restrict global album time to the requested library or store album
+membership on its first season. Other candidate sorts retain their existing scope.
+Only final-page member IDs reach hydration. Keep global
 album timestamps and fileless representative seasons outside the visibility scope.
 DateLastContentAdded uses this work time; DateCreated retains MIN. Unrelated NFO presence cannot choose a different
 library-scoped HongGuo Latest implementation. Bind page work IDs before detail
 file lookup; do not expand the entire library into series/season/episode nodes.
 Keep source movie identities unchanged despite the library's tvshows type.
 Special filters and recursive requests including child kinds retain hierarchy
-queries. Title/date-last-content browsing without a played filter uses correlated
-`EXISTS (... OFFSET 0)` like Web paging, after `latest_media_added_at IS NOT NULL`
-has excluded works without files. Non-null time proves global file existence,
-not current-library membership or user permission; retain those file checks.
-Materialize album titles and global timestamps once at work level, including
-fileless representative seasons. Current-page details materialize `page_works`
+queries. Title/date-last-content browsing checks maintained library membership
+against the current parent, allowed and hidden libraries. Only unknown NULL
+membership uses correlated `EXISTS (... OFFSET 0)`. Non-null latest time alone
+does not prove current-library membership or permission.
+Sorts that require album titles materialize titles and global timestamps once,
+including fileless representative seasons. Latest obtains titles only for the
+selected page. Current-page details materialize `page_works`
 and per-work `file_stats`; only then join artwork and favorites. Do not expand
 season/episode nodes or repeat album MAX and display joins for every file.
+Pure Series pages use effective completed identities restricted to page source
+IDs and omit unused media-ID, watched-time and position aggregates. Mixed/Movie
+pages retain representative/position fields. The branch is selected from actual
+page kinds, not the library's tvshows presentation type.
 State-filtered candidates still check eligible files before paging, but use
 `NOT EXISTS (unplayed file)` for the all-played predicate so the first unfinished
 file ends that check. Use `CompletedPlaybackStates`, preserving `PlaybackStates` effective-state rules, and the
@@ -458,20 +472,38 @@ group effective completed episode numbers by source ID, then join once at work
 level; membership in that source's array supplies the file played predicate.
 If the source has no effective completed episodes, it is unplayed without another
 file/episode probe; still retain the separate visible-file existence check.
-Do not repeatedly scan an ungrouped materialized user-state set per work.
+Correlate the grouped effective-state query to each batch source through LATERAL
+with OFFSET 0. An outer source-ID IN filter can still scan the entire completed
+state UNION (observed with 60,000 rows); verify actual state visits. Materialize
+the batch's qualified IDs once before joining them back to candidates, otherwise
+the same EXISTS may execute once per join pair. Do not repeatedly scan an
+ungrouped materialized user-state set per work.
 DateCreated still aggregates eligible
 file dates; neither path is a constant-time listing or a search-index path.
+
+After the approved album supplement, normal Movie/Series candidates and Web
+library/recent pages omit series with empty album IDs or nonpositive seasons.
+The existing supplement makes them eligible later; do not fetch/repair albums
+inside a list request. Movies retain work identities, even if an album field is
+populated. Detail/hierarchy/source-discovery writers and playback identities are
+unchanged. Only candidate sorting needs global album title/time; state qualification
+and page-member resolution must not repeat that aggregate. Resolve page members
+through native work/album keys before checking visibility. Web title paging computes
+album representatives once rather than doing a LATERAL and primary-work lookup per
+source work; an explicit album request restricts that representative query too.
 
 ### 4. Validation & Error Matrix
 
 Hidden or locked-empty scope -> empty items and zero total. Offset beyond the
 last work -> empty items with unchanged total. Query failure -> error, not a
 successful empty page. All-visible-episodes completed -> played work.
+Missing album/season -> absent from normal work lists until successful supplement;
+no database rewrite, fabricated self-album or mutation of watch history.
 
 ### 5. Good / Base / Bad Cases
 
-Good: multiple seasons consume one album slot. Base: standalone work stays
-hg-work. Bad: an unrelated NFO library changes Latest from MAX to MIN.
+Good: multiple seasons consume one album slot. Base: a confirmed standalone
+uses its source ID as album ID and season 1. Bad: an unrelated NFO library changes Latest from MAX to MIN.
 
 ### 6. Tests Required
 
@@ -494,6 +526,11 @@ Empty state tables do not prove
 that playback-state joins caused a production slowdown.
 Run PostgreSQL tests without skips; synthetic timings do not certify deployment
 latency or a real player's cached collection type.
+`TestHongGuoListsWaitForAlbumSupplement` covers missing ID, invalid season,
+supplement recovery and movies across Emby library/global and Web library/recent.
+`TestHongGuoLibraryCandidatePlan` compares the actual Web page with the old query,
+including order/count/member results and work visits. The Emby page plan separately
+bounds native page-member work visits and asserts no repeated albums CTE in eligibility.
 
 ### 7. Wrong vs Correct
 
@@ -501,6 +538,9 @@ Wrong: repair OpenSearch and assume library browsing also uses it, or only fix
 CollectionType while leaving full hierarchy aggregation on the normal root page.
 Correct: trace each entry point, fix the shared collection mapping, page work
 candidates and separately verify hierarchy, Latest and search regression tests.
+Wrong: regroup the whole catalog after selecting a page just to recover its members.
+Correct: use the selected native album/work IDs; keep global title/time aggregation
+only where it affects candidate order.
 
 ## Scenario: Independent catalog search indexes
 
@@ -536,8 +576,10 @@ A document in both hidden and visible libraries remains eligible through the vis
 library; never use document-level `must_not library_ids=hidden`.
 Only person/favorite-qualified requests retain pre-limit scoped `CandidateIDs`.
 Successful empty index responses return immediately. Returned identities resolve by
-work primary key / `related_album_id` before album/title projection and current-file
-verification through `hongGuoFileScope` and correlated `EXISTS (... OFFSET 0)`.
+work primary key / `related_album_id` before album/title projection and current
+membership verification. Nonempty maintained membership intersected with allowed
+minus hidden libraries, together with valid latest time, proves file existence;
+unknown/empty membership retains `hongGuoFileScope` and correlated `EXISTS (... OFFSET 0)`.
 Apply the existing title substring, kind and user constraints to these bounded works.
 Filtering only computed identities after traversing the full catalog is not bounded.
 The ordinary repository already adds independent NFO database candidates.
@@ -671,17 +713,23 @@ Official App relationships replace manual grouping for Web and Emby display.
 
 ### 2. Signatures
 
-`POST /novel/player/video_detail/v1/` takes string `series_id`; read
-`data.video_data.related_album_id/season_index` with `UseNumber` and matching
+`POST /novel/player/multi_video_detail/v1/` takes string `series_id` and the
+verified detail `biz_param` context from `Client.Album`; read
+`data[source_id].video_data.related_album_id/season_index` with `UseNumber` and matching
 `series_id_str` (fallback `series_id`). Reuse signed, bounded `appRequest`.
 Keep webpage detail collection: App detail does not replace webpage rating
 counts or first-visible timestamps.
+The former `video_detail/v1/` returned HTTP 200 with empty bodies in live checks.
+Do not retry that endpoint as a fallback or treat a missing requested-work key as
+a standalone result. The keyed entry and its embedded work identity must match.
 
 ### 3. Contracts
 
 Store `related_album_id` and `season_index` on `hongguo_works` only.
-`album_checked_at` and `album_retry_at` are private checkpoints. Successful empty
-relationships clear the old relation and count as checked; errors preserve it
+`album_checked_at` and `album_retry_at` are private checkpoints. A successful
+matching response with a missing/empty/zero album ID stores the source ID as
+album ID and season 1, replacing any old relation and counting as checked. `SaveAlbum`
+rejects empty IDs and invalid seasons; errors preserve the previous relationship
 and mark the work for the next supplement pass without cooldown. The non-null
 `album_retry_at` is a pending marker; even legacy future timestamps are eligible.
 Webpage persistence never overwrites these fields.
@@ -706,7 +754,11 @@ independent supplement task. The source-ID cursor ensures each work is tried
 at most once per pass; the existing schedule/manual action starts the next pass.
 Both paths share
 the cancellable request spacing. Successful rows resume from private
-checkpoints without reprocessing unchanged successful-empty rows.
+checkpoints without reprocessing confirmed self-albums. `PendingAlbums` also
+includes checked rows whose album ID is empty or season is nonpositive so they
+are reverified upstream before normalization. HTTP 200 with an empty body is an
+error, never proof of no album; do not bulk-fill missing relationships without a
+successful source check.
 
 ### 4. Validation & Error Matrix
 
@@ -736,7 +788,12 @@ binding, playback and HTTP tests cover projected fields and stable identities.
 `web/scripts/check-hongguo-batch.mjs` checks read-only albums and batch downloads.
 `TestParseAlbum` also covers `101001` self-ID/season-1 defaults, missing/null/
 non-integer season defaults, preserved valid seasons, overflow/range rejection,
-other business-code failures and trailing-JSON rejection before defaults.
+other business-code failures and trailing-JSON rejection before defaults. It also
+rejects missing/null/wrong requested-work keys and the former unkeyed shape, and
+selects the requested entry when the response includes other works.
+`TestAlbumRequestAndCancellation` asserts the fixed multi-detail host/path,
+signed POST, string source ID, and the verified detail context; a successful
+synthetic response alone does not prove a live upstream contract still works.
 `TestAlbumErrorsIdentifySafeFields` covers business-code and field diagnostics
 without upstream text leakage. `TestHongGuoRefreshDefersAlbumFailure` covers
 manual/batch success, retained relations, immediate next-pass retry, separate warning
@@ -794,9 +851,11 @@ returned source-work IDs. Do not sort every file before `LIMIT`. Keep the work
 existence lookup boundary (`OFFSET 0`) and verify real PostgreSQL plans, including
 JIT compilation costs: joining file aggregation into the page CTE can inflate
 estimated rows and trigger expensive JIT optimization. Empty pages retain total.
-Empty album/season fields remain standalone `hg-work-<UUID>` identities at season
-1, with the source ID preserved; never persist a synthetic self-album just to
-render this fallback, since that would change existing Web/Emby identities.
+Pending or failed album checks may temporarily retain standalone `hg-work-<UUID>`
+identities. Once the source successfully confirms no album, persist its source ID
+as the album ID and season 1; display it as `hg-group-<sourceID>`. This approved
+normalization changes the card identity and requires client list refresh, but
+never changes source/episode IDs, playback state or favorites.
 Playback and favorites keep source/user keys. Whole-series favorites affect only
 visible member sources; movies use the existing source favorite API. Disable old
 metadata editing and TMDb/Douban controls for HongGuo while retaining file operations.
@@ -818,7 +877,7 @@ stills select a different detail layout, or two versions inflate episode count.
 `TestHongGuoLibrarySeriesPresentation` covers first-season fields/credits without
 files, own-season blanks, duplicate seasons/versions, scoped pagination/filtering,
 history/favorites/user isolation, cross-season resume, legacy links and movies,
-standalone season-1 fallback, unavailable works, and out-of-range page totals.
+confirmed self-album season-1 presentation, unavailable works, and out-of-range page totals.
 `TestHongGuoHTTPAccessAndStateIsolation` verifies shared details without discovery
 permission and locked-profile read/write rejection. Run with isolated PostgreSQL.
 `check-series-loading.mjs`, `check-series-presentation.mjs` and

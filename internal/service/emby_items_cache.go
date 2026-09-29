@@ -42,6 +42,7 @@ func (e *EmbyService) embyItemsCacheKey(kind string, p ItemsParams) string {
 		p.SortOrder,
 		strconv.Itoa(p.StartIndex),
 		strconv.Itoa(p.Limit),
+		strconv.FormatBool(p.SkipTotalRecordCount),
 	}, "|")))
 	return embyItemsCachePrefix + hex.EncodeToString(sum[:])
 }

@@ -68,11 +68,12 @@ const unplayedItemCountField: EmbyApiField = {
 }
 
 const itemFields: readonly EmbyApiField[] = [
-  { name: 'Id', type: 'string', description: '媒体项 ID。' },
+  { name: 'Id', type: 'string', description: '媒体项 ID。红果剧集核验合集后使用 hg-group-合集ID；官方确认无合集时使用自身源ID作为合集、第1季。作品列表和红果库最近添加暂不展示缺合集ID或有效季号的剧，补充任务完成后可刷新查看；电影、分集身份、观看历史和收藏不变。' },
   { name: 'Name', type: 'string', description: '标题。' },
   { name: 'Type', type: 'string', description: 'Movie、Series、Season、Episode 等 Emby 类型。Movie 省略 SeriesId、SeriesName、SeasonId、SeasonName、ParentIndexNumber、IndexNumber；Episode 保留这些字段，包括特别篇的零季号。' },
   { name: 'MediaType', type: 'string', description: 'Video 等媒体类型。' },
   { name: 'RunTimeTicks', type: 'number', description: '以 100ns 为单位的时长。' },
+  { name: 'DateCreated', type: 'string', description: '媒体项创建时间（UTC）。NFO 使用本地条目首次创建时间，新增版本、删除文件或重扫不改写仍存在条目的时间；其他来源保持原有规则。具体 MediaSource 和 PlaybackInfo 的文件时间不受影响。' },
   { name: 'PartCount', type: 'number', description: '当前播放版本的物理 Part 数量；单文件省略。' },
   { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识；季缺少海报时使用剧集海报，单集缺少剧照时依次使用剧集横版图、剧集海报。' },
   { name: 'PremiereDate', type: 'string', description: 'UTC 首播时间；单集缺失时使用同季内最近一个更早集号的已知播出时间。' },
@@ -462,10 +463,12 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'Filters', location: 'query', type: 'string', description: '逗号分隔的过滤条件；IsFavorite 仅支持 Movie 和 Series，IsResumable 对同一剧集只返回最近播放的未完成集。' },
       { name: 'Fields', location: 'query', type: 'string', description: '可选字段列表；指定后仅按需返回 People、ProviderIds 和 MediaSources，省略时保持完整兼容响应。Episode 的 People 使用所属季演职员，不复制集级关联。' },
       { name: 'Recursive', location: 'query', type: 'boolean', description: '是否递归查询。' },
-      { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。DateCreated 保持各来源原有规则；DateLastContentAdded 按作品现存文件的最新入库时间排序，同一作品跨库共享时间，红果合集包含所有成员季。空时间排最后。' },
+      { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。作品 Random 使用请求内固定随机顺序，每批 50 个候选筛选、不足补取；独立请求可重新随机，不保证跨请求随机分页顺序不变。NFO 的 DateCreated 按本地条目首次创建时间排序；DateLastContentAdded 按作品现存文件的最新入库时间排序，同一作品跨库共享时间，红果合集包含所有成员季。空时间排最后。' },
       { name: 'Limit / StartIndex', location: 'query', type: 'number', description: '按顶层 Metadata 分页，Limit 默认 50，最大 500；非空搜索在最多 100 条候选内分页。' },
+      { name: 'EnableTotalRecordCount', location: 'query', type: 'boolean', description: '默认 false：不额外统计列表总数，每页多取一个合格结果，TotalRecordCount 返回用于翻页的已知下界；不是准确总量，可能随翻页增长。显式传 true 返回准确总数。兼容 enableTotalRecordCount / enabletotalrecordcount。仅影响本入口，不改变 Views、Latest、Resume、NextUp 或 Shows 专用入口。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: '媒体项分页结构。', fields: itemsEnvelopeFields, example: itemsExample }, canceledResponse],
+    responses: [{ status: '200', contentType: 'application/json', description: '始终返回 Items、TotalRecordCount 和 StartIndex。默认分页下界为起点加取得数量（含额外一项），Items 裁回请求大小；空页返回下界 0。媒体 IDs 和根目录完整列表保留现有总数，Person 类型的 IDs 查询仍分页。true 模式返回准确总数；搜索总数限于既有召回结果集。', fields: itemsEnvelopeFields.map(field => field.name === 'TotalRecordCount' ? { ...field, description: '必有数字字段；默认是分页下界，不是真实总量。EnableTotalRecordCount=true 时为准确匹配总数。' } : field), example: itemsExample }, canceledResponse],
+    notes: ['已知下界模式仍需 HillS、Yamby 实机翻页验证；不能根据服务端测试声称客户端兼容。随机排序只处理轻量作品候选，不为排序计算文件日期，但仍可能扫描作品目录；资格稀疏时需要继续补取。', '红果常规 Movie/Series 作品分页不为缺合集ID或有效季号的剧提供独立作品兜底，补充任务完成后可刷新查看；电影和分集身份不变。'],
   },
   {
     id: 'search-hints',
@@ -565,7 +568,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'items-latest',
     category: '媒体项',
     name: '最近入库',
-    description: '按现存文件的最新入库时间返回可见媒体项，默认隐藏已播放完成项。普通、NFO 作品及红果源作品维护最新时间；同一作品跨库共享时间，红果合集取所有成员季的最大值，删最新文件后回退。指定剧集库按 Series 展示，红果库按官方合集展示；全局仍返回 Movie/Episode。DateCreated 不变。',
+    description: '按现存文件的最新入库时间返回可见媒体项，默认隐藏已播放完成项。普通、NFO 作品及红果源作品维护最新时间；同一作品跨库共享时间，红果合集取所有成员季的最大值，删最新文件后回退。指定剧集库按 Series 展示，红果库按官方合集展示；全局仍返回 Movie/Episode。NFO 的 DateCreated 返回本地条目首次创建时间，其他来源不变。成人限制按媒体库应用，不存在媒体级 NSFW 标记。',
     methods: ['GET'],
     path: '/Items/Latest',
     aliases: ['/Users/:userId/Items/Latest', '/items/latest'],

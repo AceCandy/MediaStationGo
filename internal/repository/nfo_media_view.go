@@ -17,9 +17,6 @@ func (r *MediaViewRepository) nfoViewQuery(ctx context.Context, filter MediaQuer
 		Joins("LEFT JOIN nfo_items AS nw ON nw.id = ns.parent_id").
 		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
 		Where("m.catalog_source = ?", model.CatalogSourceNFO)
-	if !filter.IncludeNSFW {
-		q = q.Where("NOT COALESCE(b.nsfw,FALSE) AND NOT COALESCE(ni.nsfw,FALSE) AND NOT COALESCE(ns.nsfw,FALSE) AND NOT COALESCE(nw.nsfw,FALSE)")
-	}
 	if len(filter.HiddenLibraryIDs) > 0 {
 		q = q.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
@@ -37,6 +34,7 @@ func (r *MediaViewRepository) nfoViewQuery(ctx context.Context, filter MediaQuer
 
 const nfoViewSelect = `m.*,
 ni.latest_media_added_at AS latest_media_added_at,
+ni.created_at AS view_catalog_created_at,
 'nfo-' || ni.id AS view_catalog_item_id,
 COALESCE('nfo-' || nw.id,'') AS view_series_id,
 COALESCE(nw.title,'') AS view_series_title,
@@ -45,7 +43,7 @@ b.title AS view_title,b.original_name AS view_original_name,b.overview AS view_o
 b.rating AS view_rating,b.year AS view_year,b.release_date AS view_release_date,
 COALESCE(ns.season_num,0) AS view_season_num,ni.episode_num AS view_episode_num,
 b.languages AS view_languages,b.countries AS view_countries,b.genres AS view_genres,
-(COALESCE(b.nsfw,FALSE) OR COALESCE(ni.nsfw,FALSE) OR COALESCE(ns.nsfw,FALSE) OR COALESCE(nw.nsfw,FALSE)) AS view_nsfw,ni.kind AS view_metadata_kind,'nfo' AS view_metadata_source,
+ni.kind AS view_metadata_kind,'nfo' AS view_metadata_source,
 COALESCE(NULLIF(b.poster_asset_id,''),nw.poster_asset_id,'') AS view_poster_asset_id,
 COALESCE(NULLIF(b.backdrop_asset_id,''),nw.backdrop_asset_id,'') AS view_backdrop_asset_id,
 COALESCE(pm.duration_ms,0) AS view_probe_duration_ms,COALESCE(pm.size_bytes,0) AS view_probe_size_bytes,
@@ -84,46 +82,67 @@ func (r *MediaViewRepository) NFOItemViews(ctx context.Context, id string, filte
 
 // nfoItemViewQuery 先一次性解析目标条目，再按绑定索引读取文件，避免层级连接重排成全表扫描。
 func (r *MediaViewRepository) nfoItemViewQuery(ctx context.Context, ids []string, filter MediaQueryFilter) *gorm.DB {
-	return r.nfoViewQuery(ctx, filter).Where("b.item_id = ANY(ARRAY(?))", r.nfoWorkFileItems(ctx, ids))
+	return r.nfoViewQuery(ctx, filter).Where("b.item_id = ANY(ARRAY(?))", r.nfoWorkFileItems(ctx, ids, filter))
 }
 
 // NFONodes 将可见文件展开为本地层级节点，供 Emby 在混合来源分页前查询。
 func (r *MediaViewRepository) NFONodes(ctx context.Context, userID, libraryID string, filter MediaQueryFilter) *gorm.DB {
 	q := r.nfoViewQuery(ctx, filter)
-	return r.nfoNodesFromFiles(ctx, userID, libraryID, filter, q)
+	return r.nfoNodesFromFiles(ctx, userID, libraryID, filter, q, false)
 }
 
 // NFOWorkNodes 仅展开当前页作品的文件，避免详情读取重新遍历全库绑定。
-func (r *MediaViewRepository) NFOWorkNodes(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, ids []string) *gorm.DB {
+func (r *MediaViewRepository) NFOWorkNodes(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, ids []string, containersOnly bool) *gorm.DB {
 	q := r.nfoItemViewQuery(ctx, ids, filter)
-	return r.nfoNodesFromFiles(ctx, userID, libraryID, filter, q)
+	return r.nfoNodesFromFiles(ctx, userID, libraryID, filter, q, containersOnly)
 }
 
 // nfoWorkFileItems 定位条目自身、季下分集与剧下分集；混合父子输入必须去重。
-func (r *MediaViewRepository) nfoWorkFileItems(ctx context.Context, ids []string) *gorm.DB {
-	return r.db.WithContext(ctx).Raw(`SELECT id FROM nfo_items WHERE id = ANY(?)
-UNION SELECT id FROM nfo_items WHERE parent_id = ANY(?) AND kind = 'episode'
-UNION SELECT ep.id FROM nfo_items season JOIN LATERAL (
-SELECT id FROM nfo_items WHERE parent_id = season.id AND kind = 'episode' OFFSET 0
-) ep ON TRUE WHERE season.parent_id = ANY(?)`, &ids, &ids, &ids)
+func (r *MediaViewRepository) nfoWorkFileItems(ctx context.Context, ids []string, filter MediaQueryFilter) *gorm.DB {
+	db := r.db.WithContext(ctx)
+	items := db.Table("nfo_items").Select("id")
+	if len(filter.AllowedLibraryIDs) > 0 {
+		items = items.Where("library_id = ANY(?)", &filter.AllowedLibraryIDs)
+	}
+	if len(filter.HiddenLibraryIDs) > 0 {
+		items = items.Where("library_id <> ALL(?)", &filter.HiddenLibraryIDs)
+	}
+	direct := items.Session(&gorm.Session{}).Where("id = ANY(?)", &ids)
+	children := items.Session(&gorm.Session{}).Where("parent_id = ANY(?) AND kind='episode'", &ids)
+	// 归属条件跟随每个索引定位分支；外层再 JOIN 全部条目可能重排成全目录扫描。
+	episodes := items.Session(&gorm.Session{}).Where("parent_id=season.id AND kind='episode'")
+	descendants := db.Table("nfo_items season").Select("ep.id").
+		Joins("JOIN LATERAL (? OFFSET 0) ep ON TRUE", episodes).Where("season.parent_id = ANY(?)", &ids)
+	return db.Raw("? UNION ? UNION ?", direct, children, descendants)
 }
 
-func (r *MediaViewRepository) nfoNodesFromFiles(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, q *gorm.DB) *gorm.DB {
+func (r *MediaViewRepository) nfoNodesFromFiles(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, q *gorm.DB, containersOnly bool) *gorm.DB {
 	if libraryID != "" {
 		q = q.Where("m.library_id = ?", libraryID)
 	}
+	states := PlaybackStates(ctx, r.db, "nfo", userID, filter)
+	stateJoin := "LEFT JOIN (?) st ON st.item_id = ni.id"
+	completed := "COALESCE(st.completed,FALSE)"
+	playbackFields := `(ARRAY_AGG(m.id ORDER BY CASE WHEN m.id = st.media_id THEN 0 ELSE 1 END, st.watched_at DESC NULLS LAST, m.id))[1] AS media_id,
+MAX(st.watched_at) AS played_at, MAX(COALESCE(st.position_ms,0)) AS position_ms, MAX(m.created_at) AS file_latest_at,`
+	if containersOnly {
+		states = CompletedPlaybackStates(ctx, r.db, "nfo", userID, filter).Where("item_id = ni.id")
+		// 保留页内逐身份索引探测，不将 UNION 放大成全用户状态扫描。
+		stateJoin = "LEFT JOIN LATERAL (? OFFSET 0) st ON TRUE"
+		completed, playbackFields = "st.item_id IS NOT NULL", ""
+		q = q.Where("item.kind IN ('series','season')")
+	}
 	q = q.Joins("JOIN nfo_items item ON item.id IN (ni.id,ns.id,nw.id)").
-		Joins("LEFT JOIN (?) st ON st.item_id = ni.id", PlaybackStates(ctx, r.db, "nfo", userID, filter)).
+		Joins(stateJoin, states).
 		Joins("LEFT JOIN nfo_user_states fav ON fav.item_id = item.id AND fav.user_id = ?", userID).
 		Select(`'nfo-' || item.id AS id, 'nfo-' || COALESCE(nw.id,ni.id) AS resume_key,
 INITCAP(item.kind) AS kind, item.title, COALESCE('nfo-' || item.parent_id,'') AS parent_id,
-item.season_num AS season_number, item.episode_num AS episode_number,
-(ARRAY_AGG(m.id ORDER BY CASE WHEN m.id = st.media_id THEN 0 ELSE 1 END, st.watched_at DESC NULLS LAST, m.id))[1] AS media_id, MIN(m.created_at) AS created_at, MAX(m.created_at) AS file_latest_at, item.latest_media_added_at AS latest_at,
-MAX(st.watched_at) AS played_at, BOOL_AND(COALESCE(st.completed,FALSE)) AS played,
-BOOL_OR(COALESCE(fav.favorite,FALSE)) AS favorite, MAX(COALESCE(st.position_ms,0)) AS position_ms,
+item.season_num AS season_number, item.episode_num AS episode_number, ` + playbackFields + `
+item.created_at, item.latest_media_added_at AS latest_at, BOOL_AND(` + completed + `) AS played,
+BOOL_OR(COALESCE(fav.favorite,FALSE)) AS favorite,
 item.poster_asset_id AS artwork_id, item.overview, item.rating, item.release_date, item.year,
 COUNT(DISTINCT ni.id) AS episode_count,
-COUNT(DISTINCT ni.id) FILTER (WHERE ni.kind = 'episode' AND NOT COALESCE(st.completed,FALSE)) AS unplayed_item_count`).Group("item.id,COALESCE(nw.id,ni.id)")
+COUNT(DISTINCT ni.id) FILTER (WHERE ni.kind = 'episode' AND NOT (` + completed + `)) AS unplayed_item_count`).Group("item.id,COALESCE(nw.id,ni.id)")
 	return r.db.WithContext(ctx).Table("(?) AS nodes", q)
 }
 
@@ -139,34 +158,52 @@ func (r *MediaViewRepository) nfoLibraryPage(ctx context.Context, libraryID, kin
 	if itemID != "" {
 		q = q.Where(work+" = ?", strings.TrimPrefix(itemID, "nfo-"))
 	}
-	groups := r.db.WithContext(ctx).Table("nfo_items recent").
-		Select("recent.id, recent.latest_media_added_at AS latest").
-		Where("recent.library_id=? AND recent.kind=?", libraryID, kind).
-		Where("EXISTS (? OFFSET 0)", q.Session(&gorm.Session{}).Select("1").Where(work+"=recent.id"))
+	baseFilter := filter
+	baseFilter.MissingPoster, baseFilter.MissingChineseTitle = false, false
+	groups := r.db.WithContext(ctx).Table("(?) recent", r.NFOWorkCandidates(ctx, "", libraryID, baseFilter, false)).
+		Select("recent.id, recent.latest_at AS latest").Where("recent.kind=?", kind)
+	if itemID != "" {
+		groups = groups.Where("recent.id=?", strings.TrimPrefix(itemID, "nfo-"))
+	}
 	page := r.db.Table("works").Order("latest DESC NULLS LAST, id").Offset(offset).Limit(limit)
 	var rows []struct {
 		ID    string
 		Total int64
 	}
-	err := r.db.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
-SELECT COALESCE(page.id,'') AS id, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
-LEFT JOIN page ON TRUE ORDER BY page.latest DESC NULLS LAST, page.id`, groups, page).Scan(&rows).Error
-	if err != nil {
-		return nil, nil, 0, err
-	}
 	var total int64
 	var workIDs []string
-	for _, row := range rows {
-		total = row.Total
-		if row.ID != "" {
-			workIDs = append(workIDs, row.ID)
+	var err error
+	if filter.MissingPoster || filter.MissingChineseTitle {
+		fileKind := model.MetadataKindMovie
+		if kind == model.MetadataKindSeries {
+			fileKind = model.MetadataKindEpisode
 		}
+		candidates := r.db.Table("(?) candidates", groups).
+			Select("*, ROW_NUMBER() OVER (ORDER BY latest DESC NULLS LAST,id) AS ordinal").Order("latest DESC NULLS LAST,id")
+		eligible := r.db.Table("work_batch recent").Select("recent.ordinal").
+			Where("EXISTS (? OFFSET 0)", r.NFOCandidateFiles(ctx, filter, "recent.id").Select("1").
+				Where("m.library_id=? AND ni.kind=?", libraryID, fileKind).
+				Where(work+"=recent.id"))
+		workIDs, total, err = r.WorkBatchPage(ctx, candidates, eligible, offset, limit, true)
+	} else {
+		err = r.db.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
+SELECT COALESCE(page.id,'') AS id, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
+LEFT JOIN page ON TRUE ORDER BY page.latest DESC NULLS LAST, page.id`, groups, page).Scan(&rows).Error
+		for _, row := range rows {
+			total = row.Total
+			if row.ID != "" {
+				workIDs = append(workIDs, row.ID)
+			}
+		}
+	}
+	if err != nil {
+		return nil, nil, 0, err
 	}
 	if len(workIDs) == 0 {
 		return []model.MediaView{}, []LibraryMetadataSummary{}, total, nil
 	}
 	var summaries []LibraryMetadataSummary
-	err = q.Joins("JOIN (?) page_leaf ON page_leaf.id = b.item_id", r.nfoWorkFileItems(ctx, workIDs)).
+	err = q.Joins("JOIN (?) page_leaf ON page_leaf.id = b.item_id", r.nfoWorkFileItems(ctx, workIDs, filter)).
 		Select("'nfo-' || " + work + " AS metadata_id, MIN(m.id) AS media_id, COUNT(DISTINCT ni.id) AS count, COUNT(*) AS version_count").
 		Group(work).Order("MAX(COALESCE(nw.latest_media_added_at,ni.latest_media_added_at)) DESC NULLS LAST, " + work).Scan(&summaries).Error
 	if err != nil {
@@ -182,12 +219,9 @@ LEFT JOIN page ON TRUE ORDER BY page.latest DESC NULLS LAST, page.id`, groups, p
 }
 
 // NFOPresentation 读取已由调用方按文件可见性确认的本地层级资料。
-func (r *MediaViewRepository) NFOPresentation(ctx context.Context, id string, includeNSFW bool) (*model.MediaView, error) {
+func (r *MediaViewRepository) NFOPresentation(ctx context.Context, id string) (*model.MediaView, error) {
 	var item model.NFOItem
 	q := r.db.WithContext(ctx).Where("id = ?", strings.TrimPrefix(id, "nfo-"))
-	if !includeNSFW {
-		q = q.Where("NOT nsfw")
-	}
 	result := q.Limit(1).Find(&item)
 	if result.Error != nil || result.RowsAffected == 0 {
 		return nil, result.Error
@@ -196,9 +230,9 @@ func (r *MediaViewRepository) NFOPresentation(ctx context.Context, id string, in
 }
 
 func nfoPresentation(item model.NFOItem) *model.MediaView {
-	v := &model.MediaView{Media: model.Media{PermanentBase: item.PermanentBase, LibraryID: item.LibraryID, CatalogSource: model.CatalogSourceNFO}, CatalogItemID: "nfo-" + item.ID,
+	v := &model.MediaView{Media: model.Media{PermanentBase: item.PermanentBase, LibraryID: item.LibraryID, CatalogSource: model.CatalogSourceNFO}, CatalogItemID: "nfo-" + item.ID, CatalogCreatedAt: item.CreatedAt,
 		Title: item.Title, OriginalName: item.OriginalName, Overview: item.Overview, Year: item.Year, Rating: item.Rating, ReleaseDate: item.ReleaseDate,
-		Genres: item.Genres, Countries: item.Countries, Languages: item.Languages, NSFW: item.NSFW, MetadataKind: item.Kind, MetadataSource: model.CatalogSourceNFO,
+		Genres: item.Genres, Countries: item.Countries, Languages: item.Languages, MetadataKind: item.Kind, MetadataSource: model.CatalogSourceNFO,
 		SeasonNum: item.SeasonNum, EpisodeNum: item.EpisodeNum, PosterAssetID: item.PosterAssetID, BackdropAssetID: item.BackdropAssetID}
 	if item.Kind == "series" {
 		v.SeriesID, v.SeriesTitle = v.CatalogItemID, item.Title
@@ -207,12 +241,14 @@ func nfoPresentation(item model.NFOItem) *model.MediaView {
 	return v
 }
 
-// nfoCandidateFiles 从指定节点展开绑定，避免为每个候选扫描所有本地文件。
-func (r *MediaViewRepository) nfoCandidateFiles(ctx context.Context, filter MediaQueryFilter, itemID string) *gorm.DB {
+// NFOCandidateFiles 从指定节点展开绑定；itemID 只接受调用方固定的 SQL 别名表达式。
+func (r *MediaViewRepository) NFOCandidateFiles(ctx context.Context, filter MediaQueryFilter, itemID string) *gorm.DB {
 	return r.nfoViewQuery(ctx, filter).Where(`b.item_id IN (
 SELECT ` + itemID + `
 UNION ALL SELECT leaf.id FROM nfo_items leaf WHERE leaf.parent_id = ` + itemID + ` AND leaf.kind = 'episode'
-UNION ALL SELECT leaf.id FROM nfo_items season JOIN nfo_items leaf ON leaf.parent_id = season.id AND leaf.kind = 'episode' WHERE season.parent_id = ` + itemID + `
+UNION ALL SELECT leaf.id FROM nfo_items season JOIN LATERAL (
+SELECT id FROM nfo_items WHERE parent_id=season.id AND kind='episode' OFFSET 0
+) leaf ON TRUE WHERE season.parent_id = ` + itemID + `
 )`)
 }
 
@@ -221,7 +257,7 @@ func (r *MediaViewRepository) nfoSearchRepresentatives(ctx context.Context, ids 
 	for i, id := range ids {
 		itemIDs[i] = strings.TrimPrefix(id, "nfo-")
 	}
-	files := r.nfoCandidateFiles(ctx, filter, "requested.id").
+	files := r.NFOCandidateFiles(ctx, filter, "requested.id").
 		Where("ni.id = requested.id OR ns.id = requested.id OR nw.id = requested.id").
 		Select("m.id AS representative_id").Order("ns.season_num, ni.episode_num, m.path").Limit(1)
 	var rows []struct {
@@ -231,9 +267,6 @@ func (r *MediaViewRepository) nfoSearchRepresentatives(ctx context.Context, ids 
 	q := r.db.WithContext(ctx).Table("nfo_items AS requested").
 		Select("requested.*, representative.representative_id").
 		Joins("JOIN LATERAL (?) AS representative ON TRUE", files).Where("requested.id = ANY(?)", &itemIDs)
-	if !filter.IncludeNSFW {
-		q = q.Where("NOT requested.nsfw")
-	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -252,7 +285,7 @@ func (r *MediaViewRepository) nfoSearchQuery(ctx context.Context, filter Metadat
 	if filter.LibraryRestricted {
 		fileFilter.AllowedLibraryIDs = filter.VisibleLibraryIDs
 	}
-	files := r.nfoCandidateFiles(ctx, fileFilter, "search_metadata.id").
+	files := r.NFOCandidateFiles(ctx, fileFilter, "search_metadata.id").
 		Where("COALESCE(nw.id,ni.id) = search_metadata.id").Select("1").Limit(1)
 	q := r.db.WithContext(ctx).Table("nfo_items AS search_metadata")
 	if len(groups) > 0 {
@@ -261,7 +294,19 @@ func (r *MediaViewRepository) nfoSearchQuery(ctx context.Context, filter Metadat
 		// 先匹配作品再检查文件权限，避免全库关联和逐行子计划的过高成本估算。
 		q = r.db.WithContext(ctx).Table("(WITH matching AS MATERIALIZED (?) SELECT * FROM matching) AS search_metadata", matches)
 	}
-	q = q.Where("EXISTS (? OFFSET 0)", files).Where("search_metadata.kind IN ?", filter.Kinds)
+	q = q.Where("search_metadata.kind IN ?", filter.Kinds)
+	if len(fileFilter.AllowedLibraryIDs) > 0 {
+		q = q.Where("search_metadata.library_id = ANY(?)", &fileFilter.AllowedLibraryIDs)
+	}
+	if len(fileFilter.HiddenLibraryIDs) > 0 {
+		q = q.Where("search_metadata.library_id <> ALL(?)", &fileFilter.HiddenLibraryIDs)
+	}
+	if fileFilter.MissingPoster || fileFilter.MissingChineseTitle {
+		q = q.Where("EXISTS (? OFFSET 0)", files)
+	} else {
+		// 正常入库事务保证条目和绑定同库；未初始化的汇总才回查文件。
+		q = q.Where("search_metadata.latest_media_added_at IS NOT NULL OR EXISTS (? OFFSET 0)", files)
+	}
 	if len(filter.PersonIDs) > 0 {
 		q = q.Where("FALSE")
 	}

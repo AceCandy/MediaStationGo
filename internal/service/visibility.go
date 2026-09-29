@@ -35,6 +35,9 @@ func UserHidesAdult(ctx context.Context, repo *repository.Container, userID stri
 	if strings.TrimSpace(userID) == "" || repo == nil || repo.User == nil {
 		return false
 	}
+	if user, ok := ctx.Value(authenticatedUserKey{}).(authenticatedUserVisibility); ok && user.id == userID {
+		return user.hideAdult
+	}
 	user, err := repo.User.FindByID(ctx, userID)
 	return err == nil && user != nil && user.HideAdult
 }
@@ -42,31 +45,28 @@ func UserHidesAdult(ctx context.Context, repo *repository.Container, userID stri
 // UserDefaultMediaVisibility is the visibility policy used by clients that
 // cannot pass a web play-profile token, notably Emby/Jellyfin-compatible apps.
 func UserDefaultMediaVisibility(ctx context.Context, repo *repository.Container, userID string) MediaVisibility {
-	visibility := MediaVisibility{IncludeNSFW: AdultContentEnabled(ctx, repo)}
-	if repo == nil {
-		return visibility
+	if repo != nil && userID != "" && repo.PlayProfile != nil {
+		rows, err := repo.PlayProfile.ListByUser(ctx, userID)
+		if err == nil {
+			for i := range rows {
+				if rows[i].IsDefault {
+					return UserProfileMediaVisibility(ctx, repo, userID, &rows[i])
+				}
+			}
+		}
 	}
-	if UserHidesAdult(ctx, repo, userID) {
-		visibility.IncludeNSFW = false
+	return UserProfileMediaVisibility(ctx, repo, userID, nil)
+}
+
+// UserProfileMediaVisibility 复用已选定配置，避免 Web 再读取默认配置和用户。
+func UserProfileMediaVisibility(ctx context.Context, repo *repository.Container, userID string, profile *model.PlayProfile) MediaVisibility {
+	visibility := MediaVisibility{IncludeNSFW: AdultContentEnabled(ctx, repo) && !UserHidesAdult(ctx, repo, userID)}
+	if profile != nil {
+		visibility.LibraryRestricted = true
+		visibility.IncludeNSFW = visibility.IncludeNSFW && profile.AllowAdult
+		visibility.AllowedLibraryIDs = DecodeAllowedLibraryIDs(profile.AllowedLibraryIDs)
 	}
 	visibility.HiddenLibraryIDs = hiddenAdultLibraryIDs(ctx, repo, visibility.IncludeNSFW)
-	if userID == "" || repo.PlayProfile == nil {
-		return visibility
-	}
-	rows, err := repo.PlayProfile.ListByUser(ctx, userID)
-	if err != nil {
-		return visibility
-	}
-	for _, row := range rows {
-		if !row.IsDefault {
-			continue
-		}
-		visibility.LibraryRestricted = true
-		visibility.IncludeNSFW = visibility.IncludeNSFW && row.AllowAdult
-		visibility.AllowedLibraryIDs = DecodeAllowedLibraryIDs(row.AllowedLibraryIDs)
-		visibility.HiddenLibraryIDs = hiddenAdultLibraryIDs(ctx, repo, visibility.IncludeNSFW)
-		break
-	}
 	return visibility
 }
 
@@ -123,16 +123,6 @@ func LibraryVisibleForUser(ctx context.Context, repo *repository.Container, lib 
 	if LibraryLooksAdult(lib) {
 		return false
 	}
-	if repo != nil && repo.DB != nil {
-		var count int64
-		_ = repo.DB.WithContext(ctx).Table("media AS m").
-			Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
-			Where("m.library_id = ? AND mi.nsfw = ?", lib.ID, true).
-			Count(&count).Error
-		if count > 0 {
-			return false
-		}
-	}
 	return true
 }
 
@@ -165,5 +155,19 @@ func hiddenAdultLibraryIDs(ctx context.Context, repo *repository.Container, incl
 	if includeNSFW {
 		return nil
 	}
-	return AdultLibraryIDs(ctx, repo)
+	ids := AdultLibraryIDs(ctx, repo)
+	if len(ids) > 0 || repo == nil || repo.Library == nil {
+		return ids
+	}
+	// 未配置成人库时沿用库名称/路径判断，所有文件入口使用同一库级范围。
+	libraries, err := repo.Library.ListBasic(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, library := range libraries {
+		if LibraryLooksAdult(library) {
+			ids = append(ids, library.ID)
+		}
+	}
+	return ids
 }

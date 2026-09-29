@@ -105,7 +105,6 @@ func statsTopContentHandler(svc *service.Container) gin.HandlerFunc {
 		mIdx := map[string]model.MediaView{}
 		if len(ids) > 0 {
 			media, _ := svc.Repo.MediaView.FindByIDs(c.Request.Context(), ids, repository.MediaQueryFilter{
-				IncludeNSFW:       visibility.IncludeNSFW,
 				AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 				HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 			})

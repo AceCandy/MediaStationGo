@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
@@ -96,9 +98,128 @@ func TestScannerReconcilesMediaPartsAndRestoresSingleton(t *testing.T) {
 	}
 }
 
+func TestScannerSkipsUnrelatedPartReconciliation(t *testing.T) {
+	scanner, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	queries := 0
+	if err := repos.DB.Callback().Query().After("gorm:query").Register("test:part-events", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "local_metadata_hint") && strings.Contains(tx.Statement.SQL.String(), "part_group_key") {
+			queries++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "Movie.mkv")
+	for _, data := range []string{"one", "one", "updated"} {
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := scanner.IngestPathResult(t.Context(), library.ID, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := scanner.RemovePath(t.Context(), path); err != nil || count != 1 {
+		t.Fatalf("remove ordinary file: count=%d err=%v", count, err)
+	}
+	if queries != 0 {
+		t.Fatalf("ordinary file events ran %d Part directory queries", queries)
+	}
+
+	// 普通名称仍可能携带改名前的关系；即使文件指纹未变也必须清理。
+	if err := os.WriteFile(path, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.IngestPathResult(t.Context(), library.ID, path); err != nil {
+		t.Fatal(err)
+	}
+	for _, remove := range []bool{false, true} {
+		if err := repos.DB.Model(&model.Media{}).Where("path = ?", path).Updates(map[string]any{"part_group_key": "old-group", "part_index": 1}).Error; err != nil {
+			t.Fatal(err)
+		}
+		queries = 0
+		if remove {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := scanner.RemovePath(t.Context(), path); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if _, err := scanner.IngestPathResult(t.Context(), library.ID, path); err != nil {
+				t.Fatal(err)
+			}
+			row := loadMediaByPath(t, repos, path)
+			if row.PartGroupKey != "" || row.PartIndex != 0 {
+				t.Fatal("unchanged ordinary file retained stale Part relation")
+			}
+		}
+		if queries != 1 {
+			t.Fatalf("stale relation remove=%v: directory queries=%d, want 1", remove, queries)
+		}
+	}
+}
+
+func TestScannerPartRenameReconcilesBothDirectories(t *testing.T) {
+	scanner, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"before/Movie-part1.mkv", "before/Movie-part2.mkv", "after/Movie-part1.mkv"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := scanner.IngestPathResult(t.Context(), library.ID, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldPath, newPath := filepath.Join(root, "before/Movie-part2.mkv"), filepath.Join(root, "after/Movie-part2.mkv")
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+	// watcher 将改名拆成旧路径删除与新路径入库，两个目录都需要校准。
+	if _, err := scanner.RemovePath(t.Context(), oldPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.IngestPathResult(t.Context(), library.ID, newPath); err != nil {
+		t.Fatal(err)
+	}
+	before := loadMediaByPath(t, repos, filepath.Join(root, "before/Movie-part1.mkv"))
+	first := loadMediaByPath(t, repos, filepath.Join(root, "after/Movie-part1.mkv"))
+	second := loadMediaByPath(t, repos, newPath)
+	if before.PartGroupKey != "" || before.PartIndex != 0 || first.PartGroupKey == "" || first.PartGroupKey != second.PartGroupKey || first.PartIndex != 1 || second.PartIndex != 2 {
+		t.Fatal("rename did not clear the old singleton and assemble the destination group")
+	}
+}
+
 func TestReconcileMediaPartsQueryScope(t *testing.T) {
-	for _, directory := range []string{"", "/", `/Media/100%_done\set`, `/media/100%_done\set`} {
-		t.Run(directory, func(t *testing.T) {
+	for _, test := range []struct {
+		name, directory string
+		recursive       bool
+		selected        int64
+		changed         int
+	}{
+		{"library", "", true, 6, 4},
+		{"root", "/", true, 6, 4},
+		{"subtree", `/Media/100%_done\set`, true, 4, 4},
+		{"subtree-case", `/media/100%_done\set`, true, 4, 2},
+		{"siblings", `/Media/100%_done\set`, false, 2, 2},
+		{"siblings-case", `/media/100%_done\set`, false, 2, 2},
+		{"root-siblings", "/", false, 0, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			scanner, repos := newScannerTestEnv(t)
 			library := model.Library{Name: "Parts", Path: "/", Enabled: true}
 			if err := repos.Library.Create(t.Context(), &library); err != nil {
@@ -111,7 +232,6 @@ func TestReconcileMediaPartsQueryScope(t *testing.T) {
 				`/Media/100%_done\set/Nested/Movie-part2.mkv`,
 				`/Media/100XXdone\set/Unrelated.mkv`,
 				`/Media/100%_done\set-extra/Unrelated.mkv`,
-				`cloud://remote/Unrelated.mkv`,
 			}
 			for _, path := range paths {
 				row := model.Media{LibraryID: library.ID, Path: path, Title: "Old", Year: 1999, ScrapeStatus: "no_match"}
@@ -122,28 +242,21 @@ func TestReconcileMediaPartsQueryScope(t *testing.T) {
 			var selected int64
 			var statement string
 			if err := repos.DB.Callback().Query().After("gorm:query").Register("test:parts-query", func(tx *gorm.DB) {
-				if tx.Statement.Table == "media" && strings.Contains(tx.Statement.SQL.String(), "path NOT LIKE") {
+				if tx.Statement.Table == "media" && strings.Contains(tx.Statement.SQL.String(), "part_group_key") {
 					selected = tx.RowsAffected
 					statement = tx.Statement.SQL.String()
 				}
 			}); err != nil {
 				t.Fatal(err)
 			}
-			changed, err := scanner.reconcileMediaParts(t.Context(), library.ID, directory)
+			changed, err := scanner.reconcileMediaParts(t.Context(), library.ID, test.directory, test.recursive)
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantSelected, wantChanged := int64(4), 4
-			if directory == "" || directory == "/" {
-				wantSelected = 6
+			if selected != test.selected || len(changed) != test.changed {
+				t.Fatalf("selected=%d changed=%d, want %d/%d", selected, len(changed), test.selected, test.changed)
 			}
-			if strings.HasPrefix(directory, "/media/") {
-				wantChanged = 2 // 原有判断兼容当前目录大小写，但不扩展到大小写不同的子目录。
-			}
-			if selected != wantSelected || len(changed) != wantChanged {
-				t.Fatalf("selected=%d changed=%d, want %d/%d", selected, len(changed), wantSelected, wantChanged)
-			}
-			if strings.Contains(statement, "SELECT *") || strings.Contains(statement, "strm_url") {
+			if strings.Contains(statement, "SELECT *") || strings.Contains(statement, "strm_url") || strings.Contains(statement, "NOT LIKE") {
 				t.Fatalf("unexpected wide query: %s", statement)
 			}
 			for _, path := range changed {
@@ -152,10 +265,18 @@ func TestReconcileMediaPartsQueryScope(t *testing.T) {
 					t.Fatalf("incorrect part/title reconciliation for %s", path)
 				}
 			}
+			if !test.recursive {
+				for _, path := range paths[2:] {
+					row := loadMediaByPath(t, repos, path)
+					if row.PartGroupKey != "" || row.Title != "Old" {
+						t.Fatal("local reconciliation changed a nested or unrelated directory")
+					}
+				}
+			}
 			if err := repos.DB.Where("path = ?", paths[1]).Delete(&model.Media{}).Error; err != nil {
 				t.Fatal(err)
 			}
-			if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, directory); err != nil {
+			if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, test.directory, test.recursive); err != nil {
 				t.Fatal(err)
 			}
 			remaining := loadMediaByPath(t, repos, paths[0])
@@ -164,6 +285,96 @@ func TestReconcileMediaPartsQueryScope(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReconcileMediaPartsDirectoryPlan(t *testing.T) {
+	scanner, repos := newScannerTestEnv(t)
+	db := repos.DB
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	library := model.Library{Base: model.Base{ID: "parts-library"}, Name: "Parts", Path: "/Media", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO media (id,library_id,path) SELECT 'unrelated-'||n,'parts-library','/Media/other-'||n||'/Movie.mkv' FROM generate_series(1,20000) n`,
+		`INSERT INTO media (id,library_id,path) SELECT 'target-'||n,'parts-library','/Media/target/Movie-'||n||'.mkv' FROM generate_series(1,19) n`,
+		`ANALYZE media`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var statement string
+	var args []any
+	if err := db.Callback().Query().After("gorm:query").Register("test:part-plan", func(tx *gorm.DB) {
+		if tx.Statement.Table == "media" && strings.Contains(tx.Statement.SQL.String(), "local_metadata_hint") {
+			statement = tx.Statement.SQL.String()
+			args = append([]any(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	type planNode struct {
+		Relation string     `json:"Relation Name"`
+		Index    string     `json:"Index Name"`
+		Rows     float64    `json:"Actual Rows"`
+		Removed  float64    `json:"Rows Removed by Filter"`
+		Loops    float64    `json:"Actual Loops"`
+		Plans    []planNode `json:"Plans"`
+	}
+	check := func(raw []byte, local bool) {
+		t.Helper()
+		var plans []struct {
+			Plan planNode
+			Time float64 `json:"Execution Time"`
+		}
+		if err := json.Unmarshal(raw, &plans); err != nil {
+			t.Fatal(err)
+		}
+		visits, indexed := float64(0), false
+		var inspect func(planNode)
+		inspect = func(node planNode) {
+			if node.Relation == "media" {
+				visits += (node.Rows + node.Removed) * node.Loops
+			}
+			indexed = indexed || node.Index == "idx_media_library_parent_path"
+			for _, child := range node.Plans {
+				inspect(child)
+			}
+		}
+		inspect(plans[0].Plan)
+		if plans[0].Plan.Rows != 19 || (local && (!indexed || visits > 19)) {
+			t.Fatalf("directory query local=%v visits=%.0f indexed=%v plan=%s", local, visits, indexed, raw)
+		}
+		t.Logf("local=%v media visits=%.0f execution=%.3f ms", local, visits, plans[0].Time)
+	}
+	for _, recursive := range []bool{true, false} {
+		if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, "/Media/target", recursive); err != nil {
+			t.Fatal(err)
+		}
+		if statement == "" {
+			t.Fatal("Part candidate query was not captured")
+		}
+		var raw []byte
+		if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+statement, args...).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		check(raw, !recursive)
+	}
+	// 运行时使用预编译语句：通用计划也应直接定位父目录。
+	if err := db.Exec("SET plan_cache_mode = force_generic_plan").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("PREPARE part_directory(text,text) AS " + statement).Error; err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE part_directory('parts-library', '/Media/target/')").Row().Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	check(raw, true)
 }
 
 func TestActiveMediaPartCandidateRejectsDuplicateIndex(t *testing.T) {

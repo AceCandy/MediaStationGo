@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -10,9 +11,9 @@ import (
 )
 
 // hongGuoGlobalItems 在 SQL 中合并逻辑身份并分页，不拼接两个来源各自的分页结果。
-// 仅在存在独立来源文件时接管全局浏览，来源库内浏览保持独立。
+// 独立来源或普通作品随机请求共用此入口，来源库内浏览保持独立。
 func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (map[string]any, bool, error) {
-	return e.globalItemsWithCount(ctx, p, true)
+	return e.globalItemsWithCount(ctx, p, !p.SkipTotalRecordCount)
 }
 
 // globalItemsWithCount 让数组型 Latest 复用全局资格与分页，不额外计算作品总数。
@@ -24,7 +25,7 @@ func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, c
 	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source IN ('hongguo','nfo'))").Scan(&hasSource).Error; err != nil {
 		return nil, true, err
 	}
-	if !hasSource {
+	if !hasSource && !(embyRandomSort(p) && containsOnlyFavoriteItemTypes(globalItemKinds(p))) {
 		return nil, false, nil
 	}
 	v := e.mediaVisibility(ctx, p.UserID)
@@ -35,74 +36,14 @@ func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, c
 		result, err := e.globalResumeItems(ctx, p)
 		return result, true, err
 	}
-	files := e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), p.UserID).
-		Select("media.metadata_id, media.created_at")
-	// 每个文件最多展开自身、季、整剧；没有文件的资料不成为候选。
-	legacy := e.repo.DB.WithContext(ctx).Table("(?) AS f", files).
-		Joins("JOIN metadata_items leaf ON leaf.id = f.metadata_id").
-		Joins("LEFT JOIN metadata_items parent ON parent.id = leaf.parent_id").
-		Joins("LEFT JOIN metadata_items grandparent ON grandparent.id = parent.parent_id").
-		Joins("JOIN metadata_items item ON item.id IN (leaf.id, parent.id, grandparent.id)").
-		Joins("LEFT JOIN (?) h ON h.metadata_id = leaf.id", repository.PlaybackStates(ctx, e.repo.DB, "legacy", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
-		Joins("LEFT JOIN favorites fav ON fav.metadata_id = item.id AND fav.user_id = ? AND fav.deleted_at IS NULL", p.UserID).
-		Select(`item.id, CASE WHEN item.kind = 'episode' THEN 'legacy:' || COALESCE(grandparent.id,item.id) ELSE 'legacy:' || item.id END AS resume_key,
- item.kind, item.title, MAX(f.created_at) AS created_at, item.latest_media_added_at AS latest_at,
- COALESCE(MAX(h.watched_at),MAX(f.created_at)) AS played_at,
- BOOL_AND(COALESCE(h.completed,FALSE)) AS played,
- BOOL_OR(fav.id IS NOT NULL) AS favorite, MAX(COALESCE(h.position_ms,0)) AS position_ms,
- item.rating, COALESCE(item.release_date,'') AS release_date, item.year`).
-		Group("item.id, grandparent.id")
-	if !v.IncludeNSFW {
-		legacy = legacy.Where("NOT COALESCE(item.nsfw,FALSE)")
-	}
-	if len(p.PersonIDs) > 0 {
-		legacy = legacy.Where(`EXISTS (SELECT 1 FROM metadata_credits c
- WHERE c.person_id IN ? AND c.metadata_id = CASE WHEN item.kind = 'episode' THEN item.parent_id ELSE item.id END)`, p.PersonIDs)
-	}
-	source := e.hongGuoPersonFilter(ctx, e.hongGuoGlobalCandidates(ctx, p), p.UserID, "", p.PersonIDs)
-	// 播放时间排序依赖可见分集状态；其他作品请求复用库内作品资格。
-	workOnly := containsOnlyFavoriteItemTypes(globalItemKinds(p)) && !strings.HasPrefix(globalItemsOrder(p), "played_at ")
-	if workOnly {
-		legacy = e.legacyGlobalWorkCandidates(ctx, p)
-		source = e.hongGuoPersonFilter(ctx, e.hongGuoGlobalWorkCandidates(ctx, p), p.UserID, "", p.PersonIDs)
-	}
-	combined := e.repo.DB.Raw("? UNION ALL ?", legacy, source)
-	if hasNFO, err := e.repo.NFO.HasMedia(ctx); err != nil {
-		return nil, true, err
-	} else if hasNFO {
-		local := e.nfoNodes(ctx, p.UserID, "").Select("id, resume_key, LOWER(kind) AS kind, title, file_latest_at AS created_at, latest_at, COALESCE(played_at,file_latest_at) AS played_at, played, favorite, position_ms, rating, release_date, year")
-		if workOnly {
-			local = e.nfoGlobalWorkCandidates(ctx, p)
-		}
-		if len(p.PersonIDs) > 0 {
-			local = local.Where("FALSE")
-		}
-		combined = e.repo.DB.Raw("? UNION ALL ?", combined, local)
-	}
-	q := filterGlobalItems(e.repo.DB.WithContext(ctx).Table("(?) AS combined", combined), p).
-		Select("id, title, created_at, latest_at, played_at, rating, release_date, year")
-	page := e.repo.DB.Table("candidates").Order(globalItemsOrder(p)).Offset(p.StartIndex).Limit(p.Limit)
-	var rows []struct {
-		ID    string
-		Total int64
-	}
-	materialization, totals := "MATERIALIZED", "SELECT COUNT(*) AS total FROM candidates"
-	if !count {
-		materialization, totals = "NOT MATERIALIZED", "SELECT 0::bigint AS total"
-	}
-	// 同一快照只汇总一次；LEFT JOIN 保留越界页的准确总数。
-	if err := e.repo.DB.WithContext(ctx).Raw(`WITH candidates AS `+materialization+` (?), page AS (?)
-SELECT COALESCE(page.id,'') AS id, totals.total FROM (`+totals+`) totals
-LEFT JOIN page ON TRUE ORDER BY `+globalItemsOrder(p), q, page).Scan(&rows).Error; err != nil {
+	hasNFO, err := e.repo.NFO.HasMedia(ctx)
+	if err != nil {
 		return nil, true, err
 	}
-	var total int64
-	var ids []string
-	for _, row := range rows {
-		total = row.Total
-		if row.ID != "" {
-			ids = append(ids, row.ID)
-		}
+	ids, total, err := e.filteredWorkBatchPage(ctx, e.globalBatchCandidates(ctx, p, hasNFO),
+		e.globalBatchEligibility(ctx, p), p.StartIndex, p.Limit, count)
+	if err != nil {
+		return nil, true, err
 	}
 	items, err := e.globalItemPayloads(ctx, ids, p)
 	if err != nil {
@@ -122,11 +63,13 @@ func (e *EmbyService) hongGuoGlobalCandidates(ctx context.Context, p ItemsParams
 	files := e.hongGuoVisibleFiles(ctx, p.UserID, "").
 		Joins("JOIN hongguo_media_bindings b ON b.media_id=m.id").
 		Joins("JOIN hongguo_works w ON w.id=b.work_id").
-		Joins("LEFT JOIN hongguo_episodes ep ON ep.id=b.episode_id AND ep.work_id=w.id").
-		Joins("LEFT JOIN (?) s ON s.source_id=w.source_id AND s.episode_number=COALESCE(ep.number,1)", repository.PlaybackStates(ctx, db, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
-		Select(`b.work_id, ` + episode + ` AS episode_id, MAX(m.created_at) AS created_at,
- MAX(s.watched_at) AS played_at, BOOL_AND(COALESCE(s.completed,FALSE)) AS played,
- MAX(COALESCE(s.position_ms,0)) AS position_ms`).Group(group)
+		Joins("LEFT JOIN hongguo_episodes ep ON ep.id=b.episode_id AND ep.work_id=w.id")
+	state := "NULL::timestamp AS played_at, FALSE AS played, 0::bigint AS position_ms"
+	if strings.HasPrefix(globalItemsOrder(p), "played_at ") || containsEmbyFilter(p.Filters, "IsPlayed") || containsEmbyFilter(p.Filters, "IsUnplayed") {
+		files = files.Joins("LEFT JOIN (?) s ON s.source_id=w.source_id AND s.episode_number=COALESCE(ep.number,1)", repository.PlaybackStates(ctx, db, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID)))
+		state = "MAX(s.watched_at) AS played_at, BOOL_AND(COALESCE(s.completed,FALSE)) AS played, MAX(COALESCE(s.position_ms,0)) AS position_ms"
+	}
+	files = files.Select("b.work_id, " + episode + " AS episode_id, MAX(m.created_at) AS created_at, " + state).Group(group)
 	return db.Table("(?) AS candidates", db.Raw(`WITH albums AS MATERIALIZED (
  SELECT related_album_id AS id, (ARRAY_AGG(title ORDER BY season_index,source_id))[1] AS title,
  MAX(latest_media_added_at) AS latest_at FROM hongguo_works
@@ -140,7 +83,7 @@ SELECT n.id, CASE WHEN g.id IS NULL THEN 'hongguo:work:'||w.source_id
  BOOL_AND(m.played) AS played, BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite,
  MAX(m.position_ms) AS position_ms,
  CASE WHEN n.id LIKE 'hg-group-%%' THEN 0 ELSE MAX(w.rating) END AS rating,
- '' AS release_date, 0 AS year
+ '' AS release_date, 0 AS year, ARRAY_AGG(DISTINCT w.id::text) AS work_ids
 FROM file_stats m JOIN hongguo_works w ON w.id=m.work_id
 LEFT JOIN hongguo_episodes ep ON ep.id=m.episode_id AND ep.work_id=w.id
 LEFT JOIN albums g ON w.kind='series' AND w.season_index>0 AND g.id=w.related_album_id
@@ -186,6 +129,8 @@ func filterGlobalItems(q *gorm.DB, p ItemsParams) *gorm.DB {
 func globalItemsOrder(p ItemsParams) string {
 	order, direction := "release_date", "DESC"
 	switch primarySupportedEmbySort(p.SortBy, containsEmbyFilter(p.Filters, "IsResumable")) {
+	case "random":
+		return embyRandomOrder(p, "id") + ", id"
 	case "sortname", "name":
 		order, direction = "title", "ASC"
 	case "datecreated":
@@ -219,6 +164,11 @@ func (e *EmbyService) globalItemPayloads(ctx context.Context, ids []string, p It
 
 // globalItemPayloadsWithPreferredMedia 允许续播沿用已选文件，其余列表保持默认版本顺序。
 func (e *EmbyService) globalItemPayloadsWithPreferredMedia(ctx context.Context, ids []string, p ItemsParams, preferredMedia map[string]string) ([]map[string]any, error) {
+	return e.loadGlobalItemPayloads(ctx, ids, p, preferredMedia, e.hongGuoBrowseLegacyPayloads)
+}
+
+// loadGlobalItemPayloads 并发读取各来源，普通 Latest 保留自己的直接绑定文件投影。
+func (e *EmbyService) loadGlobalItemPayloads(ctx context.Context, ids []string, p ItemsParams, preferredMedia map[string]string, legacyPayloads func(context.Context, []string, ItemsParams) ([]map[string]any, error)) ([]map[string]any, error) {
 	sourceIDs := []string{}
 	localIDs := []string{}
 	legacyIDs := []string{}
@@ -231,49 +181,66 @@ func (e *EmbyService) globalItemPayloadsWithPreferredMedia(ctx context.Context, 
 			legacyIDs = append(legacyIDs, id)
 		}
 	}
-	var nodes []hongGuoNode
+	loadCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	var pending sync.WaitGroup
+	var sourceItems, localItems, legacyItems []map[string]any
 	if len(sourceIDs) > 0 {
-		if err := e.hongGuoItemNodes(ctx, p.UserID, sourceIDs...).Where("id IN ?", sourceIDs).Scan(&nodes).Error; err != nil {
-			return nil, err
-		}
+		pending.Go(func() {
+			var nodes []hongGuoNode
+			if err := e.hongGuoItemNodes(loadCtx, p.UserID, sourceIDs...).Where("id IN ?", sourceIDs).Scan(&nodes).Error; err != nil {
+				cancel(err)
+				return
+			}
+			for i := range nodes {
+				if mediaID := preferredMedia[nodes[i].ID]; mediaID != "" {
+					nodes[i].MediaID = mediaID
+				}
+			}
+			var err error
+			sourceItems, err = e.hongGuoNodePayloads(loadCtx, nodes, p.UserID, p.Fields)
+			if err != nil {
+				cancel(err)
+			}
+		})
 	}
-	for i := range nodes {
-		if mediaID := preferredMedia[nodes[i].ID]; mediaID != "" {
-			nodes[i].MediaID = mediaID
-		}
+	if len(localIDs) > 0 {
+		pending.Go(func() {
+			var nodes []hongGuoNode
+			if err := e.nfoItemNodes(loadCtx, p.UserID, localIDs...).Where("id IN ?", localIDs).Scan(&nodes).Error; err != nil {
+				cancel(err)
+				return
+			}
+			for i := range nodes {
+				if mediaID := preferredMedia[nodes[i].ID]; mediaID != "" {
+					nodes[i].MediaID = mediaID
+				}
+			}
+			var err error
+			localItems, err = e.nfoNodePayloads(loadCtx, nodes, p.UserID, p.Fields)
+			if err != nil {
+				cancel(err)
+			}
+		})
 	}
-	sourceItems, err := e.hongGuoNodePayloads(ctx, nodes, p.UserID, p.Fields)
-	if err != nil {
+	if len(legacyIDs) > 0 {
+		pending.Go(func() {
+			var err error
+			legacyItems, err = legacyPayloads(loadCtx, legacyIDs, p)
+			if err != nil {
+				cancel(err)
+			}
+		})
+	}
+	pending.Wait()
+	if err := context.Cause(loadCtx); err != nil {
 		return nil, err
 	}
 	byID := map[string]map[string]any{}
-	if len(localIDs) > 0 {
-		var localNodes []hongGuoNode
-		if err := e.nfoItemNodes(ctx, p.UserID, localIDs...).Where("id IN ?", localIDs).Scan(&localNodes).Error; err != nil {
-			return nil, err
-		}
-		for i := range localNodes {
-			if mediaID := preferredMedia[localNodes[i].ID]; mediaID != "" {
-				localNodes[i].MediaID = mediaID
-			}
-		}
-		localItems, err := e.nfoNodePayloads(ctx, localNodes, p.UserID, p.Fields)
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range localItems {
+	for _, source := range [][]map[string]any{sourceItems, localItems, legacyItems} {
+		for _, item := range source {
 			byID[item["Id"].(string)] = item
 		}
-	}
-	for _, item := range sourceItems {
-		byID[item["Id"].(string)] = item
-	}
-	legacyItems, err := e.hongGuoBrowseLegacyPayloads(ctx, legacyIDs, p)
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range legacyItems {
-		byID[item["Id"].(string)] = item
 	}
 	items := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {

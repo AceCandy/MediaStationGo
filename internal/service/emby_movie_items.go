@@ -62,24 +62,53 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	// 两种身份共用作品成员预筛；排序仍按原文件/分集上映日期降级规则。
 	candidates := func(files *gorm.DB, identity, kind string) *gorm.DB {
 		scope := files.Session(&gorm.Session{}).Where(identity + "=candidate.id")
-		q := repository.FilterWorkLibraries(e.repo.DB.WithContext(ctx).Table("metadata_items candidate"), "candidate.library_ids", libIDs)
-		return q.Where("EXISTS (?)", scope.Session(&gorm.Session{}).Select("1")).
-			Joins("JOIN LATERAL (?) dates ON TRUE", scope.Session(&gorm.Session{}).Select(embyReleaseOrderSQL("emby_metadata")+" AS sort_at")).
+		q := repository.FilterVisibleWorkLibraries(e.repo.DB, e.repo.DB.WithContext(ctx).Table("metadata_items candidate"), "candidate.library_ids", libIDs, e.mediaQueryFilter(ctx, p.UserID))
+		if embyRandomSort(p) {
+			return q.Select("? || candidate.id AS id, candidate.id AS work_id, ? AS kind", kind+":", kind)
+		}
+		// 日期本就必须读取合格文件；同一次聚合确认存在性，不再重复 EXISTS。
+		return q.Joins("JOIN LATERAL (?) dates ON TRUE", scope.Select(embyReleaseOrderSQL("emby_metadata")+" AS sort_at").Having("COUNT(*) > 0")).
 			Select("candidate.id, ? AS kind, dates.sort_at", kind)
 	}
 	movies := candidates(movieQ, "media.metadata_id", "movie")
 	series := candidates(epQ, "scope_series.id", "series").Where("candidate.kind='series'")
 	combined := e.repo.DB.Raw("? UNION ALL ?", movies, series)
-	var page []struct {
+	type pageRow struct {
 		ID    string
 		Kind  string
 		Total int64
 	}
-	selected := e.repo.DB.Table("works").Order("sort_at DESC, kind DESC, id DESC").Offset(p.StartIndex).Limit(p.Limit)
-	if err := e.repo.DB.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
-SELECT COALESCE(page.id,'') AS id, page.kind, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
+	var page []pageRow
+	if embyRandomSort(p) {
+		order := embyRandomOrder(p, "id") + ", id"
+		random := e.repo.DB.WithContext(ctx).Table("(?) works", combined).
+			Select("*, ROW_NUMBER() OVER (ORDER BY " + order + ") AS ordinal").Order(order)
+		eligible := e.repo.DB.Table("work_batch candidate").Select("ordinal").Where(`CASE WHEN kind='movie'
+THEN EXISTS (? OFFSET 0) ELSE EXISTS (? OFFSET 0) END`,
+			e.workBatchFileEligibility(ctx, p, movieQ.Session(&gorm.Session{}).Where("media.metadata_id=candidate.work_id"), "legacy", "metadata_id=media.metadata_id"),
+			e.workBatchFileEligibility(ctx, p, epQ.Session(&gorm.Session{}).Where("scope_series.id=candidate.work_id"), "legacy", "metadata_id=media.metadata_id"))
+		ids, total, err := e.filteredWorkBatchPage(ctx, random, eligible, p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
+		if err != nil {
+			return nil, err
+		}
+		for _, identity := range ids {
+			kind, id, _ := strings.Cut(identity, ":")
+			page = append(page, pageRow{ID: id, Kind: kind, Total: total})
+		}
+		if len(page) == 0 {
+			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+		}
+	} else {
+		selected := e.repo.DB.Table("works").Order("sort_at DESC, kind DESC, id DESC").Offset(p.StartIndex).Limit(p.Limit)
+		totals := "SELECT COUNT(*) AS total FROM works"
+		if p.SkipTotalRecordCount {
+			totals = "SELECT 0::bigint AS total"
+		}
+		if err := e.repo.DB.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
+SELECT COALESCE(page.id,'') AS id, page.kind, totals.total FROM (`+totals+`) totals
 LEFT JOIN page ON TRUE ORDER BY page.sort_at DESC,page.kind DESC,page.id DESC`, combined, selected).Scan(&page).Error; err != nil {
-		return nil, err
+			return nil, err
+		}
 	}
 	var total int64
 	movieIDs, seriesIDs := []string{}, []string{}
@@ -130,7 +159,7 @@ func (e *EmbyService) libraryIsEpisodic(ctx context.Context, libraryID string) (
 	if strings.TrimSpace(libraryID) == "" {
 		return false, nil
 	}
-	if lib, err := e.repo.Library.FindByID(ctx, libraryID); err != nil {
+	if lib, err := FindLibraryBasic(ctx, e.repo, e.cache, libraryID); err != nil {
 		return false, err
 	} else if lib != nil {
 		return embyLibraryTypeIsEpisodic(lib.Type), nil
@@ -146,7 +175,7 @@ func (e *EmbyService) mediaBelongsToEpisodicLibrary(ctx context.Context, m *mode
 	if e == nil || m == nil || strings.TrimSpace(m.LibraryID) == "" {
 		return false
 	}
-	lib, err := e.repo.Library.FindByID(ctx, m.LibraryID)
+	lib, err := FindLibraryBasic(ctx, e.repo, e.cache, m.LibraryID)
 	if err != nil || lib == nil {
 		return false
 	}

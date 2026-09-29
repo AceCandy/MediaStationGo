@@ -64,6 +64,21 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
   Never let an empty hierarchy parent become a global catalog query.
 - Browsing handlers in `emby_items_handlers.go` use `writeInternalOrCanceled`:
   canceled requests produce bodyless 499; genuine internal errors remain 500.
+- HTTP Items and its registered aliases skip accurate list counts by default:
+  `EnableTotalRecordCount=true` (also lower-camel/lowercase parameter aliases)
+  requests the existing accurate total; omitted/false skips extra list count SQL
+  but retains numeric `TotalRecordCount`. Paginated Items fetch one extra
+  qualified result, trim the page and return StartIndex plus fetched length as a
+  known lower bound; empty pages return hint 0. Media IDs/root Views retain their
+  complete length, while Person IDs paginate. External Limit remains at most 500;
+  internal lookahead allows 501. The shared parser and dedicated Views/Latest/Resume/NextUp/
+  Shows handlers retain their prior defaults. Internal `SkipTotalRecordCount`
+  zero value still counts. Never advertise a lower bound as the actual total or claim native player support
+  without HillS/Yamby device tests. Page episode counts and bounded search ranking remain.
+- Items Random uses one internal seed across refill batches and bypasses ordinary
+  whole-page caching. Work candidates do not need file-date aggregation for this
+  sort; file/state eligibility still applies. Independent requests can reshuffle,
+  so do not advertise stable random pagination across requests or O(50) scanning.
 - `itemPayloadWithRelations` omits `SeriesId`, `SeriesName`, `SeasonId`,
   `SeasonName`, `ParentIndexNumber` and `IndexNumber` for Movie, rather than
   serializing empty strings or zeroes. Apply the same shape to ordinary/NFO
@@ -119,6 +134,12 @@ For every triggered change:
    NFO and HongGuo sources. Keep blank Shows rejection tests passing.
    `TestEmbySearchCombinesPersonAndMediaItemTypes` also asserts Movie search hints
    omit index keys rather than projecting them as null.
+10. `TestEmbyItemsOptionalTotal` verifies real route aliases, accurate/lower-bound
+    JSON totals, first/tail/out-of-range pages, 500/501, IDs, Views, bounded search
+    and cache switching. The service
+    count-mode and refill tests verify unchanged pages and actual skipped SQL;
+    `check-nextup.mjs` also finds Items by endpoint name and inspects the new
+    parameter (the catalog search does not index parameter names).
 
 ## 7. Wrong vs Correct
 

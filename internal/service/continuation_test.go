@@ -32,7 +32,7 @@ func TestContinuationCrossSeason(t *testing.T) {
 			e := NewEmbyService(&config.Config{}, zap.NewNop(), repos)
 			p := NewPlaybackService(zap.NewNop(), repos)
 			user := "viewer"
-			e.visibilityCache = map[string]embyVisibilityCacheEntry{user: {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+			e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + user: {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 			lib := model.Library{Base: model.Base{ID: "library"}, Name: "Test", Path: "/test", Type: "tv"}
 			create(&lib)
 			seriesID := "series"
@@ -132,17 +132,9 @@ func TestContinuationCrossSeason(t *testing.T) {
 				if err != nil || candidate == nil || !candidate.IsNext || candidate.MetadataID != items[2] || candidate.Media == nil || candidate.Media.ID != files[2] {
 					t.Fatalf("cross-season series continuation=%+v err=%v", candidate, err)
 				}
-				if source == "legacy" {
-					if err := db.Model(&model.MetadataItem{}).Where("id = ?", "season-2").Update("nsfw", true).Error; err != nil {
-						t.Fatal(err)
-					}
-					hidden, err := p.ContinueSeriesHistory(t.Context(), user, lib.ID, id, MediaVisibility{})
-					if err != nil || hidden != nil {
-						t.Fatalf("hidden season continuation=%+v err=%v", hidden, err)
-					}
-					if err := db.Model(&model.MetadataItem{}).Where("id = ?", "season-2").Update("nsfw", false).Error; err != nil {
-						t.Fatal(err)
-					}
+				hidden, err := p.ContinueSeriesHistory(t.Context(), user, lib.ID, id, MediaVisibility{HiddenLibraryIDs: []string{lib.ID}})
+				if err != nil || hidden != nil {
+					t.Fatalf("hidden library continuation=%+v err=%v", hidden, err)
 				}
 			}
 			// 已移除的错误长版本不能继续阻止季完成与跨季；三种来源保持同一规则。
@@ -208,28 +200,12 @@ func TestContinuationCrossSeason(t *testing.T) {
 			if err := db.Model(&model.Media{}).Where("id = ?", files[2]).Update("library_id", "hidden").Error; err != nil {
 				t.Fatal(err)
 			}
-			visible, total, err := repos.History.Continuations(t.Context(), user, repository.MediaQueryFilter{IncludeNSFW: true, HiddenLibraryIDs: []string{"hidden"}}, repository.ContinuationNextUp, "", 0, 10)
+			visible, total, err := repos.History.Continuations(t.Context(), user, repository.MediaQueryFilter{HiddenLibraryIDs: []string{"hidden"}}, repository.ContinuationNextUp, "", 0, 10)
 			if err != nil || total != 1 || len(visible) != 1 || visible[0].ItemID != items[3] {
 				t.Fatalf("hidden successor: %v total=%d err=%v", visible, total, err)
 			}
 			if err := db.Model(&model.Media{}).Where("id = ?", files[2]).Update("library_id", lib.ID).Error; err != nil {
 				t.Fatal(err)
-			}
-			if source != "hongguo" {
-				table := "metadata_items"
-				if source == "nfo" {
-					table = "nfo_items"
-				}
-				if err := db.Table(table).Where("id = ?", "s2e1").Update("nsfw", true).Error; err != nil {
-					t.Fatal(err)
-				}
-				rows, total, err := repos.History.Continuations(t.Context(), user, repository.MediaQueryFilter{}, repository.ContinuationNextUp, "", 0, 10)
-				if err != nil || total != 1 || len(rows) != 1 || rows[0].ItemID != items[3] {
-					t.Fatalf("NSFW successor: %v total=%d err=%v", rows, total, err)
-				}
-				if err := db.Table(table).Where("id = ?", "s2e1").Update("nsfw", false).Error; err != nil {
-					t.Fatal(err)
-				}
 			}
 			// 多版本只产生一个候选，续播保留最后播放的具体文件。
 			var version model.Media

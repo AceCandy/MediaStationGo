@@ -28,12 +28,14 @@ import (
 type hongGuoTestTransport func(*http.Request) (*http.Response, error)
 
 func (f hongGuoTestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.URL.Path == "/novel/player/video_detail/v1/" {
-		var input map[string]string
+	if r.URL.Path == "/novel/player/multi_video_detail/v1/" {
+		var input struct {
+			SeriesID string `json:"series_id"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			return nil, err
 		}
-		body, _ := json.Marshal(map[string]any{"code": 0, "data": map[string]any{"video_data": map[string]string{"series_id_str": input["series_id"]}}})
+		body, _ := json.Marshal(map[string]any{"code": 0, "data": map[string]any{input.SeriesID: map[string]any{"video_data": map[string]string{"series_id_str": input.SeriesID}}}})
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	}
 	return f(r)

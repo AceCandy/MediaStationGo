@@ -74,40 +74,41 @@ func (e *EmbyService) metadataViewsForIDs(ctx context.Context, q *gorm.DB, userI
 }
 
 func (e *EmbyService) latestMetadataViews(ctx context.Context, q *gorm.DB, userID string, libraryIDs []string, limit int) ([]model.MediaView, error) {
-	var metadataIDs []string
-	db := e.repo.DB.WithContext(ctx)
-	recent := db.Table("metadata_items recent")
-	eligible := q.Session(&gorm.Session{}).Select("1").Where("media.metadata_id=recent.id")
-	if len(libraryIDs) > 0 {
-		ordered := db.Table("metadata_items").Select("id, latest_media_added_at").
-			Where("latest_media_added_at IS NOT NULL").
-			Order("latest_media_added_at DESC NULLS LAST, id DESC")
-		ordered = repository.FilterWorkLibraries(ordered, "library_ids", libraryIDs)
-		// 先排序库内候选，不提前截断；权限与播放状态仍由外层 EXISTS 检查。
-		recent = db.Table("(? OFFSET 0) recent", ordered)
-	}
-	err := recent.Where("recent.latest_media_added_at IS NOT NULL").
-		Where("EXISTS (?)", eligible).
-		Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC").Limit(limit).Pluck("recent.id", &metadataIDs).Error
+	ids, err := e.latestMetadataIDs(ctx, q, userID, libraryIDs, limit)
 	if err != nil {
 		return nil, err
 	}
-	return e.metadataViewsForIDs(ctx, q, userID, metadataIDs)
+	return e.metadataViewsForIDs(ctx, q, userID, ids)
+}
+
+// latestMetadataIDs 让混合 Latest 先合并身份，仅水合最终页；保留普通来源的原筛选和并列顺序。
+func (e *EmbyService) latestMetadataIDs(ctx context.Context, q *gorm.DB, userID string, libraryIDs []string, limit int) ([]string, error) {
+	db := e.repo.DB.WithContext(ctx)
+	recent := e.orderedWorkLibraryScope(ctx, db.Table("metadata_items recent").Where("recent.latest_media_added_at IS NOT NULL"),
+		"recent", ItemsParams{UserID: userID}, libraryIDs).
+		Select("recent.id, ROW_NUMBER() OVER (ORDER BY recent.latest_media_added_at DESC NULLS LAST, recent.id DESC) AS ordinal").
+		Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC")
+	files := q.Session(&gorm.Session{}).Select("1").Where("media.metadata_id=recent.id")
+	eligible := db.Table("work_batch recent").Select("recent.ordinal").Where("EXISTS (? OFFSET 0)", files)
+	metadataIDs, _, err := e.filteredWorkBatchPage(ctx, recent, eligible, 0, limit, false)
+	if err != nil {
+		return nil, err
+	}
+	return metadataIDs, nil
 }
 
 func (e *EmbyService) latestSeriesGroups(ctx context.Context, q *gorm.DB, libraryIDs []string, limit int) ([]embySeriesGroup, error) {
-	var seriesIDs []string
-	scope := seriesScopeQuery(q.Session(&gorm.Session{}))
 	db := e.repo.DB.WithContext(ctx)
-	ordered := db.Table("metadata_items").Select("id, kind, latest_media_added_at").
-		Where("kind = 'series' AND latest_media_added_at IS NOT NULL").
+	ordered := db.Table("metadata_items").Where("kind = 'series' AND latest_media_added_at IS NOT NULL")
+	if len(libraryIDs) > 0 {
+		ordered = db.Table("(? OFFSET 0) metadata_items", repository.FilterWorkLibraries(ordered, "library_ids", libraryIDs))
+	}
+	ordered = ordered.
+		Select("id, ROW_NUMBER() OVER (ORDER BY latest_media_added_at DESC NULLS LAST, id DESC) AS ordinal").
 		Order("latest_media_added_at DESC NULLS LAST, id DESC")
-	ordered = repository.FilterWorkLibraries(ordered, "library_ids", libraryIDs)
-	eligible := scope.Select("1").Where("scope_series.id=recent.id")
-	// 先排序库内作品，再检查分集资格；没有资格前截断或全库文件身份枚举。
-	err := db.Table("(? OFFSET 0) recent", ordered).
-		Where("EXISTS (? OFFSET 0)", eligible).
-		Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC").Limit(limit).Pluck("recent.id", &seriesIDs).Error
+	eligible := db.Table("work_batch recent").Select("recent.ordinal").
+		Where("EXISTS (? OFFSET 0)", e.seriesWorkFiles(db, q).Select("1"))
+	seriesIDs, _, err := e.filteredWorkBatchPage(ctx, ordered, eligible, 0, limit, false)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +222,8 @@ func seriesOrderSQL(p ItemsParams) string {
 	expression := "MIN(COALESCE(scope_series.title, ''))"
 	secondary := ""
 	switch key {
+	case "random":
+		return embyRandomOrder(p, "scope_series.id") + ", scope_series.id"
 	case "sortname", "name":
 	case "datecreated":
 		expression = "MAX(media.created_at)"
@@ -242,6 +245,8 @@ func metadataOrderSQL(p ItemsParams, resumeFilter bool) string {
 	expression := "MAX(COALESCE(emby_metadata.release_date, ''))"
 	secondary := "MAX(COALESCE(emby_metadata.year, 0))"
 	switch key {
+	case "random":
+		return embyRandomOrder(p, "media.metadata_id") + ", media.metadata_id"
 	case "sortname", "name":
 		dir = "ASC"
 		if strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {

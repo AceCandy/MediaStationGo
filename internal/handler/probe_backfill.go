@@ -17,7 +17,7 @@ func probeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		libraryID := strings.TrimSpace(c.Param("id"))
-		library, err := svc.Repo.Library.FindByID(c.Request.Context(), libraryID)
+		library, err := svc.Repo.Library.FindBasicByID(c.Request.Context(), libraryID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

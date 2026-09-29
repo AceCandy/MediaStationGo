@@ -69,7 +69,7 @@ func (o *OrganizerService) ReclassifyMisclassifiedMedia(ctx context.Context, opt
 		for i := range rows {
 			ids = append(ids, rows[i].ID)
 		}
-		views, err := o.repo.MediaView.FindByIDs(ctx, ids, repository.MediaQueryFilter{IncludeNSFW: true})
+		views, err := o.repo.MediaView.FindByIDs(ctx, ids, repository.MediaQueryFilter{})
 		if err != nil {
 			return err
 		}
@@ -132,9 +132,6 @@ func compactLibraryIDs(ids ...string) []string {
 
 func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media model.Media, lib model.Library, mediaTypeHint string, opts OrganizeOptions, dryRun bool, res *OrganizeResult) (bool, error) {
 	if res == nil || !lib.Enabled || strings.TrimSpace(media.Path) == "" {
-		return false, nil
-	}
-	if isRetiredCloudPath(lib.Path) {
 		return false, nil
 	}
 	if !organizeFileExists(media.Path) {

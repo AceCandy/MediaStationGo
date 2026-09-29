@@ -158,7 +158,7 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "choose exactly one of library_id or all_libraries"})
 				return
 			}
-			libraries, err := svc.Repo.Library.List(c.Request.Context())
+			libraries, err := svc.Repo.Library.ListBasic(c.Request.Context())
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load libraries"})
 				return
@@ -216,7 +216,7 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "library_id required"})
 				return
 			}
-			library, err := svc.Repo.Library.FindByID(c.Request.Context(), request.LibraryID)
+			library, err := svc.Repo.Library.FindBasicByID(c.Request.Context(), request.LibraryID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load library"})
 				return
@@ -263,7 +263,7 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "library unavailable"})
 					return
 				}
-				library, err := svc.Repo.Library.FindByID(c.Request.Context(), request.LibraryID)
+				library, err := svc.Repo.Library.FindBasicByID(c.Request.Context(), request.LibraryID)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load library"})
 					return

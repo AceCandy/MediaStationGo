@@ -81,7 +81,7 @@ func discoverLibraryStatusHandler(svc *service.Container) gin.HandlerFunc {
 		items := []repository.DiscoverIdentity{}
 		var err error
 		if !visibility.LibraryRestricted || len(visibility.AllowedLibraryIDs) > 0 {
-			items, err = svc.Repo.MediaView.FindDiscoverLibraryItems(c.Request.Context(), body.Items, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+			items, err = svc.Repo.MediaView.FindDiscoverLibraryItems(c.Request.Context(), body.Items, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 		}
 		if err != nil {
 			c.JSON(500, gin.H{"error": "读取入库状态失败"})

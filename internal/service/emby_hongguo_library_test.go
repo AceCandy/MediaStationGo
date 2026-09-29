@@ -67,7 +67,7 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 	if err := db.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	works := make([]*model.HongGuoWork, 3)
 	for i := range works {
@@ -88,7 +88,10 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 		}
 	}
 	groupID := "hg-group-900000000000000099"
-	standalone := "hg-work-" + works[2].ID
+	if err := e.repo.HongGuo.SaveAlbum(ctx, works[2].SourceID, hongguo.Album{ID: works[2].SourceID, Season: 1}); err != nil {
+		t.Fatal(err)
+	}
+	standalone := "hg-group-" + works[2].SourceID
 	m := model.Media{LibraryID: lib.ID, Path: "/test/hg-browse/new.strm", CatalogSource: "hongguo", LookupCatalogID: works[0].SourceID, SeasonNum: 1, EpisodeNum: 2}
 	m.CreatedAt = base.Add(4 * time.Hour)
 	if err := e.repo.Media.Upsert(ctx, &m); err != nil {
@@ -205,7 +208,7 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 		t.Fatalf("unknown membership changed Latest: got=%v want=%v err=%v", unknown, known, err)
 	}
 	for _, visibility := range []MediaVisibility{{HiddenLibraryIDs: []string{lib.ID}}, {LibraryRestricted: true}} {
-		e.visibilityCache["viewer"] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
+		e.visibilityCache[e.repo.ReadCacheKey()+"viewer"] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
 		items, total, err := e.hongGuoLibraryItems(ctx, ItemsParams{UserID: "viewer", ParentID: lib.ID, Limit: 1}, true)
 		if err != nil || len(items) != 0 || total != 0 {
 			t.Fatalf("invisible library: %v %d %v", items, total, err)
@@ -229,7 +232,7 @@ func TestHongGuoLibraryPagePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 	// 6,000 个有文件源作品组成 2,000 个多季合集，包含真实分集、封面及无文件作品。
 	for _, sql := range []string{
 		`INSERT INTO hongguo_works (id,source_id,kind,title,related_album_id,season_index,refreshed_at)
@@ -260,7 +263,7 @@ SELECT 'file-'||n||'-'||e,'work-'||n,'episode-'||n||'-'||e FROM generate_series(
 			return
 		}
 		sql := tx.Statement.SQL.String()
-		if strings.HasPrefix(sql, "WITH albums AS MATERIALIZED") || strings.HasPrefix(sql, "WITH page_works AS MATERIALIZED") || strings.HasPrefix(sql, "SELECT a.id FROM hongguo_works AS w") || inspectDetail && strings.Contains(sql, "hongguo_media_bindings") && !strings.HasPrefix(sql, "EXPLAIN") {
+		if strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") || strings.HasPrefix(sql, "WITH albums AS MATERIALIZED") || strings.HasPrefix(sql, "WITH page_works AS MATERIALIZED") || strings.HasPrefix(sql, "SELECT w.id AS work_id, w.kind FROM hongguo_works w") || strings.HasPrefix(sql, "SELECT a.id FROM hongguo_works AS w") || inspectDetail && strings.Contains(sql, "hongguo_media_bindings") && !strings.HasPrefix(sql, "EXPLAIN") {
 			queries = append(queries, statement{sql, append([]any(nil), tx.Statement.Vars...)})
 		}
 	}); err != nil {
@@ -278,7 +281,7 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 			}
 		}
 		queries = nil
-		p := ItemsParams{UserID: "viewer", ParentID: "library", Limit: 3, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
+		p := ItemsParams{UserID: "viewer", ParentID: "library", IncludeItemTypes: []string{"Series"}, Limit: 3, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
 		want := "hg-group-2000"
 		if mode == "title" {
 			p.SortBy, p.SortOrder, want = "SortName", "Ascending", "hg-group-1"
@@ -287,13 +290,28 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 			p.Filters = []string{"IsUnplayed"}
 		}
 		items, total, err := e.hongGuoLibraryItems(t.Context(), p, !latest)
-		if err != nil || len(items) != 3 || items[0]["Id"] != want || !latest && total != 2000 {
+		if err != nil || len(items) != 3 || items[0]["Id"] != want || items[0]["Type"] != "Series" || !latest && total != 2000 {
 			t.Fatalf("latest=%v len=%d total=%d err=%v", latest, len(items), total, err)
 		}
-		if len(queries) != 2 {
+		if len(queries) != 3 {
 			t.Fatalf("captured %d queries", len(queries))
 		}
-		if latest && strings.Contains(queries[0].sql, "COUNT(*) AS total FROM works") {
+		albumAggregates := 0
+		if mode == "title" {
+			albumAggregates = 1
+		}
+		if strings.Contains(queries[1].sql, "albums") || strings.Count(queries[0].sql, "WITH albums AS MATERIALIZED") != albumAggregates {
+			t.Fatal("members or eligibility repeat the global album aggregate")
+		}
+		if mode != "title" && (strings.Contains(queries[0].sql, "ARRAY_AGG(title") || strings.Contains(queries[0].sql, "ARRAY_AGG(work_id)")) {
+			t.Fatal("latest candidates aggregate unrelated titles or member arrays")
+		}
+		for _, unused := range []string{"MIN(m.id)", "MIN(v.media_id)", "MAX(s.watched_at)", "MAX(v.played_at)", "MAX(COALESCE(s.position_ms", "MAX(v.position_ms)"} {
+			if strings.Contains(queries[2].sql, unused) {
+				t.Fatalf("Series detail still aggregates %s", unused)
+			}
+		}
+		if latest && strings.Contains(queries[0].sql, "SELECT COUNT(*)") {
 			t.Fatal("Latest counted all works")
 		}
 		if !strings.Contains(queries[0].sql, "EXISTS (") || strings.Contains(queries[0].sql, "MIN(m.created_at)") || !latest && strings.Contains(queries[0].sql, "hongguo_user_states") {
@@ -307,12 +325,51 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 			var plans []struct {
 				Plan          map[string]any
 				ExecutionTime float64 `json:"Execution Time"`
+				JIT           map[string]any
 			}
 			if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 {
 				t.Fatalf("invalid plan: %v", err)
 			}
+			if i == 0 && mode != "title" && len(plans[0].JIT) > 0 {
+				t.Fatal("latest candidate complexity triggered JIT")
+			}
+			var candidateWorkVisits float64
 			var inspect func(map[string]any)
 			inspect = func(node map[string]any) {
+				if i == 0 && node["Relation Name"] == "hongguo_works" {
+					rows, _ := node["Actual Rows"].(float64)
+					removed, _ := node["Rows Removed by Filter"].(float64)
+					loops, _ := node["Actual Loops"].(float64)
+					candidateWorkVisits += (rows + removed) * loops
+				}
+				if i == 1 && node["Relation Name"] == "hongguo_works" {
+					rows, _ := node["Actual Rows"].(float64)
+					removed, _ := node["Rows Removed by Filter"].(float64)
+					loops, _ := node["Actual Loops"].(float64)
+					if (rows+removed)*loops > 30 {
+						t.Fatalf("page members scan unrelated works: rows=%v removed=%v loops=%v", rows, removed, loops)
+					}
+				}
+				if i == 0 {
+					rows, _ := node["Actual Rows"].(float64)
+					removed, _ := node["Rows Removed by Join Filter"].(float64)
+					loops, _ := node["Actual Loops"].(float64)
+					joinBound := float64(20000)
+					if mode != "title" {
+						joinBound = 150 * 150 // 50 张卡片各 3 季，批内成员与状态最多两两比较。
+					}
+					if node["CTE Name"] == "albums" && rows*loops > 20000 || removed*loops > joinBound {
+						t.Fatalf("candidate repeats album join: rows=%v removed=%v loops=%v", rows, removed, loops)
+					}
+				}
+				if i == 2 && node["Relation Name"] == "hongguo_user_states" {
+					rows, _ := node["Actual Rows"].(float64)
+					removed, _ := node["Rows Removed by Filter"].(float64)
+					loops, _ := node["Actual Loops"].(float64)
+					if (rows+removed)*loops > 3000 || loops > 3000 {
+						t.Fatalf("page detail scanned unrelated states: rows=%v removed=%v loops=%v", rows, removed, loops)
+					}
+				}
 				if i == 0 && node["CTE Name"] == "playback_states" {
 					rows, _ := node["Actual Rows"].(float64)
 					removed, _ := node["Rows Removed by Filter"].(float64)
@@ -321,10 +378,15 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 						t.Fatalf("candidate scans all user states per work: %s", raw)
 					}
 				}
-				if i == 0 && node["Relation Name"] == "hongguo_user_states" && node["Actual Loops"].(float64) > 1 {
-					t.Fatalf("candidate repeats effective playback state per work: %s", raw)
+				if i == 0 && node["Relation Name"] == "hongguo_user_states" {
+					rows, _ := node["Actual Rows"].(float64)
+					removed, _ := node["Rows Removed by Filter"].(float64)
+					loops, _ := node["Actual Loops"].(float64)
+					if (rows+removed)*loops > 3000 {
+						t.Fatalf("batch scans unrelated states: rows=%v removed=%v loops=%v", rows, removed, loops)
+					}
 				}
-				if i == 1 && (node["Relation Name"] == "hongguo_works" || node["Relation Name"] == "hongguo_artworks") {
+				if i == 2 && (node["Relation Name"] == "hongguo_works" || node["Relation Name"] == "hongguo_artworks") {
 					rows, _ := node["Actual Rows"].(float64)
 					loops, _ := node["Actual Loops"].(float64)
 					if rows*loops > 30 {
@@ -335,11 +397,14 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 					rows, _ := node["Actual Rows"].(float64)
 					removed, _ := node["Rows Removed by Filter"].(float64)
 					loops, _ := node["Actual Loops"].(float64)
+					if i == 0 && !latest && loops != 0 {
+						t.Fatalf("known work membership still reads files: relation=%v loops=%v", node["Relation Name"], loops)
+					}
 					bound := float64(1000)
 					if i == 0 {
 						bound = 6000 // 非空时间预筛后，只探测有文件的源作品。
 						if latest {
-							bound = 30
+							bound = 500 // 50 张卡片、每张三个源作品。
 						} // Latest 只检查当前页附近的候选成员。
 					}
 					if (rows+removed)*loops > bound || i == 0 && loops > bound {
@@ -352,6 +417,10 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 				}
 			}
 			inspect(plans[0].Plan)
+			// 只允许一次全目录分组、未知归属集合及当前批次成员访问。
+			if i == 0 && mode != "title" && candidateWorkVisits > 15000 {
+				t.Fatalf("latest candidates repeat catalog scans: visits=%v", candidateWorkVisits)
+			}
 			t.Logf("mode=%s query=%d execution=%.3f ms", mode, i, plans[0].ExecutionTime)
 		}
 	}
@@ -513,7 +582,7 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 	}
 	e.visibilityCache = map[string]embyVisibilityCacheEntry{}
 	for _, user := range []string{"viewer", "other"} {
-		e.visibilityCache[user] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true, AllowedLibraryIDs: []string{libs[0].ID}}, expiresAt: time.Now().Add(time.Hour)}
+		e.visibilityCache[e.repo.ReadCacheKey()+user] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true, AllowedLibraryIDs: []string{libs[0].ID}}, expiresAt: time.Now().Add(time.Hour)}
 	}
 	works := make([]*model.HongGuoWork, 6)
 	for i := range works {
@@ -534,6 +603,10 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 				season = 2
 			} // 同季号保留两个源作品的独立分集身份。
 			if err := e.repo.HongGuo.SaveAlbum(ctx, work.SourceID, hongguo.Album{ID: "910000000000000099", Season: season}); err != nil {
+				t.Fatal(err)
+			}
+		} else if works[i].Kind == model.MetadataKindSeries {
+			if err := e.repo.HongGuo.SaveAlbum(ctx, work.SourceID, hongguo.Album{ID: work.SourceID, Season: 1}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -557,7 +630,7 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 			}
 		}
 	}
-	if err := e.MarkPlayed(ctx, "viewer", "hg-work-"+works[3].ID, true); err != nil {
+	if err := e.MarkPlayed(ctx, "viewer", "hg-group-"+works[3].SourceID, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.MarkPlayed(ctx, "viewer", "hg-season-"+works[1].ID, true); err != nil {
@@ -638,7 +711,7 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 			if user == "restricted" {
 				v = MediaVisibility{LibraryRestricted: true}
 			}
-			e.visibilityCache[user] = embyVisibilityCacheEntry{visibility: v, expiresAt: time.Now().Add(time.Hour)}
+			e.visibilityCache[e.repo.ReadCacheKey()+user] = embyVisibilityCacheEntry{visibility: v, expiresAt: time.Now().Add(time.Hour)}
 		}
 		var original []hongGuoNode
 		if err := e.hongGuoNodes(ctx, user, "").Scan(&original).Error; err != nil {
@@ -732,7 +805,7 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 		ids = append(ids, "hg-work-"+work.ID, "hg-season-"+work.ID)
 	}
 	for _, visibility := range []MediaVisibility{{IncludeNSFW: true}, {HiddenLibraryIDs: []string{libs[0].ID}}, {AllowedLibraryIDs: []string{libs[0].ID}}, {LibraryRestricted: true}} {
-		e.visibilityCache[""] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
+		e.visibilityCache[e.repo.ReadCacheKey()] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
 		var nodes []hongGuoNode
 		if err := e.hongGuoNodes(ctx, "", "").Scan(&nodes).Error; err != nil {
 			t.Fatal(err)
@@ -757,7 +830,7 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 			}
 		}
 	}
-	e.visibilityCache[""] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}
+	e.visibilityCache[e.repo.ReadCacheKey()] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}
 	if err := db.Model(&model.HongGuoArtwork{}).Where("work_id = ?", works[3].ID).Update("local_key", "").Error; err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 		}
 	}
 	r := New(db).History
-	filter := MediaQueryFilter{IncludeNSFW: true}
+	filter := MediaQueryFilter{}
 	var candidateQueries []string
 	if err := db.Callback().Row().After("gorm:row").Register("test:continuation-page", func(tx *gorm.DB) {
 		query := tx.Statement.SQL.String()
@@ -65,6 +65,9 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 		for _, source := range []string{"legacy", "nfo", "hongguo"} {
 			q := r.continuationSource(t.Context(), "viewer", filter, source, mode, "")
 			query := q.Session(&gorm.Session{DryRun: true}).Find(&[]Continuation{})
+			if !strings.Contains(query.Statement.SQL.String(), "AS history_item ON TRUE") {
+				t.Fatal("continuation must resolve visible items from the current user's history")
+			}
 			var raw []byte
 			if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+query.Statement.SQL.String(), query.Statement.Vars...).Row().Scan(&raw); err != nil {
 				t.Fatal(err)
@@ -93,6 +96,27 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 			}
 			inspect(plans[0].Plan)
 			t.Logf("%s next episode: %.3f ms", source, plans[0].Time)
+			empty := r.continuationSource(t.Context(), "untouched", filter, source, mode, "")
+			query = empty.Session(&gorm.Session{DryRun: true}).Find(&[]Continuation{})
+			if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+query.Statement.SQL.String(), query.Statement.Vars...).Row().Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(raw, &plans); err != nil {
+				t.Fatal(err)
+			}
+			var inspectEmpty func(map[string]any)
+			inspectEmpty = func(plan map[string]any) {
+				relation, _ := plan["Relation Name"].(string)
+				loops, _ := plan["Actual Loops"].(float64)
+				if relation != "" && relation != "playback_histories" && relation != "nfo_user_states" && relation != "hongguo_user_states" && loops != 0 {
+					t.Fatalf("%s read %s without user history: %s", source, relation, raw)
+				}
+				children, _ := plan["Plans"].([]any)
+				for _, child := range children {
+					inspectEmpty(child.(map[string]any))
+				}
+			}
+			inspectEmpty(plans[0].Plan)
 		}
 		for start, want := range []string{"hg-episode-ep-1-2", "nfo-ep-1-2", "ep-1-2", ""} {
 			candidateQueries = nil

@@ -12,8 +12,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-var errCloudMediaPathUnsupported = errors.New("cloud media paths are no longer supported")
-
 // Upsert inserts or updates a media row keyed by Path (unique index).
 //
 // 重要：当一条行已经存在时，scanner 重扫只应该刷新扫描指纹、路径提示和关联字段，
@@ -27,9 +25,6 @@ var errCloudMediaPathUnsupported = errors.New("cloud media paths are no longer s
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	if m != nil && m.CatalogSource == model.TaskSystemHongGuo {
 		return r.upsertHongGuoMedia(ctx, m)
-	}
-	if m != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
-		return errCloudMediaPathUnsupported
 	}
 	var previousMetadataID string
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

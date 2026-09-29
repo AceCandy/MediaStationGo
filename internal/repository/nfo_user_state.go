@@ -13,7 +13,7 @@ import (
 
 func (r *NFORepository) UserState(ctx context.Context, userID, itemID string, filters ...MediaQueryFilter) (model.NFOUserState, error) {
 	state := model.NFOUserState{UserID: userID, ItemID: strings.TrimPrefix(itemID, "nfo-")}
-	filter := MediaQueryFilter{IncludeNSFW: true}
+	filter := MediaQueryFilter{}
 	if len(filters) > 0 {
 		filter = filters[0]
 	}
@@ -155,7 +155,7 @@ func (r *NFORepository) FavoriteCards(ctx context.Context, userID string, filter
 	}
 	result := make([]model.MediaView, 0, len(cards))
 	for _, card := range cards {
-		view, err := views.NFOPresentation(ctx, card.ItemID, filter.IncludeNSFW)
+		view, err := views.NFOPresentation(ctx, card.ItemID)
 		if err != nil {
 			return nil, err
 		}

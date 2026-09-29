@@ -124,7 +124,7 @@ func scrapeTestHandler(svc *service.Container) gin.HandlerFunc {
 // the upstream Vue surface.
 func organizeBulkHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		libs, err := svc.Repo.Library.List(c.Request.Context())
+		libs, err := svc.Repo.Library.ListBasic(c.Request.Context())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

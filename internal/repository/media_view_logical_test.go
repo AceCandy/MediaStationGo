@@ -3,15 +3,18 @@ package repository
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm"
 )
 
 func TestRecentLogicalWorksPreservesBatchTiesAndFilters(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source,nsfw) VALUES ('newest','movie','Newest','local',false),('a-tie','movie','A','local',false),('z-tie','movie','Z','local',false),('old','movie','Old','local',false),('nsfw','movie','Hidden','local',true)`,
+		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('newest','movie','Newest','local'),('a-tie','movie','A','local'),('z-tie','movie','Z','local'),('old','movie','Old','local'),('nsfw','movie','Hidden','local')`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'new-'||i,'newest','recent','/new/'||i,'2026-01-03' FROM generate_series(1,127) i`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) VALUES ('zzz-tie','a-tie','recent','/tie/a','2026-01-02'),('aaa-tie','z-tie','recent','/tie/z','2026-01-02'),('hidden','nsfw','hidden','/hidden','2026-01-04')`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'old-'||i,'old','recent','/old/'||i,'2020-01-01' FROM generate_series(1,10000) i`,
@@ -20,6 +23,19 @@ func TestRecentLogicalWorksPreservesBatchTiesAndFilters(t *testing.T) {
 		if err := repos.DB.Exec(sql).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	type statement struct {
+		sql  string
+		vars []any
+	}
+	var queries []statement
+	capture := func(tx *gorm.DB) {
+		if sql := tx.Statement.SQL.String(); !tx.DryRun && strings.Contains(sql, "recent_works") {
+			queries = append(queries, statement{sql, append([]any(nil), tx.Statement.Vars...)})
+		}
+	}
+	if err := repos.DB.Callback().Row().After("gorm:row").Register("test:recent-page", capture); err != nil {
+		t.Fatal(err)
 	}
 	compare := func(filter MediaQueryFilter) {
 		t.Helper()
@@ -34,43 +50,52 @@ func TestRecentLogicalWorksPreservesBatchTiesAndFilters(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		queries = nil
 		got, err := repos.MediaView.ListRecentLogicalWorks(t.Context(), 2, filter)
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("filter=%+v got=%d want=%d err=%v", filter, len(got), len(want), err)
 		}
-	}
-	for _, filter := range []MediaQueryFilter{{}, {IncludeNSFW: true}, {AllowedLibraryIDs: []string{"recent"}}, {HiddenLibraryIDs: []string{"hidden"}}, {HiddenLibraryIDs: []string{"recent", "hidden"}}, {MissingPoster: true}, {MissingChineseTitle: true}} {
-		compare(filter)
-	}
-	for _, cursor := range []string{"", " AND (created_at,id) < ('2020-01-01','old-9000')"} {
+		if len(queries) != 1 || !strings.HasPrefix(queries[0].sql, "WITH work_batch AS MATERIALIZED") {
+			t.Fatalf("recent candidates queried %d times; dates must travel with the selected page", len(queries))
+		}
 		var raw string
-		if err := repos.DB.Raw(`EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) SELECT id,created_at FROM media WHERE metadata_id IS NOT NULL` + cursor + ` ORDER BY created_at DESC,id DESC LIMIT 128`).Scan(&raw).Error; err != nil {
+		if err := repos.DB.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON) "+queries[0].sql, queries[0].vars...).Scan(&raw); err != nil {
 			t.Fatal(err)
 		}
 		type node struct {
-			Index string `json:"Index Name"`
-			Type  string `json:"Node Type"`
-			Plans []node `json:"Plans"`
+			Subplan  string  `json:"Subplan Name"`
+			Relation string  `json:"Relation Name"`
+			Rows     float64 `json:"Actual Rows"`
+			Filtered float64 `json:"Rows Removed by Filter"`
+			Loops    float64 `json:"Actual Loops"`
+			Plans    []node  `json:"Plans"`
 		}
 		var plans []struct{ Plan node }
 		if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
-			t.Fatalf("invalid plan: %s err=%v", raw, err)
+			t.Fatalf("invalid plan: %v", err)
 		}
+		var visits float64
 		found := false
-		var check func(node)
-		check = func(n node) {
-			found = found || n.Index == "idx_media_recent_metadata"
-			if n.Type == "Sort" || n.Type == "Seq Scan" {
-				t.Fatalf("recent candidate page scanned/sorted all files: %s", raw)
+		var check func(node, bool)
+		check = func(n node, candidate bool) {
+			if n.Subplan == "CTE work_batch" {
+				candidate, found = true, true
+			}
+			if candidate && n.Relation == "media" {
+				visits += (n.Rows + n.Filtered) * n.Loops
 			}
 			for _, child := range n.Plans {
-				check(child)
+				check(child, candidate)
 			}
 		}
-		check(plans[0].Plan)
-		if !found {
-			t.Fatalf("recent index not used: %s", raw)
+		check(plans[0].Plan, false)
+		// 候选枚举只读作品；缺海报等文件资格属于独立 qualified 阶段。
+		if !found || visits != 0 {
+			t.Fatalf("filter=%+v recent candidate file visits=%.0f inspected=%v", filter, visits, found)
 		}
+	}
+	for _, filter := range []MediaQueryFilter{{}, {}, {AllowedLibraryIDs: []string{"recent"}}, {HiddenLibraryIDs: []string{"hidden"}}, {HiddenLibraryIDs: []string{"recent", "hidden"}}, {MissingPoster: true}, {MissingChineseTitle: true}} {
+		compare(filter)
 	}
 	// 混合 NULL/非 NULL 的作品仍沿用 MAX 语义，不可将 NULL 文件当作最新作品。
 	if err := repos.DB.Exec(`UPDATE media SET created_at=NULL WHERE id='aaa-tie'`).Error; err != nil {
@@ -108,6 +133,120 @@ func TestRecentWorkTimeSharedAcrossLibraries(t *testing.T) {
 	}
 }
 
+func TestRecentHongGuoAlbumsAggregateOnce(t *testing.T) {
+	repos := newMediaViewTestRepositories(t)
+	db := repos.DB
+	for _, sql := range []string{
+		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at)
+SELECT 'work-'||n,n::text,'series','Show',((n-1)/3+1000)::text,(n-1)%3+1,now() FROM generate_series(1,6000) n`,
+		`INSERT INTO hongguo_episodes(id,work_id,number) VALUES ('ep-1','work-1',1),('ep-2','work-2',1),('ep-4','work-4',1)`,
+		`INSERT INTO media(id,path,library_id,catalog_source,created_at) VALUES ('f1','/fixture/f1','visible','hongguo','2026-01-01'),('f2','/fixture/f2','hidden','hongguo','2026-02-01'),('f4','/fixture/f4','visible','hongguo','2026-01-02')`,
+		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) VALUES ('f1','work-1','ep-1'),('f2','work-2','ep-2'),('f4','work-4','ep-4')`,
+		`ANALYZE hongguo_works`, `ANALYZE hongguo_episodes`, `ANALYZE hongguo_media_bindings`, `ANALYZE media`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var query string
+	var vars []any
+	if err := db.Callback().Row().After("gorm:row").Register("test:recent-albums", func(tx *gorm.DB) {
+		if sql := tx.Statement.SQL.String(); !tx.DryRun && strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") {
+			query, vars = sql, append([]any(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repos.MediaView.ListRecentLogicalWorks(t.Context(), 2, MediaQueryFilter{AllowedLibraryIDs: []string{"visible"}})
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("recent rows=%d err=%v", len(rows), err)
+	}
+	for i, want := range []struct{ id, date string }{{"f1", "2026-02-01"}, {"f4", "2026-01-02"}} {
+		if rows[i].ID != want.id || rows[i].LatestMediaAddedAt == nil || rows[i].LatestMediaAddedAt.Format("2006-01-02") != want.date {
+			t.Fatalf("row %d lost global album date/order: id=%s date=%v", i, rows[i].ID, rows[i].LatestMediaAddedAt)
+		}
+	}
+	if query == "" {
+		t.Fatal("did not capture actual recent candidates")
+	}
+	var raw string
+	if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON) "+query, vars...).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	type node struct {
+		Relation string  `json:"Relation Name"`
+		Rows     float64 `json:"Actual Rows"`
+		Filtered float64 `json:"Rows Removed by Filter"`
+		Rejected float64 `json:"Rows Removed by Join Filter"`
+		Loops    float64 `json:"Actual Loops"`
+		Plans    []node  `json:"Plans"`
+	}
+	var plans []struct {
+		Plan node
+		Time float64 `json:"Execution Time"`
+	}
+	if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("invalid plan: %v", err)
+	}
+	var workVisits, rejected float64
+	var inspect func(node)
+	inspect = func(n node) {
+		if n.Relation == "hongguo_works" {
+			workVisits += (n.Rows + n.Filtered) * n.Loops
+		}
+		rejected += n.Rejected * n.Loops
+		for _, child := range n.Plans {
+			inspect(child)
+		}
+	}
+	inspect(plans[0].Plan)
+	// 一次作品候选和一次全局合集聚合，不能再按每个作品重算全部合集成员。
+	if workVisits == 0 || workVisits > 12100 || rejected > 12100 {
+		t.Errorf("album candidate work visits=%.0f join rejections=%.0f", workVisits, rejected)
+	}
+	t.Logf("recent album candidates %.3f ms work visits=%.0f", plans[0].Time, workVisits)
+}
+
+func TestRecentLogicalWorksRefillsWithDates(t *testing.T) {
+	repos := newMediaViewTestRepositories(t)
+	db := repos.DB
+	for _, sql := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'work-'||n,'movie',CASE WHEN n IN (51,103,155) THEN 'Show' ELSE '中文' END,'local' FROM generate_series(1,155) n`,
+		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||n,'work-'||n,'visible','/fixture/'||n,TIMESTAMP '2026-01-01' - n * INTERVAL '1 hour' FROM generate_series(1,155) n`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	batches, dateQueries := 0, 0
+	if err := db.Callback().Row().After("gorm:row").Register("test:recent-refill", func(tx *gorm.DB) {
+		sql := tx.Statement.SQL.String()
+		if tx.DryRun || !strings.Contains(sql, "recent_works") {
+			return
+		}
+		if strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") {
+			batches++
+		} else {
+			dateQueries++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repos.MediaView.ListRecentLogicalWorks(t.Context(), 3, MediaQueryFilter{MissingChineseTitle: true})
+	if err != nil || len(rows) != 3 || batches != 4 || dateQueries != 0 {
+		t.Fatalf("refill rows=%d batches=%d dateQueries=%d err=%v", len(rows), batches, dateQueries, err)
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i, want := range []struct {
+		id    string
+		hours int
+	}{{"work-51", 51}, {"work-103", 103}, {"work-155", 155}} {
+		if rows[i].MetadataID != want.id || rows[i].LatestMediaAddedAt == nil || !rows[i].LatestMediaAddedAt.Equal(base.Add(-time.Duration(want.hours)*time.Hour)) {
+			t.Fatalf("refill row %d id=%s date=%v", i, rows[i].MetadataID, rows[i].LatestMediaAddedAt)
+		}
+	}
+}
+
 func TestRecentLibraryMembershipAcrossSources(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	db := repos.DB
@@ -131,7 +270,7 @@ func TestRecentLibraryMembershipAcrossSources(t *testing.T) {
 	}
 	// 索引集合与尚未补算的 NULL 必须返回相同完整结果；受限空权限、隐藏库仍拒绝。
 	filters := []MediaQueryFilter{
-		{IncludeNSFW: true}, {AllowedLibraryIDs: []string{"a"}}, {AllowedLibraryIDs: []string{"b"}},
+		{}, {AllowedLibraryIDs: []string{"a"}}, {AllowedLibraryIDs: []string{"b"}},
 		{AllowedLibraryIDs: []string{"a", "b"}}, {AllowedLibraryIDs: []string{"__locked__"}},
 		{AllowedLibraryIDs: []string{"a", "b"}, HiddenLibraryIDs: []string{"b"}},
 		{AllowedLibraryIDs: []string{"a"}, HiddenLibraryIDs: []string{"a"}},
@@ -248,7 +387,7 @@ func TestMediaViewLogicalScopePreservesResults(t *testing.T) {
 		}
 	}
 	for _, ids := range [][]string{{seriesID}, {seasonID}, {"logical-episode"}, {"logical-movie"}, {seriesID, "logical-episode", seriesID, "logical-movie"}, {"missing"}} {
-		for _, filter := range []MediaQueryFilter{{}, {IncludeNSFW: true}, {HiddenLibraryIDs: []string{library.ID}}, {AllowedLibraryIDs: []string{library.ID}}, {AllowedLibraryIDs: []string{"missing"}}, {MissingPoster: true}, {MissingChineseTitle: true}} {
+		for _, filter := range []MediaQueryFilter{{}, {}, {HiddenLibraryIDs: []string{library.ID}}, {AllowedLibraryIDs: []string{library.ID}}, {AllowedLibraryIDs: []string{"missing"}}, {MissingPoster: true}, {MissingChineseTitle: true}} {
 			var want []model.MediaView
 			old := repos.MediaView.query(t.Context()).Where("m.metadata_id IN ? OR CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END IN ?", ids, ids)
 			if err := scanMediaViews(applyMediaViewFilter(old, filter).Order("m.created_at DESC, m.id DESC"), &want); err != nil {

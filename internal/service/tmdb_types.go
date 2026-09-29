@@ -25,7 +25,6 @@ type Match struct {
 	Countries     []string `json:"countries,omitempty"`
 	Genres        []string `json:"genres,omitempty"`
 	Aliases       []string `json:"aliases,omitempty"`
-	NSFW          bool     `json:"nsfw,omitempty"`
 	SearchKeyword string   `json:"-"`
 	// TMDbDetailsLoaded 表示匹配已包含语言、国家和类型等完整详情字段。
 	TMDbDetailsLoaded bool `json:"-"`

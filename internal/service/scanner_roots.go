@@ -35,9 +35,6 @@ func (s *ScannerService) localLibraryScanRoots(ctx context.Context, lib *model.L
 		if !root.Enabled || strings.TrimSpace(root.Path) == "" {
 			continue
 		}
-		if isRetiredCloudPath(root.Path) {
-			continue
-		}
 		out = append(out, root)
 	}
 	return out, nil
@@ -85,10 +82,10 @@ func (s *ScannerService) resolveLocalLibraryRootPath(ctx context.Context, lib *m
 	}
 	if lib != nil {
 		if strings.TrimSpace(root.ID) == "" {
-			_ = s.repo.DB.WithContext(ctx).Model(&model.Library{}).Where("id = ?", lib.ID).Update("path", resolved).Error
+			_ = s.repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": resolved})
 			lib.Path = resolved
 		} else if roots, err := s.repo.Library.ListRoots(ctx, lib.ID); err == nil && len(roots) > 0 && roots[0].ID == root.ID {
-			_ = s.repo.DB.WithContext(ctx).Model(&model.Library{}).Where("id = ?", lib.ID).Update("path", resolved).Error
+			_ = s.repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": resolved})
 			lib.Path = resolved
 		}
 	}

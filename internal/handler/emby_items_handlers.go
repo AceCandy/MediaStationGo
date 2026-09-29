@@ -62,7 +62,9 @@ func embyFirstNonEmptyString(values ...string) string {
 
 func embyItemsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		out, err := svc.Emby.Items(c.Request.Context(), parseEmbyItemsParams(c))
+		params := parseEmbyItemsParams(c)
+		params.SkipTotalRecordCount = !strings.EqualFold(firstQueryValue(c, "EnableTotalRecordCount", "enableTotalRecordCount", "enabletotalrecordcount"), "true")
+		out, err := svc.Emby.Items(c.Request.Context(), params)
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return

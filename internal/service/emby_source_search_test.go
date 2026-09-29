@@ -56,7 +56,7 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 	source := &sourceSearchBackend{ids: []string{"hg-work-source"}}
 	repo.MediaView.SetSearchBackend(ordinary)
 	repo.HongGuo.SetSearchBackend(source)
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 	p := ItemsParams{UserID: "viewer", SearchTerm: "航海王", Limit: 1, IncludeItemTypes: []string{"Movie", "Series"}, Fields: []string{"BasicSyncInfo"}}
 	for offset, want := range []string{"ordinary", "hg-work-source", "nfo-local"} {
 		p.StartIndex = offset
@@ -82,12 +82,12 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 		t.Fatalf("fallback hints=%v err=%v", hints, err)
 	}
 	assertSearchHintsProjection(t, e, p)
-	e.visibilityCache["viewer"] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true, HiddenLibraryIDs: []string{lib.ID}}, expiresAt: time.Now().Add(time.Hour)}
+	e.visibilityCache[e.repo.ReadCacheKey()+"viewer"] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true, HiddenLibraryIDs: []string{lib.ID}}, expiresAt: time.Now().Add(time.Hour)}
 	page, err := e.Items(t.Context(), p)
 	if err != nil || page["TotalRecordCount"] != int64(0) {
 		t.Fatalf("hidden page=%v err=%v", page, err)
 	}
-	e.visibilityCache["viewer"] = embyVisibilityCacheEntry{visibility: MediaVisibility{LibraryRestricted: true}, expiresAt: time.Now().Add(time.Hour)}
+	e.visibilityCache[e.repo.ReadCacheKey()+"viewer"] = embyVisibilityCacheEntry{visibility: MediaVisibility{LibraryRestricted: true}, expiresAt: time.Now().Add(time.Hour)}
 	page, err = e.Items(t.Context(), p)
 	if err != nil || page["TotalRecordCount"] != int64(0) {
 		t.Fatalf("locked page=%v err=%v", page, err)
@@ -166,7 +166,7 @@ func TestEmbyHongGuoSearchKeepsPlayedFilterWithoutNFO(t *testing.T) {
 		create(&model.HongGuoMediaBinding{MediaID: id, WorkID: id})
 	}
 	create(&model.HongGuoUserState{UserID: "viewer", SourceID: "played", EpisodeNumber: 1, Completed: true})
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 	for filter, want := range map[string]string{"IsPlayed": "hg-work-played", "IsUnplayed": "hg-work-unplayed"} {
 		page, err := e.Items(t.Context(), ItemsParams{UserID: "viewer", SearchTerm: "航海王", Filters: []string{filter}, Limit: 10})
 		if err != nil {

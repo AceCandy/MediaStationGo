@@ -76,8 +76,10 @@ func (e *EmbyService) hongGuoPersons(ctx context.Context, p ItemsParams) (map[st
 		q = q.Where("id IN ?", p.IDs)
 	}
 	var total int64
-	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return nil, true, err
+	if !p.SkipTotalRecordCount {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, true, err
+		}
 	}
 	var rows []struct{ ID, Name, OriginalName, Overview, ArtworkID, SourceID string }
 	if err := q.Order("name,id").Offset(max(p.StartIndex, 0)).Limit(p.Limit).Scan(&rows).Error; err != nil {

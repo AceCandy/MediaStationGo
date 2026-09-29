@@ -13,13 +13,17 @@ import (
 // RemovePath deletes the media row for a path that has disappeared from disk
 // (incremental delete used by the watcher on Remove/Rename events).
 func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, error) {
+	if s.mediaProbe != nil {
+		s.mediaProbe.cleanupMu.RLock()
+		defer s.mediaProbe.cleanupMu.RUnlock()
+	}
 	if _, err := os.Stat(path); err == nil {
 		return 0, nil // still exists; nothing to remove
 	} else if !os.IsNotExist(err) {
 		return 0, err
 	}
 	var removedMedia model.Media
-	if err := s.repo.DB.WithContext(ctx).Select("id", "library_id", "path").Where("path = ?", path).Find(&removedMedia).Error; err != nil {
+	if err := s.repo.DB.WithContext(ctx).Select("id", "library_id", "path", "part_group_key", "part_index").Where("path = ?", path).Find(&removedMedia).Error; err != nil {
 		return 0, err
 	}
 	if removedMedia.ID == "" {
@@ -52,8 +56,11 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 	if res.Error == nil && res.RowsAffected > 0 {
 		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
-		if _, err := s.reconcileMediaParts(ctx, removedMedia.LibraryID, filepath.Dir(removedMedia.Path)); err != nil {
-			return res.RowsAffected, err
+		_, partCandidate := parseMediaPartCandidate(removedMedia.Path)
+		if partCandidate || removedMedia.PartGroupKey != "" || removedMedia.PartIndex != 0 {
+			if _, err := s.reconcileMediaParts(ctx, removedMedia.LibraryID, filepath.Dir(removedMedia.Path), false); err != nil {
+				return res.RowsAffected, err
+			}
 		}
 		s.invalidateMediaCache(ctx)
 	}
@@ -61,6 +68,10 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 }
 
 func (s *ScannerService) pruneMissingMedia(ctx context.Context, libraryID string, seen map[string]struct{}) (int64, error) {
+	if s.mediaProbe != nil {
+		s.mediaProbe.cleanupMu.RLock()
+		defer s.mediaProbe.cleanupMu.RUnlock()
+	}
 	// 只取 id/path，并把删除按批提交：此前整表载入完整 Media 结构体、
 	// 每行一条 DELETE，大库 prune 既费内存又长期占用写锁。
 	var rows []struct {
@@ -93,6 +104,10 @@ func (s *ScannerService) pruneMissingMedia(ctx context.Context, libraryID string
 }
 
 func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID, rootID, rootPath string, seen map[string]struct{}) (int64, []string, error) {
+	if s.mediaProbe != nil {
+		s.mediaProbe.cleanupMu.RLock()
+		defer s.mediaProbe.cleanupMu.RUnlock()
+	}
 	var rows []struct {
 		ID            string
 		Path          string
@@ -101,7 +116,7 @@ func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID
 	q := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
 		Select("id, path, library_root_id").
-		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%")
+		Where("library_id = ?", libraryID)
 	if strings.TrimSpace(rootID) != "" {
 		q = q.Where("library_root_id = ? OR library_root_id = '' OR library_root_id IS NULL", rootID)
 	}

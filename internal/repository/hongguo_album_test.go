@@ -44,7 +44,7 @@ func TestHongGuoOfficialAlbumsAndBackfill(t *testing.T) {
 	if err = r.SaveAlbum(ctx, works[2].SourceID, hongguo.Album{ID: "9000000000000000098", Season: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err = r.SaveAlbum(ctx, works[3].SourceID, hongguo.Album{}); err != nil {
+	if err = r.SaveAlbum(ctx, works[3].SourceID, hongguo.Album{ID: works[3].SourceID, Season: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err = r.RetryAlbum(ctx, works[0].SourceID, time.Now().Add(time.Hour)); err != nil {
@@ -58,7 +58,7 @@ func TestHongGuoOfficialAlbumsAndBackfill(t *testing.T) {
 	if err != nil || len(rows) != 100 || rows[0].SourceID != works[0].SourceID {
 		t.Fatalf("remaining=%d err=%v", len(rows), err)
 	}
-	// 网页详情更新与补充结果隔离，包括成功无关系的检查点。
+	// 网页详情更新不能覆盖已核验的合集关系。
 	if _, err = r.SaveDetail(ctx, hongguo.Work{SourceID: works[0].SourceID, Title: "更新后的标题", Snapshot: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,5 +68,24 @@ func TestHongGuoOfficialAlbumsAndBackfill(t *testing.T) {
 	}
 	if err = r.SaveAlbum(ctx, works[0].SourceID, hongguo.Album{ID: "bad", Season: 1}); err == nil {
 		t.Fatal("invalid relation accepted")
+	}
+	if err = r.SaveAlbum(ctx, works[0].SourceID, hongguo.Album{}); err == nil {
+		t.Fatal("empty relation accepted")
+	}
+	// 已检查但仍缺字段的作品也必须重新请求接口，不能被旧检查点跳过。
+	if err = db.Model(&model.HongGuoWork{}).Where("id = ?", works[1].ID).Updates(map[string]any{"related_album_id": "", "season_index": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Model(&model.HongGuoWork{}).Where("id = ?", works[2].ID).Update("season_index", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows, err = r.PendingAlbums(ctx, "", time.Now())
+	if err != nil || len(rows) != 100 || rows[1].SourceID != works[1].SourceID || rows[2].SourceID != works[2].SourceID {
+		t.Fatalf("missing relations skipped: %+v %v", rows, err)
+	}
+	for _, row := range rows {
+		if row.SourceID == works[3].SourceID {
+			t.Fatal("checked standalone retried")
+		}
 	}
 }

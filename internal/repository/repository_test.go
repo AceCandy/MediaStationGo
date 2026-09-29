@@ -74,13 +74,6 @@ func TestNormalizeMetadataIdentifierAcceptsCatalogProvidersAndKinds(t *testing.T
 	}
 }
 
-func TestMediaUpsertRejectsRetiredCloudPath(t *testing.T) {
-	err := (&MediaRepository{}).Upsert(t.Context(), &model.Media{Path: " CLOUD://OpenList/movie.mkv "})
-	if !errors.Is(err, errCloudMediaPathUnsupported) {
-		t.Fatalf("error = %v, want errCloudMediaPathUnsupported", err)
-	}
-}
-
 func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -226,7 +219,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 		PermanentBase: model.PermanentBase{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
 		Title: "第一集", OriginalName: "Episode One", Overview: "剧情简介",
 		Rating: 8.6, Year: 2026, EpisodeNum: 1, Languages: "zh,en", Countries: "CN",
-		Genres: "剧情,悬疑", NSFW: true, Source: "tmdb",
+		Genres: "剧情,悬疑", Source: "tmdb",
 	},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "601"},
 		model.MetadataIdentifier{Provider: "bangumi", EntityKind: model.MetadataKindEpisode, ExternalID: "602"},
@@ -277,7 +270,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 	if view.TMDbID != 601 || view.BangumiID != 602 || view.DoubanID != "db-e1" || view.TheTVDBID != "tvdb-e1" {
 		t.Fatalf("shared provider identifiers not projected: %#v", view)
 	}
-	if view.Year != 2026 || view.SeasonNum != 1 || view.EpisodeNum != 1 || view.Rating != 8.6 || view.Languages != "zh,en" || view.Countries != "CN" || view.Genres != "剧情,悬疑" || !view.NSFW {
+	if view.Year != 2026 || view.SeasonNum != 1 || view.EpisodeNum != 1 || view.Rating != 8.6 || view.Languages != "zh,en" || view.Countries != "CN" || view.Genres != "剧情,悬疑" {
 		t.Fatalf("shared detail metadata not projected: %#v", view)
 	}
 }
@@ -488,7 +481,7 @@ func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
 	repos.Media.SetSearchBackend(&fakeMediaSearchBackend{
 		ids: []string{"metadata-2", "metadata-1"}, requestedOffset: &requestedOffset, requestedLimit: &requestedLimit,
 	})
-	items, total, err := repos.Media.SearchFilteredPage(t.Context(), "a", 0, 10, MediaQueryFilter{IncludeNSFW: true})
+	items, total, err := repos.Media.SearchFilteredPage(t.Context(), "a", 0, 10, MediaQueryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +493,7 @@ func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
 	}
 
 	repos.Media.SetSearchBackend(&fakeMediaSearchBackend{err: errors.New("opensearch down")})
-	items, total, err = repos.Media.SearchFilteredPage(t.Context(), "Alpha", 0, 10, MediaQueryFilter{IncludeNSFW: true})
+	items, total, err = repos.Media.SearchFilteredPage(t.Context(), "Alpha", 0, 10, MediaQueryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +545,7 @@ func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 		}
 	}
 
-	items, err := repos.Media.SearchFiltered(t.Context(), "灵魂 十年", 10, MediaQueryFilter{IncludeNSFW: true})
+	items, err := repos.Media.SearchFiltered(t.Context(), "灵魂 十年", 10, MediaQueryFilter{})
 	if err != nil {
 		t.Fatalf("search chinese terms: %v", err)
 	}
@@ -560,7 +553,7 @@ func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 		t.Fatalf("chinese fuzzy search missed target: %#v", items)
 	}
 
-	items, err = repos.Media.SearchFiltered(t.Context(), "Ferry", 10, MediaQueryFilter{IncludeNSFW: true})
+	items, err = repos.Media.SearchFiltered(t.Context(), "Ferry", 10, MediaQueryFilter{})
 	if err != nil {
 		t.Fatalf("search original name: %v", err)
 	}
@@ -568,7 +561,7 @@ func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 		t.Fatalf("original-name search missed target: %#v", items)
 	}
 
-	items, err = repos.Media.SearchFiltered(t.Context(), "悬疑", 10, MediaQueryFilter{IncludeNSFW: true})
+	items, err = repos.Media.SearchFiltered(t.Context(), "悬疑", 10, MediaQueryFilter{})
 	if err != nil {
 		t.Fatalf("search genre: %v", err)
 	}

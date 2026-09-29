@@ -386,7 +386,7 @@ func TestEmbyHongGuoDetailClickRoutes(t *testing.T) {
 		{"/Shows/hg-group-album/Seasons", "hg-season-work-1", "Season", "hg-group-album", 2, true},
 		{"/Users/user-1/Shows/hg-group-album/Episodes", "hg-episode-episode-1", "Episode", "hg-season-work-1", 2, true},
 		{"/shows/hg-group-album/episodes?seasonId=hg-season-work-2", "hg-episode-episode-2", "Episode", "hg-season-work-2", 1, false},
-		{"/Users/user-1/Items?ParentId=hg-group-album&IncludeItemTypes=Episode&Recursive=true&Limit=1&StartIndex=1", "hg-episode-episode-2", "Episode", "hg-season-work-2", 2, false},
+		{"/Users/user-1/Items?ParentId=hg-group-album&IncludeItemTypes=Episode&Recursive=true&Limit=1&StartIndex=1&EnableTotalRecordCount=true", "hg-episode-episode-2", "Episode", "hg-season-work-2", 2, false},
 	} {
 		for _, prefix := range []string{"", "/emby"} {
 			request := httptest.NewRequest(http.MethodGet, prefix+tc.path, nil)

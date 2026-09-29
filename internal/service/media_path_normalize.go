@@ -43,10 +43,6 @@ func sameLibraryPath(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-func isRetiredCloudPath(value string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "cloud://")
-}
-
 func pathBaseSlash(value string) string {
 	value = strings.Trim(strings.ReplaceAll(strings.TrimSpace(value), "\\", "/"), "/")
 	if value == "" {

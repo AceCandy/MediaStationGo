@@ -16,7 +16,7 @@ import (
 // Search runs a LIKE search against the title field. Empty query returns the
 // most recently added items.
 func (r *MediaRepository) Search(ctx context.Context, query string, limit int) ([]model.Media, error) {
-	return r.SearchFiltered(ctx, query, limit, MediaQueryFilter{IncludeNSFW: true})
+	return r.SearchFiltered(ctx, query, limit, MediaQueryFilter{})
 }
 
 func (r *MediaRepository) SearchFiltered(ctx context.Context, query string, limit int, filter MediaQueryFilter) ([]model.Media, error) {
@@ -54,7 +54,6 @@ func mediaViewsToMedia(views []model.MediaView) []model.Media {
 		row.Languages = view.Languages
 		row.Countries = view.Countries
 		row.Genres = view.Genres
-		row.NSFW = view.NSFW
 		rows = append(rows, row)
 	}
 	return rows
@@ -268,17 +267,21 @@ func stringSet(values []string) map[string]struct{} {
 func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter MetadataSearchFilter) *gorm.DB {
 	q := r.db.WithContext(ctx).
 		Table("metadata_items AS search_metadata").
-		Where("search_metadata.kind IN ?", filter.Kinds).
-		Where(metadataPlayableExistsSQL)
-	if !filter.IncludeNSFW {
-		q = q.Where("search_metadata.nsfw = FALSE")
-	}
+		Where("search_metadata.kind IN ?", filter.Kinds)
+	visible := filter.MediaQueryFilter
+	qualification := metadataPlayableExistsSQL
+	var args []any
 	if filter.LibraryRestricted {
 		if len(filter.VisibleLibraryIDs) == 0 {
 			return q.Where("FALSE")
 		}
-		q = q.Where(metadataPlayableInLibrariesSQL, &filter.VisibleLibraryIDs, &filter.VisibleLibraryIDs)
+		visible.AllowedLibraryIDs = filter.VisibleLibraryIDs
+		qualification = metadataPlayableInLibrariesSQL
+		args = []any{&filter.VisibleLibraryIDs, &filter.VisibleLibraryIDs}
 	}
+	q = FilterVisibleWorkLibraries(r.db.WithContext(ctx), q, "search_metadata.library_ids", nil, visible)
+	// 叶子作品的有效库归属已证明存在；整剧仍需满足搜索的季→集→文件结构。
+	q = q.Where("CASE WHEN search_metadata.kind='movie' AND search_metadata.library_ids IS NOT NULL AND search_metadata.library_ids <> '[]'::jsonb AND search_metadata.latest_media_added_at IS NOT NULL THEN TRUE ELSE "+qualification+" END", args...)
 	if len(filter.PersonIDs) > 0 {
 		q = q.Where(`EXISTS (
 			SELECT 1 FROM metadata_credits AS search_credit
@@ -450,7 +453,6 @@ type metadataSearchPresentation struct {
 	Languages         string  `gorm:"column:languages"`
 	Countries         string  `gorm:"column:countries"`
 	Genres            string  `gorm:"column:genres"`
-	NSFW              bool    `gorm:"column:nsfw"`
 	Source            string  `gorm:"column:source"`
 	TMDbExternalID    string  `gorm:"column:tmdb_external_id"`
 	BangumiExternalID string  `gorm:"column:bangumi_external_id"`
@@ -462,8 +464,8 @@ type metadataSearchPresentation struct {
 
 // FindSeriesPresentation 读取整剧自身的展示资料；调用方必须先验证关联文件可见性。
 // 不要求存在分集文件，允许文件直接关联整剧或季。
-func (r *MediaViewRepository) FindSeriesPresentation(ctx context.Context, metadataID string, includeNSFW bool) (*model.MediaView, error) {
-	rows, err := r.FindSeriesPresentations(ctx, []string{metadataID}, includeNSFW)
+func (r *MediaViewRepository) FindSeriesPresentation(ctx context.Context, metadataID string) (*model.MediaView, error) {
+	rows, err := r.FindSeriesPresentations(ctx, []string{metadataID})
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +477,7 @@ func (r *MediaViewRepository) FindSeriesPresentation(ctx context.Context, metada
 }
 
 // FindSeasonPresentation 读取季自身的资料与图片；调用方必须先验证所属文件可见性。
-func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metadataID string, includeNSFW bool) (*model.MediaView, error) {
+func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metadataID string) (*model.MediaView, error) {
 	if strings.HasPrefix(metadataID, "hg-season-") {
 		rows, err := r.hongGuoPresentations(ctx, []string{metadataID}, true)
 		view, ok := rows[metadataID]
@@ -485,14 +487,14 @@ func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metada
 		return &view, nil
 	}
 	if strings.HasPrefix(metadataID, "nfo-") {
-		return r.NFOPresentation(ctx, metadataID, includeNSFW)
+		return r.NFOPresentation(ctx, metadataID)
 	}
 	rows, err := r.metadataSearchPresentations(ctx, []string{metadataID})
 	if err != nil {
 		return nil, err
 	}
 	row, ok := rows[metadataID]
-	if !ok || row.Kind != model.MetadataKindSeason || (row.NSFW && !includeNSFW) {
+	if !ok || row.Kind != model.MetadataKindSeason {
 		return nil, nil
 	}
 	view := model.MediaView{Media: model.Media{PermanentBase: model.PermanentBase{ID: metadataID}}}
@@ -502,7 +504,7 @@ func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metada
 }
 
 // FindSeriesPresentations 批量读取整剧展示字段；调用方只可传入已验证文件可见性的整剧 ID。
-func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metadataIDs []string, includeNSFW bool) (map[string]model.MediaView, error) {
+func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metadataIDs []string) (map[string]model.MediaView, error) {
 	out := make(map[string]model.MediaView)
 	ordinaryIDs := make([]string, 0, len(metadataIDs))
 	hongGuoIDs := []string{}
@@ -510,7 +512,7 @@ func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metad
 		if strings.HasPrefix(id, "hg-") {
 			hongGuoIDs = append(hongGuoIDs, id)
 		} else if strings.HasPrefix(id, "nfo-") {
-			view, err := r.NFOPresentation(ctx, id, includeNSFW)
+			view, err := r.NFOPresentation(ctx, id)
 			if err != nil {
 				return nil, err
 			}
@@ -538,7 +540,7 @@ func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metad
 	}
 	views := make([]model.MediaView, 0, len(rows))
 	for id, row := range rows {
-		if row.Kind != model.MetadataKindSeries || (row.NSFW && !includeNSFW) {
+		if row.Kind != model.MetadataKindSeries {
 			continue
 		}
 		view := model.MediaView{Media: model.Media{PermanentBase: model.PermanentBase{ID: id}}}
@@ -603,7 +605,6 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 		return result, nil
 	}
 	topID := "CASE WHEN attached_metadata.kind = 'movie' THEN attached_metadata.id WHEN attached_metadata.kind = 'episode' THEN top_series.id ELSE NULL END"
-	topNSFW := "CASE WHEN attached_metadata.kind = 'movie' THEN attached_metadata.nsfw WHEN attached_metadata.kind = 'episode' THEN top_series.nsfw ELSE TRUE END"
 	// 保留候选驱动的索引读取，避免优化器把代表文件查询展开为全媒体扫描。
 	base := r.db.WithContext(ctx).
 		Table("(?) AS candidates", r.logicalMetadataCandidates(ctx, metadataIDs)).
@@ -612,9 +613,6 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 		Joins("LEFT JOIN metadata_items AS top_season ON top_season.id = attached_metadata.parent_id AND attached_metadata.kind = 'episode' AND top_season.kind = 'season'").
 		Joins("LEFT JOIN metadata_items AS top_series ON top_series.id = top_season.parent_id AND top_series.kind = 'series'").
 		Where(topID+" IN ?", metadataIDs)
-	if !filter.IncludeNSFW {
-		base = base.Where("COALESCE(" + topNSFW + ", TRUE) = FALSE")
-	}
 	if len(filter.HiddenLibraryIDs) > 0 {
 		base = base.Where("search_media.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
@@ -678,7 +676,6 @@ func (r *MediaViewRepository) metadataSearchPresentations(ctx context.Context, m
 			COALESCE(search_metadata.languages, '') AS languages,
 			COALESCE(search_metadata.countries, '') AS countries,
 			COALESCE(search_metadata.genres, '') AS genres,
-			COALESCE(search_metadata.nsfw, FALSE) AS nsfw,
 			COALESCE(search_metadata.source, '') AS source,
 			COALESCE(search_identifiers.tmdb_external_id, '') AS tmdb_external_id,
 			COALESCE(search_identifiers.bangumi_external_id, '') AS bangumi_external_id,
@@ -721,7 +718,6 @@ func applyMetadataSearchPresentation(view *model.MediaView, row metadataSearchPr
 	view.Languages = row.Languages
 	view.Countries = row.Countries
 	view.Genres = row.Genres
-	view.NSFW = row.NSFW
 	view.MetadataKind = row.Kind
 	view.MetadataSource = row.Source
 	view.TMDbExternalID = row.TMDbExternalID
@@ -935,7 +931,7 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 		sort.Strings(libraryIDs)
 		documents = append(documents, MetadataSearchDocument{
 			ID: item.ID, Kind: item.Kind, Title: item.Title, OriginalName: item.OriginalName,
-			Overview: item.Overview, Genres: item.Genres, NSFW: item.NSFW, LibraryIDs: libraryIDs,
+			Overview: item.Overview, Genres: item.Genres, LibraryIDs: libraryIDs,
 		})
 	}
 	return documents, nil

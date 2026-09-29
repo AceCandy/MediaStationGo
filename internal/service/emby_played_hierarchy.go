@@ -13,7 +13,12 @@ import (
 // containerEpisodeScope 让整剧/季的写入和汇总使用同一组可见、有文件的分集。
 func (e *EmbyService) containerEpisodeScope(ctx context.Context, userID string, ids []string) *gorm.DB {
 	q := e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), userID)
-	return seriesScopeQuery(q).Where("emby_metadata.kind = 'episode'").
+	// 先收紧季范围，避免跨表 OR 让规划器先连接整库的季与剧。
+	seasons := e.repo.DB.WithContext(ctx).Table("metadata_items").Select("id,parent_id").
+		Where("kind = 'season' AND (id IN ? OR parent_id IN ?)", ids, ids)
+	return q.Joins("JOIN (? OFFSET 0) AS scope_season ON scope_season.id = emby_metadata.parent_id", seasons).
+		Joins("JOIN metadata_items AS scope_series ON scope_series.id = scope_season.parent_id AND scope_series.kind = 'series'").
+		Where("emby_metadata.kind = 'episode'").
 		Where("scope_season.id IN ? OR scope_series.id IN ?", ids, ids)
 }
 
@@ -32,10 +37,10 @@ func (e *EmbyService) playbackForContainers(ctx context.Context, userID string, 
 	var rows []embyContainerPlayback
 	q := e.containerEpisodeScope(ctx, userID, ids).
 		Joins("CROSS JOIN LATERAL (VALUES (scope_season.id), (scope_series.id)) AS container(id)").
-		Joins("LEFT JOIN (?) AS history ON history.metadata_id = media.metadata_id", repository.PlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID))).
+		Joins("LEFT JOIN LATERAL (? OFFSET 0) AS history ON TRUE", repository.CompletedPlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID)).Where("metadata_id = media.metadata_id")).
 		Where("container.id IN ?", ids).
-		Select(`container.id, BOOL_AND(COALESCE(history.completed, FALSE)) AS played,
- COUNT(DISTINCT media.metadata_id) FILTER (WHERE NOT COALESCE(history.completed, FALSE)) AS unplayed_item_count`).Group("container.id")
+		Select(`container.id, BOOL_AND(history.metadata_id IS NOT NULL) AS played,
+ COUNT(DISTINCT media.metadata_id) FILTER (WHERE history.metadata_id IS NULL) AS unplayed_item_count`).Group("container.id")
 	if err := q.Scan(&rows).Error; err == nil {
 		for _, row := range rows {
 			result[row.ID] = row

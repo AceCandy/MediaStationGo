@@ -17,30 +17,18 @@ func (c *Container) NormalizeLocalLibraryPaths(ctx context.Context) error {
 		return err
 	}
 	for _, lib := range libs {
-		if isRetiredCloudPath(lib.Path) {
-			continue
-		}
 		if len(lib.Roots) == 0 {
 			normalized := normalizePersistedLocalLibraryPath(lib.Path)
 			if sameLibraryPath(normalized, lib.Path) {
 				continue
 			}
-			if err := c.Repo.DB.WithContext(ctx).
-				Model(&model.Library{}).
-				Where("id = ?", lib.ID).
-				Update("path", normalized).Error; err != nil {
+			if err := c.Repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": normalized}); err != nil {
 				return err
 			}
 			continue
 		}
 		primaryPath := ""
 		for i, root := range lib.Roots {
-			if isRetiredCloudPath(root.Path) {
-				if i == 0 {
-					primaryPath = root.Path
-				}
-				continue
-			}
 			normalized := normalizePersistedLocalLibraryPath(root.Path)
 			if i == 0 {
 				primaryPath = normalized
@@ -56,10 +44,7 @@ func (c *Container) NormalizeLocalLibraryPaths(ctx context.Context) error {
 			}
 		}
 		if strings.TrimSpace(primaryPath) != "" && !sameLibraryPath(primaryPath, lib.Path) {
-			if err := c.Repo.DB.WithContext(ctx).
-				Model(&model.Library{}).
-				Where("id = ?", lib.ID).
-				Update("path", primaryPath).Error; err != nil {
+			if err := c.Repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": primaryPath}); err != nil {
 				return err
 			}
 		}

@@ -12,7 +12,7 @@ func parseAdultDetailHTML(body, code, source, detailURL string) *Match {
 	match := &Match{
 		OriginalName: code,
 		MediaType:    "adult",
-		NSFW:         true,
+		Source:       "adult",
 		Genres:       []string{"Adult", source},
 	}
 	if title := firstAdultTitle(body, code); title != "" {

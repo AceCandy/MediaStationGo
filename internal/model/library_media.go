@@ -80,7 +80,6 @@ type Media struct {
 	Languages         string  `gorm:"-" json:"languages,omitempty"`
 	Countries         string  `gorm:"-" json:"countries,omitempty"`
 	Genres            string  `gorm:"-" json:"genres,omitempty"`
-	NSFW              bool    `gorm:"-" json:"nsfw"`
 
 	// STRMURL is the indirection target for .strm files: when present the
 	// stream handler redirects to it instead of opening the local file.

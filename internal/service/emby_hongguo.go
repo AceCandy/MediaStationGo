@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
 	"strings"
 	"time"
 
@@ -71,6 +70,7 @@ func (e *EmbyService) hongGuoItemNodes(ctx context.Context, userID string, ids .
 	} else {
 		workIDs := e.repo.DB.Table("hongguo_works").Select("id").Where(`id = ANY(?) OR
  (related_album_id = ANY(?) AND related_album_id <> '' AND kind = 'series' AND season_index > 0)`, &works, &groups)
+		workIDs = e.workLibraryScope(ctx, workIDs, "hongguo_works.library_ids", ItemsParams{UserID: userID})
 		bindings = bindings.Where("scoped_binding.work_id IN (?)", workIDs)
 		if len(episodes) > 0 {
 			// 分开走作品/分集绑定索引；UNION 去重父子重叠文件，避免 OR 全扫。
@@ -145,7 +145,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		limit = 20
 	}
 	if parentID != "" && !strings.HasPrefix(parentID, "hg-") && !strings.HasPrefix(parentID, "nfo-") {
-		library, err := e.repo.Library.FindByID(ctx, parentID)
+		library, err := FindLibraryBasic(ctx, e.repo, e.cache, parentID)
 		if err != nil {
 			return nil, err
 		}
@@ -192,7 +192,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		}
 	}
 	if parentID != "" {
-		library, err := e.repo.Library.FindByID(ctx, parentID)
+		library, err := FindLibraryBasic(ctx, e.repo, e.cache, parentID)
 		if err != nil {
 			return nil, err
 		}
@@ -207,32 +207,8 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	if !hasSource {
 		return e.legacyLatestItems(ctx, userID, parentID, limit, isPlayed, fields...)
 	}
-	items := []map[string]any{}
-	dates := map[string]time.Time{}
 	if parentID == "" {
-		legacy, err := e.legacyLatestItems(ctx, userID, parentID, limit, isPlayed, fields...)
-		if err != nil {
-			return nil, err
-		}
-		ids := []string{}
-		for _, item := range legacy {
-			if id, ok := item["Id"].(string); ok {
-				ids = append(ids, id)
-			}
-		}
-		if len(ids) > 0 {
-			var rows []struct {
-				MetadataID string
-				LatestAt   time.Time
-			}
-			if err := e.repo.DB.WithContext(ctx).Table("metadata_items").Where("id IN ?", ids).Select("id AS metadata_id, latest_media_added_at AS latest_at").Scan(&rows).Error; err != nil {
-				return nil, err
-			}
-			for _, row := range rows {
-				dates[row.MetadataID] = row.LatestAt
-			}
-		}
-		items = append(items, legacy...)
+		return e.mixedLatestItems(ctx, userID, limit, isPlayed, fields)
 	}
 	p := ItemsParams{UserID: userID, ParentID: parentID, Fields: fields}
 	if isPlayed {
@@ -240,12 +216,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	} else {
 		p.Filters = []string{"IsUnplayed"}
 	}
-	q := e.hongGuoGlobalCandidates(ctx, p).Where("played = ?", isPlayed)
-	if parentID == "" {
-		q = q.Where("kind IN ('movie','episode')")
-	} else {
-		q = e.hongGuoGlobalWorkCandidates(ctx, p).Where("played = ?", isPlayed)
-	}
+	q := e.hongGuoGlobalWorkCandidates(ctx, p).Where("played = ?", isPlayed)
 	var nodes []hongGuoNode
 	if err := q.Select("id,latest_at").Order("latest_at DESC, id").Limit(limit).Scan(&nodes).Error; err != nil {
 		return nil, err
@@ -254,25 +225,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	for _, node := range nodes {
 		ids = append(ids, node.ID)
 	}
-	sourceItems, err := e.globalItemPayloads(ctx, ids, p)
-	if err != nil {
-		return nil, err
-	}
-	items = append(items, sourceItems...)
-	for _, node := range nodes {
-		dates[node.ID] = node.LatestAt
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		left, right := items[i]["Id"].(string), items[j]["Id"].(string)
-		if dates[left].Equal(dates[right]) {
-			return left < right
-		}
-		return dates[left].After(dates[right])
-	})
-	if len(items) > limit {
-		items = items[:limit]
-	}
-	return items, nil
+	return e.globalItemPayloads(ctx, ids, p)
 }
 
 func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) (map[string]any, bool, error) {
@@ -282,7 +235,7 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		if p.ParentID == "" {
 			return nil, false, nil
 		}
-		lib, err := e.repo.Library.FindByID(ctx, p.ParentID)
+		lib, err := FindLibraryBasic(ctx, e.repo, e.cache, p.ParentID)
 		if err != nil {
 			return nil, true, err
 		}
@@ -293,11 +246,11 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		local = libraryUsesNFOOnly(lib)
 	}
 	if libraryID != "" && !local && hongGuoLibraryPageSupported(p) {
-		items, total, err := e.hongGuoLibraryItems(ctx, p, true)
+		items, total, err := e.hongGuoLibraryItems(ctx, p, !p.SkipTotalRecordCount)
 		return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, err
 	}
 	if libraryID != "" && local && hongGuoLibraryPageSupported(p) {
-		items, total, err := e.nfoLibraryItems(ctx, p, true)
+		items, total, err := e.nfoLibraryItems(ctx, p, !p.SkipTotalRecordCount)
 		return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, err
 	}
 	nodesQuery := e.hongGuoNodes
@@ -355,11 +308,15 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		q = e.repo.DB.WithContext(ctx).Table("(?) AS grouped_resume", q.Select("DISTINCT ON (resume_key) *").Order("resume_key, played_at DESC, id DESC"))
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, true, err
+	if !p.SkipTotalRecordCount {
+		if err := q.Count(&total).Error; err != nil {
+			return nil, true, err
+		}
 	}
 	order := "title"
-	if strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
+	if embyRandomSort(p) {
+		order = embyRandomOrder(p, "id")
+	} else if strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
 		order = "created_at"
 	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
 		order = "latest_at"
@@ -370,7 +327,7 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		order += " DESC"
 	}
 	var nodes []hongGuoNode
-	if !resumeFilter {
+	if !resumeFilter && !embyRandomSort(p) {
 		q = q.Order("season_number, episode_number")
 	}
 	if err := q.Order(order).Order("id").Limit(p.Limit).Offset(p.StartIndex).Scan(&nodes).Error; err != nil {

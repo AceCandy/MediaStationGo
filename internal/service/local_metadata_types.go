@@ -20,7 +20,6 @@ type LocalMetadata struct {
 	EpisodeGenres            string
 	EpisodeCountries         string
 	EpisodeLanguages         string
-	EpisodeNSFW              bool
 	AdultCode                string
 	Year                     int
 	ReleaseDate              string
@@ -37,7 +36,6 @@ type LocalMetadata struct {
 	Genres                   string
 	Countries                string
 	Languages                string
-	NSFW                     bool
 	HasNFO                   bool
 	HasArtwork               bool
 	PathHint                 bool

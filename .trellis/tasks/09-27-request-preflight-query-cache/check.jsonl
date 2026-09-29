@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/session-and-transfer-safety.md", "reason": "核验认证与权限缓存不回退"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQL 次数与真实数据库测试"}

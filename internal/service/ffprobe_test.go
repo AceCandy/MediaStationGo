@@ -103,6 +103,33 @@ func TestFFprobeFailureDoesNotStartFFmpeg(t *testing.T) {
 	}
 }
 
+func TestFFprobeFileReadsOpenedObjectAfterPathReplacement(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("fixed file descriptor input is Linux-only")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "movie.mkv")
+	writeTestFile(t, path, `{"format":{"duration":"123"}}`)
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, path, `{"format":{"duration":"999"}}`)
+	bin := filepath.Join(dir, "ffprobe")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nfor input; do :; done\ncat \"$input\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewFFprobeService(&config.Config{App: config.AppConfig{FFprobePath: bin}}, zap.NewNop())
+	got, err := svc.ProbeFile(t.Context(), file)
+	if err != nil || got == nil || got.DurationSec != 123 {
+		t.Fatalf("fixed object probe = %#v, %v", got, err)
+	}
+}
+
 func TestFFprobeFailureIncludesSanitizedStderr(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")

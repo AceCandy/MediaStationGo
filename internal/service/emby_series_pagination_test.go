@@ -24,7 +24,7 @@ func (l *seriesPageReadLog) Trace(ctx context.Context, begin time.Time, fc func(
 	if strings.Contains(sql, "BOOL_AND") {
 		l.playedQueries = append(l.playedQueries, sql)
 	}
-	if strings.Contains(sql, "AS scoped_series") || strings.Contains(sql, "AS series_id") || strings.Contains(sql, "ARRAY_AGG(m.id") || strings.Contains(sql, "FROM metadata_items recent") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") {
+	if strings.Contains(sql, "AS scoped_series") || strings.Contains(sql, "AS series_id") || strings.Contains(sql, "ARRAY_AGG(m.id") || strings.Contains(sql, "FROM metadata_items recent") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") {
 		l.queries = append(l.queries, sql)
 	}
 	l.Interface.Trace(ctx, begin, func() (string, int64) { return sql, rows }, err)
@@ -68,7 +68,7 @@ SELECT 'state-'||id,'viewer',id,'file-'||id||'-1',TRUE FROM metadata_items WHERE
 	}
 	var queries []statement
 	capture := func(tx *gorm.DB) {
-		if !tx.DryRun && strings.HasPrefix(tx.Statement.SQL.String(), "SELECT") && strings.Contains(tx.Statement.SQL.String(), "ORDER BY recent.latest_media_added_at") {
+		if !tx.DryRun && strings.HasPrefix(tx.Statement.SQL.String(), "WITH work_batch AS MATERIALIZED") {
 			queries = append(queries, statement{tx.Statement.SQL.String(), append([]any(nil), tx.Statement.Vars...)})
 		}
 	}
@@ -134,7 +134,7 @@ SELECT 'state-'||id,'viewer',id,'file-'||id||'-1',TRUE FROM metadata_items WHERE
 					if count > 0 && firstID != wantID {
 						t.Fatalf("%s user=%s played=%v first=%s want=%s", kind, user, played, firstID, wantID)
 					}
-					if len(queries) != 1 {
+					if len(queries) == 0 || count > 0 && len(queries) != 1 {
 						t.Fatalf("candidate queries=%d", len(queries))
 					}
 					candidates := append([]statement(nil), queries...)
@@ -158,6 +158,7 @@ SELECT 'state-'||id,'viewer',id,'file-'||id||'-1',TRUE FROM metadata_items WHERE
 							t.Fatal(err)
 						}
 						type planNode struct {
+							Subplan  string     `json:"Subplan Name"`
 							Relation string     `json:"Relation Name"`
 							Alias    string     `json:"Alias"`
 							Index    string     `json:"Index Name"`
@@ -174,12 +175,17 @@ SELECT 'state-'||id,'viewer',id,'file-'||id||'-1',TRUE FROM metadata_items WHERE
 						if err := json.Unmarshal(raw, &plans); err != nil {
 							t.Fatal(err)
 						}
-						var inspect func(planNode)
-						inspect = func(n planNode) {
-							if strings.HasPrefix(kind, "small-") && n.Alias == "metadata_items" && (n.Rows+n.Removed)*n.Loops > 1500 {
-								t.Errorf("small library scanned unrelated metadata: %+v", n)
+						candidateNodes := 0
+						candidateRows := 0.0
+						var inspect func(planNode, bool)
+						inspect = func(n planNode, candidateScope bool) {
+							candidateScope = candidateScope || n.Subplan == "CTE work_batch"
+							candidateScan := candidateScope && n.Relation == "metadata_items"
+							if candidateScan {
+								candidateNodes++
+								candidateRows += (n.Rows + n.Removed) * n.Loops
 							}
-							if n.Alias == "metadata_items" && user == "empty-history" && !played {
+							if candidateScan && user == "empty-history" && !played {
 								t.Logf("%s membership %s index=%s visited=%.0f", kind, n.Type, n.Index, (n.Rows+n.Removed)*n.Loops)
 							}
 							// 无已看记录时允许穷尽候选，但不能整表加载文件；命中页则应提前结束。
@@ -194,10 +200,16 @@ SELECT 'state-'||id,'viewer',id,'file-'||id||'-1',TRUE FROM metadata_items WHERE
 								t.Errorf("%s user=%s played=%v candidate expanded unrelated files: rows=%v loops=%v", kind, user, played, n.Rows+n.Removed, n.Loops)
 							}
 							for _, child := range n.Plans {
-								inspect(child)
+								inspect(child, candidateScope)
 							}
 						}
-						inspect(plans[0].Plan)
+						inspect(plans[0].Plan, false)
+						if candidateNodes == 0 {
+							t.Fatal("candidate metadata scan not inspected")
+						}
+						if candidateRows > 1500 {
+							t.Errorf("%s candidate scanned unrelated metadata: %.0f", kind, candidateRows)
+						}
 						t.Logf("%s user=%s played=%v %.3f ms", kind, user, played, plans[0].ExecutionTime)
 					}
 				}
@@ -233,6 +245,105 @@ SELECT 'state-'||id,'viewer',id,'file-'||id||'-1',TRUE FROM metadata_items WHERE
 			t.Fatalf("write step=%d lost membership: %s", i, libraries)
 		}
 		t.Logf("incremental write step=%d %.3f ms", i, plans[0].ExecutionTime)
+	}
+}
+
+// 密集库的准确总数只需为每部剧找到一个合格文件，不能展开所有版本。
+func TestEmbySeriesDenseCountPlan(t *testing.T) {
+	svc := newTestEmbyService(t)
+	db := svc.repo.DB
+	for _, sql := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,502) n`,
+		`INSERT INTO metadata_items(id,kind,title,source,parent_id) SELECT 'season-'||n,'season','Season','local','show-'||n FROM generate_series(1,502) n`,
+		`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) SELECT 'ep-'||s||'-'||e,'episode','Episode','local','season-'||s,e FROM generate_series(1,502) s CROSS JOIN generate_series(1,40) e`,
+		`INSERT INTO media(id,library_id,path,metadata_id,season_num,episode_num,created_at)
+SELECT 'file-'||s||'-'||e||'-'||v,'tv','/fixture/'||s||'-'||e||'-'||v,'ep-'||s||'-'||e,1,e,TIMESTAMP '2026-01-01'
+FROM generate_series(1,500) s CROSS JOIN generate_series(1,40) e CROSS JOIN generate_series(1,2) v`,
+		`INSERT INTO media(id,library_id,path,metadata_id,season_num,episode_num,created_at) VALUES
+('direct-show','tv','/fixture/direct-show','show-501',1,1,now()),
+('direct-season','tv','/fixture/direct-season','season-502',1,1,now()),
+('invalid-episode','tv','/fixture/invalid-episode','ep-502-1',0,0,now())`,
+		`ANALYZE metadata_items`, `ANALYZE media`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var countSQL string
+	var countVars []any
+	if err := db.Callback().Row().After("gorm:row").Register("test:dense-count", func(tx *gorm.DB) {
+		if sql := tx.Statement.SQL.String(); !tx.DryRun && strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") && strings.Contains(sql, "SELECT COUNT(*) FROM") {
+			countSQL, countVars = sql, append([]any(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p := ItemsParams{UserID: "viewer", ParentID: "tv", SortBy: "DateLastContentAdded", SortOrder: "Descending", Limit: 3}
+	files := svc.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}).
+		Where("media.library_id='tv'").Where("media.season_num > 0 OR media.episode_num > 0"), p.UserID)
+	got, total, err := svc.seriesWorkPage(t.Context(), files, p, 0, 3)
+	if err != nil || total != 500 || len(got) != 3 {
+		t.Fatalf("dense page: groups=%v total=%d err=%v", got, total, err)
+	}
+	if countSQL == "" {
+		t.Fatal("count query not captured")
+	}
+	var raw []byte
+	if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+countSQL, countVars...).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	type planNode struct {
+		Relation string     `json:"Relation Name"`
+		Rows     float64    `json:"Actual Rows"`
+		Removed  float64    `json:"Rows Removed by Filter"`
+		Loops    float64    `json:"Actual Loops"`
+		Plans    []planNode `json:"Plans"`
+	}
+	var plans []struct {
+		Plan          planNode
+		ExecutionTime float64 `json:"Execution Time"`
+	}
+	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("invalid plan: %v", err)
+	}
+	visited := map[string]float64{}
+	var inspect func(planNode)
+	inspect = func(n planNode) {
+		if n.Relation != "" {
+			visited[n.Relation] += (n.Rows + n.Removed) * n.Loops
+		}
+		if (n.Relation == "media" || n.Relation == "metadata_items") && ((n.Rows+n.Removed)*n.Loops > 5000 || n.Loops > 5000) {
+			t.Errorf("dense count expanded files/catalog: relation=%s rows=%v removed=%v loops=%v", n.Relation, n.Rows, n.Removed, n.Loops)
+		}
+		for _, child := range n.Plans {
+			inspect(child)
+		}
+	}
+	inspect(plans[0].Plan)
+	for _, table := range []string{"media", "metadata_items"} {
+		if rows, ok := visited[table]; !ok || rows == 0 || rows > 5000 {
+			t.Errorf("dense count %s total visits=%v inspected=%v", table, rows, ok)
+		}
+	}
+	t.Logf("dense count %.3f ms", plans[0].ExecutionTime)
+	// 未初始化汇总必须与已知作品一起精确计数，直接绑定整剧/季的文件不能冒充有效分集。
+	if err := db.Exec("UPDATE metadata_items SET latest_media_added_at=NULL, library_ids=NULL WHERE id IN ('show-1','show-2','show-501')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO playback_histories(id,user_id,metadata_id,media_id,completed)
+VALUES ('played-episode','viewer','ep-1-1','file-1-1-1',true)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, played := range []bool{false, true} {
+		q := svc.applyLatestPlayedFilter(t.Context(), files.Session(&gorm.Session{}), p.UserID, played)
+		want, wantTotal, err := svc.originalSeriesMetadataPageWithCount(t.Context(), q, p.UserID, p, 0, 3, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, total, err = svc.seriesWorkPage(t.Context(), q, p, 0, 3)
+		if err != nil || total != wantTotal || played && total != 1 || !reflect.DeepEqual(got, want) {
+			t.Fatalf("dense oracle played=%v: got=%v want=%v totals=%d/%d err=%v", played, got, want, total, wantTotal, err)
+		}
 	}
 }
 
@@ -276,7 +387,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 	}
 	capture := func(tx *gorm.DB) {
 		sql := tx.Statement.SQL.String()
-		if !tx.DryRun && (strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") || strings.Contains(sql, "BOOL_AND")) {
+		if !tx.DryRun && (strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") || strings.Contains(sql, "BOOL_AND")) {
 			plansSQL = append(plansSQL, struct {
 				sql  string
 				vars []any
@@ -300,11 +411,11 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("unexpected series page: %#v", result)
 	}
 	queries := append([]string(nil), reads.queries...)
-	if len(queries) != 1 {
+	if len(queries) != 2 {
 		t.Fatalf("count/page queries = %d", len(queries))
 	}
 	for _, query := range queries {
-		if !strings.Contains(query, "WITH work_candidates AS MATERIALIZED") || strings.Contains(query, "MAX(media.created_at)") {
+		if !strings.Contains(query, "WITH work_batch AS MATERIALIZED") || strings.Contains(query, "MAX(media.created_at)") {
 			t.Fatalf("latest series candidates must use work time and file existence: %s", query)
 		}
 	}
@@ -329,15 +440,27 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		Plans    []planNode `json:"Plans"`
 	}
 	var check func(planNode)
+	stage := ""
 	check = func(node planNode) {
-		if node.Relation == "media" && node.Loops > 4000 {
-			t.Errorf("file probes expanded to catalog size: %.0f", node.Loops)
+		maxLoops := 4000.0
+		if stage == "batch" {
+			// 50 个原始候选可能包含尚未初始化归属的空作品；最多检查本批 50×200 集，不能遍历整个 2 万集目录。
+			maxLoops = 50 * 200
+		}
+		if node.Relation == "media" && node.Loops > maxLoops {
+			t.Errorf("%s file probes expanded to catalog size: %.0f", stage, node.Loops)
 		}
 		for _, child := range node.Plans {
 			check(child)
 		}
 	}
 	for _, query := range plansSQL {
+		stage = "details"
+		if strings.Contains(query.sql, "LEFT JOIN qualified") {
+			stage = "batch"
+		} else if strings.Contains(query.sql, "SELECT COUNT(*) FROM") {
+			stage = "count"
+		}
 		var raw string
 		if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON) "+query.sql, query.vars...).Scan(&raw); err != nil {
 			t.Fatal(err)
@@ -393,10 +516,10 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := db.Model(&model.MetadataItem{}).Where("id = ?", "episode-20-100").Update("nsfw", true).Error; err != nil {
+	if err := db.Model(&model.Media{}).Where("metadata_id = ?", "episode-20-100").Update("library_id", "hidden").Error; err != nil {
 		t.Fatal(err)
 	}
-	svc.visibilityCache["page-user"] = embyVisibilityCacheEntry{
+	svc.visibilityCache[svc.repo.ReadCacheKey()+"page-user"] = embyVisibilityCacheEntry{
 		visibility: MediaVisibility{AllowedLibraryIDs: []string{lib.ID}, HiddenLibraryIDs: []string{"hidden"}},
 		expiresAt:  time.Now().Add(time.Minute),
 	}
@@ -408,11 +531,11 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("favorite-only page changed: %#v, %v", result, err)
 	}
 	favoriteQueries := append([]string(nil), reads.queries...)
-	if len(favoriteQueries) != 1 {
+	if len(favoriteQueries) != 2 {
 		t.Fatalf("favorite count/page queries = %d", len(favoriteQueries))
 	}
 	for _, query := range favoriteQueries {
-		if !strings.Contains(query, "WITH work_candidates AS MATERIALIZED") || !strings.Contains(query, "favorites.metadata_id = scope_series.id") {
+		if !strings.Contains(query, "WITH work_batch AS MATERIALIZED") || !strings.Contains(query, "favorites.metadata_id = scope_series.id") {
 			t.Fatalf("favorite filter must constrain work candidates: %s", query)
 		}
 	}

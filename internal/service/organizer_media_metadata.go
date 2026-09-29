@@ -110,6 +110,6 @@ func localMetadataFromMatch(match *Match) *LocalMetadata {
 		ReleaseDate: match.ReleaseDate, Rating: match.Rating, TMDbID: match.TMDbID,
 		BangumiID: match.BangumiID, DoubanID: match.DoubanID, TheTVDBID: match.TheTVDBID,
 		Languages: strings.Join(match.Languages, ","), Countries: strings.Join(match.Countries, ","),
-		Genres: strings.Join(match.Genres, ","), NSFW: match.NSFW, HasNFO: true,
+		Genres: strings.Join(match.Genres, ","), HasNFO: true,
 	}
 }

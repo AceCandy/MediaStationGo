@@ -51,7 +51,7 @@ func TestEmbyProgressClampsProbeDuration(t *testing.T) {
 			const duration = int64(120_000)
 			create(&model.MediaProbeMetadata{MediaID: file.ID, DurationMS: duration})
 			e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
-			e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+			e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 			stateTable := map[string]string{"legacy": "playback_histories", "nfo": "nfo_user_states", "hongguo": "hongguo_user_states"}[source]
 			eventTable := map[string]string{"legacy": "playback_events", "nfo": "nfo_playback_events", "hongguo": "hongguo_playback_events"}[source]
 			for _, sourceID := range []string{file.ID, ""} {

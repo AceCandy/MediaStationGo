@@ -11,6 +11,8 @@ type MediaView struct {
 	Media
 	// LatestMediaAddedAt 仅投影作品的最新现存文件时间，不改变文件 CreatedAt。
 	LatestMediaAddedAt *time.Time `json:"latest_media_added_at,omitempty"`
+	// CatalogCreatedAt 投影 NFO 条目首次创建时间，不覆盖文件 CreatedAt。
+	CatalogCreatedAt time.Time `gorm:"column:view_catalog_created_at" json:"-"`
 
 	CatalogItemID  string  `gorm:"column:view_catalog_item_id" json:"catalog_item_id,omitempty"`
 	SeriesID       string  `gorm:"column:view_series_id" json:"series_id,omitempty"`
@@ -33,7 +35,6 @@ type MediaView struct {
 	Languages      string  `gorm:"column:view_languages" json:"languages,omitempty"`
 	Countries      string  `gorm:"column:view_countries" json:"countries,omitempty"`
 	Genres         string  `gorm:"column:view_genres" json:"genres,omitempty"`
-	NSFW           bool    `gorm:"column:view_nsfw" json:"nsfw"`
 	MetadataKind   string  `gorm:"column:view_metadata_kind" json:"metadata_kind,omitempty"`
 	MetadataSource string  `gorm:"column:view_metadata_source" json:"metadata_source,omitempty"`
 	TMDbSnapshot   bool    `gorm:"-" json:"tmdb_snapshot,omitempty"`

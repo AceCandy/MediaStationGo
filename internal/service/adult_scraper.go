@@ -89,7 +89,6 @@ func (p *AdultProvider) Search(ctx context.Context, code string) (*Match, error)
 		}
 		if match != nil {
 			match.OriginalName = code
-			match.NSFW = true
 			return match, nil
 		}
 	}

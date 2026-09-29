@@ -37,9 +37,6 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		if !l.Enabled {
 			continue
 		}
-		if isRetiredCloudPath(l.Path) {
-			continue
-		}
 		metrics["libraries"]++
 		res, err := s.scanner.ScanLibraryWithProgress(ctx, l.ID, func(progress ScanProgress) {
 			if task == nil {
@@ -92,9 +89,9 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 func (s *SchedulerService) librariesForScanRun(ctx context.Context) ([]model.Library, error) {
 	libraryID, _ := ctx.Value(schedulerLibraryScanIDKey{}).(string)
 	if libraryID == "" {
-		return s.repo.Library.List(ctx)
+		return s.repo.Library.ListBasic(ctx)
 	}
-	lib, err := s.repo.Library.FindByID(ctx, libraryID)
+	lib, err := s.repo.Library.FindBasicByID(ctx, libraryID)
 	if err != nil {
 		return nil, err
 	}

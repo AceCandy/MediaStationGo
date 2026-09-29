@@ -9,6 +9,7 @@ import "gorm.io/gorm"
 
 // Container 是所有 repositories 的注册表，注入到 services 中。
 type Container struct {
+	readCache     *readCacheState
 	DB            *gorm.DB
 	User          *UserRepository
 	Library       *LibraryRepository
@@ -44,10 +45,12 @@ type Container struct {
 func New(db *gorm.DB) *Container {
 	mediaView := &MediaViewRepository{db: db}
 	hongGuo := &HongGuoRepository{db: db}
+	readCache := newReadCacheState()
 	return &Container{
+		readCache:     readCache,
 		DB:            db,
-		User:          &UserRepository{db: db},
-		Library:       &LibraryRepository{db: db},
+		User:          &UserRepository{db: db, readCache: readCache},
+		Library:       &LibraryRepository{db: db, readCache: readCache},
 		Media:         &MediaRepository{db: db, view: mediaView, hongGuo: hongGuo},
 		MediaProbe:    &MediaProbeRepository{db: db},
 		MediaView:     mediaView,
@@ -60,14 +63,14 @@ func New(db *gorm.DB) *Container {
 		PlaybackEvent: &PlaybackEventRepository{db: db},
 		Favorite:      &FavoriteRepository{db: db},
 		Playlist:      &PlaylistRepository{db: db},
-		Setting:       &SettingRepository{db: db},
+		Setting:       &SettingRepository{db: db, readCache: readCache},
 		Log:           &AccessLogRepository{db: db},
 		Permission:    &PermissionRepository{db: db},
 		RefreshToken:  &RefreshTokenRepository{db: db},
 		ApiConfig:     &ApiConfigRepository{db: db},
 		NotifyChannel: &NotifyChannelRepository{db: db},
 		STRM:          &STRMRepository{db: db},
-		PlayProfile:   &PlayProfileRepository{db: db},
+		PlayProfile:   &PlayProfileRepository{db: db, readCache: readCache},
 		Assistant:     &AssistantRepository{db: db},
 		RegCode:       &RegistrationCodeRepository{db: db},
 		SignIn:        &SignInRepository{db: db},

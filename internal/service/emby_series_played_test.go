@@ -106,7 +106,7 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 	if err := db.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{lib.ID}}, expiresAt: time.Now().Add(time.Hour)}}
+	svc.visibilityCache = map[string]embyVisibilityCacheEntry{svc.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{lib.ID}}, expiresAt: time.Now().Add(time.Hour)}}
 	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "local"})
 	var seasons, episodes []string
 	for s := 0; s < 2; s++ {
@@ -223,11 +223,11 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 	check(series.ID, false, 1)
 	mark(series.ID, false)
 	check(series.ID, false, 5)
-	if err := db.Model(&model.MetadataItem{}).Where("id IN ?", episodes[:2]).Update("nsfw", true).Error; err != nil {
+	if err := db.Model(&model.Media{}).Where("metadata_id IN ?", episodes[:2]).Update("library_id", "hidden").Error; err != nil {
 		t.Fatal(err)
 	}
 	check(series.ID, false, 3)
-	if err := db.Model(&model.MetadataItem{}).Where("id IN ?", episodes[:2]).Update("nsfw", false).Error; err != nil {
+	if err := db.Model(&model.Media{}).Where("metadata_id IN ?", episodes[:2]).Update("library_id", lib.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range episodes {

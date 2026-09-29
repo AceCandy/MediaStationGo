@@ -111,6 +111,14 @@ per-user, per-metadata history state but playback events are append-only.
   between exact count and page selection, retaining the total on an empty page.
   Do not run the effective-state/successor query separately for count and page.
   Web retains its source-bounded candidate path without an exact count.
+  `continuationSource` starts from the current user's `PlaybackStates` with a
+  watched timestamp, then resolves visible files/hierarchy through an identity-
+  correlated `JOIN LATERAL (... OFFSET 0)`. Keep the shared effective-state
+  algorithm and the separate left-joined successor states: unseen successors
+  have no history row. Never bind continuation to the old physical media ID.
+  Tests must verify empty user history executes no file/catalog scans and keep
+  the large unrelated-catalog/state plan bound. A changed SQL FROM clause alone
+  does not prove a speedup; retain measured old/new plans and semantic regressions.
 - A Web continuation response keeps `{history, media}` and adds
   `history.is_next=true` for derived recommendations. A `next:<item ID>` history
   ID is a read-only projection, never persisted or included in full history or
@@ -120,8 +128,8 @@ per-user, per-metadata history state but playback events are append-only.
   history candidate with its playable `media`. Reuse `ContinuationWeb` with the
   canonical Series ID and current library visibility; do not load all Series
   files or infer cross-season progress from the current season's history. For
-  canonical Series, exclude NSFW Episode, Season and Series ancestors before
-  selecting the next candidate; NFO applies the same hierarchy boundary.
+  canonical Series, apply allowed/hidden library scope before selecting the
+  next candidate; NFO applies the same boundary. There are no media-level NSFW flags.
 - Mixed-catalog Emby global `IsResumable` uses `globalResumeItems`: filter each
   source's current-user state and visible files before grouping, count distinct
   resume keys per source, then merge at most `StartIndex + Limit` grouped rows

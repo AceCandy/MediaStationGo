@@ -6,8 +6,13 @@ Recent work ordering uses the persisted `latest_media_added_at` contract in
 time and file existence; restore that page order after source-specific hydration.
 `ListRecentByLibraries` deduplicates visible representatives for statistics.
 Web final card sorting must not replace this time with file `CreatedAt` or metadata
-`UpdatedAt`. Emby Latest and DateLastContentAdded use work time; DateCreated and
+`UpdatedAt`. Emby Latest and DateLastContentAdded use work time; ordinary/HongGuo DateCreated and
 default release-date listing remain unchanged.
+
+NFO item DateCreated uses first `nfo_items.created_at` through
+`MediaView.CatalogCreatedAt`; file CreatedAt and MediaSource/PlaybackInfo dates
+remain file facts. Adult visibility is exclusively library-scoped; no model,
+API, editing, import or search contract retains media-level NSFW flags.
 
 Ordinary Emby `latestMetadataViews` / `latestSeriesGroups` exclude works with
 NULL latest time; the timestamp never replaces library eligibility or playback
@@ -180,7 +185,7 @@ supersedes older requirements for per-Episode extended responses and credits.
 ### 4. Validation & Error Matrix
 
 - Restricted empty scope -> empty page and zero total; out-of-range page -> empty page with matching total.
-- Hidden or NSFW work -> excluded before count/page; query failure -> error, not a successful empty response.
+- Work in a hidden/disallowed library -> excluded before count/page; query failure -> error, not a successful empty response.
 
 ### 5. Good/Base/Bad Cases
 
@@ -190,7 +195,7 @@ supersedes older requirements for per-Episode extended responses and credits.
 
 ### 6. Tests Required
 
-- `TestLibraryMetadataPaginationBoundsFileReads`: page-sized file reads, logical totals, cross-library isolation, filters, NSFW, old links, multipart counts, empty pages and complete detail after summaries.
+- `TestLibraryMetadataPaginationBoundsFileReads`: page-sized file reads, logical totals, cross-library isolation, filters, adult-library restrictions, old links, multipart counts, empty pages and complete detail after summaries.
 - `TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries`: all 2001 episodes remain available when selecting that Series.
 - `TestEmbyContainerDetailBoundsReadsAndPreservesPayload`: compare full legacy
   payloads with bounded detail reads for large multi-version series, Parts,
@@ -225,7 +230,7 @@ supersedes older requirements for per-Episode extended responses and credits.
 - Manual metadata refresh always fetches fresh details, regardless of existing snapshots or catalog checkpoints. The discover identity wrapper reuses a non-degraded TMDb snapshot younger than three hours; it returns local details without advancing the timestamp.
 - Validate the returned entity ID; Season/Episode coordinates come from canonical parents.
 - Update the current entity's display fields, loaded credit scopes, managed TMDb images,
-  and raw snapshot. Preserve identity, other provider identifiers, NSFW, and hierarchy.
+  and raw snapshot. Preserve identity, other provider identifiers and hierarchy.
 - Do not create children, enqueue catalog work, rematch, or write Media rows.
 - Explicit image refresh bypasses the source URL cache and replaces the selection only
   after importing valid bytes. An absent upstream image preserves the old selection.
@@ -405,7 +410,7 @@ db.Model(&credit).
 
 ### 2. Signatures
 
-- Canonical entities: `MetadataItem{Kind, ParentID, SeasonNum, EpisodeNum, Title, ..., NSFW, Source}`.
+- Canonical entities: `MetadataItem{Kind, ParentID, SeasonNum, EpisodeNum, Title, ..., Source}`.
 - Local scan fingerprint: `Media{ScanFileSizeBytes, ScanFileMTimeNS}` stores the scanned media file's own size and nanosecond mtime.
 - Flat technical API projection: `Media{DurationSec, SizeBytes, Container, Width, Height, VideoCodec, AudioCodec}` keeps the existing JSON shape but every field uses `gorm:"-"`; the `media` table has no corresponding column.
 - External identity: `MetadataIdentifier{MetadataID, Provider, EntityKind, ExternalID}` with global uniqueness on `(provider, entity_kind, external_id)`.
@@ -553,7 +558,7 @@ db.Model(&credit).
   local path. After the STRM compatibility normalization above, no raw fragment
   remains. The longest matching URL path wins, and the
   joined path must remain below its configured local prefix.
-- A mapped readable regular file uses the existing local `Probe` path without remote
+- A mapped readable regular file uses the local `ProbeFile` path without remote
   delay. Invalid/unmatched rules and unavailable mapped files preserve the
   original URL, delay, and `ProbeHTTP` behavior. Source validation rereads the
   mapping after ffprobe and before opening the persistence transaction; do not
@@ -563,6 +568,9 @@ db.Model(&credit).
   after replacing its exact local path or remote URL and applying task-log URL
   sanitization. It retains the original execution error for classification and
   never exposes a signed query or grows one task detail without a fixed limit.
+- Local probing and automatic damaged-file cleanup follow the fixed-handle,
+  quarantine/recheck and scanner coordination contract in
+  [Session and Transfer Safety](./session-and-transfer-safety.md#probe-cleanup-safety).
 - Global track backfill scans every non-deleted `Media` across libraries, probes
   only missing, outdated, or invalid complete documents, and skips valid current
   documents. A positive `limit` caps actual probe attempts; valid skipped rows
@@ -641,14 +649,14 @@ db.Model(&credit).
   independently belong to multiple physical libraries.
 - Count, ordering, offset, and limit must run on grouped Metadata IDs before
   visible `MediaView` versions are batch-loaded. Count and page queries must
-  share the same library, type, search, NSFW, and user-visibility predicates.
+  share the same library, type, search, and user-visibility predicates.
 - Series and Season scope is derived through visible
   `Episode -> Season -> Series` metadata hierarchy, and Episode versions are
   collapsed by Episode Metadata ID before counts or pagination.
 - After a logical item is selected, item detail and PlaybackInfo enumerate all
   sibling Media versions visible to the current user, including versions in
   separate physical libraries. Every sibling query must reapply allowed and
-  hidden library plus NSFW filters.
+  allowed/hidden library filters.
 - After an Emby logical page is selected, People, provider identifiers, and
   visible sibling Media versions must be batch-loaded for the page rather than
   queried inside the item payload loop.
@@ -705,7 +713,7 @@ db.Model(&credit).
 | An explicit adult manual/organize operation has a valid code | Allow `AdultProvider` lookup and persist the selected adult match normally |
 | Artwork import fails | Return the error and keep the currently selected managed asset |
 | Provider metadata implies a different category/library | Persist metadata and artwork only; preserve the media path and library ID |
-| User cannot view NSFW/library | Filter in `MediaView` query before pagination or playback response creation |
+| User cannot view the library | Filter in `MediaView` query before pagination or playback response creation |
 | `missing_poster=1` and the selected poster asset is absent | Include the final Movie or Series card |
 | `missing_chinese_title=1` and the final displayed title contains no Han character | Include the final Movie or Series card |
 | Both missing-metadata filters are enabled | Include only cards satisfying both conditions |
@@ -763,7 +771,7 @@ db.Model(&credit).
   title, details, source, or identifiers.
 - Bad: scanner creates or overwrites `source=local` metadata before provider
   lookup, or treating `Media.ID` as an item identity fallback.
-- Bad: copying provider title, genres, NSFW, or artwork URL into each `Media` row.
+- Bad: copying provider title, genres or artwork URL into each `Media` row.
 - Bad: applying NFO title or artwork after a successful provider match.
 - Bad: copying scanner, TMDb runtime, or legacy `media` technical columns into
   `media_probe_metadata` as if they were ffprobe facts.
@@ -840,7 +848,7 @@ db.Model(&credit).
 - Identity: replace a stale unowned identifier for the same provider/kind, preserve other provider identifiers, and reject an occupied identifier unless merge is explicitly authorized.
 - Merge: move multiple media versions, favorites, playlists and history; recursively merge Series children; assert duplicate user state is resolved and source metadata is physically gone.
 - Query: add multiple identifiers for one metadata/provider/kind and assert media count, page length, and order remain unchanged; assert the generated query correlates identifier reduction to the current metadata and contains no global identifier `GROUP BY`.
-- Visibility: shared `NSFW` must hide list, search, detail, and PlaybackInfo results before pagination/response mapping.
+- Visibility: adult-library restrictions must hide list, search, detail, and PlaybackInfo results before pagination/response mapping.
 - Library missing metadata: assert missing-poster, missing-Chinese-title, and
   combined filtering keep rows and total consistent; assert Series/anime are
   filtered and counted only after aggregation.
@@ -1230,7 +1238,7 @@ return []model.MediaView{*part2}
   `SearchMetadataIDs(ctx, query, offset, limit, MetadataSearchFilter) -> metadata IDs, total`.
 - Non-empty search candidate cap: `maxMetadataSearchCandidates = 100`.
 - OpenSearch document ID is the top-level `MetadataItem.ID`; its fields are
-  `id`, `kind`, `title`, `original_name`, `overview`, `genres`, `nsfw`, and
+  `id`, `kind`, `title`, `original_name`, `overview`, `genres`, and
   derived `library_ids`.
 - The active OpenSearch alias is `mediastation_metadata`; versioned concrete
   indexes are built before an atomic alias switch.
@@ -1343,10 +1351,10 @@ return []model.MediaView{*part2}
   selection, `kind`, `library_ids`, restricted-empty, readiness, bulk, delete,
   and alias-switch payloads contain no Media fields.
 - PostgreSQL tests assert Movie multi-version and Series multi-Episode collapse,
-  no-Media exclusion, unresolved-Media exclusion, library visibility, NSFW,
+  no-Media exclusion, unresolved-Media exclusion, library visibility, adult-library restrictions,
   token-group filtering, capped total, ordering, and in-memory pagination.
 - `search_loading_test.go` compares NFO batch presentation and candidate
-  visibility against the single-item path, including hidden libraries, NSFW,
+  visibility against the single-item path, including hidden/adult libraries,
   missing artwork/title and keyword matching; the batch executes one query.
   Query-count callbacks must ignore GORM DryRun subquery construction.
   `emby_source_search_test.go` compares hints against full Items and asserts
@@ -1457,7 +1465,7 @@ media.LocalMetadataHint = encodeLocalMetadataHint(localNFO)
 ### 3. Contracts
 
 - Versions are visible `MediaView` siblings with the same non-null
-  `MetadataID`; the query reapplies NSFW plus allowed and hidden library filters.
+  `MetadataID`; the query reapplies allowed and hidden library filters.
 - The URL media owns title, favorite state, playback, casting, and management
   actions. A selected sibling owns only the displayed video, audio, and subtitle
   options; no selector changes a playback target or parameter.
@@ -1709,7 +1717,7 @@ if snapshot.Degraded {
   original-name, rating, year, release-date, languages, countries, and genres.
   Title is the sole precedence exception: a Chinese Douban title may replace a
   non-Chinese title, preserving the old title as original name when needed.
-  Source, NSFW, existing non-empty fields, and provider IDs stay unchanged.
+  Source, existing non-empty fields, and provider IDs stay unchanged.
 - A degraded subject response only fills empty canonical fields. It never uses
   the Chinese-title precedence exception to replace a non-empty title and never
   clears a field omitted from the subject payload.
@@ -2675,7 +2683,7 @@ Series detail separates canonical Series presentation from selected Episode and 
 
 - `GET /api/media/:id/series` returns `{series, favourite}`.
 - `GET /api/media/:id/season` returns `{season}` (nullable). Resolve only through
-  the visible file's canonical `MediaView.SeasonID`, validate Season kind/NSFW,
+  the visible file's canonical `MediaView.SeasonID`, validate Season kind,
   and return Season-owned title, season number and managed artwork. Missing,
   hidden or unbound media returns no Season; never use scan hints or substitute
   Series/Episode artwork. This is read-only and never creates metadata.
@@ -2688,7 +2696,7 @@ Series detail separates canonical Series presentation from selected Episode and 
 
 - Media route IDs are visible concrete file IDs, never the returned Series metadata ID. Series presentation contains its own title, overview, providers and artwork, without representative-file technical fields.
 - Series edits update canonical Series metadata once; they must not rewrite Episode titles, coordinates or file linkage. Default movie/episode updates remain unchanged.
-- Resolve Series through the validated file's `MediaView.SeriesID`, which supports direct Series, Season and Episode attachments. Read own metadata with `FindSeriesPresentation`; do not require an Episode representative from the search query. Validate both file visibility and Series NSFW status. A direct Series attachment may legitimately have no Season/Episode rows.
+- Resolve Series through the validated file's `MediaView.SeriesID`, which supports direct Series, Season and Episode attachments. Read own metadata with `FindSeriesPresentation`; do not require an Episode representative from the search query. Validate file visibility using library permissions. A direct Series attachment may legitimately have no Season/Episode rows.
 - Missing episode coordinates are displayed as an associated file, not `E0` or episode zero. Do not create hierarchy records just to satisfy detail-page rendering.
 - History covers all visible episode identities, not only the recent-history page. Administrative actions retain all concrete files even when episode cards are deduplicated.
 - URL season/episode/version selects the current file; version must belong to the selected logical episode. Series version selection retargets playback, unlike the existing movie display-only version contract.
@@ -2713,7 +2721,7 @@ Series detail separates canonical Series presentation from selected Episode and 
 ### 6. Tests Required
 
 - `TestMediaSeriesDetailOwnsMetadataAndUserScope`: canonical metadata, visibility, edit isolation, favorite identity and user-scoped history. Requires `MEDIASTATION_TEST_POSTGRES_DSN`; a skip is not database validation.
-- `TestMediaSeriesDetailSupportsEveryAttachmentLevel`: Series-only fixture before any Season/Episode exists, then Season and Episode attachments, library restrictions, Series NSFW, and rejection of metadata IDs as concrete file IDs.
+- `TestMediaSeriesDetailSupportsEveryAttachmentLevel`: Series-only fixture before any Season/Episode exists, then Season and Episode attachments, library restrictions and rejection of metadata IDs as concrete file IDs.
 - `node web/scripts/check-series-detail.mjs`: deduplication, URL selection, specials, resume and concrete-version identity.
 - Browser checks: refresh/back restoration, version failure isolation, mobile overflow and theme contrast.
 

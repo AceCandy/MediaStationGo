@@ -28,7 +28,7 @@ type seasonGroup struct {
 func listSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		libID := c.Param("id")
-		if lib, err := svc.Repo.Library.FindByID(c.Request.Context(), libID); err == nil && lib != nil {
+		if lib, err := svc.Repo.Library.FindBasicByID(c.Request.Context(), libID); err == nil && lib != nil {
 			if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, *lib, mediaVisibilityForRequest(c, svc)) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
@@ -67,7 +67,7 @@ func listSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 func listLibrarySeriesHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		libID := c.Param("id")
-		if lib, err := svc.Repo.Library.FindByID(c.Request.Context(), libID); err == nil && lib != nil {
+		if lib, err := svc.Repo.Library.FindBasicByID(c.Request.Context(), libID); err == nil && lib != nil {
 			if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, *lib, mediaVisibilityForRequest(c, svc)) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
@@ -110,7 +110,7 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "key is required"})
 			return
 		}
-		if lib, err := svc.Repo.Library.FindByID(c.Request.Context(), libID); err == nil && lib != nil {
+		if lib, err := svc.Repo.Library.FindBasicByID(c.Request.Context(), libID); err == nil && lib != nil {
 			if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, *lib, mediaVisibilityForRequest(c, svc)) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
@@ -142,7 +142,7 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
 		visibility := mediaVisibilityForRequest(c, svc)
-		history, err := svc.Repo.History.ListByUserMetadataIDs(c.Request.Context(), toString(uid), ids, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+		history, err := svc.Repo.History.ListByUserMetadataIDs(c.Request.Context(), toString(uid), ids, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return

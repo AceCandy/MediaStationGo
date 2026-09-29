@@ -102,7 +102,7 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 				mergeLocalMetadataIntoMatch(match, &LocalMetadata{
 					Title: existing.Title, OriginalName: existing.OriginalName, Overview: existing.Overview,
 					Year: existing.Year, Rating: existing.Rating, ReleaseDate: existing.ReleaseDate,
-					Languages: existing.Languages, Countries: existing.Countries, Genres: existing.Genres, NSFW: existing.NSFW,
+					Languages: existing.Languages, Countries: existing.Countries, Genres: existing.Genres,
 				})
 			}
 			mergeLocalMetadataIntoMatch(match, &LocalMetadata{TMDbID: lookupMedia.TMDbID, BangumiID: lookupMedia.BangumiID, DoubanID: lookupMedia.DoubanID, TheTVDBID: lookupMedia.TheTVDBID, PathHint: true})
@@ -271,7 +271,7 @@ func (s *ScraperService) applyProviderMatchWithOptions(ctx context.Context, m *m
 		"bangumi_id": match.BangumiID,
 		"douban_id":  match.DoubanID,
 		"thetvdb_id": match.TheTVDBID,
-		"source":     map[bool]string{true: "adult"}[match.NSFW],
+		"source":     map[bool]string{true: "adult"}[match.MediaType == "adult"],
 	})
 	return nil
 }

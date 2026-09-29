@@ -23,8 +23,6 @@ type LibraryCreateResult struct {
 	AddedRoots []model.LibraryRoot
 }
 
-var ErrCloudLibraryRootUnsupported = errors.New("cloud library roots are no longer supported")
-
 // CreateLibrary persists a library after validating that its path exists.
 func (s *MediaService) CreateLibrary(ctx context.Context, name, path, kind string) (*model.Library, error) {
 	return s.CreateLibraryWithRoots(ctx, name, kind, []LibraryRootInput{{Path: path}})
@@ -71,15 +69,14 @@ func (s *MediaService) CreateLibraryWithRootsAndCover(ctx context.Context, name,
 }
 
 func (s *MediaService) UpdateLibraryCover(ctx context.Context, libraryID, coverURL string) error {
-	return s.repo.DB.WithContext(ctx).Model(&model.Library{}).Where("id = ?", libraryID).
-		Update("cover_url", strings.TrimSpace(coverURL)).Error
+	return s.repo.Library.UpdateFields(ctx, libraryID, map[string]any{"cover_url": strings.TrimSpace(coverURL)})
 }
 
 func (s *MediaService) findLogicalLibrary(ctx context.Context, name, kind string) (*model.Library, error) {
 	if s == nil || s.repo == nil || s.repo.Library == nil {
 		return nil, nil
 	}
-	libs, err := s.repo.Library.List(ctx)
+	libs, err := s.repo.Library.ListBasic(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +133,7 @@ func normalizeLibraryRootInputs(inputs []LibraryRootInput, requirePath bool) ([]
 			}
 			continue
 		}
-		abs, err := normalizeLibraryRootPath(rawPath)
+		abs, err := resolveAccessibleLibraryPath(rawPath)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +170,7 @@ func (s *MediaService) ListLibraryRoots(ctx context.Context, libraryID string) (
 }
 
 func (s *MediaService) AddLibraryRoot(ctx context.Context, libraryID string, input LibraryRootInput) (*model.LibraryRoot, error) {
-	lib, err := s.repo.Library.FindByID(ctx, libraryID)
+	lib, err := s.repo.Library.FindBasicByID(ctx, libraryID)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +194,7 @@ func (s *MediaService) AddLibraryRoot(ctx context.Context, libraryID string, inp
 		return nil, err
 	}
 	if strings.TrimSpace(lib.Path) == "" {
-		_ = s.repo.DB.WithContext(ctx).Model(&model.Library{}).Where("id = ?", libraryID).Update("path", root.Path).Error
+		_ = s.repo.Library.UpdateFields(ctx, libraryID, map[string]any{"path": root.Path})
 	}
 	return &root, nil
 }
@@ -279,7 +276,7 @@ func (s *MediaService) syncLibraryPrimaryRoot(ctx context.Context, libraryID str
 	if err != nil || len(roots) == 0 {
 		return err
 	}
-	return s.repo.DB.WithContext(ctx).Model(&model.Library{}).Where("id = ?", libraryID).Update("path", roots[0].Path).Error
+	return s.repo.Library.UpdateFields(ctx, libraryID, map[string]any{"path": roots[0].Path})
 }
 
 func (s *MediaService) ensureLibraryRootPathUnique(ctx context.Context, libraryID, exceptRootID, pathValue string) error {
@@ -298,14 +295,6 @@ func (s *MediaService) ensureLibraryRootPathUnique(ctx context.Context, libraryI
 		}
 	}
 	return nil
-}
-
-func normalizeLibraryRootPath(rawPath string) (string, error) {
-	rawPath = strings.TrimSpace(rawPath)
-	if strings.HasPrefix(strings.ToLower(rawPath), "cloud://") {
-		return "", ErrCloudLibraryRootUnsupported
-	}
-	return resolveAccessibleLibraryPath(rawPath)
 }
 
 func libraryRootPathKey(pathValue string) string {

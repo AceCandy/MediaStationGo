@@ -90,11 +90,7 @@ func createLibraryHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		result, err := svc.Media.CreateLibraryWithRootsAndCover(c.Request.Context(), req.Name, req.Type, req.CoverURL, roots)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {
-				status = http.StatusBadRequest
-			}
-			c.JSON(status, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		l := result.Library

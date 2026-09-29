@@ -66,7 +66,7 @@ func playbackStatsFilter(c *gin.Context, svc *service.Container) (repository.Pla
 	}
 	libraryIDs := uniqueCSV(c.Query("library_ids"))
 	for _, libraryID := range libraryIDs {
-		library, findErr := svc.Repo.Library.FindByID(c.Request.Context(), libraryID)
+		library, findErr := svc.Repo.Library.FindBasicByID(c.Request.Context(), libraryID)
 		if findErr != nil || library == nil {
 			return repository.PlaybackStatsFilter{}, errInvalidPlaybackStatsLibrary
 		}

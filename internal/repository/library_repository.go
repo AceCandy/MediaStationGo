@@ -11,18 +11,21 @@ import (
 )
 
 // LibraryRepository persists model.Library records.
-type LibraryRepository struct{ db *gorm.DB }
+type LibraryRepository struct {
+	db        *gorm.DB
+	readCache *readCacheState
+}
 
 // Create persists a new library row.
 func (r *LibraryRepository) Create(ctx context.Context, l *model.Library) error {
-	return r.db.WithContext(ctx).Create(l).Error
+	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Create(l).Error)
 }
 
 func (r *LibraryRepository) CreateWithRoots(ctx context.Context, l *model.Library, roots []model.LibraryRoot) error {
 	if !r.hasLibraryRootsTable() {
 		return r.Create(ctx, l)
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(l).Error; err != nil {
 			return err
 		}
@@ -44,7 +47,7 @@ func (r *LibraryRepository) CreateWithRoots(ctx context.Context, l *model.Librar
 		}
 		l.Roots = roots
 		return nil
-	})
+	}))
 }
 
 // List returns all enabled+disabled libraries.
@@ -58,6 +61,26 @@ func (r *LibraryRepository) List(ctx context.Context) ([]model.Library, error) {
 	}
 	err := q.Find(&ls).Error
 	return ls, err
+}
+
+// ListBasic 只读取库基础字段；需要目录的调用方仍使用 List。
+func (r *LibraryRepository) ListBasic(ctx context.Context) ([]model.Library, error) {
+	var libraries []model.Library
+	err := r.db.WithContext(ctx).Order("created_at asc").Find(&libraries).Error
+	return libraries, err
+}
+
+// FindBasicByID 不检查或加载目录；不存在时返回 (nil, nil)。
+func (r *LibraryRepository) FindBasicByID(ctx context.Context, id string) (*model.Library, error) {
+	var library model.Library
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&library).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &library, nil
 }
 
 // FindByID returns the library, or (nil, nil) when missing.
@@ -92,7 +115,13 @@ func (r *LibraryRepository) FindCoverURL(ctx context.Context, id string) (string
 // Delete removes a library and (soft) cascades to its media via repository
 // callers; we do not run CASCADE here to keep this method narrow.
 func (r *LibraryRepository) Delete(ctx context.Context, id string) error {
-	return r.db.WithContext(ctx).Delete(&model.Library{}, "id = ?", id).Error
+	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Delete(&model.Library{}, "id = ?", id).Error)
+}
+
+// UpdateFields 更新库基础字段并使已缓存的库信息和可见范围失效。
+func (r *LibraryRepository) UpdateFields(ctx context.Context, id string, updates map[string]any) error {
+	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Model(&model.Library{}).
+		Where("id = ?", id).Updates(updates).Error)
 }
 
 func (r *LibraryRepository) ListRoots(ctx context.Context, libraryID string) ([]model.LibraryRoot, error) {

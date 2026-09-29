@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
+func TestMediaVisibilityFiltersAdultLibraries(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
@@ -27,14 +27,14 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 	if err := repos.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+libB.ID+`"]`); err != nil {
 		t.Fatal(err)
 	}
-	adultMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "成人电影", NSFW: true, Source: "tmdb"}
+	adultMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "成人电影", Source: "tmdb"}
 	if err := db.Create(&adultMetadata).Error; err != nil {
 		t.Fatal(err)
 	}
 	adultMetadataID := adultMetadata.ID
 	rows := []model.Media{
 		{LibraryID: libA.ID, Title: "普通电影", Path: "/media/movies/a.mkv"},
-		{LibraryID: libA.ID, MetadataID: adultMetadataID, Title: "成人电影", Path: "/media/movies/b.mkv"},
+		{LibraryID: libB.ID, MetadataID: adultMetadataID, Title: "成人电影", Path: "/media/adult/b.mkv"},
 		{LibraryID: libB.ID, Title: "限制媒体库电影", Path: "/media/adult/c.mkv"},
 	}
 	if err := db.Create(&rows).Error; err != nil {
@@ -60,7 +60,7 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"成人电影", "普通电影"}) {
+	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"普通电影"}) {
 		t.Fatalf("library-filtered search = %#v", got)
 	}
 
@@ -134,7 +134,7 @@ func TestMediaVisibilityDoesNotApplyRetiredProviderRules(t *testing.T) {
 	}
 }
 
-func TestConfiguredAdultLibrariesDoNotHideSafeLibraryWithNSFWItems(t *testing.T) {
+func TestConfiguredAdultLibrariesDoNotInferMediaRestrictions(t *testing.T) {
 	db := newServiceTestDB(t, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{})
 	repos := repository.New(db)
 
@@ -149,7 +149,7 @@ func TestConfiguredAdultLibrariesDoNotHideSafeLibraryWithNSFWItems(t *testing.T)
 	if err := repos.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+adult.ID+`"]`); err != nil {
 		t.Fatal(err)
 	}
-	adultMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "误入普通库的成人条目", NSFW: true, Source: "tmdb"}
+	adultMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "误入普通库的成人条目", Source: "tmdb"}
 	if err := db.Create(&adultMetadata).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -168,19 +168,57 @@ func TestConfiguredAdultLibrariesDoNotHideSafeLibraryWithNSFWItems(t *testing.T)
 
 	visibility := UserDefaultMediaVisibility(t.Context(), repos, viewer.ID)
 	if LibraryVisibleForUser(t.Context(), repos, safe, visibility) != true {
-		t.Fatal("configured adult libraries should not hide a safe library just because it contains NSFW items")
+		t.Fatal("configured adult libraries should not hide an ordinary library based on its media")
 	}
 	if LibraryVisibleForUser(t.Context(), repos, adult, visibility) != false {
 		t.Fatal("configured adult library should be hidden when the user hides adult content")
 	}
 
 	items, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).
-		SearchMediaVisible(t.Context(), "电影", 20, visibility)
+		SearchMediaVisible(t.Context(), "", 20, visibility)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"普通电影"}) {
-		t.Fatalf("safe library should stay visible while NSFW media is filtered, got %#v", got)
+	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"普通电影", "误入普通库的成人条目"}) {
+		t.Fatalf("all ordinary-library media must remain visible, got %#v", got)
+	}
+}
+
+func TestAdultLibraryFallbackMatchesFileAndEmbyVisibility(t *testing.T) {
+	e := newTestEmbyService(t)
+	repos, ctx := e.repo, t.Context()
+	lib := model.Library{Name: "成人库", Path: "/fixture/adult", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(ctx, &lib); err != nil {
+		t.Fatal(err)
+	}
+	user := model.User{Username: "hidden-viewer", HideAdult: true}
+	if err := repos.User.Create(ctx, &user); err != nil {
+		t.Fatal(err)
+	}
+	work := model.MetadataItem{Kind: "movie", Source: "local", Title: "Movie"}
+	if err := repos.DB.Create(&work).Error; err != nil {
+		t.Fatal(err)
+	}
+	file := model.Media{LibraryID: lib.ID, MetadataID: work.ID, Path: "/fixture/adult/movie.mkv"}
+	if err := repos.DB.Create(&file).Error; err != nil {
+		t.Fatal(err)
+	}
+	visibility := UserDefaultMediaVisibility(ctx, repos, user.ID)
+	if !slices.Contains(visibility.HiddenLibraryIDs, lib.ID) || LibraryVisibleForUser(ctx, repos, lib, visibility) {
+		t.Fatal("unconfigured adult library was not hidden")
+	}
+	if !slices.Contains(e.mediaVisibility(ctx, user.ID).HiddenLibraryIDs, lib.ID) {
+		t.Fatal("Emby fallback differs from shared policy")
+	}
+	media := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	if got, err := media.GetMediaVisible(ctx, file.ID, visibility); err != nil || got != nil {
+		t.Fatalf("hidden direct file=%v err=%v", got, err)
+	}
+	if got, err := media.SearchMediaVisible(ctx, "Movie", 10, visibility); err != nil || len(got) != 0 {
+		t.Fatalf("hidden search=%v err=%v", got, err)
+	}
+	if got, err := e.PlaybackInfo(ctx, file.ID, user.ID); err != nil || got != nil {
+		t.Fatalf("hidden playback=%v err=%v", got, err)
 	}
 }
 

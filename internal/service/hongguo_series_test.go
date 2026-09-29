@@ -168,7 +168,7 @@ func TestHongGuoLibrarySeriesPresentation(t *testing.T) {
 	if err != nil || n != 2 || len(page) != 1 {
 		t.Fatalf("pagination=%+v %d %v", page, n, err)
 	}
-	if err := repos.HongGuo.SaveAlbum(ctx, works[0].SourceID, hongguo.Album{}); err != nil {
+	if err := repos.HongGuo.SaveAlbum(ctx, works[0].SourceID, hongguo.Album{ID: works[0].SourceID, Season: 1}); err != nil {
 		t.Fatal(err)
 	}
 	fallback, err := svc.GetMediaSeriesVisible(ctx, second.ID, visibility)
@@ -180,17 +180,20 @@ func TestHongGuoLibrarySeriesPresentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := repos.HongGuo.SaveAlbum(ctx, standalone.SourceID, hongguo.Album{ID: standalone.SourceID, Season: 1}); err != nil {
+		t.Fatal(err)
+	}
 	standaloneFile := addFile(library, standalone, 1, "a")
 	addFile(library, standalone, 1, "b")
 	addFile(library, standalone, 2, "a")
-	standaloneID := "hg-work-" + standalone.ID
+	standaloneID := "hg-group-" + standalone.SourceID
 	standaloneCards, n, err := svc.ListLibrarySeriesCards(ctx, library.ID, 1, 1, "", "hongguo:"+standalone.SourceID, visibility)
 	if err != nil || n != 1 || len(standaloneCards) != 1 {
 		t.Fatalf("standalone cards=%+v total=%d err=%v", standaloneCards, n, err)
 	}
 	standaloneCard := standaloneCards[0]
 	if standaloneCard.Rep.SeriesID != standaloneID || standaloneCard.Rep.LookupCatalogID != standalone.SourceID || standaloneCard.Count != 2 || len(standaloneCard.Seasons) != 1 || standaloneCard.Seasons[0] != 1 {
-		t.Fatalf("empty album must retain its own identity and season one: %+v", standaloneCard)
+		t.Fatalf("confirmed standalone must use its source album and season one: %+v", standaloneCard)
 	}
 	standaloneSeason, err := svc.GetMediaSeasonVisible(ctx, standaloneFile.ID, visibility)
 	if err != nil || standaloneSeason == nil || standaloneSeason.SeasonNum != 1 {

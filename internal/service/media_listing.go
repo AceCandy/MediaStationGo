@@ -125,7 +125,6 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 	}
 	libraryIDs := []string{libraryID}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:         visibility.IncludeNSFW,
 		AllowedLibraryIDs:   visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:    visibility.HiddenLibraryIDs,
 		MissingPoster:       visibility.MissingPoster,
@@ -150,11 +149,10 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 
 func (s *MediaService) ListMediaVisibleGrouped(ctx context.Context, libraryID string, page, pageSize int, visibility MediaVisibility) ([]MediaItem, int64, error) {
 	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
-	if !visibility.allows(libraryID, false) {
+	if !visibility.allows(libraryID) {
 		return []MediaItem{}, 0, nil
 	}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:         visibility.IncludeNSFW,
 		AllowedLibraryIDs:   visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:    visibility.HiddenLibraryIDs,
 		MissingPoster:       visibility.MissingPoster,
@@ -197,7 +195,6 @@ func (s *MediaService) getMedia(ctx context.Context, id string, visibility Media
 	}
 	if media == nil {
 		media, err = s.repo.MediaView.FindByLogicalMetadataID(ctx, id, repository.MediaQueryFilter{
-			IncludeNSFW:       visibility.IncludeNSFW,
 			AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 			HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 		})
@@ -303,7 +300,6 @@ func (s *MediaService) ListMediaVersions(ctx context.Context, id, userID string,
 		return []model.MediaView{}, err
 	}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}

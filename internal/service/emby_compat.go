@@ -13,6 +13,7 @@ package service
 
 import (
 	"context"
+	"math/rand/v2"
 	"regexp"
 	"strings"
 	"sync"
@@ -99,6 +100,10 @@ type ItemsParams struct {
 	SortOrder        string
 	Limit            int
 	StartIndex       int
+	// SkipTotalRecordCount 仅跳过列表总数，不影响页内集数和播放状态；内部调用默认保留计数。
+	SkipTotalRecordCount bool
+	// randomSeed 固定一次请求中各批候选的随机顺序，不接受外部 SQL 输入。
+	randomSeed uint64
 }
 
 const (
@@ -127,6 +132,34 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 	if p.StartIndex < 0 {
 		p.StartIndex = 0
 	}
+	if embyRandomSort(p) && p.randomSeed == 0 {
+		p.randomSeed = rand.Uint64()
+	}
+	// IDs 与根目录返回完整集合，不按 Limit 裁切。
+	lookahead := p.SkipTotalRecordCount && (len(p.IDs) == 0 || containsOnlyPersonItemTypes(p.IncludeItemTypes)) && !(p.ParentID == "" && p.SearchTerm == "" &&
+		(containsOnlyFolderItemTypes(p.IncludeItemTypes) || (!p.Recursive && len(p.IncludeItemTypes) == 0 && len(p.Filters) == 0)))
+	limit := p.Limit
+	if lookahead {
+		p.Limit++
+	}
+	out, err := e.items(ctx, p)
+	if err != nil || !lookahead {
+		return out, err
+	}
+	items := out["Items"].([]map[string]any)
+	var total int64
+	if len(items) > 0 {
+		total = int64(p.StartIndex) + int64(len(items))
+	}
+	if len(items) > limit {
+		out["Items"] = items[:limit]
+	}
+	out["TotalRecordCount"] = total
+	return out, nil
+}
+
+// items 分发已归一化的查询；内部 Limit 可包含一个分页前瞻项。
+func (e *EmbyService) items(ctx context.Context, p ItemsParams) (map[string]any, error) {
 	if containsEmbyFilter(p.Filters, "IsFavorite") && len(p.IncludeItemTypes) > 0 && !containsOnlyFavoriteItemTypes(p.IncludeItemTypes) {
 		return emptyItemsEnvelope(p.StartIndex), nil
 	}

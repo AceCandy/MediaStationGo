@@ -32,14 +32,14 @@ func TestPlaybackAutoMarkPreviousEpisodes(t *testing.T) {
 				}
 			}
 			visibility := MediaVisibility{AllowedLibraryIDs: []string{"visible", "hidden"}, HiddenLibraryIDs: []string{"hidden"}}
-			e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
+			e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
 			series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "local"})
 			season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 0, Source: "local"})
 			media := make([]model.Media, 10)
 			for n := 1; n <= 9; n++ {
-				ep := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: n, NSFW: n == 3, Source: "local"})
+				ep := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: n, Source: "local"})
 				media[n] = model.Media{MetadataID: ep.ID, LibraryID: "visible", Path: fmt.Sprintf("/test/S00E%02d.mkv", n)}
-				if n == 4 {
+				if n == 3 || n == 4 {
 					media[n].LibraryID = "hidden"
 				}
 				if n == 5 {
@@ -200,7 +200,7 @@ func TestHongGuoAutoMarkPreviousEpisodes(t *testing.T) {
 	}
 	e := NewEmbyService(&config.Config{}, zap.NewNop(), repos)
 	visibility := MediaVisibility{AllowedLibraryIDs: []string{"visible", "hidden"}, HiddenLibraryIDs: []string{"hidden"}}
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
 	view := serviceTestMediaView(t, repos, media[4].ID)
 	for range 2 {
 		if err := e.RecordProgress(ctx, "viewer", view.CatalogItemID, media[4].ID, "session", 100_000*10_000, 120_000*10_000); err != nil {

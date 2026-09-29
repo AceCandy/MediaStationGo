@@ -116,9 +116,6 @@ func mediaWithReclassifyMatch(media model.Media, match *Match) model.Media {
 	if len(match.Genres) > 0 {
 		media.Genres = strings.Join(match.Genres, ",")
 	}
-	if match.NSFW {
-		media.NSFW = true
-	}
 	media.ScrapeStatus = "matched"
 	return media
 }
@@ -131,8 +128,7 @@ func metadataMatchMediaType(match *Match) string {
 }
 
 func mediaHasReliableCategoryMetadata(media model.Media) bool {
-	return media.NSFW ||
-		strings.TrimSpace(media.Languages) != "" ||
+	return strings.TrimSpace(media.Languages) != "" ||
 		strings.TrimSpace(media.Countries) != "" ||
 		strings.TrimSpace(media.Genres) != ""
 }

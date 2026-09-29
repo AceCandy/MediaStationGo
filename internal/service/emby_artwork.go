@@ -10,7 +10,7 @@ import (
 // ImageURL returns artwork for a library/media/series/season item id.
 func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (string, error) {
 	if strings.HasPrefix(id, "nfo-") {
-		view, err := e.repo.MediaView.NFOPresentation(ctx, id, true)
+		view, err := e.repo.MediaView.NFOPresentation(ctx, id)
 		if err != nil || view == nil {
 			return "", err
 		}
@@ -78,7 +78,7 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 		}
 	}
 	if e.repo != nil && e.repo.Library != nil {
-		lib, err := e.repo.Library.FindByID(ctx, id)
+		lib, err := FindLibraryBasic(ctx, e.repo, e.cache, id)
 		if err != nil {
 			return "", err
 		}

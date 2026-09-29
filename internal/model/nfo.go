@@ -33,7 +33,6 @@ type NFOFields struct {
 	Genres          string  `gorm:"type:text" json:"genres,omitempty"`
 	Countries       string  `gorm:"type:text" json:"countries,omitempty"`
 	Languages       string  `gorm:"type:text" json:"languages,omitempty"`
-	NSFW            bool    `json:"nsfw"`
 	PosterAssetID   string  `gorm:"size:36" json:"-"`
 	BackdropAssetID string  `gorm:"size:36" json:"-"`
 	ExternalIDs     string  `gorm:"type:jsonb;not null;default:'{}'" json:"-"`

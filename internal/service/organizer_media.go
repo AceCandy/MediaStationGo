@@ -38,15 +38,9 @@ func (o *OrganizerService) resolveOrganizeMediaRequest(ctx context.Context, medi
 	if err != nil || lib == nil {
 		return organizeMediaRequest{}, errors.New("library not found")
 	}
-	if isRetiredCloudPath(lib.Path) {
-		return organizeMediaRequest{}, errors.New("library path is no longer supported")
-	}
 	requestedBaseRoot := o.resolveBaseRoot(ctx, lib, opts.DestPath)
 	mediaType, mediaCategory := o.effectiveOrganizeOverrides(opts, requestedBaseRoot)
 	baseRoot := normalizeMappedOrganizeDestinationRoot(requestedBaseRoot)
-	if isRetiredCloudPath(baseRoot) {
-		return organizeMediaRequest{}, errors.New("organize destination must be a local writable media directory")
-	}
 	if !opts.DryRun {
 		if err := ensureOrganizeDestinationWritable(baseRoot); err != nil {
 			return organizeMediaRequest{}, err

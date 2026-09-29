@@ -45,7 +45,7 @@ func (r *NFORepository) UpdateMetadata(ctx context.Context, mediaID, itemID stri
 		updates := map[string]any{
 			"title": fields.Title, "original_name": fields.OriginalName, "overview": fields.Overview,
 			"year": fields.Year, "release_date": fields.ReleaseDate, "rating": fields.Rating,
-			"genres": fields.Genres, "countries": fields.Countries, "languages": fields.Languages, "nsfw": fields.NSFW,
+			"genres": fields.Genres, "countries": fields.Countries, "languages": fields.Languages,
 		}
 		if result := tx.Model(&model.NFOItem{}).Where("id = ?", itemID).Updates(updates); result.Error != nil {
 			return result.Error
@@ -136,7 +136,7 @@ func (r *NFORepository) Ingest(ctx context.Context, media *model.Media, input *N
 					id := parentID
 					item.ParentID = &id
 				}
-				updates := clause.AssignmentColumns([]string{"title", "original_name", "overview", "year", "release_date", "rating", "genres", "countries", "languages", "nsfw", "external_ids", "people", "updated_at"})
+				updates := clause.AssignmentColumns([]string{"title", "original_name", "overview", "year", "release_date", "rating", "genres", "countries", "languages", "external_ids", "people", "updated_at"})
 				updates = append(updates, clause.Assignment{Column: clause.Column{Name: "poster_asset_id"}, Value: gorm.Expr("COALESCE(NULLIF(EXCLUDED.poster_asset_id,''),nfo_items.poster_asset_id)")}, clause.Assignment{Column: clause.Column{Name: "backdrop_asset_id"}, Value: gorm.Expr("COALESCE(NULLIF(EXCLUDED.backdrop_asset_id,''),nfo_items.backdrop_asset_id)")})
 				conflict := clause.OnConflict{
 					Columns:   []clause.Column{{Name: "library_id"}, {Name: "local_key"}},

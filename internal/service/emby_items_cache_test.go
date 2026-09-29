@@ -19,4 +19,9 @@ func TestEmbyItemsCacheKeyIncludesFields(t *testing.T) {
 	if svc.embyItemsCacheKey("items", personOne) == svc.embyItemsCacheKey("items", personTwo) {
 		t.Fatal("different PersonIDs share an Items cache key")
 	}
+	withoutTotal := base
+	withoutTotal.SkipTotalRecordCount = true
+	if svc.embyItemsCacheKey("items", base) == svc.embyItemsCacheKey("items", withoutTotal) {
+		t.Fatal("counted and uncounted pages share an Items cache key")
+	}
 }

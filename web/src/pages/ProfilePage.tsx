@@ -127,7 +127,7 @@ export function ProfilePage() {
               <EyeOff size={16} /> 隐藏成人目录
             </span>
             <span className="mt-1 block text-sm leading-6 text-ink-50">
-              开启后当前账号在网页、外部播放器链接以及 Emby/Jellyfin/Infuse 等第三方客户端中都不会显示成人媒体库和 NSFW 条目。
+              开启后当前账号在网页、外部播放器链接以及 Emby/Jellyfin/Infuse 等第三方客户端中都不会显示成人媒体库。
             </span>
           </span>
           <input

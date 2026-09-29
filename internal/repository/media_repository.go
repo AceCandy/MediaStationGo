@@ -37,10 +37,8 @@ func (r *MediaRepository) SetSearchBackend(backend MediaSearchBackend) {
 	}
 }
 
-// MediaQueryFilter is applied to user-facing media queries so NSFW items and
-// profile-restricted libraries are filtered in SQL instead of only in React.
+// MediaQueryFilter 在 SQL 中按库限制可见文件，而不是仅在界面隐藏。
 type MediaQueryFilter struct {
-	IncludeNSFW         bool
 	AllowedLibraryIDs   []string
 	HiddenLibraryIDs    []string
 	MissingPoster       bool
@@ -79,7 +77,6 @@ type MetadataSearchDocument struct {
 	OriginalName string   `json:"original_name"`
 	Overview     string   `json:"overview"`
 	Genres       string   `json:"genres"`
-	NSFW         bool     `json:"nsfw"`
 	LibraryIDs   []string `json:"library_ids" gorm:"-"`
 }
 
@@ -129,7 +126,7 @@ func (r *MediaRepository) FindByPath(ctx context.Context, path string) (*model.M
 
 // ListByLibrary returns paginated media items for a library.
 func (r *MediaRepository) ListByLibrary(ctx context.Context, libraryID string, offset, limit int) ([]model.Media, int64, error) {
-	return r.ListByLibraryFiltered(ctx, libraryID, offset, limit, MediaQueryFilter{IncludeNSFW: true})
+	return r.ListByLibraryFiltered(ctx, libraryID, offset, limit, MediaQueryFilter{})
 }
 
 func (r *MediaRepository) ListByLibraryFiltered(ctx context.Context, libraryID string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, error) {

@@ -8,9 +8,6 @@ func applyLocalMetadata(m *model.Media, local *LocalMetadata) {
 	applyLocalExternalIDMetadata(m, local)
 	applyLocalEpisodeMetadata(m, local)
 	applyLocalTaxonomyMetadata(m, local)
-	if local.NSFW {
-		m.NSFW = true
-	}
 	if localMetadataMarksMatched(local) {
 		m.ScrapeStatus = "matched"
 	}

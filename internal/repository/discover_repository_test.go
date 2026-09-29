@@ -68,30 +68,11 @@ func TestDiscoverLibraryItemsUseVisibleFilesAndExactKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFound(items[1]) // 数值相同的电影被删除，整剧标记仍然存在。
-	if err := db.Model(series).Update("nsfw", true).Error; err != nil {
-		t.Fatal(err)
-	}
-	assertFound()
-	filter.IncludeNSFW = true
-	assertFound(items[1])
-	if err := db.Model(series).Update("nsfw", false).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(episode).Update("nsfw", true).Error; err != nil {
-		t.Fatal(err)
-	}
-	filter.IncludeNSFW = false
-	assertFound() // 整剧安全但唯一可见分集为 NSFW 时，不能误标入库。
-	filter.IncludeNSFW = true
-	assertFound(items[1])
-	if err := db.Model(episode).Update("nsfw", false).Error; err != nil {
-		t.Fatal(err)
-	}
 	filter.HiddenLibraryIDs = []string{lib.ID}
 	assertFound()
-	filter = MediaQueryFilter{AllowedLibraryIDs: []string{"__locked__"}, IncludeNSFW: true}
+	filter = MediaQueryFilter{AllowedLibraryIDs: []string{"__locked__"}}
 	assertFound()
-	filter = MediaQueryFilter{IncludeNSFW: true}
+	filter = MediaQueryFilter{}
 	assertFound(items[1], items[3])
 	if err := db.Model(&lib).Update("enabled", false).Error; err != nil {
 		t.Fatal(err)

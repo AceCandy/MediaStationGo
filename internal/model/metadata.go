@@ -44,7 +44,6 @@ type MetadataItem struct {
 	Languages    string        `gorm:"size:64" json:"languages,omitempty"`
 	Countries    string        `gorm:"size:128" json:"countries,omitempty"`
 	Genres       string        `gorm:"type:text" json:"genres,omitempty"`
-	NSFW         bool          `gorm:"default:false" json:"nsfw"`
 	Source       string        `gorm:"size:32;not null" json:"source"`
 	Parent       *MetadataItem `gorm:"foreignKey:ParentID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 

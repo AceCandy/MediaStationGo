@@ -22,7 +22,7 @@ type MediaService struct {
 }
 
 type MediaVisibility struct {
-	IncludeNSFW         bool
+	IncludeNSFW         bool // 是否允许访问成人库，不表示媒体项标记。
 	AllowedLibraryIDs   []string
 	HiddenLibraryIDs    []string
 	LibraryRestricted   bool
@@ -37,20 +37,17 @@ func (v MediaVisibility) Allows(media *model.Media) bool {
 	if media == nil {
 		return false
 	}
-	return v.allows(media.LibraryID, media.NSFW)
+	return v.allows(media.LibraryID)
 }
 
 func (v MediaVisibility) AllowsView(media *model.MediaView) bool {
 	if media == nil {
 		return false
 	}
-	return v.allows(media.LibraryID, media.NSFW)
+	return v.allows(media.LibraryID)
 }
 
-func (v MediaVisibility) allows(libraryID string, nsfw bool) bool {
-	if !v.IncludeNSFW && nsfw {
-		return false
-	}
+func (v MediaVisibility) allows(libraryID string) bool {
 	for _, id := range v.HiddenLibraryIDs {
 		if id == libraryID {
 			return false

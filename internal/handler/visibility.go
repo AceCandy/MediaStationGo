@@ -18,9 +18,6 @@ import (
 
 func mediaVisibilityForRequest(c *gin.Context, svc *service.Container) service.MediaVisibility {
 	userID := currentUserID(c)
-	adultEnabled := service.AdultContentEnabled(c.Request.Context(), svc.Repo)
-	userHidesAdult := service.UserHidesAdult(c.Request.Context(), svc.Repo, userID)
-	visibility := service.UserDefaultMediaVisibility(c.Request.Context(), svc.Repo, userID)
 	profile, locked := selectedPlayProfile(c, svc)
 	if locked {
 		return service.MediaVisibility{
@@ -29,18 +26,7 @@ func mediaVisibilityForRequest(c *gin.Context, svc *service.Container) service.M
 			LibraryRestricted: true,
 		}
 	}
-	if profile == nil {
-		return visibility
-	}
-	visibility.IncludeNSFW = adultEnabled && profile.AllowAdult && !userHidesAdult
-	visibility.AllowedLibraryIDs = profileAllowedLibraryIDs(*profile)
-	visibility.LibraryRestricted = true
-	if !visibility.IncludeNSFW {
-		visibility.HiddenLibraryIDs = service.AdultLibraryIDs(c.Request.Context(), svc.Repo)
-	} else {
-		visibility.HiddenLibraryIDs = nil
-	}
-	return visibility
+	return service.UserProfileMediaVisibility(c.Request.Context(), svc.Repo, userID, profile)
 }
 
 func selectedPlayProfile(c *gin.Context, svc *service.Container) (*model.PlayProfile, bool) {
@@ -108,10 +94,6 @@ func settingBool(c *gin.Context, svc *service.Container, key string, fallback bo
 func currentUserID(c *gin.Context) string {
 	uid, _ := c.Get(middleware.CtxUserID)
 	return toString(uid)
-}
-
-func profileAllowedLibraryIDs(profile model.PlayProfile) []string {
-	return service.DecodeAllowedLibraryIDs(profile.AllowedLibraryIDs)
 }
 
 func signPlayProfilePINToken(svc *service.Container, userID, profileID string, expiresAt time.Time) string {

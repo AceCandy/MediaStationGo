@@ -41,7 +41,6 @@ export interface Media {
   languages?: string
   countries?: string
   genres?: string
-  nsfw: boolean
   metadata_kind?: string
   tmdb_snapshot?: boolean
   douban_snapshot?: boolean

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
@@ -10,6 +11,25 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// HongGuoWorkIdentitySQL 供已补齐关系的作品列表使用；电影不参与合集。
+const HongGuoWorkIdentitySQL = "CASE WHEN w.kind = 'series' THEN 'hg-group-' || w.related_album_id ELSE 'hg-work-' || w.id END"
+
+// HongGuoReadyWorkSQL 暂缺合集的剧等待补充任务，不在列表中回退为独立作品。
+const HongGuoReadyWorkSQL = "(w.kind = 'movie' OR (w.related_album_id <> '' AND w.season_index > 0))"
+
+// FilterHongGuoWorkIDs 用原生索引列限定作品别名 w；展示身份仍由调用方校验。
+func FilterHongGuoWorkIDs(q *gorm.DB, ids []string) *gorm.DB {
+	works, albums := []string{}, []string{}
+	for _, id := range ids {
+		if work, ok := strings.CutPrefix(id, "hg-work-"); ok && work != "" {
+			works = append(works, work)
+		} else if album, ok := strings.CutPrefix(id, "hg-group-"); ok && album != "" {
+			albums = append(albums, album)
+		}
+	}
+	return q.Where("w.id = ANY(?) OR (w.related_album_id = ANY(?) AND w.kind = 'series' AND w.season_index > 0)", &works, &albums)
+}
 
 // HongGuoAlbumJoin 为作品别名 w 投影官方合集 g；标题取最早已收录季，不按标题推断关系。
 const HongGuoAlbumJoin = `LEFT JOIN LATERAL (
@@ -55,9 +75,9 @@ func (r *HongGuoRepository) Group(ctx context.Context, id string) (*HongGuoGroup
 	return group, nil
 }
 
-// SaveAlbum 仅保存经校验的官方关系；网页资料刷新不能覆盖该补充结果。
+// SaveAlbum 仅保存已核验的合集或自身第一季关系；网页资料刷新不能覆盖该结果。
 func (r *HongGuoRepository) SaveAlbum(ctx context.Context, sourceID string, album hongguo.Album) error {
-	if !hongguo.ValidID(sourceID) || (album.ID != "" && (!hongguo.ValidID(album.ID) || album.Season < 1 || album.Season > 100000)) || (album.ID == "" && album.Season != 0) {
+	if !hongguo.ValidID(sourceID) || !hongguo.ValidID(album.ID) || album.Season < 1 || album.Season > 100000 {
 		return errors.New("红果官方合集关系无效")
 	}
 	var work model.HongGuoWork
@@ -77,10 +97,10 @@ func (r *HongGuoRepository) RetryAlbum(ctx context.Context, sourceID string, ret
 	return r.db.WithContext(ctx).Model(&model.HongGuoWork{}).Where("source_id = ?", sourceID).Update("album_retry_at", retryAt).Error
 }
 
-// PendingAlbums 以成功检查时间区分未知和无合集；游标避免同轮重复，重试标记不设冷却。
+// PendingAlbums 补齐缺失关系并重试失败项；已核验的自身第一季不重复处理。
 func (r *HongGuoRepository) PendingAlbums(ctx context.Context, after string, cutoff time.Time) ([]model.HongGuoWork, error) {
 	rows := []model.HongGuoWork{}
-	err := r.db.WithContext(ctx).Where("source_id > ? AND created_at <= ? AND (album_checked_at IS NULL OR album_retry_at IS NOT NULL)", after, cutoff).
+	err := r.db.WithContext(ctx).Where("source_id > ? AND created_at <= ? AND (album_checked_at IS NULL OR album_retry_at IS NOT NULL OR related_album_id = '' OR season_index <= 0)", after, cutoff).
 		Order("source_id").Limit(100).Find(&rows).Error
 	return rows, err
 }

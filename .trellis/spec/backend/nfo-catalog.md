@@ -56,27 +56,30 @@ confirmed there are no existing NFO libraries.
   transaction. Invalid/missing NFO retains the previous binding and snapshot.
 - Valid unrelated XML is not accepted as an empty NFO. Explicit season zero is
   supported; missing/invalid seasons are not silently converted into specials.
-- Item/ancestor NSFW flags participate both in SQL visibility and the returned
-  file projection, even if the per-file snapshot is not NSFW.
+- Adult visibility is library-scoped. Items, bindings and snapshots have no
+  NSFW field; imports, editing, exports and projections must not reintroduce it.
 - In the retained local scraping path, `applyLocalMetadataMatch` must pass the
   merged `next` object to `persistLocalMetadata`. Passing the original media
   drops newly read episode coordinates and binds the file to the Series.
 - 指定 NFO 库及全局 Movie/Series 浏览共用 `NFOWorkCandidates`，`NFOWorkNodes`
-  仅展开页内作品文件。非 DateCreated 候选先排除最新文件时间为空的作品，
-  用 EXISTS 保留当前库可见文件资格；全部已看等价于不存在未看可见文件，
+  仅展开页内作品文件。指定库的所有排序候选先排除最新文件时间为空的作品，
+  直接使用条目库归属和有效文件汇总，不再重复查询文件归属/存在性；正常入库事务建立同库条目、层级和绑定。全部已看等价于不存在未看可见文件，
   必须复用 `PlaybackStates` 的有效状态，不能只读原始 completed。按分集身份关联状态以保留 Latest 的有界索引探测；不要把集合型已看 UNION 直接套入短页查询，十万文件计划曾因此扫描全部用户状态。
   沿季通过 LATERAL/`OFFSET 0` 定位分集，防止相关查询反复扫描分集目录。
-  仅请求已看筛选时计算候选状态。库内 DateCreated 使用 MIN、全局使用 MAX；名称/评分/最新入库排序不聚合文件日期。
-  文件、条目、祖先和库权限须在分页前生效。
-- 指定库 Latest 不计算作品总数；普通列表越界页仍返回准确总数。Emby DateCreated/MIN
-  保持不变；Latest、DateLastContentAdded 与 Web 最近添加读取条目的
+  Only requested played filters compute candidate states. DateCreated uses
+  `nfo_items.created_at` in both library and global candidates; no file-date
+  aggregate is needed. Only state qualification reads root/season/episode files;
+  simple candidates read the item table. Missing-poster/title filters retain the
+  full view predicate. Global items with uninitialized latest time retain exact fallback.
+- 指定库 Latest 不计算作品总数；普通列表越界页仍返回准确总数。
+  Latest、DateLastContentAdded 与 Web 最近添加读取条目的
   `latest_media_added_at`，空值最后，特殊筛选和季集路径保持原路由。
-- For count-free descending DateLastContentAdded, `NFOWorkCandidates` orders
-  the library's nonempty top-level items behind `OFFSET 0`, preserving season/
-  episode-number precedence, before checking files and playback state. The caller
-  uses `NOT MATERIALIZED` only on this Latest path; do not exhaust eligibility for
-  every item before sorting. Never LIMIT the root candidates before qualification.
-  Counted lists and DateCreated retain their existing materialization and totals.
+- Library state-filtered Items and Latest sort lightweight item candidates first,
+  then `filteredWorkBatchPage` takes 50 and applies effective state only to those
+  identities. Refill until enough qualified results or exhaustion; preserve season/
+  episode-number precedence and stable ID ties. Counted lists compute exact totals
+  in the same read-only repeatable-read snapshot. Latest stops when full and never
+  counts. Only the final page reaches `NFOWorkNodes`.
 - Web `nfoLibraryPage` 候选只计算身份和排序时间，页内才统计代表文件、集数、
   版本数；缺图/中文标题过滤在候选及统计阶段保持一致。
 - Detail, child hierarchy and version reads share `nfoItemViewQuery`: resolve the
@@ -90,6 +93,22 @@ confirmed there are no existing NFO libraries.
   requested node/parent; never use a leaf-scoped ancestor as a whole-series summary.
   Mixed Items and Resume/NextUp hydration use `nfoItemNodes(ctx, userID, ids...)`
   and the same `NFOWorkNodes` scope, not full-catalog `nfoNodes` followed by outer IDs.
+  `nfoWorkFileItems(ctx, ids, filter)` applies item-library permissions inside each
+  native identity/parent branch. Do not wrap its output in another joined item
+  scan: the 100,000-file regression observed 52,000 unrelated item reads that way.
+  Concrete file permissions remain; membership is not a replacement for child
+  existence, effective state or missing-file-field checks. Search may use own
+  library and non-null maintained time to skip redundant file existence, with
+  exact fallback for missing-field predicates and uninitialized time.
+- `NFOWorkNodes(..., containersOnly)` may omit representative media, watched time,
+  position and file-date aggregates only when every selected row is Series.
+  It uses effective `CompletedPlaybackStates`; mixed/Movie/Episode and detail
+  hydration retain full states, version preference and LastPlayedDate.
+- NFO item DateCreated is its first creation time, including Movie/Episode
+  payloads through `MediaView.CatalogCreatedAt`. Ingest conflict updates never
+  overwrite it. Files can precede metadata; new versions, rescan and deletion of
+  the earliest file do not change a surviving item's time. Media.CreatedAt,
+  MediaSource/PlaybackInfo dates and latest_media_added_at keep file semantics.
 
 ## 4. Validation & Error Matrix
 
@@ -100,7 +119,7 @@ confirmed there are no existing NFO libraries.
 | Mixed ordinary/HongGuo/NFO file events | One common watch execution |
 | Same file and snapshot scanned twice | Second ingest returns changed=false |
 | NFO becomes invalid/missing | Preserve accepted snapshot, report file state |
-| Ancestor/item is NSFW and profile disallows it | No visible file |
+| Adult library is hidden by user/profile | No visible file |
 | `<html>` supplied as movie NFO | Reject instead of clearing metadata |
 | Single-episode NFO has no valid season | Reject; no invented season zero |
 | Fresh or repeated startup | Create/reuse four independent tables |
@@ -115,7 +134,7 @@ claim complete isolation while the scanner still uses the old writer.
 ## 6. Tests Required
 
 `TestNFORepositoryPreservesFilesAndPreviousSnapshot` covers repeat/changed
-snapshots, invalid-NFO preservation, independent views and NSFW/library filters.
+snapshots, invalid-NFO preservation, independent views and library filters.
 `TestNFORejectsWrongDocumentAndUnknownSeason` covers document/season validation.
 `TestNFOTasksUseCommonDefinitions`, `TestNFOTaskLegacySystemFilter`,
 `TestNFOWatcherSharesMixedBatch`, and `TestNFOSchedulerSharesLibraries`
@@ -138,12 +157,15 @@ a separate manual acceptance step.
 不能把只测 DateCreated 的用例当成 Latest 性能验证。
 The same plan fixture covers series/season/episode detail, child lists and
 versions, including payload SQL. Bound visits as `(rows + filtered) * loops`;
-`TestNFOLibraryPagingMatchesHierarchy` compares scoped nodes under ancestor NSFW,
+`TestNFOLibraryPagingMatchesHierarchy` compares scoped nodes under
 hidden/empty/allowed library permissions and watched state. The repository batch
 test compares original OR queries with scoped movie/series/season/episode reads
 and overlapping parent/child inputs, retaining every visible version exactly once.
 The 100,000-file plan fixture also checks mixed-page payload SQL. The global browse
 oracle compares complete batch nodes with the original hierarchy, including counts.
+`TestNFOLibraryCreatedAtUsesFirstItemCreation` covers sorting and payload dates,
+late metadata, added versions, rescan and deletion of the first file. Plan tests
+assert no file-date aggregation in candidates and no unused container fields.
 
 ## 7. Wrong vs Correct
 

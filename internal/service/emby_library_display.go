@@ -46,7 +46,7 @@ func DecodeEmbyLibraryDisplay(value string) ([]EmbyLibraryDisplay, error) {
 
 // DisplayLibraries 返回统一的 Emby 展示顺序；调用方仍需过滤用户权限。
 func (e *EmbyService) DisplayLibraries(ctx context.Context) ([]model.Library, error) {
-	libs, err := e.repo.Library.List(ctx)
+	libs, err := e.repo.Library.ListBasic(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -227,7 +227,7 @@ func (s *ScraperService) resetScrapeGroupPending(ctx context.Context, group scra
 }
 
 func (s *ScraperService) enrichCandidateGroup(ctx context.Context, group scrapeCandidateGroup, options ScrapeOptions) error {
-	lib, err := s.repo.Library.FindByID(ctx, group.Representative.LibraryID)
+	lib, err := s.repo.Library.FindBasicByID(ctx, group.Representative.LibraryID)
 	if err != nil {
 		return err
 	}

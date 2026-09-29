@@ -18,7 +18,6 @@ func (e *EmbyService) applyUserMediaVisibility(ctx context.Context, q *gorm.DB, 
 	// media rows.
 	q = q.Joins("JOIN metadata_items AS emby_metadata ON emby_metadata.id = media.metadata_id")
 	if !visibility.IncludeNSFW {
-		q = q.Where("COALESCE(emby_metadata.nsfw, FALSE) = FALSE")
 		if hidden := visibility.HiddenLibraryIDs; len(hidden) > 0 {
 			q = q.Where("media.library_id <> ALL(?)", &hidden)
 		}
@@ -35,7 +34,6 @@ func (e *EmbyService) mediaQueryFilter(ctx context.Context, userID string) repos
 		visibility.AllowedLibraryIDs = []string{"__locked__"}
 	}
 	return repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
@@ -53,7 +51,15 @@ func (e *EmbyService) mediaVisibility(ctx context.Context, userID string) MediaV
 	if e == nil {
 		return MediaVisibility{IncludeNSFW: true}
 	}
-	key := strings.TrimSpace(userID)
+	key := e.repo.ReadCacheKey() + strings.TrimSpace(userID)
+	// 认证快照可能早于权限修改；按本次快照隔离，不能污染修改后的请求。
+	if user, ok := ctx.Value(authenticatedUserKey{}).(authenticatedUserVisibility); ok && user.id == userID {
+		if user.hideAdult {
+			key += ":hidden"
+		} else {
+			key += ":visible"
+		}
+	}
 	now := time.Now()
 	e.visibilityMu.RLock()
 	entry, ok := e.visibilityCache[key]
@@ -63,9 +69,6 @@ func (e *EmbyService) mediaVisibility(ctx context.Context, userID string) MediaV
 	}
 
 	visibility := UserDefaultMediaVisibility(ctx, e.repo, userID)
-	if !visibility.IncludeNSFW {
-		visibility.HiddenLibraryIDs = e.hiddenLibraryIDs(ctx, visibility)
-	}
 	visibility = cloneMediaVisibility(visibility)
 
 	e.visibilityMu.Lock()
@@ -120,21 +123,4 @@ func (e *EmbyService) libraryVisibleFromCachedVisibility(lib model.Library, visi
 		}
 	}
 	return true
-}
-
-func (e *EmbyService) hiddenLibraryIDs(ctx context.Context, visibility MediaVisibility) []string {
-	if visibility.IncludeNSFW {
-		return nil
-	}
-	libs, err := e.repo.Library.List(ctx)
-	if err != nil {
-		return nil
-	}
-	ids := make([]string, 0)
-	for _, lib := range libs {
-		if !LibraryVisibleForUser(ctx, e.repo, lib, visibility) {
-			ids = append(ids, lib.ID)
-		}
-	}
-	return ids
 }

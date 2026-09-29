@@ -547,7 +547,7 @@ func TestManualSearchIncludesAdultProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Source != "adult" || results[0].MediaType != "adult" || !results[0].NSFW || results[0].OriginalName != "SSIS-001" {
+	if len(results) != 1 || results[0].Source != "adult" || results[0].MediaType != "adult" || results[0].OriginalName != "SSIS-001" {
 		t.Fatalf("manual adult candidates = %#v", results)
 	}
 }

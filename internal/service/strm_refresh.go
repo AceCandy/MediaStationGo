@@ -58,9 +58,6 @@ func FindSTRMRefreshTargets(ctx context.Context, repo *repository.Container, out
 			if !root.Enabled || strings.TrimSpace(root.Path) == "" {
 				continue
 			}
-			if isRetiredCloudPath(root.Path) {
-				continue
-			}
 			if !strmRefreshPathMatches(outputDir, root.Path) {
 				continue
 			}

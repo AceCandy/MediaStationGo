@@ -75,7 +75,7 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 			c.Status(400)
 			return
 		}
-		library, err := svc.Repo.Library.FindByID(c.Request.Context(), c.Param("libraryID"))
+		library, err := service.FindLibraryBasic(c.Request.Context(), svc.Repo, svc.Cache, c.Param("libraryID"))
 		if err != nil {
 			c.Status(500)
 			return
@@ -118,7 +118,7 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 			c.JSON(200, gin.H{"items": []model.MediaView{}, "total": 0})
 			return
 		}
-		rows, total, err := svc.Repo.MediaView.HongGuoMediaPage(c.Request.Context(), c.Param("sourceID"), page, 50, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+		rows, total, err := svc.Repo.MediaView.HongGuoMediaPage(c.Request.Context(), c.Param("sourceID"), page, 50, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 		if err != nil {
 			c.JSON(500, gin.H{"error": "红果媒体读取失败"})
 			return

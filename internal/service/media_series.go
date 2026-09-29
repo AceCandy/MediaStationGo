@@ -26,7 +26,7 @@ func (s *MediaService) GetMediaSeriesVisible(ctx context.Context, mediaID string
 	if err != nil || media == nil || !visibility.AllowsView(media) || media.SeriesID == "" {
 		return nil, err
 	}
-	series, err := s.repo.MediaView.FindSeriesPresentation(ctx, media.SeriesID, visibility.IncludeNSFW)
+	series, err := s.repo.MediaView.FindSeriesPresentation(ctx, media.SeriesID)
 	if err != nil || series == nil {
 		return nil, err
 	}
@@ -42,14 +42,14 @@ func (s *MediaService) GetMediaSeasonVisible(ctx context.Context, mediaID string
 	if err != nil || media == nil || !visibility.AllowsView(media) || media.SeasonID == "" {
 		return nil, err
 	}
-	season, err := s.repo.MediaView.FindSeasonPresentation(ctx, media.SeasonID, visibility.IncludeNSFW)
+	season, err := s.repo.MediaView.FindSeasonPresentation(ctx, media.SeasonID)
 	if err != nil || season == nil {
 		return nil, err
 	}
 	season.SeasonID = media.SeasonID
 	season.SeriesID = media.SeriesID
 	if season.PosterURL == "" && media.CatalogSource != model.TaskSystemHongGuo {
-		series, findErr := s.repo.MediaView.FindSeriesPresentation(ctx, media.SeriesID, visibility.IncludeNSFW)
+		series, findErr := s.repo.MediaView.FindSeriesPresentation(ctx, media.SeriesID)
 		if findErr != nil {
 			return nil, findErr
 		}
@@ -71,7 +71,7 @@ type seriesCardGroup struct {
 
 func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID string, page, pageSize int, seriesID, key string, visibility MediaVisibility) ([]SeriesCard, int64, error) {
 	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
-	if !visibility.allows(libraryID, false) {
+	if !visibility.allows(libraryID) {
 		return []SeriesCard{}, 0, nil
 	}
 	if seriesID == "" && key != "" {
@@ -84,7 +84,7 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 			return []SeriesCard{}, 0, nil
 		}
 	}
-	filter := repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs, MissingPoster: visibility.MissingPoster, MissingChineseTitle: visibility.MissingChineseTitle}
+	filter := repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs, MissingPoster: visibility.MissingPoster, MissingChineseTitle: visibility.MissingChineseTitle}
 	rows, summaries, total, err := s.repo.MediaView.ListLibraryMetadataPage(ctx, libraryID, model.MetadataKindSeries, seriesID, (page-1)*pageSize, pageSize, filter)
 	if err != nil {
 		return nil, 0, err
@@ -107,7 +107,7 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 		return nil, 0, err
 	}
 	if seriesID != "" && len(cards) == 1 {
-		seasons, err := s.repo.MediaView.ListLibrarySeriesSeasons(ctx, libraryID, seriesID, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+		seasons, err := s.repo.MediaView.ListLibrarySeriesSeasons(ctx, libraryID, seriesID, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 		if err != nil {
 			return nil, 0, err
 		}
@@ -131,7 +131,7 @@ func (s *MediaService) resolveLibrarySeriesKey(ctx context.Context, libraryID, k
 	if strings.HasPrefix(key, "metadata:") {
 		return strings.TrimPrefix(key, "metadata:"), nil
 	}
-	ids, err := s.repo.MediaView.LibrarySeriesMetadataIDs(ctx, libraryID, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+	ids, err := s.repo.MediaView.LibrarySeriesMetadataIDs(ctx, libraryID, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 	if err != nil {
 		return "", err
 	}
@@ -160,7 +160,6 @@ func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, vis
 		limit = 100
 	}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
@@ -212,7 +211,7 @@ func (s *MediaService) attachSeriesCardPresentations(ctx context.Context, cards 
 			ids = append(ids, card.Rep.SeriesID)
 		}
 	}
-	presentations, err := s.repo.MediaView.FindSeriesPresentations(ctx, ids, visibility.IncludeNSFW)
+	presentations, err := s.repo.MediaView.FindSeriesPresentations(ctx, ids)
 	if err != nil {
 		return err
 	}
@@ -228,7 +227,7 @@ func (s *MediaService) attachSeriesCardPresentations(ctx context.Context, cards 
 }
 
 func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, season *int, visibility MediaVisibility) ([]model.MediaView, error) {
-	if !visibility.allows(libraryID, false) {
+	if !visibility.allows(libraryID) {
 		return []model.MediaView{}, nil
 	}
 	id, err := s.resolveLibrarySeriesKey(ctx, libraryID, key, visibility)
@@ -238,7 +237,7 @@ func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID,
 	if id == "" {
 		return []model.MediaView{}, nil
 	}
-	rows, err := s.repo.MediaView.ListLibrarySeriesViewsForSeason(ctx, libraryID, id, season, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+	rows, err := s.repo.MediaView.ListLibrarySeriesViewsForSeason(ctx, libraryID, id, season, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 	if err != nil {
 		return nil, err
 	}

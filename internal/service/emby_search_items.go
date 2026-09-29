@@ -28,7 +28,7 @@ func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (m
 		Fields:           repository.MetadataSearchFieldsTitle, Kinds: kinds, PersonIDs: p.PersonIDs,
 	}
 	if p.ParentID != "" {
-		library, err := e.repo.Library.FindByID(ctx, p.ParentID)
+		library, err := FindLibraryBasic(ctx, e.repo, e.cache, p.ParentID)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +142,7 @@ func (e *EmbyService) searchPersonAndMediaItems(ctx context.Context, p ItemsPara
 			payloadByKey[embySearchCandidateKey(candidate.Kind, id)] = item
 		}
 	}
-	people, err := e.Persons(ctx, ItemsParams{UserID: p.UserID, SearchTerm: p.SearchTerm, Filters: p.Filters, Limit: repository.MetadataSearchCandidateLimit})
+	people, err := e.Persons(ctx, ItemsParams{UserID: p.UserID, SearchTerm: p.SearchTerm, Filters: p.Filters, Limit: repository.MetadataSearchCandidateLimit, SkipTotalRecordCount: p.SkipTotalRecordCount})
 	if err != nil {
 		return nil, err
 	}

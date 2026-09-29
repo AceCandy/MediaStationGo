@@ -45,19 +45,24 @@ func TestHongGuoAlbumFailureAndResume(t *testing.T) {
 	if err = repos.HongGuo.RetryAlbum(t.Context(), "91002", time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	if err = db.Model(&model.HongGuoWork{}).Where("source_id = ?", "91003").Update("album_checked_at", time.Now()).Error; err != nil {
+		t.Fatal(err)
+	}
 	requests := []string{}
 	fail := true
 	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoAlbumTransport(func(r *http.Request) (*http.Response, error) {
-		var input map[string]string
+		var input struct {
+			SeriesID string `json:"series_id"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			return nil, err
 		}
-		id := input["series_id"]
+		id := input.SeriesID
 		requests = append(requests, id)
 		if id == "91002" && fail {
 			return nil, errors.New("upstream failed")
 		}
-		body := fmt.Sprintf(`{"code":0,"data":{"video_data":{"series_id_str":%q}}}`, id)
+		body := fmt.Sprintf(`{"code":0,"data":{%q:{"video_data":{"series_id_str":%q}}}}`, id, id)
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})})
 	if err = s.Run(t.Context(), TaskKindHongGuoAlbum, ""); err == nil {
@@ -78,8 +83,8 @@ func TestHongGuoAlbumFailureAndResume(t *testing.T) {
 		t.Fatalf("resume: %v %v", requests, err)
 	}
 	w, err = repos.HongGuo.FindBySourceID(t.Context(), "91002")
-	if err != nil || w.RelatedAlbumID != "" || w.SeasonIndex != 0 || w.AlbumCheckedAt == nil || w.AlbumRetryAt != nil {
-		t.Fatalf("empty success: %+v %v", w, err)
+	if err != nil || w.RelatedAlbumID != w.SourceID || w.SeasonIndex != 1 || w.AlbumCheckedAt == nil || w.AlbumRetryAt != nil {
+		t.Fatalf("standalone success: %+v %v", w, err)
 	}
 
 	if err = repos.HongGuo.RetryAlbum(t.Context(), "91003", time.Now()); err != nil {
@@ -143,13 +148,15 @@ func TestHongGuoRefreshDefersAlbumFailure(t *testing.T) {
 			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoAlbumTransport(func(r *http.Request) (*http.Response, error) {
 				body := `_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":"91001","series_name":"刷新成功","episode_cnt":2}}}}`
 				if r.Method == http.MethodPost {
-					var input map[string]string
+					var input struct {
+						SeriesID string `json:"series_id"`
+					}
 					if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 						return nil, err
 					}
-					id := input["series_id"]
+					id := input.SeriesID
 					requests[id]++
-					body = fmt.Sprintf(`{"code":0,"data":{"video_data":{"series_id_str":%q}}}`, id)
+					body = fmt.Sprintf(`{"code":0,"data":{%q:{"video_data":{"series_id_str":%q}}}}`, id, id)
 					if id == "91001" && fail {
 						body = `{"code":429,"message":"private upstream context"}`
 					}
@@ -194,7 +201,7 @@ func TestHongGuoRefreshDefersAlbumFailure(t *testing.T) {
 				t.Fatalf("supplement did not resume: %v %v", requests, err)
 			}
 			w, err = repos.HongGuo.FindBySourceID(t.Context(), "91001")
-			if err != nil || w.AlbumRetryAt != nil || w.RelatedAlbumID != "" || w.SeasonIndex != 0 || w.AlbumCheckedAt == nil {
+			if err != nil || w.AlbumRetryAt != nil || w.RelatedAlbumID != w.SourceID || w.SeasonIndex != 1 || w.AlbumCheckedAt == nil {
 				t.Fatalf("supplement result not saved: %+v %v", w, err)
 			}
 		})
@@ -227,7 +234,7 @@ func TestHongGuoRefreshDoesNotIgnoreAlbumCheckpointOrCancellation(t *testing.T) 
 						cancel()
 						return nil, ctx.Err()
 					}
-					body = `{"code":0,"data":{"video_data":{"series_id_str":"91001"}}}`
+					body = `{"code":0,"data":{"91001":{"video_data":{"series_id_str":"91001"}}}}`
 					if mode == "retry" {
 						body = `{"code":429}`
 					}

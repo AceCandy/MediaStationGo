@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -109,15 +108,15 @@ func TestCreateLibraryWithRootsKeepsDifferentTypesSeparate(t *testing.T) {
 	}
 }
 
-func TestCreateLibraryWithRootsRejectsCloudRoot(t *testing.T) {
+func TestCreateLibraryWithRootsRejectsInaccessibleRoot(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
 	repos := repository.New(db)
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 
 	_, err := svc.CreateLibraryWithRoots(t.Context(), "国漫", "anime", []LibraryRootInput{{
-		Path: "cloud://openlist/动漫/国漫?dir=国漫&auto_category=1",
+		Path: filepath.Join(t.TempDir(), "missing"),
 	}})
-	if !errors.Is(err, ErrCloudLibraryRootUnsupported) {
-		t.Fatalf("error = %v, want ErrCloudLibraryRootUnsupported", err)
+	if err == nil {
+		t.Fatal("expected inaccessible library root to be rejected")
 	}
 }

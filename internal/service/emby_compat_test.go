@@ -60,7 +60,7 @@ func TestEmbyItemsPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	views, err := svc.repo.MediaView.FindByIDs(t.Context(), mediaIDs, repository.MediaQueryFilter{IncludeNSFW: true})
+	views, err := svc.repo.MediaView.FindByIDs(t.Context(), mediaIDs, repository.MediaQueryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

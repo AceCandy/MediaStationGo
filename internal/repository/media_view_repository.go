@@ -43,7 +43,6 @@ m.*,
 	COALESCE(mi.languages, '') AS view_languages,
 	COALESCE(mi.countries, '') AS view_countries,
 	COALESCE(mi.genres, '') AS view_genres,
-	COALESCE(mi.nsfw, FALSE) AS view_nsfw,
 	COALESCE(mi.kind, '') AS view_metadata_kind,
 	COALESCE(mi.source, '') AS view_metadata_source,
 	COALESCE(poster_asset.id, CASE WHEN mi.kind = 'season' THEN series_poster_asset.id END, '') AS view_poster_asset_id,
@@ -109,9 +108,6 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 }
 
 func applyMediaViewFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
-	if !filter.IncludeNSFW {
-		q = q.Where("COALESCE(mi.nsfw, FALSE) = FALSE")
-	}
 	if len(filter.HiddenLibraryIDs) > 0 {
 		q = q.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
@@ -144,14 +140,14 @@ func (r *MediaViewRepository) FindByID(ctx context.Context, id string) (*model.M
 	}
 	if len(rows) == 0 {
 		var err error
-		rows, err = r.nfoViewsByIDs(ctx, []string{id}, MediaQueryFilter{IncludeNSFW: true})
+		rows, err = r.nfoViewsByIDs(ctx, []string{id}, MediaQueryFilter{})
 		if err != nil {
 			return nil, err
 		}
 		if len(rows) > 0 {
 			return &rows[0], nil
 		}
-		rows, err = r.hongGuoViewsByIDs(ctx, []string{id}, MediaQueryFilter{IncludeNSFW: true})
+		rows, err = r.hongGuoViewsByIDs(ctx, []string{id}, MediaQueryFilter{})
 		if err != nil || len(rows) == 0 {
 			return nil, err
 		}
@@ -239,9 +235,42 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 			ordinaryIDs = append(ordinaryIDs, id)
 		}
 	}
+	// 混合页按来源并发加载，单来源仍走原查询；结果保持红果、NFO、普通的旧拼接顺序。
+	sources := [][]string{hongGuoIDs, nil, ordinaryIDs}
+	for _, id := range localIDs {
+		sources[1] = append(sources[1], "nfo-"+id)
+	}
+	active := 0
+	for _, ids := range sources {
+		if len(ids) > 0 {
+			active++
+		}
+	}
+	if active > 1 {
+		loadCtx, cancel := context.WithCancelCause(ctx)
+		defer cancel(nil)
+		var pending sync.WaitGroup
+		var results [3][]model.MediaView
+		for i, ids := range sources {
+			if len(ids) > 0 {
+				pending.Go(func() {
+					var err error
+					results[i], err = r.FindByLogicalMetadataIDs(loadCtx, ids, filter)
+					if err != nil {
+						cancel(err)
+					}
+				})
+			}
+		}
+		pending.Wait()
+		if err := context.Cause(loadCtx); err != nil {
+			return nil, err
+		}
+		return append(append(results[0], results[1]...), results[2]...), nil
+	}
 	if len(hongGuoIDs) > 0 {
 		var workIDs []string
-		if err := r.db.WithContext(ctx).Table("hongguo_works w").Joins(HongGuoAlbumJoin).
+		if err := FilterHongGuoWorkIDs(r.db.WithContext(ctx).Table("hongguo_works w"), hongGuoIDs).Joins(HongGuoAlbumJoin).
 			Where(hongGuoSeriesIdentity+" = ANY(?)", &hongGuoIDs).Pluck("w.id", &workIDs).Error; err != nil {
 			return nil, err
 		}
@@ -250,24 +279,10 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 			Where(hongGuoSeriesIdentity+" = ANY(?)", &hongGuoIDs).Pluck("m.id", &fileIDs).Error; err != nil {
 			return nil, err
 		}
-		rows, err := r.hongGuoViewsByIDs(ctx, fileIDs, filter)
-		if err != nil {
-			return nil, err
-		}
-		remaining := append([]string{}, ordinaryIDs...)
-		for _, id := range localIDs {
-			remaining = append(remaining, "nfo-"+id)
-		}
-		other, err := r.FindByLogicalMetadataIDs(ctx, remaining, filter)
-		return append(rows, other...), err
+		return r.hongGuoViewsByIDs(ctx, fileIDs, filter)
 	}
 	if len(localIDs) > 0 {
-		rows, err := scanNFOViews(r.nfoItemViewQuery(ctx, localIDs, filter))
-		if err != nil || len(ordinaryIDs) == 0 {
-			return rows, err
-		}
-		ordinary, err := r.FindByLogicalMetadataIDs(ctx, ordinaryIDs, filter)
-		return append(rows, ordinary...), err
+		return scanNFOViews(r.nfoItemViewQuery(ctx, localIDs, filter))
 	}
 	// 先限定请求作品的文件，再关联展示字段，避免跨层级 OR 扫描全库媒体。
 	candidates := r.logicalMetadataCandidates(ctx, metadataIDs)
@@ -326,9 +341,6 @@ WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id A
 		Joins("JOIN media AS m ON m.metadata_id = mi.id").
 		Where("f.user_id = ? AND f.deleted_at IS NULL", userID)
 	base = applyMediaViewFilter(base, filter)
-	if !filter.IncludeNSFW {
-		base = base.Where("COALESCE(favorite_metadata.nsfw, FALSE) = FALSE")
-	}
 	type favoriteCard struct {
 		MediaID    string `gorm:"column:media_id"`
 		MetadataID string `gorm:"column:metadata_id"`
@@ -375,28 +387,46 @@ func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit 
 		limit = 24
 	}
 	db := r.db.WithContext(ctx)
-	ordinaryFiles := applyMediaViewFilter(r.query(ctx), filter).Select("1").
-		Where("CASE WHEN mi.kind IN ('episode','season') THEN series_metadata.id ELSE mi.id END = recent.id")
 	ordinary := db.Table("metadata_items recent").Select("recent.id, recent.latest_media_added_at AS latest").
-		Where("recent.kind IN ('movie','series')").Where("EXISTS (? OFFSET 0)", ordinaryFiles).
-		Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC").Limit(limit)
-	ordinary = FilterWorkLibraries(ordinary, "recent.library_ids", filter.AllowedLibraryIDs)
-	localFiles := r.nfoViewQuery(ctx, filter).Select("1").Where("COALESCE(nw.id,ni.id)=recent.id")
-	local := db.Table("nfo_items recent").Select("'nfo-' || recent.id AS id, recent.latest_media_added_at AS latest").
-		Where("recent.kind IN ('movie','series')").Where("EXISTS (? OFFSET 0)", localFiles).
-		Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC").Limit(limit)
-	source := db.Table("hongguo_works w").Joins(HongGuoAlbumJoin).
-		Where("EXISTS (? OFFSET 0)", r.hongGuoFileScope(ctx, "", filter).Select("1").Where("b.work_id=w.id")).
-		Select(hongGuoSeriesIdentity + " AS id, MAX(" + HongGuoLatestMediaAddedSQL + ") AS latest").Group(hongGuoSeriesIdentity).
-		Order("latest DESC NULLS LAST, id DESC").Limit(limit)
-	source = FilterWorkLibraries(source, "w.library_ids", filter.AllowedLibraryIDs)
-	var page []struct {
-		ID     string
-		Latest *time.Time
+		Where("recent.kind IN ('movie','series')")
+	ordinary = FilterVisibleWorkLibraries(db, ordinary, "recent.library_ids", nil, filter).
+		Select("recent.id, recent.id AS work_id, recent.kind, recent.library_ids, recent.latest_media_added_at AS latest, 'legacy' AS source, NULL::text[] AS work_ids")
+	local := db.Table("nfo_items recent").
+		Select("'nfo-' || recent.id AS id, recent.id AS work_id, recent.kind, NULL::jsonb AS library_ids, recent.latest_media_added_at AS latest, 'nfo' AS source, NULL::text[] AS work_ids").
+		Where("recent.kind IN ('movie','series')")
+	if len(filter.AllowedLibraryIDs) > 0 {
+		local = local.Where("recent.library_id = ANY(?)", &filter.AllowedLibraryIDs)
 	}
-	if err := db.Table("(?) recent_works", db.Raw("(?) UNION ALL (?) UNION ALL (?)", ordinary, local, source)).
-		Order("latest DESC NULLS LAST, id DESC").Limit(limit).Scan(&page).Error; err != nil {
-		return nil, err
+	if len(filter.HiddenLibraryIDs) > 0 {
+		local = local.Where("recent.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
+	}
+	// 合集时间按全局成员聚合一次，可见性只限制参加当前页资格检查的作品。
+	albums := db.Table("hongguo_works").Where("kind='series' AND related_album_id<>'' AND season_index>0").
+		Select("related_album_id AS id, MAX(latest_media_added_at) AS latest").Group("related_album_id")
+	source := db.Table("hongguo_works w").Where(HongGuoReadyWorkSQL).
+		Joins("LEFT JOIN albums g ON w.kind='series' AND g.id=w.related_album_id").
+		Select(HongGuoWorkIdentitySQL + " AS id, " + HongGuoWorkIdentitySQL + " AS work_id, '' AS kind, NULL::jsonb AS library_ids, MAX(CASE WHEN w.kind='series' THEN g.latest ELSE w.latest_media_added_at END) AS latest, 'hongguo' AS source, ARRAY_AGG(w.id::text) AS work_ids").Group(HongGuoWorkIdentitySQL)
+	source = FilterVisibleWorkLibraries(db, source, "w.library_ids", nil, filter)
+	combined := db.Raw("WITH albums AS MATERIALIZED (?) ? UNION ALL ? UNION ALL ?", albums, ordinary, local, source)
+	candidates := db.Table("(?) recent_works", combined).
+		Select("*, ROW_NUMBER() OVER (ORDER BY latest DESC NULLS LAST,id DESC) AS ordinal").Order("latest DESC NULLS LAST,id DESC")
+	hongGuoFiles := r.hongGuoFileScope(ctx, "", filter).Select("1").Where("b.work_id=ANY(recent.work_ids)")
+	ordinaryFiles := applyMediaViewFilter(r.query(ctx), filter).Select("1").
+		Where(`m.metadata_id IN (SELECT recent.work_id UNION ALL
+SELECT id FROM metadata_items WHERE parent_id=recent.work_id UNION ALL
+SELECT leaf.id FROM metadata_items parent JOIN LATERAL (
+SELECT id FROM metadata_items WHERE parent_id=parent.id OFFSET 0
+) leaf ON TRUE WHERE parent.parent_id=recent.work_id)`).
+		Where("CASE WHEN mi.kind IN ('episode','season') THEN series_metadata.id ELSE mi.id END = recent.work_id")
+	localFiles := r.NFOCandidateFiles(ctx, filter, "recent.work_id").Select("1").Where("COALESCE(nw.id,ni.id)=recent.work_id")
+	qualification := "CASE WHEN source='legacy' THEN EXISTS (? OFFSET 0) WHEN source='nfo' THEN EXISTS (? OFFSET 0) ELSE EXISTS (? OFFSET 0) END"
+	if !filter.MissingPoster && !filter.MissingChineseTitle {
+		qualification = "CASE WHEN source='legacy' AND kind='movie' AND library_ids IS NOT NULL AND library_ids <> '[]'::jsonb AND latest IS NOT NULL THEN TRUE WHEN source='nfo' AND latest IS NOT NULL THEN TRUE ELSE " + qualification + " END"
+	}
+	eligible := db.Table("work_batch recent").Select("ordinal").Where(qualification, ordinaryFiles, localFiles, hongGuoFiles)
+	page, _, err := r.workBatchPage(ctx, candidates, eligible, 0, limit, false, true)
+	if err != nil || len(page) == 0 {
+		return []model.MediaView{}, err
 	}
 	ids := make([]string, 0, len(page))
 	dates := make(map[string]*time.Time, len(page))

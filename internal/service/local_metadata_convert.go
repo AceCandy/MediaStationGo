@@ -39,7 +39,6 @@ func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMe
 		meta.AdultCode = normalizeAdultCode(firstText(doc.OriginalTitle, doc.SortTitle, doc.Title))
 	}
 	if meta.AdultCode != "" {
-		meta.NSFW = true
 		if meta.OriginalName == "" || strings.EqualFold(meta.OriginalName, meta.Title) {
 			meta.OriginalName = meta.AdultCode
 		}
@@ -137,7 +136,6 @@ func mergeEpisodeMetadata(dst, episode *LocalMetadata, doc *nfoDocument) {
 		dst.EpisodeGenres = episode.Genres
 		dst.EpisodeCountries = episode.Countries
 		dst.EpisodeLanguages = episode.Languages
-		dst.EpisodeNSFW = episode.NSFW
 		dst.HasNFO = dst.HasNFO || episode.HasNFO
 		dst.HasArtwork = dst.HasArtwork || episode.HasArtwork
 	}

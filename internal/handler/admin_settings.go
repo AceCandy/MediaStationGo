@@ -40,7 +40,7 @@ func updateSettingHandler(svc *service.Container) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
-			libs, err := svc.Repo.Library.List(c.Request.Context())
+			libs, err := svc.Repo.Library.ListBasic(c.Request.Context())
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
@@ -71,6 +71,7 @@ func updateSettingHandler(svc *service.Container) gin.HandlerFunc {
 		newAdultLibraryIDs := service.DecodeAllowedLibraryIDs(req.Value)
 		if req.Key == service.AdultLibraryIDsSettingKey && len(oldAdultLibraryIDs) == 0 && len(newAdultLibraryIDs) > 0 {
 			_ = svc.Repo.DB.WithContext(c.Request.Context()).Model(&model.User{}).Where("hide_adult = ?", false).Update("hide_adult", true).Error
+			svc.Repo.InvalidateReadCache()
 		}
 		service.ApplyRuntimeSetting(svc.Cfg, req.Key, req.Value)
 		if svc.FFprobe != nil && (req.Key == "ffprobe.max_concurrent" || req.Key == "app.ffprobe_max_concurrent") {

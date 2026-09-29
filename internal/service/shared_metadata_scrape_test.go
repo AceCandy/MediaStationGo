@@ -111,7 +111,7 @@ func TestEpisodeShellsDoNotInheritParentMetadata(t *testing.T) {
 	match := &Match{
 		Source: "tmdb", MediaType: "tv", TMDbID: 888, Title: "Parent show", OriginalName: "Parent original",
 		Overview: "Parent overview", Rating: 8.8, Year: 2024, ReleaseDate: "2024-01-02",
-		Languages: []string{"ja"}, Countries: []string{"JP"}, Genres: []string{"Animation"}, NSFW: true,
+		Languages: []string{"ja"}, Countries: []string{"JP"}, Genres: []string{"Animation"},
 		PosterURL: "https://images.example.test/images/parent-poster.png", BackdropURL: "https://images.example.test/images/parent-backdrop.png",
 		LoadedCreditTypes: []string{model.CreditTypeActor}, Credits: []PersonCredit{{Name: "Parent actor", Type: model.CreditTypeActor}},
 	}
@@ -120,12 +120,12 @@ func TestEpisodeShellsDoNotInheritParentMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertChildOwnMetadata(t, persisted.Target, "Own episode", "", 0, 0, "", "", "", "", false)
+	assertChildOwnMetadata(t, persisted.Target, "Own episode", "", 0, 0, "", "", "", "")
 	season, err := repos.Metadata.FindSeason(t.Context(), persisted.Series.ID, 1)
 	if err != nil || season == nil {
 		t.Fatalf("season = %#v, err = %v", season, err)
 	}
-	assertChildOwnMetadata(t, season, "第 1 季", "", 0, 0, "", "", "", "", false)
+	assertChildOwnMetadata(t, season, "第 1 季", "", 0, 0, "", "", "", "")
 	assertNoChildArtworkOrCredits(t, repos, season.ID)
 	assertNoChildArtworkOrCredits(t, repos, persisted.Target.ID)
 
@@ -163,7 +163,7 @@ func TestLocalEpisodePersistsOnlyEntityOwnedMetadata(t *testing.T) {
 	media.SeriesID = localSeriesIdentity(&media)
 	local := &LocalMetadata{
 		Title: "Parent show", OriginalName: "Parent original", Overview: "Parent overview", Rating: 8.8,
-		Year: 2024, ReleaseDate: "2024-01-02", Languages: "ja", Countries: "JP", Genres: "Parent genre", NSFW: true,
+		Year: 2024, ReleaseDate: "2024-01-02", Languages: "ja", Countries: "JP", Genres: "Parent genre",
 		PosterURL: "https://images.example.test/images/parent-poster.png", BackdropURL: "https://images.example.test/images/parent-backdrop.png",
 		Credits: []PersonCredit{{Name: "Parent actor", Type: model.CreditTypeActor}}, LoadedCreditTypes: []string{model.CreditTypeActor},
 		EpisodeTitle: "Own episode", EpisodeOverview: "Own overview", EpisodeRating: 7.7, EpisodeYear: 2025,
@@ -175,7 +175,7 @@ func TestLocalEpisodePersistsOnlyEntityOwnedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertChildOwnMetadata(t, persisted.Target, "Own episode", "Own overview", 7.7, 2025, "2025-02-03", "ko", "KR", "Own genre", false)
+	assertChildOwnMetadata(t, persisted.Target, "Own episode", "Own overview", 7.7, 2025, "2025-02-03", "ko", "KR", "Own genre")
 	for _, linkedID := range []string{persisted.Series.ID, *persisted.Target.ParentID, persisted.Target.ID} {
 		media.MetadataID = linkedID
 		again, err := scraper.persistLocalMetadata(t.Context(), &media, &lib, local)
@@ -203,9 +203,9 @@ func TestLocalEpisodePersistsOnlyEntityOwnedMetadata(t *testing.T) {
 	}
 }
 
-func assertChildOwnMetadata(t *testing.T, item *model.MetadataItem, title, overview string, rating float32, year int, releaseDate, languages, countries, genres string, nsfw bool) {
+func assertChildOwnMetadata(t *testing.T, item *model.MetadataItem, title, overview string, rating float32, year int, releaseDate, languages, countries, genres string) {
 	t.Helper()
-	if item == nil || item.Title != title || item.OriginalName != "" || item.Overview != overview || item.Rating != rating || item.Year != year || item.ReleaseDate != releaseDate || item.Languages != languages || item.Countries != countries || item.Genres != genres || item.NSFW != nsfw {
+	if item == nil || item.Title != title || item.OriginalName != "" || item.Overview != overview || item.Rating != rating || item.Year != year || item.ReleaseDate != releaseDate || item.Languages != languages || item.Countries != countries || item.Genres != genres {
 		t.Fatalf("child metadata ownership mismatch: %#v", item)
 	}
 }

@@ -201,7 +201,7 @@ func TestWebSourceSearchParallelPagination(t *testing.T) {
 	// 无红果命中时，普通/NFO 各 100 条的旧总数及后续页不能被新的并行入口截掉。
 	for _, query := range []string{"并行", "", "not-found"} {
 		for _, page := range []int{1, 3, 8} {
-			want, wantTotal, err := svc.repo.MediaView.SearchFilteredPage(t.Context(), query, (page-1)*50, 50, repository.MediaQueryFilter{IncludeNSFW: true})
+			want, wantTotal, err := svc.repo.MediaView.SearchFilteredPage(t.Context(), query, (page-1)*50, 50, repository.MediaQueryFilter{})
 			if err != nil {
 				t.Fatal(err)
 			}

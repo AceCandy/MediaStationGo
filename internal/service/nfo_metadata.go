@@ -25,7 +25,6 @@ type nfoMetadataValues struct {
 	Genres       string
 	Countries    string
 	Languages    string
-	NSFW         bool
 }
 
 func (s *MediaService) updateNFOMetadata(ctx context.Context, media *model.Media, view *model.MediaView, req MediaMetadataUpdate) (*model.MediaView, error) {
@@ -35,7 +34,7 @@ func (s *MediaService) updateNFOMetadata(ctx context.Context, media *model.Media
 	values := nfoMetadataValues{
 		Title: view.Title, OriginalName: view.OriginalName, Overview: view.Overview,
 		Year: view.Year, ReleaseDate: view.ReleaseDate, Rating: view.Rating,
-		Genres: view.Genres, Countries: view.Countries, Languages: view.Languages, NSFW: view.NSFW,
+		Genres: view.Genres, Countries: view.Countries, Languages: view.Languages,
 	}
 	applyNFORequest(&values, req)
 	path, root, err := nfoMetadataPath(ctx, s.repo, media, view, req.Scope)
@@ -55,7 +54,7 @@ func (s *MediaService) updateNFOMetadata(ctx context.Context, media *model.Media
 	if err := s.repo.NFO.UpdateMetadata(ctx, media.ID, itemID, model.NFOFields{
 		Title: values.Title, OriginalName: values.OriginalName, Overview: values.Overview,
 		Year: values.Year, ReleaseDate: values.ReleaseDate, Rating: values.Rating,
-		Genres: values.Genres, Countries: values.Countries, Languages: values.Languages, NSFW: values.NSFW,
+		Genres: values.Genres, Countries: values.Countries, Languages: values.Languages,
 	}, req.Scope == ""); err != nil {
 		_ = rollback()
 		return nil, err
@@ -95,9 +94,6 @@ func applyNFORequest(values *nfoMetadataValues, req MediaMetadataUpdate) {
 	}
 	if req.Languages != nil {
 		values.Languages = strings.TrimSpace(*req.Languages)
-	}
-	if req.NSFW != nil {
-		values.NSFW = *req.NSFW
 	}
 }
 

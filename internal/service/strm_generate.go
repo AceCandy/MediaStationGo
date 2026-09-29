@@ -208,7 +208,7 @@ func (s *STRMService) librarySTRMMedia(ctx context.Context, libraryID string) ([
 		Pluck("id", &ids).Error; err != nil {
 		return nil, err
 	}
-	views, err := s.repo.MediaView.FindByIDs(ctx, ids, repository.MediaQueryFilter{IncludeNSFW: true})
+	views, err := s.repo.MediaView.FindByIDs(ctx, ids, repository.MediaQueryFilter{})
 	if err != nil {
 		return nil, err
 	}

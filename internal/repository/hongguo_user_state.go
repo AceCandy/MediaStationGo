@@ -34,7 +34,7 @@ func (r *HongGuoRepository) RecordProgress(ctx context.Context, userID, sessionI
 
 func (r *HongGuoRepository) UserState(ctx context.Context, userID, sourceID string, episode int, filters ...MediaQueryFilter) (model.HongGuoUserState, error) {
 	state := model.HongGuoUserState{UserID: userID, SourceID: sourceID, EpisodeNumber: episode}
-	filter := MediaQueryFilter{IncludeNSFW: true}
+	filter := MediaQueryFilter{}
 	if len(filters) > 0 {
 		filter = filters[0]
 	}

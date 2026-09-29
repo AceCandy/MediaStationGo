@@ -55,7 +55,7 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 	} else if person != nil {
 		return person, nil
 	}
-	if lib, err := e.repo.Library.FindByID(ctx, mediaID); err != nil {
+	if lib, err := FindLibraryBasic(ctx, e.repo, e.cache, mediaID); err != nil {
 		return nil, err
 	} else if lib != nil {
 		visibility := e.mediaVisibility(ctx, userID)
@@ -366,6 +366,10 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""
 	isRemote := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
 	playURL := embyDirectStreamURL(m.ID, container)
+	createdAt := m.CreatedAt
+	if m.CatalogSource == model.CatalogSourceNFO {
+		createdAt = m.CatalogCreatedAt
+	}
 
 	item := map[string]any{
 		"Id":                itemID,
@@ -382,7 +386,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		"Container":         container,
 		"Width":             m.Width,
 		"Height":            m.Height,
-		"DateCreated":       formatEmbyDateTime(m.CreatedAt),
+		"DateCreated":       formatEmbyDateTime(createdAt),
 		"Path":              embyMediaSourcePath(&m.Media, playURL, isLocalSTRM, isRemote),
 		"ParentId":          parentID,
 		"ImageTags":         imageTags,

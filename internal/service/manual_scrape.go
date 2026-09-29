@@ -26,7 +26,6 @@ type ManualScrapeRequest struct {
 	Languages      []string `json:"languages"`
 	Countries      []string `json:"countries"`
 	Genres         []string `json:"genres"`
-	NSFW           bool     `json:"nsfw"`
 	EpisodeArtwork *bool    `json:"episode_artwork,omitempty"`
 	EpisodeImages  *bool    `json:"episode_images,omitempty"`
 }
@@ -50,7 +49,7 @@ func (s *ScraperService) ApplyManualMatchWithOptions(ctx context.Context, mediaI
 	if media.CatalogSource != "" {
 		return nil, errors.New("独立资料体系媒体不能使用旧体系手动匹配")
 	}
-	lib, _ := s.repo.Library.FindByID(ctx, media.LibraryID)
+	lib, _ := s.repo.Library.FindBasicByID(ctx, media.LibraryID)
 	if libraryUsesNFOOnly(lib) {
 		return nil, errors.New("NFO-only library does not support provider matching")
 	}

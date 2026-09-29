@@ -41,7 +41,7 @@ func (s *TelegramBotService) cmdSearch(ctx context.Context, args []string) (tele
 	}
 
 	keyword := strings.Join(args, " ")
-	views, err := s.repo.MediaView.SearchFiltered(ctx, keyword, 8, repository.MediaQueryFilter{IncludeNSFW: true})
+	views, err := s.repo.MediaView.SearchFiltered(ctx, keyword, 8, repository.MediaQueryFilter{})
 	if err != nil {
 		return telegramCommandReply{}, err
 	}
@@ -128,7 +128,7 @@ func (s *TelegramBotService) activeTelegramStatsLibraries(ctx context.Context) (
 	if s == nil || s.repo == nil || s.repo.Library == nil {
 		return nil, nil
 	}
-	libs, err := s.repo.Library.List(ctx)
+	libs, err := s.repo.Library.ListBasic(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1,9 +1,20 @@
 package service
 
 import (
+	"strconv"
 	"strings"
 	"time"
 )
+
+func embyRandomSort(p ItemsParams) bool {
+	return primarySupportedEmbySort(p.SortBy, containsEmbyFilter(p.Filters, "IsResumable")) == "random"
+}
+
+// embyRandomOrder 只接收固定身份表达式；同种子使 OFFSET 补取不重新洗牌。
+// ponytail: 仍扫描轻量作品候选；候选规模成为瓶颈时再改为索引采样。
+func embyRandomOrder(p ItemsParams, identity string) string {
+	return "md5((" + identity + ")::text || '" + strconv.FormatUint(p.randomSeed, 10) + "')"
+}
 
 const embyDateTimeLayout = "2006-01-02T15:04:05.0000000Z"
 
@@ -95,7 +106,7 @@ func primarySupportedEmbySort(sortBy string, resumeFilter bool) string {
 	for _, part := range strings.Split(sortBy, ",") {
 		key := strings.ToLower(strings.TrimSpace(part))
 		switch key {
-		case "sortname", "name", "premieredate", "productionyear", "datecreated", "datelastcontentadded", "communityrating":
+		case "random", "sortname", "name", "premieredate", "productionyear", "datecreated", "datelastcontentadded", "communityrating":
 			return key
 		case "dateplayed":
 			if resumeFilter {

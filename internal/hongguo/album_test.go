@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -18,26 +19,34 @@ func TestParseAlbum(t *testing.T) {
 		want       Album
 		bad        bool
 	}{
-		{"precision", `{"code":0,"data":{"video_data":{"series_id":9000000000000000001,"related_album_id":9000000000000000099,"season_index":12}}}`, Album{ID: "9000000000000000099", Season: 12}, false},
-		{"standalone", `{"code":0,"data":{"video_data":{"series_id_str":"9000000000000000001"}}}`, Album{}, false},
-		{"zero", `{"code":0,"data":{"video_data":{"series_id_str":"9000000000000000001","related_album_id":0}}}`, Album{}, false},
-		{"wrong identity", `{"code":0,"data":{"video_data":{"series_id":"2"}}}`, Album{}, true},
-		{"bad season", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":0}}}`, Album{}, true},
-		{"fraction", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":1.5}}}`, Album{ID: "99", Season: 1}, false},
-		{"missing season", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99"}}}`, Album{ID: "99", Season: 1}, false},
-		{"null season", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":null}}}`, Album{ID: "99", Season: 1}, false},
-		{"text season", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":"private upstream context"}}}`, Album{ID: "99", Season: 1}, false},
-		{"string season", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":"3"}}}`, Album{ID: "99", Season: 3}, false},
-		{"season overflow", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":99999999999999999999999}}}`, Album{}, true},
-		{"season outside range", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":100001}}}`, Album{}, true},
+		{"precision", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":9000000000000000001,"related_album_id":9000000000000000099,"season_index":12}}}}`, Album{ID: "9000000000000000099", Season: 12}, false},
+		{"standalone", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id_str":"9000000000000000001"}}}}`, Album{ID: id, Season: 1}, false},
+		{"zero", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id_str":"9000000000000000001","related_album_id":0}}}}`, Album{ID: id, Season: 1}, false},
+		{"empty album", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id_str":"9000000000000000001","related_album_id":""}}}}`, Album{ID: id, Season: 1}, false},
+		{"null album", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id_str":"9000000000000000001","related_album_id":null}}}}`, Album{ID: id, Season: 1}, false},
+		{"empty response", ``, Album{}, true},
+		{"missing data", `{"code":0}`, Album{}, true},
+		{"missing requested work", `{"code":0,"data":{"2":{"video_data":{"series_id":"9000000000000000001"}}}}`, Album{}, true},
+		{"empty requested work", `{"code":0,"data":{"9000000000000000001":null}}`, Album{}, true},
+		{"legacy response", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001"}}}`, Album{}, true},
+		{"select requested work", `{"code":0,"data":{"2":{"video_data":{"series_id":"2","related_album_id":"88","season_index":2}},"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":3}}}}`, Album{ID: "99", Season: 3}, false},
+		{"wrong identity", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"2"}}}}`, Album{}, true},
+		{"bad season", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":0}}}}`, Album{}, true},
+		{"fraction", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":1.5}}}}`, Album{ID: "99", Season: 1}, false},
+		{"missing season", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99"}}}}`, Album{ID: "99", Season: 1}, false},
+		{"null season", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":null}}}}`, Album{ID: "99", Season: 1}, false},
+		{"text season", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":"private upstream context"}}}}`, Album{ID: "99", Season: 1}, false},
+		{"string season", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":"3"}}}}`, Album{ID: "99", Season: 3}, false},
+		{"season overflow", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":99999999999999999999999}}}}`, Album{}, true},
+		{"season outside range", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":"99","season_index":100001}}}}`, Album{}, true},
 		{"taken down", `{"BaseResp":{"StatusCode":101001,"StatusMessage":"该剧集已下架"},"code":101001,"message":"该剧集已下架"}`, Album{ID: id, Season: 1}, false},
 		{"taken down string code", `{"code":"101001"}`, Album{ID: id, Season: 1}, false},
 		{"taken down trailing data", `{"code":101001}{}`, Album{}, true},
 		{"other business code", `{"code":101002}`, Album{}, true},
 		{"error", `{"code":429,"message":"private upstream context"}`, Album{}, true},
 		{"empty", `{}`, Album{}, true},
-		{"invalid album type", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001","related_album_id":{}}}}`, Album{}, true},
-		{"trailing data", `{"code":0,"data":{"video_data":{"series_id":"9000000000000000001"}}}{}`, Album{}, true},
+		{"invalid album type", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001","related_album_id":{}}}}}`, Album{}, true},
+		{"trailing data", `{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id":"9000000000000000001"}}}}{}`, Album{}, true},
 		{"truncated", `{"code":0,`, Album{}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,8 +64,8 @@ func TestAlbumErrorsIdentifySafeFields(t *testing.T) {
 		{`{"code":"private upstream context"}`, "红果官方合集业务码 code 缺失或无效"},
 		{`{"code":0,`, "红果官方合集响应 JSON 无效"},
 		{`{}`, "红果官方合集业务码 code 缺失或无效"},
-		{`{"code":0,"data":{"video_data":{"series_id":"123","related_album_id":"private upstream context"}}}`, "红果官方合集 related_album_id 无效"},
-		{`{"code":0,"data":{"video_data":{"series_id":"123","related_album_id":"456","season_index":0}}}`, "红果官方合集 season_index=0 超出有效范围 1–100000"},
+		{`{"code":0,"data":{"123":{"video_data":{"series_id":"123","related_album_id":"private upstream context"}}}}`, "红果官方合集 related_album_id 无效"},
+		{`{"code":0,"data":{"123":{"video_data":{"series_id":"123","related_album_id":"456","season_index":0}}}}`, "红果官方合集 season_index=0 超出有效范围 1–100000"},
 	} {
 		_, err := parseAlbum([]byte(tc.body), "123")
 		if fmt.Sprint(err) != tc.want {
@@ -71,14 +80,22 @@ func (f albumTransport) RoundTrip(r *http.Request) (*http.Response, error) { ret
 
 func TestAlbumRequestAndCancellation(t *testing.T) {
 	c := NewClient(&http.Client{Transport: albumTransport(func(r *http.Request) (*http.Response, error) {
-		if r.Method != "POST" || r.URL.Path != "/novel/player/video_detail/v1/" || r.Header.Get("X-Gorgon") == "" {
+		if r.Method != "POST" || r.URL.Host != "api5-normal-sinfonlineb.fqnovel.com" || r.URL.Path != "/novel/player/multi_video_detail/v1/" || r.Header.Get("X-Gorgon") == "" {
 			t.Fatal("wrong request")
 		}
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["series_id"] != "9000000000000000001" {
 			t.Fatal("wrong identity")
 		}
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"code":0,"data":{"video_data":{"series_id_str":"9000000000000000001"}}}`))}, nil
+		wantBiz := map[string]any{
+			"detail_page_version": float64(0), "disable_digg_stat": false, "disable_video_relate_book": false,
+			"need_all_video_definition": false, "need_mp4_align": false, "screen_width_px": "900",
+			"source": float64(7), "use_os_player": false, "use_server_dns": false,
+		}
+		if !reflect.DeepEqual(body["biz_param"], wantBiz) {
+			t.Fatal("wrong detail context")
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"code":0,"data":{"9000000000000000001":{"video_data":{"series_id_str":"9000000000000000001"}}}}`))}, nil
 	})})
 	if _, err := c.Album(t.Context(), "9000000000000000001"); err != nil {
 		t.Fatal(err)

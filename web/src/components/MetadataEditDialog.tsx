@@ -40,7 +40,6 @@ export function MetadataEditDialog({
     languages: '',
     countries: '',
     genres: '',
-    nsfw: false,
   })
   const [saving, setSaving] = useState(false)
 
@@ -61,7 +60,6 @@ export function MetadataEditDialog({
       languages: media.languages || '',
       countries: media.countries || '',
       genres: media.genres || '',
-      nsfw: !!media.nsfw,
     })
   }, [open, media])
 
@@ -75,7 +73,7 @@ export function MetadataEditDialog({
   const searchTitle = form.title.trim()
   const encodedSearchTitle = encodeURIComponent(searchTitle)
 
-  const set = (key: keyof typeof form, value: string | boolean) => {
+  const set = (key: keyof typeof form, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
   const toNumber = (value: string) => {
@@ -98,7 +96,6 @@ export function MetadataEditDialog({
       languages: form.languages,
       countries: form.countries,
       genres: form.genres,
-      nsfw: form.nsfw,
     }
     if (!isScoped) {
       payload.original_name = form.original_name
@@ -160,15 +157,6 @@ export function MetadataEditDialog({
           <Field label="语言" value={form.languages} onChange={(value) => set('languages', value)} placeholder="zh,en" />
           <Field label="国家/地区" value={form.countries} onChange={(value) => set('countries', value)} placeholder="CN,JP,US" />
           <Field label="类型" value={form.genres} onChange={(value) => set('genres', value)} placeholder="剧情,动画" />
-          <label className="flex h-11 items-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700">
-            <input
-              type="checkbox"
-              checked={form.nsfw}
-              onChange={(event) => set('nsfw', event.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-brand-600"
-            />
-            成人内容
-          </label>
           <label className="md:col-span-2">
             <span className="mb-1 block text-xs font-bold text-gray-500">简介</span>
             <textarea

@@ -110,7 +110,7 @@ func TestHongGuoBindingGroupingAndStableProgress(t *testing.T) {
 	if err := db.Model(&model.HongGuoPlaybackEvent{}).Count(&events).Error; err != nil || events != 1 {
 		t.Fatalf("events=%d err=%v", events, err)
 	}
-	if err := r.HongGuo.SaveAlbum(ctx, input.SourceID, hongguo.Album{}); err != nil {
+	if err := r.HongGuo.SaveAlbum(ctx, input.SourceID, hongguo.Album{ID: input.SourceID, Season: 1}); err != nil {
 		t.Fatal(err)
 	}
 	input.Completed = true

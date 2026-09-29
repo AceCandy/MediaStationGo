@@ -10,7 +10,7 @@ import (
 	"strconv"
 )
 
-// Album 是官方跨季关系；空 ID 表示成功查询后没有有效合集。
+// Album 是经核验的跨季关系；官方无合集时使用源作品自身 ID 和第一季。
 type Album struct {
 	ID     string
 	Season int
@@ -20,7 +20,14 @@ func (c *Client) Album(ctx context.Context, sourceID string) (Album, error) {
 	if !ValidID(sourceID) {
 		return Album{}, errors.New("红果作品 ID 无效")
 	}
-	body, err := c.appRequest(ctx, "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/video_detail/v1/", map[string]string{"series_id": sourceID})
+	body, err := c.appRequest(ctx, "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_detail/v1/", map[string]any{
+		"series_id": sourceID,
+		"biz_param": map[string]any{
+			"detail_page_version": 0, "disable_digg_stat": false, "disable_video_relate_book": false,
+			"need_all_video_definition": false, "need_mp4_align": false, "screen_width_px": "900",
+			"source": 7, "use_os_player": false, "use_server_dns": false,
+		},
+	})
 	if err != nil {
 		return Album{}, err
 	}
@@ -48,7 +55,7 @@ func parseAlbum(body []byte, sourceID string) (Album, error) {
 		}
 		return Album{}, errors.New("红果官方合集业务码 code 缺失或无效")
 	}
-	v := object(object(root["data"])["video_data"])
+	v := object(object(object(root["data"])[sourceID])["video_data"])
 	id := scalar(v["series_id_str"])
 	if id == "" {
 		id = scalar(v["series_id"])
@@ -61,7 +68,7 @@ func parseAlbum(body []byte, sourceID string) (Album, error) {
 		return Album{}, errors.New("红果官方合集 related_album_id 无效")
 	}
 	if albumID == "" || albumID == "0" {
-		return Album{}, nil
+		return Album{ID: sourceID, Season: 1}, nil
 	}
 	if !ValidID(albumID) {
 		return Album{}, errors.New("红果官方合集 related_album_id 无效")

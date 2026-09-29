@@ -106,9 +106,6 @@ func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query st
 		}
 		filters = append(filters, map[string]any{"terms": map[string]any{"id": filter.CandidateIDs}})
 	}
-	if !filter.IncludeNSFW {
-		filters = append(filters, map[string]any{"term": map[string]any{"nsfw": false}})
-	}
 	if filter.LibraryRestricted {
 		filters = append(filters, map[string]any{"terms": map[string]any{"library_ids": filter.VisibleLibraryIDs}})
 	}
@@ -165,7 +162,6 @@ func (b *OpenSearchMediaBackend) PrepareMetadataIndex(ctx context.Context) (stri
 				"original_name": map[string]any{"type": "text"},
 				"overview":      map[string]any{"type": "text"},
 				"genres":        map[string]any{"type": "text"},
-				"nsfw":          map[string]any{"type": "boolean"},
 				"library_ids":   map[string]any{"type": "keyword"},
 			},
 		},

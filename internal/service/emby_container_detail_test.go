@@ -48,7 +48,6 @@ func TestEmbyContainerDetailBoundsReadsAndPreservesPayload(t *testing.T) {
 		`UPDATE media SET part_group_key = 'detail-parts', part_index = 1 WHERE id = 'detail-file-0-1-1'`,
 		`INSERT INTO media (id, library_id, metadata_id, path, season_num, episode_num, part_group_key, part_index, created_at, updated_at)
 		 VALUES ('detail-part-2', 'z-library', 'detail-episode-0-1', '/fixture/part2.mkv', 0, 1, 'detail-parts', 2, NOW(), NOW())`,
-		`UPDATE metadata_items SET nsfw = TRUE WHERE id = 'detail-episode-1-200'`,
 		`UPDATE media SET strm_url = '' WHERE id IN ('detail-file-0-1-2', 'detail-file-0-2-2')`,
 		`INSERT INTO media_probe_metadata (media_id, probe_json, schema_version, width, size_bytes, probed_at)
 		 SELECT id, '{}', 1, CASE WHEN id LIKE '%-1' THEN 1920 ELSE 1280 END, 1000, NOW()
@@ -77,7 +76,7 @@ func TestEmbyContainerDetailBoundsReadsAndPreservesPayload(t *testing.T) {
 		{IncludeNSFW: true, HiddenLibraryIDs: []string{"z-library"}},
 		{AllowedLibraryIDs: []string{"missing-library"}},
 	} {
-		svc.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
+		svc.visibilityCache = map[string]embyVisibilityCacheEntry{svc.repo.ReadCacheKey() + "viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
 		for _, id := range []string{"detail-series", "detail-season-0", "detail-season-1", "detail-season-3", "missing"} {
 			var want map[string]any
 			if id == "detail-series" {

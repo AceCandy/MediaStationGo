@@ -94,7 +94,7 @@ LEFT JOIN (?) page ON TRUE ORDER BY page.watched_at DESC, page.item_id DESC`, co
 	return rows, total, err
 }
 
-// continuationSource 先归组有状态的可见条目，再按组定位后续单集，避免展开全目录及逐剧请求。
+// continuationSource 从当前用户历史定位可见条目，再归组续播或下一集，不展开未看目录。
 func (r *HistoryRepository) continuationSource(ctx context.Context, userID string, filter MediaQueryFilter, source string, mode ContinuationMode, seriesID string) *gorm.DB {
 	db := r.db.WithContext(ctx)
 	q := db.Table("media AS m")
@@ -104,7 +104,7 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 	if len(filter.HiddenLibraryIDs) > 0 {
 		q = q.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
-	var projection, scope string
+	var projection, scope, stateIdentity string
 	threshold := int64(20000)
 	switch source {
 	case "nfo":
@@ -112,21 +112,24 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 			Joins("JOIN nfo_items i ON i.id = b.item_id").
 			Joins("LEFT JOIN nfo_items season ON season.id = i.parent_id AND i.kind = 'episode'").
 			Joins("LEFT JOIN nfo_items series ON series.id = season.parent_id").
-			Joins("LEFT JOIN (?) st ON st.item_id = i.id", PlaybackStates(ctx, r.db, source, userID, filter)).
 			Where("m.catalog_source = 'nfo' AND i.kind IN ('movie','episode')")
-		if !filter.IncludeNSFW {
-			q = q.Where("NOT COALESCE(b.nsfw,FALSE) AND NOT COALESCE(i.nsfw,FALSE) AND NOT COALESCE(season.nsfw,FALSE) AND NOT COALESCE(series.nsfw,FALSE)")
+		if len(filter.AllowedLibraryIDs) > 0 {
+			q = q.Where("i.library_id = ANY(?)", &filter.AllowedLibraryIDs)
+		}
+		if len(filter.HiddenLibraryIDs) > 0 {
+			q = q.Where("i.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 		}
 		projection = `'nfo-' || i.id AS item_id, COALESCE(series.id,i.id) AS group_id,
  COALESCE('nfo-' || series.id,'') AS series_id, i.kind, COALESCE(season.season_num,0) AS season_num,
  '' AS work_order, '' AS album_id, i.episode_num, 'nfo-' || i.id AS history_id`
 		scope = "series.id = a.group_id"
+		stateIdentity = "st.item_id = i.id"
 	case "hongguo":
 		q = q.Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
 			Joins("JOIN hongguo_works w ON w.id = b.work_id").
 			Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
-			Joins("LEFT JOIN (?) st ON st.source_id = w.source_id AND st.episode_number = COALESCE(ep.number,1)", PlaybackStates(ctx, r.db, source, userID, filter)).
 			Where("m.catalog_source = 'hongguo' AND (w.kind = 'movie' OR (w.kind = 'series' AND ep.id IS NOT NULL))")
+		q = FilterVisibleWorkLibraries(db, q, "w.library_ids", nil, filter)
 		projection = `CASE WHEN w.kind = 'movie' THEN 'hg-work-' || w.id ELSE 'hg-episode-' || ep.id END AS item_id,
  CASE WHEN w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0 THEN 'album:' || w.related_album_id ELSE 'work:' || w.source_id END AS group_id,
  CASE WHEN w.kind = 'movie' THEN '' WHEN w.related_album_id <> '' AND w.season_index > 0 THEN 'hg-group-' || w.related_album_id ELSE 'hg-work-' || w.id END AS series_id,
@@ -135,19 +138,18 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
  w.source_id AS work_order, CASE WHEN w.related_album_id <> '' AND w.season_index > 0 THEN w.related_album_id ELSE '' END AS album_id,
  COALESCE(ep.number,1) AS episode_num, 'hg-state:' || w.source_id || ':' || COALESCE(ep.number,1) AS history_id`
 		scope = "((a.album_id <> '' AND w.related_album_id = a.album_id AND w.season_index > 0) OR (a.album_id = '' AND w.source_id = a.work_order)) AND w.kind = 'series'"
+		stateIdentity = "st.source_id = w.source_id AND st.episode_number = COALESCE(ep.number,1)"
 		threshold = 1
 	default:
 		q = q.Joins("JOIN metadata_items i ON i.id = m.metadata_id").
 			Joins("LEFT JOIN metadata_items season ON season.id = i.parent_id AND i.kind = 'episode' AND season.kind = 'season'").
 			Joins("LEFT JOIN metadata_items series ON series.id = season.parent_id").
-			Joins("LEFT JOIN (?) st ON st.metadata_id = i.id", PlaybackStates(ctx, r.db, source, userID, filter)).
 			Where("i.kind IN ('movie','episode')")
-		if !filter.IncludeNSFW {
-			q = q.Where("NOT COALESCE(i.nsfw,FALSE) AND NOT COALESCE(season.nsfw,FALSE) AND NOT COALESCE(series.nsfw,FALSE)")
-		}
+		q = FilterVisibleWorkLibraries(db, q, "i.library_ids", nil, filter)
 		projection = `i.id AS item_id, COALESCE(series.id,i.id) AS group_id, COALESCE(series.id,'') AS series_id,
  i.kind, COALESCE(season.season_num,0) AS season_num, '' AS work_order, '' AS album_id, i.episode_num, COALESCE(st.id,'') AS history_id`
 		scope = "series.id = a.group_id"
+		stateIdentity = "st.metadata_id = i.id"
 	}
 	q = q.Select(projection + `, m.id AS media_id, COALESCE(m.id = st.media_id,FALSE) AS preferred,
  COALESCE(st.position_ms,0) AS position_ms, COALESCE(st.duration_ms,0) AS duration_ms,
@@ -156,12 +158,17 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 		// Emby 混合目录的 Resume 接受任意正进度；NextUp 不能重复推荐它。
 		threshold = 1
 	}
-	watched := db.Table("(?) AS visible", q).
-		Where("watched_at IS NOT NULL AND (completed OR position_ms >= ?)", threshold)
+	states := PlaybackStates(ctx, r.db, source, userID, filter)
+	// 只对历史中的逻辑身份查可见版本；边界阻止重新展开整个媒体目录。
+	historyItems := db.Raw("? OFFSET 0", q.Session(&gorm.Session{}).Where(stateIdentity))
+	watched := db.Table("(?) AS st", states.Session(&gorm.Session{}).Where("h.watched_at IS NOT NULL")).
+		Joins("JOIN LATERAL (?) AS history_item ON TRUE", historyItems).
+		Select("history_item.*").Where("st.completed OR st.position_ms >= ?", threshold)
 	if seriesID != "" {
 		watched = watched.Where("series_id = ?", seriesID)
 	}
-	next := db.Table("(?) AS episode", q.Session(&gorm.Session{}).Where(scope)).
+	nextItems := q.Session(&gorm.Session{}).Joins("LEFT JOIN (?) st ON "+stateIdentity, states).Where(scope)
+	next := db.Table("(?) AS episode", nextItems).
 		Where("kind = 'episode' AND NOT completed AND (season_num,work_order,episode_num) > (a.season_num,a.work_order,a.episode_num)").
 		Order("season_num, work_order, episode_num, preferred DESC, media_id").Limit(1)
 	anchorFilter := "TRUE"

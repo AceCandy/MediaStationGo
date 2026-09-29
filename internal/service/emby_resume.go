@@ -21,14 +21,16 @@ func (e *EmbyService) globalResumeItems(ctx context.Context, p ItemsParams) (map
 	var pages []*gorm.DB
 	for _, source := range sources {
 		filtered := filterGlobalItems(e.repo.DB.WithContext(ctx).Table("(?) AS candidates", source), p)
-		var count int64
-		keys := filtered.Session(&gorm.Session{}).Select("resume_key").Group("resume_key")
-		if err := e.repo.DB.WithContext(ctx).Table("(?) AS resume_keys", keys).Count(&count).Error; err != nil {
-			return nil, err
-		}
-		total += count
-		if count == 0 {
-			continue
+		if !p.SkipTotalRecordCount {
+			var count int64
+			keys := filtered.Session(&gorm.Session{}).Select("resume_key").Group("resume_key")
+			if err := e.repo.DB.WithContext(ctx).Table("(?) AS resume_keys", keys).Count(&count).Error; err != nil {
+				return nil, err
+			}
+			total += count
+			if count == 0 {
+				continue
+			}
 		}
 		grouped := filtered.Session(&gorm.Session{}).Select("DISTINCT ON (resume_key) *").Order("resume_key, played_at DESC, id DESC")
 		page := e.repo.DB.WithContext(ctx).Table("(?) AS resume_source", grouped).Order(globalItemsOrder(p))
@@ -38,7 +40,7 @@ func (e *EmbyService) globalResumeItems(ctx context.Context, p ItemsParams) (map
 		}
 		pages = append(pages, page)
 	}
-	if total <= int64(p.StartIndex) {
+	if !p.SkipTotalRecordCount && total <= int64(p.StartIndex) {
 		result := emptyItemsEnvelope(p.StartIndex)
 		result["TotalRecordCount"] = total
 		return result, nil
@@ -66,6 +68,7 @@ func (e *EmbyService) legacyResumeCandidates(ctx context.Context, p ItemsParams)
 		Joins("LEFT JOIN metadata_items parent ON parent.id = emby_metadata.parent_id").
 		Joins("LEFT JOIN metadata_items grandparent ON grandparent.id = parent.parent_id").
 		Where("h.position_ms > 0 AND emby_metadata.kind IN ('movie','episode')")
+	q = e.workLibraryScope(ctx, q, "emby_metadata.library_ids", p)
 	if len(p.PersonIDs) > 0 {
 		q = q.Where(`EXISTS (SELECT 1 FROM metadata_credits c WHERE c.person_id IN ?
  AND c.metadata_id = CASE WHEN emby_metadata.kind = 'episode' THEN emby_metadata.parent_id ELSE emby_metadata.id END)`, p.PersonIDs)
@@ -83,7 +86,7 @@ func (e *EmbyService) legacyResumeCandidates(ctx context.Context, p ItemsParams)
 		Group("emby_metadata.id, grandparent.id")
 }
 
-// resumeSourceFiles 保持独立来源的文件权限，具体条目 NSFW 由 NFO 分支补充。
+// resumeSourceFiles 按库权限限定独立来源的文件。
 func (e *EmbyService) resumeSourceFiles(ctx context.Context, userID, source string) *gorm.DB {
 	filter := e.mediaQueryFilter(ctx, userID)
 	q := e.repo.DB.WithContext(ctx).Table("media AS m").Where("m.catalog_source = ?", source)
@@ -104,8 +107,12 @@ func (e *EmbyService) nfoResumeCandidates(ctx context.Context, p ItemsParams) *g
 		Joins("LEFT JOIN nfo_items nw ON nw.id = ns.parent_id").
 		Joins("JOIN (?) s ON s.item_id = ni.id", repository.PlaybackStates(ctx, e.repo.DB, "nfo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
 		Where("s.position_ms > 0 AND ni.kind IN ('movie','episode')")
-	if !e.mediaVisibility(ctx, p.UserID).IncludeNSFW {
-		q = q.Where("NOT COALESCE(b.nsfw,FALSE) AND NOT COALESCE(ni.nsfw,FALSE) AND NOT COALESCE(ns.nsfw,FALSE) AND NOT COALESCE(nw.nsfw,FALSE)")
+	filter := e.mediaQueryFilter(ctx, p.UserID)
+	if len(filter.AllowedLibraryIDs) > 0 {
+		q = q.Where("ni.library_id = ANY(?)", &filter.AllowedLibraryIDs)
+	}
+	if len(filter.HiddenLibraryIDs) > 0 {
+		q = q.Where("ni.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
 	if len(p.PersonIDs) > 0 {
 		q = q.Where("FALSE")
@@ -122,6 +129,7 @@ func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams
 		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
 		Joins("JOIN (?) s ON s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)", repository.PlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
 		Where("s.position_ms > 0 AND (w.kind = 'movie' OR (w.kind = 'series' AND ep.id IS NOT NULL))")
+	q = e.workLibraryScope(ctx, q, "w.library_ids", p)
 	if len(p.PersonIDs) > 0 {
 		q = q.Where("EXISTS (SELECT 1 FROM hongguo_credits c WHERE c.work_id = w.id AND 'hg-person-' || c.person_id IN ?)", p.PersonIDs)
 	}

@@ -65,7 +65,7 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := ensurePerformanceIndexes(db); err != nil {
 		return err
 	}
-	if err := removeCloudStorageSchema(db); err != nil {
+	if err := removeTranscodeSettings(db); err != nil {
 		return err
 	}
 	if err := ensureLibraryRootsCompatibility(db); err != nil {
@@ -354,90 +354,12 @@ func removePTSiteSchema(db *gorm.DB) error {
 	})
 }
 
-// removeCloudStorageSchema retires provider-backed storage without touching
-// protocol-neutral local, HTTP, or HTTPS media sources.
-func removeCloudStorageSchema(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		statements := []string{
-			`CREATE TEMP TABLE retired_cloud_roots ON COMMIT DROP AS
-SELECT id, library_id
-FROM library_roots
-WHERE LOWER(BTRIM(path)) LIKE 'cloud://%'`,
-			`CREATE TEMP TABLE retired_cloud_media ON COMMIT DROP AS
-SELECT DISTINCT m.id, m.library_id
-FROM media AS m
-WHERE LOWER(BTRIM(m.path)) LIKE 'cloud://%'
-   OR m.library_root_id IN (SELECT id FROM retired_cloud_roots)
-   OR EXISTS (
-       SELECT 1
-       FROM strm_records AS sr
-       WHERE sr.media_id = m.id
-         AND LOWER(BTRIM(sr.protocol)) IN ('alist', 'alists', 'openlist', 'openlists', 'webdav', 'davs', 's3')
-   )`,
-			`CREATE TEMP TABLE retired_cloud_libraries ON COMMIT DROP AS
-SELECT DISTINCT id
-FROM (
-    SELECT id FROM libraries WHERE LOWER(BTRIM(path)) LIKE 'cloud://%'
-    UNION
-    SELECT library_id FROM retired_cloud_roots WHERE BTRIM(COALESCE(library_id, '')) <> ''
-    UNION
-    SELECT library_id FROM retired_cloud_media WHERE BTRIM(COALESCE(library_id, '')) <> ''
-) AS candidates`,
-			`DELETE FROM media_probe_metadata WHERE media_id IN (SELECT id FROM retired_cloud_media)`,
-			`DELETE FROM strm_records
-WHERE media_id IN (SELECT id FROM retired_cloud_media)
-   OR LOWER(BTRIM(protocol)) IN ('alist', 'alists', 'openlist', 'openlists', 'webdav', 'davs', 's3')`,
-			`DELETE FROM media WHERE id IN (SELECT id FROM retired_cloud_media)`,
-			`DELETE FROM library_roots WHERE id IN (SELECT id FROM retired_cloud_roots)`,
-		}
-		for _, stmt := range statements {
-			if err := tx.Exec(stmt).Error; err != nil {
-				return err
-			}
-		}
-
-		var unsafeLibraries int64
-		if err := tx.Raw(`
-SELECT COUNT(*)
-FROM retired_cloud_libraries AS retired
-WHERE EXISTS (SELECT 1 FROM media WHERE library_id = retired.id)
-  AND NOT EXISTS (SELECT 1 FROM library_roots WHERE library_id = retired.id)
-`).Scan(&unsafeLibraries).Error; err != nil {
-			return err
-		}
-		if unsafeLibraries > 0 {
-			return fmt.Errorf("cloud storage retirement found %d libraries with media but no surviving root", unsafeLibraries)
-		}
-
-		for _, stmt := range []string{
-			`UPDATE libraries AS l
-SET path = (
-    SELECT r.path
-    FROM library_roots AS r
-    WHERE r.library_id = l.id
-    ORDER BY r.sort_order, r.created_at, r.id
-    LIMIT 1
-)
-WHERE l.id IN (SELECT id FROM retired_cloud_libraries)
-  AND EXISTS (SELECT 1 FROM library_roots WHERE library_id = l.id)`,
-			`DELETE FROM libraries AS l
-WHERE l.id IN (SELECT id FROM retired_cloud_libraries)
-  AND NOT EXISTS (SELECT 1 FROM library_roots WHERE library_id = l.id)
-  AND NOT EXISTS (SELECT 1 FROM media WHERE library_id = l.id)`,
-			`DELETE FROM settings
-WHERE LOWER(key) LIKE 'cloud.%'
-   OR LOWER(key) LIKE 'app.cloud\_%' ESCAPE '\'
-   OR LOWER(key) LIKE 'transcode.%'
+// removeTranscodeSettings 保留独立的已退役转码设置清理，不扫描媒体或库路径。
+func removeTranscodeSettings(db *gorm.DB) error {
+	return db.Exec(`DELETE FROM settings
+WHERE LOWER(key) LIKE 'transcode.%'
    OR LOWER(key) LIKE 'transcoder.%'
-   OR LOWER(key) IN ('ffmpeg.path', 'app.ffmpeg_path')`,
-			`DROP TABLE IF EXISTS storage_configs CASCADE`,
-		} {
-			if err := tx.Exec(stmt).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+   OR LOWER(key) IN ('ffmpeg.path', 'app.ffmpeg_path')`).Error
 }
 
 // removeLegacyMetadataIdentityConstraint removes the old named check after
@@ -510,6 +432,9 @@ func removeRetiredScrapeSettings(db *gorm.DB) error {
 // runtime consumer. AutoMigrate never drops columns removed from a model.
 func removeUnusedLegacyColumns(db *gorm.DB) error {
 	for _, stmt := range []string{
+		`ALTER TABLE IF EXISTS metadata_items DROP COLUMN IF EXISTS nsfw`,
+		`ALTER TABLE IF EXISTS nfo_items DROP COLUMN IF EXISTS nsfw`,
+		`ALTER TABLE IF EXISTS nfo_media_bindings DROP COLUMN IF EXISTS nsfw`,
 		`ALTER TABLE IF EXISTS people DROP COLUMN IF EXISTS profile_image_source`,
 		`ALTER TABLE IF EXISTS user_devices DROP COLUMN IF EXISTS warnings`,
 		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS duration_sec`,
@@ -578,6 +503,7 @@ func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 func ensurePerformanceIndexes(db *gorm.DB) error {
 	statements := []string{
 		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_library_parent_path ON media(library_id, lower(regexp_replace(path, '[^/]*$', '')))`,
 		`CREATE INDEX IF NOT EXISTS idx_media_recent_metadata ON media(created_at DESC, id DESC) WHERE metadata_id IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_people_pending_translation ON people(id) WHERE deleted_at IS NULL AND original_name <> '' AND name = original_name AND original_name !~ '[一-鿿]'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_credits_type_pending_translation ON metadata_credits(type, metadata_id, id) WHERE original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`,

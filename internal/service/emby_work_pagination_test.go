@@ -17,7 +17,6 @@ func TestEmbyMetadataWorkPageMatchesFileGrouping(t *testing.T) {
 	for _, sql := range []string{
 		`INSERT INTO metadata_items(id,kind,title,source,release_date,year,rating) SELECT 'movie-'||n,'movie','Title '||n,'local',CASE WHEN n%2=0 THEN '2020-01-01' ELSE '' END,2000+n,n FROM generate_series(1,5) n`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||n||'-'||v,'movie-'||n,CASE WHEN v=3 THEN 'other' ELSE 'movies' END,'/movies/'||n||'/'||v,TIMESTAMP '2026-01-01'+n*INTERVAL '1 day'+v*INTERVAL '1 hour' FROM generate_series(1,4) n CROSS JOIN generate_series(1,3) v`,
-		`UPDATE metadata_items SET nsfw=true WHERE id='movie-4'`,
 		`INSERT INTO favorites(id,user_id,metadata_id,media_id) VALUES ('favorite','viewer','movie-1','file-1-1')`,
 		`UPDATE metadata_items SET library_ids=NULL WHERE id='movie-2'`,
 	} {
@@ -25,7 +24,7 @@ func TestEmbyMetadataWorkPageMatchesFileGrouping(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{"movies"}}, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{"movies"}}, expiresAt: time.Now().Add(time.Hour)}}
 	for _, parent := range []string{"", "movies", "missing"} {
 		for _, favorite := range []bool{false, true} {
 			for _, sortBy := range []string{"", "SortName", "DateCreated", "DateLastContentAdded", "CommunityRating", "PremiereDate"} {
@@ -43,7 +42,7 @@ func TestEmbyMetadataWorkPageMatchesFileGrouping(t *testing.T) {
 						if err != nil {
 							t.Fatal(err)
 						}
-						got, total, err := e.metadataWorkPage(t.Context(), q, p)
+						got, total, err := e.metadataWorkPage(t.Context(), q, p, false)
 						if err != nil || total != n || !reflect.DeepEqual(got, want) {
 							t.Fatalf("params=%+v favorite=%v total=%d/%d err=%v", p, favorite, total, n, err)
 						}

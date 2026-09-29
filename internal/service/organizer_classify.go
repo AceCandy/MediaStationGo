@@ -28,7 +28,7 @@ func (o *OrganizerService) SmartClassify(ctx context.Context, m *model.Media) st
 	if !o.isSmartClassifyEnabled(ctx) {
 		return ""
 	}
-	lib, err := o.repo.Library.FindByID(ctx, m.LibraryID)
+	lib, err := o.repo.Library.FindBasicByID(ctx, m.LibraryID)
 	if err != nil || lib == nil {
 		return ""
 	}
@@ -55,7 +55,7 @@ func (o *OrganizerService) smartClassifySourceFile(ctx context.Context, src, sou
 		input.Languages = metadataMatch.Languages
 		input.Countries = metadataMatch.Countries
 		input.Genres = metadataMatch.Genres
-		if metadataMatch.NSFW {
+		if metadataMatch.MediaType == "adult" {
 			input.MediaType = "adult"
 		}
 	}
@@ -64,7 +64,7 @@ func (o *OrganizerService) smartClassifySourceFile(ctx context.Context, src, sou
 		input.Languages = parseCommaList(meta.Languages)
 		input.Countries = parseCommaList(meta.Countries)
 		input.Genres = parseCommaList(meta.Genres)
-		if meta.NSFW {
+		if meta.AdultCode != "" {
 			input.MediaType = "adult"
 		}
 	}

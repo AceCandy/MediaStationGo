@@ -46,7 +46,7 @@ func TestReadAdultLocalMetadataAndArtwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got == nil || got.Title != "成人影片标题" || got.AdultCode != "SSIS-001" || !got.NSFW {
+	if got == nil || got.Title != "成人影片标题" || got.AdultCode != "SSIS-001" {
 		t.Fatalf("unexpected adult metadata: %+v", got)
 	}
 	if got.OriginalName != "SSIS-001" || got.Year != 2024 || got.Overview != "本地简介" {

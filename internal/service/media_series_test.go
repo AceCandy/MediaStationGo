@@ -157,20 +157,6 @@ func TestMediaSeasonDetailUsesCanonicalArtworkAndVisibility(t *testing.T) {
 				t.Fatalf("visibility leak: %+v %v", got, err)
 			}
 		}
-		if err := db.Model(season).Update("nsfw", true).Error; err != nil {
-			t.Fatal(err)
-		}
-		got, err = svc.GetMediaSeasonVisible(t.Context(), media.ID, MediaVisibility{})
-		if err != nil || got != nil {
-			t.Fatalf("NSFW season leak: %+v %v", got, err)
-		}
-		got, err = svc.GetMediaSeasonVisible(t.Context(), media.ID, MediaVisibility{IncludeNSFW: true})
-		if err != nil || got == nil {
-			t.Fatalf("NSFW opt-in failed: %+v %v", got, err)
-		}
-		if err := db.Model(season).Update("nsfw", false).Error; err != nil {
-			t.Fatal(err)
-		}
 	}
 	got, err := svc.GetMediaSeasonVisible(t.Context(), season.ID, MediaVisibility{})
 	if err != nil || got != nil {
@@ -264,20 +250,6 @@ func TestMediaSeriesDetailSupportsEveryAttachmentLevel(t *testing.T) {
 			if err != nil || got != nil {
 				t.Fatalf("visibility leak: %#v, %v", got, err)
 			}
-		}
-		if err := db.Model(series).Update("nsfw", true).Error; err != nil {
-			t.Fatal(err)
-		}
-		got, err = svc.GetMediaSeriesVisible(t.Context(), media.ID, MediaVisibility{})
-		if err != nil || got != nil {
-			t.Fatalf("NSFW Series leaked: %#v, %v", got, err)
-		}
-		got, err = svc.GetMediaSeriesVisible(t.Context(), media.ID, MediaVisibility{IncludeNSFW: true})
-		if err != nil || got == nil {
-			t.Fatalf("NSFW opt-in failed: %#v, %v", got, err)
-		}
-		if err := db.Model(series).Update("nsfw", false).Error; err != nil {
-			t.Fatal(err)
 		}
 	}
 	check(series) // 尚无季、集时，也必须能读取整剧。

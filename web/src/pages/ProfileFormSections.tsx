@@ -53,7 +53,7 @@ export function ProfileIdentityFields({
 
       <Toggle
         label="允许成人内容"
-        hint="开启后可访问 NSFW 媒体"
+        hint="开启后可访问成人媒体库"
         checked={form.allow_adult}
         onChange={(value) => update({ allow_adult: value })}
       />

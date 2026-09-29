@@ -44,9 +44,6 @@ func (s *ScannerService) scanLibraryRootWithProgress(ctx context.Context, librar
 	if root == nil {
 		return nil, errors.New("library root not found")
 	}
-	if isRetiredCloudPath(root.Path) {
-		return nil, errors.New("library root path is no longer supported")
-	}
 	return s.scanLocalLibraryRootWithProgress(ctx, lib, root, true, progress)
 }
 
@@ -83,9 +80,6 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 	}
 	if lib == nil {
 		return nil, errors.New("library not found")
-	}
-	if isRetiredCloudPath(lib.Path) {
-		return nil, errors.New("library path is no longer supported")
 	}
 	res := &ScanResult{LibraryID: lib.ID}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
@@ -158,7 +152,7 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 	if scanErr != nil && scannedRoots == 0 {
 		return res, scanErr
 	}
-	if changed, err := s.reconcileMediaParts(ctx, lib.ID, ""); err != nil {
+	if changed, err := s.reconcileMediaParts(ctx, lib.ID, "", true); err != nil {
 		addScanError(res, "", err)
 		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.Error(err))
 	} else {
@@ -211,7 +205,7 @@ func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, l
 			res.addChange(ScanChangeRemoved, path, "")
 		}
 	}
-	if changed, err := s.reconcileMediaParts(ctx, lib.ID, root.Path); err != nil {
+	if changed, err := s.reconcileMediaParts(ctx, lib.ID, root.Path, true); err != nil {
 		addScanError(res, root.Path, err)
 		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
 	} else {
@@ -344,12 +338,23 @@ func (s *ScannerService) IngestPathResult(ctx context.Context, libraryID, path s
 		return nil, nil
 	}
 	res := &ScanResult{LibraryID: lib.ID}
-	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res)
-	changed, reconcileErr := s.reconcileMediaParts(ctx, lib.ID, filepath.Dir(path))
-	if reconcileErr != nil {
-		return res, reconcileErr
+	_, reconcileParts := parseMediaPartCandidate(path)
+	if !reconcileParts {
+		// 写入可能清除旧分段字段，必须在入库前判断；普通文件只需路径索引点查。
+		if err := s.repo.DB.WithContext(ctx).Raw(`SELECT EXISTS (
+ SELECT 1 FROM media WHERE library_id = ? AND path = ? AND (part_group_key <> '' OR part_index <> 0)
+)`, lib.ID, path).Scan(&reconcileParts).Error; err != nil {
+			return res, err
+		}
 	}
-	recordMediaPartScanChanges(res, changed)
+	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res)
+	if reconcileParts {
+		changed, reconcileErr := s.reconcileMediaParts(ctx, lib.ID, filepath.Dir(path), false)
+		if reconcileErr != nil {
+			return res, reconcileErr
+		}
+		recordMediaPartScanChanges(res, changed)
+	}
 	if res.Added+res.Updated > 0 {
 		s.invalidateMediaCache(ctx)
 	}
@@ -369,7 +374,7 @@ func (s *ScannerService) resolveLocalLibraryPath(ctx context.Context, lib *model
 		return nil
 	}
 	if s.repo != nil && s.repo.DB != nil {
-		if updateErr := s.repo.DB.WithContext(ctx).Model(&model.Library{}).Where("id = ?", lib.ID).Update("path", resolved).Error; updateErr != nil && s.log != nil {
+		if updateErr := s.repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": resolved}); updateErr != nil && s.log != nil {
 			s.log.Warn("update mapped library path failed",
 				zap.String("library_id", lib.ID),
 				zap.String("from", lib.Path),

@@ -14,13 +14,11 @@ func TestSTRMOutputPresetsIncludesDefaultsAndLocalLibraries(t *testing.T) {
 	base := t.TempDir()
 	movieRoot := filepath.Join(base, "strm", "电影")
 	tvRoot := filepath.Join(base, "strm", "电视剧")
-	cloudRoot := "cloud://openlist/电影"
 	disabledRoot := filepath.Join(base, "strm", "动漫")
 
 	libraries := []*model.Library{
 		{Name: "电影 STRM", Path: movieRoot, Type: "movie", Enabled: true},
 		{Name: "电视剧 STRM", Path: tvRoot, Type: "tv", Enabled: true},
-		{Name: "云盘", Path: cloudRoot, Type: "movie", Enabled: true},
 		{Name: "停用", Path: disabledRoot, Type: "tv", Enabled: false},
 	}
 	for _, lib := range libraries {
@@ -28,7 +26,7 @@ func TestSTRMOutputPresetsIncludesDefaultsAndLocalLibraries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := repos.DB.Model(&model.Library{}).Where("id = ?", libraries[3].ID).Update("enabled", false).Error; err != nil {
+	if err := repos.DB.Model(&model.Library{}).Where("id = ?", libraries[2].ID).Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -49,9 +47,6 @@ func TestSTRMOutputPresetsIncludesDefaultsAndLocalLibraries(t *testing.T) {
 	}
 	if got[tvRoot].Label != "电视剧 STRM" || got[tvRoot].Kind != "library" {
 		t.Fatalf("tv preset = %#v, want local library preset", got[tvRoot])
-	}
-	if _, ok := got[cloudRoot]; ok {
-		t.Fatalf("cloud library should not be an output preset: %#v", presets)
 	}
 	if _, ok := got[disabledRoot]; ok {
 		t.Fatalf("disabled library should not be an output preset: %#v", presets)

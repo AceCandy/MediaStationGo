@@ -13,7 +13,7 @@ import (
 func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
 	cacheKey := e.embyItemsCacheKey("items", p)
 	var cached embyItemsCacheValue
-	if e.cache != nil && e.cache.GetJSON(ctx, cacheKey, &cached) {
+	if e.cache != nil && !embyRandomSort(p) && e.cache.GetJSON(ctx, cacheKey, &cached) {
 		return map[string]any{"Items": cached.Items, "TotalRecordCount": cached.TotalRecordCount, "StartIndex": cached.StartIndex}, nil
 	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
@@ -78,9 +78,10 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	var total int64
 	var err error
 	if resumeFilter {
-		views, total, err = e.metadataPage(ctx, q, p.UserID, metadataOrderSQL(p, true), p.StartIndex, p.Limit)
+		views, total, err = e.metadataPageWithCount(ctx, q, p.UserID, metadataOrderSQL(p, true), p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
 	} else {
-		views, total, err = e.metadataWorkPage(ctx, q, p)
+		membershipOnly := len(p.IncludeItemTypes) == 0 && len(p.PersonIDs) == 0 && len(p.Filters) == 0
+		views, total, err = e.metadataWorkPage(ctx, q, p, membershipOnly)
 	}
 	if err != nil {
 		return nil, err
@@ -92,7 +93,7 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		}
 	}
 	out := map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}
-	if e.cache != nil {
+	if e.cache != nil && !embyRandomSort(p) {
 		e.cache.SetJSON(ctx, cacheKey, embyItemsCacheValue{Items: items, TotalRecordCount: total, StartIndex: p.StartIndex}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
 	}
 	return out, nil

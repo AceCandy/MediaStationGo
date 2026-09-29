@@ -52,32 +52,39 @@ func (r *MediaViewRepository) hongGuoSeriesScope(ctx context.Context, libraryID,
 // hongGuoLibraryPage 仅加载当前页代表文件；封面和筛选都以整剧主体资料为准。
 func (r *MediaViewRepository) hongGuoLibraryPage(ctx context.Context, libraryID, seriesID string, offset, limit int, filter MediaQueryFilter) ([]model.MediaView, []LibraryMetadataSummary, int64, error) {
 	visible := r.hongGuoFileScope(ctx, libraryID, filter).Select("1").Where("b.work_id = w.id")
-	q := r.db.WithContext(ctx).Table("hongguo_works w").Joins(HongGuoAlbumJoin).
-		Joins("JOIN hongguo_works primary_work ON primary_work.id = COALESCE(g.work_id,w.id)").
-		Where("EXISTS (? OFFSET 0)", visible)
+	albums := r.db.WithContext(ctx).Table("hongguo_works").
+		Where("kind = 'series' AND related_album_id <> '' AND season_index > 0").
+		Select("DISTINCT ON (related_album_id) related_album_id AS id, id AS work_id, title").
+		Order("related_album_id, season_index, source_id")
+	q := r.db.WithContext(ctx).Table("hongguo_works w").Where(HongGuoReadyWorkSQL).
+		Joins("LEFT JOIN albums g ON w.kind = 'series' AND g.id = w.related_album_id").
+		Where("CASE WHEN w.library_ids IS NULL THEN EXISTS (? OFFSET 0) ELSE TRUE END", visible)
+	q = FilterVisibleWorkLibraries(r.db.WithContext(ctx), q, "w.library_ids", []string{libraryID}, filter)
 	if seriesID != "" {
-		q = q.Where(hongGuoSeriesIdentity+" = ?", seriesID)
+		q = FilterHongGuoWorkIDs(q, []string{seriesID}).Where(HongGuoWorkIdentitySQL+" = ?", seriesID)
+		albumID, _ := strings.CutPrefix(seriesID, "hg-group-")
+		albums = albums.Where("related_album_id = ?", albumID)
 	}
 	if filter.MissingPoster {
-		q = q.Where("NOT EXISTS (SELECT 1 FROM hongguo_artworks a WHERE a.work_id = primary_work.id AND a.local_key <> '')")
+		q = q.Where("NOT EXISTS (SELECT 1 FROM hongguo_artworks a WHERE a.work_id = COALESCE(g.work_id,w.id) AND a.local_key <> '')")
 	}
 	if filter.MissingChineseTitle {
-		q = q.Where("primary_work.title !~ '[㐀-䶿一-鿿豈-﫿]'")
+		q = q.Where("COALESCE(g.title,w.title) !~ '[㐀-䶿一-鿿豈-﫿]'")
 	}
-	q = q.Select("w.id AS work_id, " + hongGuoSeriesIdentity + " AS metadata_id, primary_work.title")
+	q = q.Select("w.id AS work_id, " + HongGuoWorkIdentitySQL + " AS metadata_id, COALESCE(g.title,w.title) AS title")
 	page := r.db.Table("works").Order("title, metadata_id").Offset(offset).Limit(limit)
 	var rows []struct {
 		WorkID string
 		Total  int64
 	}
 	// 存在性查询保留逐作品索引查找边界，总数和分页共用一次作品范围计算。
-	err := r.db.WithContext(ctx).Raw(`WITH scoped AS MATERIALIZED (?), works AS MATERIALIZED (
+	err := r.db.WithContext(ctx).Raw(`WITH albums AS MATERIALIZED (?), scoped AS MATERIALIZED (?), works AS MATERIALIZED (
 SELECT metadata_id, title FROM scoped GROUP BY metadata_id, title
 ), page AS MATERIALIZED (?), page_works AS (
 SELECT scoped.work_id, page.metadata_id, page.title FROM page JOIN scoped USING (metadata_id)
 )
 SELECT page_works.work_id, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
-LEFT JOIN page_works ON TRUE ORDER BY page_works.title, page_works.metadata_id`, q, page).Scan(&rows).Error
+LEFT JOIN page_works ON TRUE ORDER BY page_works.title, page_works.metadata_id`, albums, q, page).Scan(&rows).Error
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -120,7 +127,7 @@ func (r *MediaViewRepository) hongGuoSearchRepresentatives(ctx context.Context, 
 	}
 	// 先将当页合集解析为来源作品，文件查询才能使用 work_id 索引限定范围。
 	var workIDs []string
-	if err := r.db.WithContext(ctx).Table("hongguo_works w").Joins(HongGuoAlbumJoin).
+	if err := FilterHongGuoWorkIDs(r.db.WithContext(ctx).Table("hongguo_works w"), ids).Joins(HongGuoAlbumJoin).
 		Where(hongGuoSeriesIdentity+" IN ?", ids).Pluck("w.id", &workIDs).Error; err != nil {
 		return nil, err
 	}
@@ -183,7 +190,11 @@ func (r *MediaViewRepository) hongGuoPresentations(ctx context.Context, ids []st
 		Identity  string
 		ArtworkID string
 	}
-	err := r.db.WithContext(ctx).Table("hongguo_works w").Joins(HongGuoAlbumJoin).
+	q := r.db.WithContext(ctx).Table("hongguo_works w")
+	if !season {
+		q = FilterHongGuoWorkIDs(q, ids)
+	}
+	err := q.Joins(HongGuoAlbumJoin).
 		Joins("LEFT JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''").
 		Where(identity+" IN ?", ids).
 		Select("DISTINCT ON (" + identity + ") w.*, " + identity + " AS identity, COALESCE(a.id,'') AS artwork_id").

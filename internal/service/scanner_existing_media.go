@@ -15,7 +15,7 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
 		Select("path", "season_num", "scan_file_size_bytes", "scan_file_mtime_ns", "file_id").
-		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%").
+		Where("library_id = ?", libraryID).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}

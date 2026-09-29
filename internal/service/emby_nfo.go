@@ -12,32 +12,27 @@ import (
 func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count bool) ([]map[string]any, int64, error) {
 	db := e.repo.DB.WithContext(ctx)
 	filter := e.mediaQueryFilter(ctx, p.UserID)
-	dateSort := strings.Contains(strings.ToLower(p.SortBy), "datecreated")
+	dateSort := !embyRandomSort(p) && strings.Contains(strings.ToLower(p.SortBy), "datecreated")
 	latest := !count && !dateSort && strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") && strings.EqualFold(p.SortOrder, "Descending")
 	played := containsEmbyFilter(p.Filters, "IsPlayed")
 	unplayed := containsEmbyFilter(p.Filters, "IsUnplayed")
-	dateAggregate := ""
-	if dateSort {
-		dateAggregate = "MIN"
-	}
-	q := db.Table("(?) AS candidates", e.repo.MediaView.NFOWorkCandidates(ctx, p.UserID, p.ParentID, filter, dateAggregate, played || unplayed, latest))
-	columns := "id, title, season_number, episode_number, latest_at"
+	q := db.Table("(?) AS candidates", e.repo.MediaView.NFOWorkCandidates(ctx, p.UserID, p.ParentID, filter, false))
+	columns := "id, kind, title, season_number, episode_number, latest_at"
 	if dateSort {
 		columns += ", created_at"
+	}
+	if embyRandomSort(p) {
+		columns += ", " + embyRandomOrder(p, "id") + " AS random_order"
 	}
 	// 播放状态只用于过滤，不在物化结果中再次计算。
 	q = q.Select(columns)
 	if len(p.IncludeItemTypes) > 0 {
 		q = q.Where("kind IN ?", lowerStrings(p.IncludeItemTypes))
 	}
-	if played {
-		q = q.Where("played")
-	}
-	if unplayed {
-		q = q.Where("NOT played")
-	}
 	order := "title"
-	if dateSort {
+	if embyRandomSort(p) {
+		order = "random_order"
+	} else if dateSort {
 		order = "created_at"
 	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
 		order = "latest_at"
@@ -46,7 +41,12 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 		order += " DESC"
 	}
 	order += " NULLS LAST"
-	page := db.Table("candidates").Order("season_number, episode_number").Order(order).Order("id").Limit(p.Limit).Offset(p.StartIndex)
+	prefix := "season_number, episode_number, "
+	pagePrefix := "page.season_number, page.episode_number, "
+	if embyRandomSort(p) {
+		prefix, pagePrefix = "", ""
+	}
+	page := db.Table("candidates").Order(prefix + order + ", id").Limit(p.Limit).Offset(p.StartIndex)
 	totals := "SELECT 0::bigint AS total"
 	materialization := "MATERIALIZED"
 	if latest {
@@ -57,27 +57,54 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 	}
 	var rows []struct {
 		ID    string
+		Kind  string
 		Total int64
 	}
-	err := db.Raw(`WITH candidates AS `+materialization+` (?), page AS (?)
-SELECT COALESCE(page.id,'') AS id, totals.total FROM (`+totals+`) totals LEFT JOIN page ON TRUE
-ORDER BY page.season_number, page.episode_number, page.`+order+`, page.id`, q, page).Scan(&rows).Error
+	var err error
+	var selected []string
+	var selectedTotal int64
+	if played || unplayed {
+		candidates := db.Table("(?) candidates", q).Select("*, ROW_NUMBER() OVER (ORDER BY " + prefix + order + ", id) AS ordinal").Order(prefix + order + ", id")
+		states := e.repo.MediaView.NFOWorkCandidates(ctx, p.UserID, p.ParentID, filter, true).
+			Where("root.id IN (SELECT id FROM work_batch)")
+		eligible := db.Table("(?) states", states).Select("id")
+		if played {
+			eligible = eligible.Where("played")
+		}
+		if unplayed {
+			eligible = eligible.Where("NOT played")
+		}
+		eligible = db.Table("work_batch").Select("ordinal").Where("id IN (?)", eligible)
+		selected, selectedTotal, err = e.filteredWorkBatchPage(ctx, candidates, eligible, p.StartIndex, p.Limit, count)
+		if err == nil && len(selected) > 0 {
+			err = q.Session(&gorm.Session{}).Where("id IN ?", selected).Select("id, kind").Scan(&rows).Error
+		}
+	} else {
+		err = db.Raw(`WITH candidates AS `+materialization+` (?), page AS (?)
+SELECT COALESCE(page.id,'') AS id, page.kind, totals.total FROM (`+totals+`) totals LEFT JOIN page ON TRUE
+ORDER BY `+pagePrefix+`page.`+order+`, page.id`, q, page).Scan(&rows).Error
+	}
 	if err != nil {
 		return nil, 0, err
 	}
 	var total int64
 	var ids []string
+	containersOnly := true
 	for _, row := range rows {
 		total = row.Total
 		if row.ID != "" {
 			ids = append(ids, row.ID)
+			containersOnly = containersOnly && row.Kind == "series"
 		}
+	}
+	if played || unplayed {
+		ids, total = selected, selectedTotal
 	}
 	if len(ids) == 0 {
 		return []map[string]any{}, total, nil
 	}
 	var nodes []hongGuoNode
-	err = e.repo.MediaView.NFOWorkNodes(ctx, p.UserID, p.ParentID, filter, ids).Where("parent_id = ''").Scan(&nodes).Error
+	err = e.repo.MediaView.NFOWorkNodes(ctx, p.UserID, p.ParentID, filter, ids, containersOnly).Where("parent_id = ''").Scan(&nodes).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -110,7 +137,7 @@ func (e *EmbyService) nfoItemNodes(ctx context.Context, userID string, ids ...st
 	for _, id := range ids {
 		itemIDs = append(itemIDs, strings.TrimPrefix(id, "nfo-"))
 	}
-	return e.repo.MediaView.NFOWorkNodes(ctx, userID, "", e.mediaQueryFilter(ctx, userID), itemIDs)
+	return e.repo.MediaView.NFOWorkNodes(ctx, userID, "", e.mediaQueryFilter(ctx, userID), itemIDs, false)
 }
 
 // nfoNodePayloads 复用文件播放响应；容器不伪装为可播放文件。

@@ -31,6 +31,7 @@ func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 		return tx.Unscoped().Where("id = ?", id).Delete(&model.Library{}).Error
 	})
 	if err == nil {
+		s.repo.InvalidateReadCache()
 		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 		s.invalidateMediaCache(ctx)

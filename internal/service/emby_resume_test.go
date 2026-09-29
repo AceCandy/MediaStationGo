@@ -111,7 +111,7 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 			}
 		}
 	}
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{user: {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + user: {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 	assertGlobalBrowseMatchesHierarchy(t, e, user)
 	p := ItemsParams{UserID: user, Recursive: true, Filters: []string{"IsResumable"}, SortBy: "DatePlayed", SortOrder: "Descending", Limit: 2, Fields: []string{"MediaSources"}}
 	assertPage := func(params ItemsParams, total int64, expected []string) {
@@ -187,17 +187,12 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 		{IncludeNSFW: true, LibraryRestricted: true, AllowedLibraryIDs: []string{libraries[0]}},
 		{HiddenLibraryIDs: []string{libraries[1], libraries[2]}},
 	} {
-		e.visibilityCache[user] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
+		e.visibilityCache[e.repo.ReadCacheKey()+user] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
 		assertPage(p, 3, []string{newest[0], "legacy-item-1"})
 	}
-	e.visibilityCache[user] = embyVisibilityCacheEntry{visibility: MediaVisibility{LibraryRestricted: true}, expiresAt: time.Now().Add(time.Hour)}
+	e.visibilityCache[e.repo.ReadCacheKey()+user] = embyVisibilityCacheEntry{visibility: MediaVisibility{LibraryRestricted: true}, expiresAt: time.Now().Add(time.Hour)}
 	assertPage(p, 0, []string{})
-	e.visibilityCache[user] = embyVisibilityCacheEntry{visibility: MediaVisibility{}, expiresAt: time.Now().Add(time.Hour)}
-	if err := db.Model(&model.NFOItem{}).Where("id = ?", "nfo-series").Update("nsfw", true).Error; err != nil {
-		t.Fatal(err)
-	}
-	assertPage(p, 8, []string{newest[1], newest[0]})
-	e.visibilityCache[user] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}
+	e.visibilityCache[e.repo.ReadCacheKey()+user] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}
 	for _, sql := range []string{
 		`UPDATE playback_histories SET watched_at = NULL WHERE user_id = 'resume-viewer'`,
 		`UPDATE nfo_user_states SET watched_at = NULL WHERE user_id = 'resume-viewer'`,

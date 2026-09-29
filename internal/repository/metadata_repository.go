@@ -570,7 +570,7 @@ func metadataItemUpdates(item *model.MetadataItem) map[string]any {
 		"overview": item.Overview, "rating": item.Rating, "year": item.Year, "release_date": item.ReleaseDate,
 		"runtime_sec": item.RuntimeSec,
 		"languages":   item.Languages, "countries": item.Countries, "genres": item.Genres,
-		"nsfw": item.NSFW, "source": item.Source, "updated_at": time.Now(),
+		"source": item.Source, "updated_at": time.Now(),
 	}
 }
 

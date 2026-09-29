@@ -25,7 +25,7 @@ func TestNFOSearchBatchPreservesPresentationAndVisibility(t *testing.T) {
 		{PermanentBase: model.PermanentBase{ID: seasonID}, Kind: "season", ParentID: &seriesID, SeasonNum: 1},
 		{PermanentBase: model.PermanentBase{ID: "episode"}, Kind: "episode", ParentID: &seasonID, EpisodeNum: 2},
 		{PermanentBase: model.PermanentBase{ID: "movie"}, Kind: "movie", NFOFields: model.NFOFields{Title: "航海王电影", OriginalName: "One Piece", Overview: "test", Rating: 8}},
-		{PermanentBase: model.PermanentBase{ID: "adult"}, Kind: "movie", NFOFields: model.NFOFields{Title: "航海王", NSFW: true}},
+		{PermanentBase: model.PermanentBase{ID: "adult"}, Kind: "movie", NFOFields: model.NFOFields{Title: "航海王"}},
 	} {
 		item.LibraryID, item.LocalKey = lib.ID, item.ID
 		create(&item)
@@ -51,7 +51,7 @@ func TestNFOSearchBatchPreservesPresentationAndVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, filter := range []MediaQueryFilter{
-		{}, {IncludeNSFW: true}, {HiddenLibraryIDs: []string{lib.ID}}, {AllowedLibraryIDs: []string{"other"}},
+		{}, {}, {HiddenLibraryIDs: []string{lib.ID}}, {AllowedLibraryIDs: []string{"other"}},
 		{MissingPoster: true}, {MissingChineseTitle: true},
 	} {
 		var want []model.MediaView
@@ -68,7 +68,7 @@ func TestNFOSearchBatchPreservesPresentationAndVisibility(t *testing.T) {
 			if len(files) == 0 {
 				continue
 			}
-			view, err := repos.MediaView.NFOPresentation(t.Context(), id, filter.IncludeNSFW)
+			view, err := repos.MediaView.NFOPresentation(t.Context(), id)
 			if err != nil {
 				t.Fatal(err)
 			}

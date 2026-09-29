@@ -49,7 +49,7 @@ func nfoBrowseFixture(t *testing.T, works, episodes int) *EmbyService {
 		}
 	}
 	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
-	e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 	return e
 }
 
@@ -133,10 +133,7 @@ func TestNFOLibraryPagingMatchesHierarchy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, visibility := range []MediaVisibility{{IncludeNSFW: true}, {}, {HiddenLibraryIDs: []string{"library-nfo"}}, {LibraryRestricted: true}, {AllowedLibraryIDs: []string{"library-nfo"}}} {
-		e.visibilityCache["viewer"] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
-		if err := db.Model(&model.NFOItem{}).Where("id = 'season-3'").Update("nsfw", true).Error; err != nil {
-			t.Fatal(err)
-		}
+		e.visibilityCache[e.repo.ReadCacheKey()+"viewer"] = embyVisibilityCacheEntry{visibility: visibility, expiresAt: time.Now().Add(time.Hour)}
 		for _, id := range []string{"nfo-show-1", "nfo-season-1", "nfo-ep-1-1", "nfo-show-3", "nfo-season-3", "nfo-ep-3-1", "nfo-missing"} {
 			var want, got []hongGuoNode
 			if err := e.nfoNodes(ctx, "viewer", "").Where("id = ? OR parent_id = ?", id, id).Order("id").Scan(&want).Error; err != nil {
@@ -200,13 +197,88 @@ func TestNFOLibraryPagingMatchesHierarchy(t *testing.T) {
 		}
 	}
 	for offset := 0; offset < 4; offset++ {
-		views, summaries, total, err := e.repo.MediaView.ListLibraryMetadataPage(ctx, "library-nfo", "series", "", offset, 1, repository.MediaQueryFilter{IncludeNSFW: true})
+		views, summaries, total, err := e.repo.MediaView.ListLibraryMetadataPage(ctx, "library-nfo", "series", "", offset, 1, repository.MediaQueryFilter{})
 		if err != nil || total != 3 || len(views) != len(summaries) {
 			t.Fatalf("Web page %d total=%d err=%v", offset, total, err)
 		}
 		if offset < 3 && (len(summaries) != 1 || summaries[0].Count != 2 || summaries[0].VersionCount != 4) || offset == 3 && len(summaries) != 0 {
 			t.Fatalf("Web summaries=%v", summaries)
 		}
+	}
+}
+
+func TestNFOLibraryCreatedAtUsesFirstItemCreation(t *testing.T) {
+	e := nfoBrowseFixture(t, 2, 1)
+	db, ctx := e.repo.DB, t.Context()
+	first := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	second := first.AddDate(0, 1, 0)
+	for _, query := range []struct {
+		sql  string
+		args []any
+	}{
+		{`UPDATE nfo_items SET created_at=? WHERE id IN ('show-1','season-1','ep-1-1')`, []any{first}},
+		{`UPDATE nfo_items SET created_at=? WHERE id IN ('show-2','season-2','ep-2-1')`, []any{second}},
+		{`UPDATE media SET created_at='2026-05-01' WHERE id LIKE 'file-ep-1-%'`, nil},
+	} {
+		if err := db.Exec(query.sql, query.args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, parent := range []string{"library-nfo", ""} {
+		for _, descending := range []bool{false, true} {
+			p := ItemsParams{UserID: "viewer", ParentID: parent, Recursive: true, IncludeItemTypes: []string{"Series"}, SortBy: "DateCreated", Limit: 1}
+			want, date := "nfo-show-1", first
+			if descending {
+				p.SortOrder, want, date = "Descending", "nfo-show-2", second
+			}
+			page, err := e.Items(ctx, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			items := page["Items"].([]map[string]any)
+			if len(items) != 1 || items[0]["Id"] != want || items[0]["DateCreated"] != formatEmbyDateTime(date) {
+				t.Fatalf("params=%+v items=%v", p, items)
+			}
+		}
+	}
+	for _, id := range []string{"nfo-show-1", "nfo-season-1", "nfo-ep-1-1", "file-ep-1-1-1"} {
+		item, err := e.Item(ctx, id, "viewer")
+		if err != nil || item == nil || item["DateCreated"] != formatEmbyDateTime(first) {
+			t.Fatalf("id=%s item=%v err=%v", id, item, err)
+		}
+	}
+	// 先入文件、后补 NFO，再增版本和重扫：条目的首次时间不随文件变化。
+	file := model.Media{LibraryID: "library-nfo", Path: "/fixture/late-nfo.mkv", CatalogSource: model.CatalogSourceNFO}
+	file.CreatedAt = first.AddDate(0, -1, 0)
+	if _, err := e.repo.NFO.Ingest(ctx, &file, nil); err != nil {
+		t.Fatal(err)
+	}
+	input := repository.NFOIngest{Items: []model.NFOItem{{LocalKey: "late-movie", Kind: "movie", NFOFields: model.NFOFields{Title: "Movie"}}}, Binding: model.NFOMediaBinding{Fingerprint: "first"}}
+	input.Items[0].CreatedAt = first
+	if _, err := e.repo.NFO.Ingest(ctx, &file, &input); err != nil {
+		t.Fatal(err)
+	}
+	itemID := input.Items[0].ID
+	newFile := model.Media{LibraryID: file.LibraryID, Path: "/fixture/late-nfo-v2.mkv", CatalogSource: model.CatalogSourceNFO}
+	newFile.CreatedAt = second
+	input.Items[0].CreatedAt, input.Binding.Fingerprint = second, "second"
+	if _, err := e.repo.NFO.Ingest(ctx, &newFile, &input); err != nil {
+		t.Fatal(err)
+	}
+	input.Binding.Fingerprint = "rescan"
+	if _, err := e.repo.NFO.Ingest(ctx, &newFile, &input); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&model.Media{}, "id=?", file.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	views, err := e.repo.MediaView.NFOItemViews(ctx, itemID, repository.MediaQueryFilter{})
+	if err != nil || len(views) != 1 || !views[0].CreatedAt.Equal(second) || !views[0].CatalogCreatedAt.Equal(first) || views[0].LatestMediaAddedAt == nil || !views[0].LatestMediaAddedAt.Equal(second) {
+		t.Fatalf("versions=%+v err=%v", views, err)
+	}
+	item, err := e.Item(ctx, "nfo-"+itemID, "viewer")
+	if err != nil || item == nil || item["DateCreated"] != formatEmbyDateTime(first) {
+		t.Fatalf("movie date=%v err=%v", item, err)
 	}
 }
 
@@ -235,7 +307,7 @@ func TestNFOLibraryMovieVersionsAndFilters(t *testing.T) {
 		t.Fatalf("movie got=%v total=%d want=%v err=%v", got, total, want, err)
 	}
 	for _, missingChinese := range []bool{false, true} {
-		views, summaries, total, err := e.repo.MediaView.ListLibraryMetadataPage(ctx, "library-nfo", "movie", "", 0, 1, repository.MediaQueryFilter{IncludeNSFW: true, MissingPoster: true, MissingChineseTitle: missingChinese})
+		views, summaries, total, err := e.repo.MediaView.ListLibraryMetadataPage(ctx, "library-nfo", "movie", "", 0, 1, repository.MediaQueryFilter{MissingPoster: true, MissingChineseTitle: missingChinese})
 		versions := 2
 		if missingChinese {
 			versions = 1
@@ -299,7 +371,7 @@ SELECT 'viewer',id,'file-'||id||'-1',TRUE FROM nfo_items WHERE kind='episode' AN
 			return
 		}
 		sql := tx.Statement.SQL.String()
-		if !strings.HasPrefix(sql, "EXPLAIN") && (strings.HasPrefix(sql, "WITH candidates") || strings.HasPrefix(sql, "WITH works") || strings.Contains(sql, "COUNT(DISTINCT ni.id)") || detailPlan && strings.Contains(sql, "nfo_media_bindings")) {
+		if !strings.HasPrefix(sql, "EXPLAIN") && (strings.HasPrefix(sql, "WITH work_batch") || strings.HasPrefix(sql, "WITH candidates") || strings.HasPrefix(sql, "WITH works") || strings.Contains(sql, "COUNT(DISTINCT ni.id)") || detailPlan && strings.Contains(sql, "nfo_media_bindings")) {
 			queries = append(queries, statement{sql, append([]any(nil), tx.Statement.Vars...)})
 		}
 	}
@@ -347,7 +419,7 @@ SELECT 'viewer',id,'file-'||id||'-1',TRUE FROM nfo_items WHERE kind='episode' AN
 				}
 			}
 		} else if mode == "web" {
-			_, summaries, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "library-nfo", "series", "", 0, 3, repository.MediaQueryFilter{IncludeNSFW: true})
+			_, summaries, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "library-nfo", "series", "", 0, 3, repository.MediaQueryFilter{})
 			if err != nil || total != 1000 || len(summaries) != 3 || summaries[0].MetadataID != "nfo-show-1" || summaries[0].Count != 50 || summaries[0].VersionCount != 100 {
 				t.Fatalf("Web page total=%d summaries=%v err=%v", total, summaries, err)
 			}
@@ -370,10 +442,24 @@ SELECT 'viewer',id,'file-'||id||'-1',TRUE FROM nfo_items WHERE kind='episode' AN
 				t.Fatalf("%s page total=%d items=%v err=%v", mode, total, items, err)
 			}
 		}
-		if !detailPlan && len(queries) != 2 || detailPlan && len(queries) == 0 {
+		wantQueries := 2
+		if mode == "created" {
+			wantQueries = 3
+		}
+		if !detailPlan && len(queries) != wantQueries || detailPlan && len(queries) == 0 {
 			t.Fatalf("%s queries=%d", mode, len(queries))
 		}
-		if mode == "latest" && strings.Contains(queries[0].sql, "COUNT(*) AS total FROM candidates") {
+		if mode == "title" || mode == "latest" || mode == "created" {
+			for _, unused := range []string{"ARRAY_AGG(m.id", "MAX(st.watched_at)", "MAX(COALESCE(st.position_ms", "MAX(m.created_at)"} {
+				if strings.Contains(queries[len(queries)-1].sql, unused) {
+					t.Fatalf("Series detail still aggregates %s", unused)
+				}
+			}
+			if strings.Contains(queries[0].sql, "MIN(m.created_at)") || strings.Contains(queries[0].sql, "MAX(m.created_at)") {
+				t.Fatal("NFO candidate still aggregates file creation dates")
+			}
+		}
+		if mode == "latest" && strings.Contains(queries[0].sql, "SELECT COUNT(*)") {
 			t.Fatal("Latest counted total")
 		}
 		for i, q := range queries {
@@ -388,7 +474,7 @@ SELECT 'viewer',id,'file-'||id||'-1',TRUE FROM nfo_items WHERE kind='episode' AN
 			if err := json.Unmarshal(raw, &plans); err != nil {
 				t.Fatal(err)
 			}
-			if detailPlan || i == 1 || mode == "title" || mode == "latest" {
+			if detailPlan || i > 0 || mode == "title" || mode == "latest" {
 				var inspect func(map[string]any)
 				inspect = func(n map[string]any) {
 					if n["Relation Name"] == "media" || n["Relation Name"] == "nfo_media_bindings" || !detailPlan && n["Relation Name"] == "nfo_user_states" || (detailPlan || i == 0) && n["Relation Name"] == "nfo_items" {
@@ -403,7 +489,7 @@ SELECT 'viewer',id,'file-'||id||'-1',TRUE FROM nfo_items WHERE kind='episode' AN
 							maxRows = 1000
 						}
 						if mode == "latest" && i == 0 && n["Relation Name"] != "nfo_items" {
-							maxRows = 30
+							maxRows = 500 // 最多 50 个作品的资格，不是最终 3 张卡片。
 						}
 						if (rows+removed)*loops > maxRows || mode == "latest" && i == 0 && n["Relation Name"] != "nfo_items" && loops > maxRows {
 							t.Fatalf("%s query %d scanned unrelated bindings: relation=%v alias=%v node=%v rows=%v loops=%v removed=%v", mode, i, n["Relation Name"], n["Alias"], n["Node Type"], rows, loops, removed)

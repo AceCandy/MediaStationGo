@@ -93,7 +93,7 @@ func TestHongGuoSearchIndexLifecycleAndVisibility(t *testing.T) {
 		t.Fatalf("dirty update not replayed: %+v", got)
 	}
 	backend.ids = []string{groupID, "hg-work-hidden", "hg-work-deleted"}
-	filter := MetadataSearchFilter{Kinds: []string{"series"}, MediaQueryFilter: MediaQueryFilter{IncludeNSFW: true}}
+	filter := MetadataSearchFilter{Kinds: []string{"series"}, MediaQueryFilter: MediaQueryFilter{}}
 	assertResult := func(want int) {
 		t.Helper()
 		rows, err := r.SearchCandidates(ctx, "航海王", filter)
@@ -141,13 +141,13 @@ func TestHongGuoSearchIndexLifecycleAndVisibility(t *testing.T) {
 	if len(backend.filters) != requests+1 {
 		t.Fatal("rebuilt index not restored")
 	}
-	if err := r.SaveAlbum(ctx, work.SourceID, hongguo.Album{}); err != nil {
+	if err := r.SaveAlbum(ctx, work.SourceID, hongguo.Album{ID: work.SourceID, Season: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if got := backend.upserts[len(backend.upserts)-1]; got.ID != groupID || got.Title != second.Title {
 		t.Fatalf("old album title not refreshed on member departure: %+v", got)
 	}
-	if err := r.SaveAlbum(ctx, second.SourceID, hongguo.Album{}); err != nil {
+	if err := r.SaveAlbum(ctx, second.SourceID, hongguo.Album{ID: second.SourceID, Season: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if !containsStringValue(backend.deletes, groupID) {

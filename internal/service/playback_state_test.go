@@ -53,7 +53,7 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 			e := NewEmbyService(&config.Config{}, zap.NewNop(), repos)
 			p := NewPlaybackService(zap.NewNop(), repos)
 			visibility := MediaVisibility{IncludeNSFW: true}
-			e.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
+			e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
 			assertState := func(played bool, position int64, resumes int) {
 				t.Helper()
 				item, err := e.Item(t.Context(), itemID, "viewer")
@@ -69,7 +69,7 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 				if played {
 					expectedCompleted = 1
 				}
-				if err := repository.CompletedPlaybackStates(t.Context(), db, source, "viewer", repository.MediaQueryFilter{IncludeNSFW: true}).Count(&completed).Error; err != nil || completed != expectedCompleted {
+				if err := repository.CompletedPlaybackStates(t.Context(), db, source, "viewer", repository.MediaQueryFilter{}).Count(&completed).Error; err != nil || completed != expectedCompleted {
 					t.Fatalf("completed candidates=%d played=%v err=%v", completed, played, err)
 				}
 				web, err := p.ContinueHistory(t.Context(), "viewer", 20, visibility)
@@ -136,12 +136,12 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 					t.Fatalf("completed visibility user=%s rows=%d err=%v", user, completed, err)
 				}
 			}
-			checkProjection("another-user", repository.MediaQueryFilter{IncludeNSFW: true}, false, 0)
-			checkProjection("viewer", repository.MediaQueryFilter{IncludeNSFW: true, HiddenLibraryIDs: []string{"library"}}, false, 1)
+			checkProjection("another-user", repository.MediaQueryFilter{}, false, 0)
+			checkProjection("viewer", repository.MediaQueryFilter{HiddenLibraryIDs: []string{"library"}}, false, 1)
 			if err := db.Model(&model.MediaProbeMetadata{}).Where("media_id = ?", file.ID).Update("duration_ms", 0).Error; err != nil {
 				t.Fatal(err)
 			}
-			checkProjection("viewer", repository.MediaQueryFilter{IncludeNSFW: true}, false, 1)
+			checkProjection("viewer", repository.MediaQueryFilter{}, false, 1)
 			eventTable := map[string]string{"legacy": "playback_events", "nfo": "nfo_playback_events", "hongguo": "hongguo_playback_events"}[source]
 			var events int64
 			if err := db.Table(eventTable).Where("user_id = ?", "viewer").Count(&events).Error; err != nil {

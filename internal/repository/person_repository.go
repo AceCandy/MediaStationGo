@@ -302,7 +302,7 @@ func (r *PersonRepository) FindByID(ctx context.Context, id string) (*model.Pers
 	return &person, err
 }
 
-func (r *PersonRepository) List(ctx context.Context, search string, ids []string, offset, limit int) ([]model.Person, int64, error) {
+func (r *PersonRepository) List(ctx context.Context, search string, ids []string, offset, limit int, count bool) ([]model.Person, int64, error) {
 	q := r.db.WithContext(ctx).Model(&model.Person{})
 	if search = strings.TrimSpace(search); search != "" {
 		q = q.Where("LOWER(name) LIKE ? OR LOWER(original_name) LIKE ?", "%"+strings.ToLower(search)+"%", "%"+strings.ToLower(search)+"%")
@@ -311,13 +311,16 @@ func (r *PersonRepository) List(ctx context.Context, search string, ids []string
 		q = q.Where("id = ANY(?)", &ids)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, 0, err
+	if count {
+		if err := q.Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	if limit <= 0 || limit > 500 {
+	// 无准确计数的 Items 允许在最大页后多取一个合格人物。
+	if limit <= 0 || limit > 500 && !(!count && limit == 501) {
 		limit = 50
 	}
 	var people []model.Person

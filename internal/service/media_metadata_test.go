@@ -47,13 +47,11 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	overview := "手动简介"
 	releaseDate := "2026-06-23"
 	tmdbID := 12345
-	nsfw := true
 	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
 		Title:       &title,
 		Overview:    &overview,
 		ReleaseDate: &releaseDate,
 		TMDbID:      &tmdbID,
-		NSFW:        &nsfw,
 	})
 	if err != nil {
 		t.Fatalf("update metadata: %v", err)
@@ -61,7 +59,7 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	if updated.Title != title || updated.Overview != overview || updated.ScrapeStatus != "matched" {
 		t.Fatalf("metadata not saved: %#v", updated)
 	}
-	if updated.TMDbID != tmdbID || !updated.NSFW {
+	if updated.TMDbID != tmdbID {
 		t.Fatalf("ids/episode metadata not saved: %#v", updated)
 	}
 	if updated.ReleaseDate != releaseDate {

@@ -255,7 +255,7 @@ func (s *ScraperService) enrichDeferredEpisodeDetails(ctx context.Context, rows 
 		if seriesTMDbID <= 0 {
 			continue
 		}
-		lib, _ := s.repo.Library.FindByID(ctx, media.LibraryID)
+		lib, _ := s.repo.Library.FindBasicByID(ctx, media.LibraryID)
 		if !mediaIsEpisodic(&media.Media, lib) {
 			continue
 		}

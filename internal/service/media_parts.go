@@ -103,14 +103,17 @@ func activeMediaPartCandidate(libraryID, path string) (mediaPartCandidate, strin
 	return candidate, mediaPartCandidateKey(libraryID, path, candidate), true
 }
 
-// reconcileMediaParts 根据扫描后的真实文件集合写入或清除 multipart 关系。
-func (s *ScannerService) reconcileMediaParts(ctx context.Context, libraryID, directory string) ([]string, error) {
+// reconcileMediaParts 校准同级分段；全库/根扫描才递归处理子目录。
+func (s *ScannerService) reconcileMediaParts(ctx context.Context, libraryID, directory string, recursive bool) ([]string, error) {
 	var rows []model.Media
 	query := s.repo.DB.WithContext(ctx).
 		Select("id", "path", "part_group_key", "part_index", "local_metadata_hint", "scan_title", "scan_year", "scrape_status").
-		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%")
+		Where("library_id = ?", libraryID)
 	directory = filepath.Clean(strings.TrimSpace(directory))
-	if directory != "." {
+	if !recursive {
+		prefix := strings.TrimRight(directory, string(filepath.Separator)) + string(filepath.Separator)
+		query = query.Where(`lower(regexp_replace(path, '[^/]*$', '')) = lower(?)`, prefix)
+	} else if directory != "." {
 		// SQL 先缩小目录候选，保留下面的路径判断及其大小写兼容行为。
 		prefix := strings.TrimRight(directory, string(filepath.Separator)) + string(filepath.Separator)
 		query = query.Where(`path ILIKE ? ESCAPE '\'`, repository.EscapeLike(prefix)+"%")
@@ -122,7 +125,7 @@ func (s *ScannerService) reconcileMediaParts(ctx context.Context, libraryID, dir
 		filtered := rows[:0]
 		for _, row := range rows {
 			parent := filepath.Dir(row.Path)
-			if sameLibraryPath(parent, directory) || pathWithin(parent, directory) {
+			if strings.EqualFold(parent, directory) || (recursive && pathWithin(parent, directory)) {
 				filtered = append(filtered, row)
 			}
 		}

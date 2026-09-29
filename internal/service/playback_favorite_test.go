@@ -54,9 +54,13 @@ func TestListFavouritesChoosesVisibleSeriesRepresentative(t *testing.T) {
 	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "test"})
 	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "test"})
 	visibleEpisode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Visible", Source: "test"})
-	hiddenEpisode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 2, Title: "Hidden", Source: "test", NSFW: true})
+	hiddenEpisode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 2, Title: "Hidden", Source: "test"})
+	hiddenLib := model.Library{Name: "Hidden", Path: "/hidden", Type: "tv", Enabled: true}
+	if err := db.Create(&hiddenLib).Error; err != nil {
+		t.Fatal(err)
+	}
 	visibleMedia := model.Media{PermanentBase: model.PermanentBase{CreatedAt: time.Now().Add(-time.Minute)}, LibraryID: lib.ID, MetadataID: visibleEpisode.ID, Path: "/shows/series/s01e01.mkv"}
-	hiddenMedia := model.Media{PermanentBase: model.PermanentBase{CreatedAt: time.Now()}, LibraryID: lib.ID, MetadataID: hiddenEpisode.ID, Path: "/shows/series/s01e02.mkv"}
+	hiddenMedia := model.Media{PermanentBase: model.PermanentBase{CreatedAt: time.Now()}, LibraryID: hiddenLib.ID, MetadataID: hiddenEpisode.ID, Path: "/hidden/s01e02.mkv"}
 	if err := db.Create(&[]model.Media{visibleMedia, hiddenMedia}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +68,7 @@ func TestListFavouritesChoosesVisibleSeriesRepresentative(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	items, err := NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{})
+	items, err := NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{HiddenLibraryIDs: []string{hiddenLib.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +89,7 @@ func TestListFavouritesChoosesVisibleSeriesRepresentative(t *testing.T) {
 		if err != nil || len(items) != 1 || items[0].ID != versions[1].ID || items[0].MetadataID != series.ID {
 			t.Fatalf("direct favorite representative = %#v, err = %v", items, err)
 		}
-		items, err = NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{HiddenLibraryIDs: []string{lib.ID}})
+		items, err = NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{HiddenLibraryIDs: []string{lib.ID, hiddenLib.ID}})
 		if err != nil || len(items) != 0 {
 			t.Fatalf("hidden library favorites = %#v, err = %v", items, err)
 		}
@@ -134,10 +138,7 @@ func TestListFavouritesShowsSeriesMetadata(t *testing.T) {
 	if items[0].EpisodeNum != 0 || items[0].SeasonNum != 0 || items[0].SeasonID != "" || items[0].LibraryID != lib.ID || items[0].ID == series.ID {
 		t.Fatalf("series card must keep a file/library for navigation without episode coordinates: %#v", items[0])
 	}
-	if err := db.Model(series).Update("nsfw", true).Error; err != nil {
-		t.Fatal(err)
-	}
-	items, err = NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{})
+	items, err = NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{HiddenLibraryIDs: []string{lib.ID}})
 	if err != nil || len(items) != 0 {
 		t.Fatalf("hidden series favorites = %#v, err = %v", items, err)
 	}

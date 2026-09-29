@@ -45,12 +45,7 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 		table, fields = "nfo_user_states", "h.user_id,h.item_id,h.favorite,h.updated_at"
 		files = files.Joins("JOIN nfo_media_bindings b ON b.media_id = m.id").
 			Joins("JOIN nfo_items i ON i.id = b.item_id").
-			Joins("LEFT JOIN nfo_items season ON season.id = i.parent_id AND i.kind = 'episode'").
-			Joins("LEFT JOIN nfo_items series ON series.id = season.parent_id").
 			Where("m.catalog_source = 'nfo' AND b.item_id = h.item_id")
-		if !filter.IncludeNSFW {
-			files = files.Where("NOT COALESCE(b.nsfw,FALSE) AND NOT COALESCE(i.nsfw,FALSE) AND NOT COALESCE(season.nsfw,FALSE) AND NOT COALESCE(series.nsfw,FALSE)")
-		}
 	case "hongguo":
 		table, fields = "hongguo_user_states", "h.user_id,h.source_id,h.episode_number,h.favorite,h.updated_at"
 		files = files.Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
@@ -59,9 +54,6 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 			Where("m.catalog_source = 'hongguo' AND w.source_id = h.source_id AND COALESCE(ep.number,1) = h.episode_number")
 	default:
 		files = files.Joins("JOIN metadata_items i ON i.id = m.metadata_id").Where("m.metadata_id = h.metadata_id")
-		if !filter.IncludeNSFW {
-			files = files.Where("NOT COALESCE(i.nsfw,FALSE)")
-		}
 	}
 	position := "GREATEST(COALESCE(h.resume_position_ms,CASE WHEN h.completed THEN 0 ELSE h.position_ms END),0)"
 	current := files.Session(&gorm.Session{}).Where("m.id = h.media_id").Select("1")

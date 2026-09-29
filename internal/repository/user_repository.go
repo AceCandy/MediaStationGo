@@ -13,7 +13,10 @@ import (
 )
 
 // UserRepository persists model.User records.
-type UserRepository struct{ db *gorm.DB }
+type UserRepository struct {
+	db        *gorm.DB
+	readCache *readCacheState
+}
 
 // Create inserts a new user. Caller must pre-hash the password.
 func (r *UserRepository) Create(ctx context.Context, u *model.User) error {
@@ -108,7 +111,11 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 
 // UpdateFields applies a narrow set of user field updates.
 func (r *UserRepository) UpdateFields(ctx context.Context, id string, updates map[string]any) error {
-	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Updates(updates).Error
+	err := r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Updates(updates).Error
+	if _, changed := updates["hide_adult"]; changed {
+		return r.readCache.invalidateAfterWrite(err)
+	}
+	return err
 }
 
 // UpdatePassword 原子更新密码并撤销旧会话，撤销失败时保留原密码。

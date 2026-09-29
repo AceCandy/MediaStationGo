@@ -35,7 +35,7 @@ func (p *PlaybackService) saveProgress(ctx context.Context, history *model.Playb
 			return err
 		}
 		if autoMark && !(visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0) {
-			filter := repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}
+			filter := repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}
 			if err := repos.History.MarkPreviousEpisodes(ctx, history.UserID, history.MetadataID, filter, history.WatchedAt); err != nil {
 				return err
 			}

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "数据库读取与 PostgreSQL 验证约束"}
+{"file": ".trellis/spec/backend/session-and-transfer-safety.md", "reason": "实时认证与令牌撤销规则"}

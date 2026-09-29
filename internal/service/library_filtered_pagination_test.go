@@ -38,9 +38,9 @@ SELECT 'pending-' || n,'new-library','/fixture/pending/' || n,'pending',NOW(),NO
 	reads := &paginationReadLog{Interface: db.Logger}
 	db.Logger = reads
 	for _, filter := range []repository.MediaQueryFilter{
-		{IncludeNSFW: true, MissingChineseTitle: true},
-		{IncludeNSFW: true, MissingPoster: true},
-		{IncludeNSFW: true, MissingPoster: true, MissingChineseTitle: true},
+		{MissingChineseTitle: true},
+		{MissingPoster: true},
+		{MissingPoster: true, MissingChineseTitle: true},
 	} {
 		_, cards, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "new-library", "series", "", 0, 2, filter)
 		if err != nil || total != 4 || len(cards) != 2 {

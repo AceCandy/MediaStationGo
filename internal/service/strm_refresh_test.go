@@ -15,14 +15,12 @@ func TestFindSTRMRefreshTargetsMatchesNestedLocalRoots(t *testing.T) {
 	movieRoot := filepath.Join(base, "strm", "电影")
 	tvRoot := filepath.Join(base, "strm", "电视剧")
 	otherRoot := filepath.Join(base, "other")
-	cloudRoot := "cloud://openlist/电影"
 
 	movie := model.Library{Name: "电影 STRM", Path: movieRoot, Type: "movie", Enabled: true}
 	tv := model.Library{Name: "电视剧 STRM", Path: tvRoot, Type: "tv", Enabled: true}
 	other := model.Library{Name: "其他", Path: otherRoot, Type: "movie", Enabled: true}
-	cloud := model.Library{Name: "云盘", Path: cloudRoot, Type: "movie", Enabled: true}
 	disabled := model.Library{Name: "停用", Path: filepath.Join(base, "strm", "动漫"), Type: "tv", Enabled: false}
-	for _, lib := range []*model.Library{&movie, &tv, &other, &cloud, &disabled} {
+	for _, lib := range []*model.Library{&movie, &tv, &other, &disabled} {
 		if err := repos.Library.Create(t.Context(), lib); err != nil {
 			t.Fatal(err)
 		}
@@ -42,7 +40,7 @@ func TestFindSTRMRefreshTargetsMatchesNestedLocalRoots(t *testing.T) {
 	for _, target := range targets {
 		got[target.LibraryID] = true
 	}
-	if !got[movie.ID] || !got[tv.ID] || got[other.ID] || got[cloud.ID] || got[disabled.ID] {
+	if !got[movie.ID] || !got[tv.ID] || got[other.ID] || got[disabled.ID] {
 		t.Fatalf("target libraries = %#v", targets)
 	}
 }

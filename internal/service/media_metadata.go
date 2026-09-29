@@ -30,7 +30,6 @@ type MediaMetadataUpdate struct {
 	Languages    *string  `json:"languages"`
 	Countries    *string  `json:"countries"`
 	Genres       *string  `json:"genres"`
-	NSFW         *bool    `json:"nsfw"`
 }
 
 func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaMetadataUpdate) (*model.MediaView, error) {
@@ -198,7 +197,7 @@ func (s *MediaService) manualMetadataTarget(ctx context.Context, media *model.Me
 	kind := model.MetadataKindMovie
 	if episode > 0 {
 		kind = model.MetadataKindEpisode
-	} else if lib, err := s.repo.Library.FindByID(ctx, media.LibraryID); err != nil {
+	} else if lib, err := s.repo.Library.FindBasicByID(ctx, media.LibraryID); err != nil {
 		return nil, false, err
 	} else if librarySupportsSeasons(lib) {
 		kind = model.MetadataKindSeries
@@ -208,7 +207,7 @@ func (s *MediaService) manualMetadataTarget(ctx context.Context, media *model.Me
 		Overview: view.Overview, Rating: view.Rating,
 		Year: view.Year, ReleaseDate: view.ReleaseDate, SeasonNum: season, EpisodeNum: episode,
 		Languages: view.Languages, Countries: view.Countries, Genres: view.Genres,
-		NSFW: view.NSFW, Source: "manual",
+		Source: "manual",
 	}, true, nil
 }
 
@@ -262,9 +261,6 @@ func applyManualMetadataUpdate(item *model.MetadataItem, req MediaMetadataUpdate
 	}
 	if req.Genres != nil {
 		item.Genres = normalizeMetadataCSV(*req.Genres)
-	}
-	if req.NSFW != nil {
-		item.NSFW = *req.NSFW
 	}
 }
 

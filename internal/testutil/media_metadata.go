@@ -85,7 +85,7 @@ func attachMediaFixtureMetadata(tx *gorm.DB, media *model.Media) error {
 	identifiers := mediaFixtureIdentifiers(media, entityKind)
 	if entityKind == model.MetadataKindMovie {
 		item, err := metadata.UpsertCanonical(context.Background(), &model.MetadataItem{
-			Kind: model.MetadataKindMovie, Title: title, Year: media.Year, NSFW: media.NSFW, Source: "local",
+			Kind: model.MetadataKindMovie, Title: title, Year: media.Year, Source: "local",
 		}, identifiers, "")
 		if err != nil {
 			return err
@@ -104,7 +104,7 @@ func attachMediaFixtureMetadata(tx *gorm.DB, media *model.Media) error {
 		}}
 	}
 	series, err := metadata.UpsertCanonical(context.Background(), &model.MetadataItem{
-		Kind: model.MetadataKindSeries, Title: title, Year: media.Year, NSFW: media.NSFW, Source: "local",
+		Kind: model.MetadataKindSeries, Title: title, Year: media.Year, Source: "local",
 	}, identifiers, "")
 	if err != nil {
 		return err

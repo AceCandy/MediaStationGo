@@ -28,7 +28,7 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 	makeItem := func(kind, externalID string, parent *string, season, episode int) *model.MetadataItem {
 		return createServiceTestMetadata(t, db, model.MetadataItem{
 			Kind: kind, ParentID: parent, SeasonNum: season, EpisodeNum: episode,
-			Title: "旧标题", Overview: "旧简介", Source: "manual", NSFW: true,
+			Title: "旧标题", Overview: "旧简介", Source: "manual",
 			CatalogMetadataHydratedAt: &old, CatalogArtworkHydratedAt: &old, CatalogHydratedAt: &old,
 		}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: kind, ExternalID: externalID})
 	}
@@ -108,7 +108,7 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		if item.ID == movie.ID && stored.RuntimeSec != 42*60 {
 			t.Fatalf("movie runtime = %d, want %d", stored.RuntimeSec, 42*60)
 		}
-		if stored.ID != item.ID || !reflect.DeepEqual(stored.ParentID, item.ParentID) || stored.Kind != item.Kind || !stored.NSFW || !stored.CatalogHydratedAt.Equal(old) {
+		if stored.ID != item.ID || !reflect.DeepEqual(stored.ParentID, item.ParentID) || stored.Kind != item.Kind || !stored.CatalogHydratedAt.Equal(old) {
 			t.Fatalf("metadata identity or unrelated state changed: %#v", stored)
 		}
 		assertServiceTestTMDbSnapshot(t, repos, item.ID)

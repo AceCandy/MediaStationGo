@@ -92,7 +92,7 @@ func (s *ScannerService) maybeGenerateSTRMAfterScan(libraryID string) {
 		if outDir, scope := s.autoSTRMOutputDir(ctx); outDir != "" {
 			opts.OutputDir = outDir
 			if scope == "all" {
-				if lib, err := s.repo.Library.FindByID(ctx, libraryID); err == nil && lib != nil {
+				if lib, err := s.repo.Library.FindBasicByID(ctx, libraryID); err == nil && lib != nil {
 					opts.OutputDir = filepath.Join(outDir, strmLibraryOutputSubdir(*lib))
 				}
 			}

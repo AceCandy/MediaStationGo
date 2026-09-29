@@ -45,9 +45,6 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 	if metadataID != "" {
 		q = q.Where("work.id = ?", metadataID)
 	}
-	if !filter.IncludeNSFW {
-		q = q.Where("COALESCE(mi.nsfw, FALSE) = FALSE AND COALESCE(work.nsfw, FALSE) = FALSE")
-	}
 	if len(filter.AllowedLibraryIDs) > 0 {
 		q = q.Where("m.library_id = ANY(?)", &filter.AllowedLibraryIDs)
 	}
@@ -95,7 +92,7 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	if kind == model.MetadataKindSeries {
 		summaries, total, err = r.librarySeriesPage(ctx, query(), libraryID, metadataID, offset, limit, filter.MissingPoster || filter.MissingChineseTitle)
 	} else {
-		summaries, total, err = r.libraryMoviePage(ctx, query(), libraryID, offset, limit)
+		summaries, total, err = r.libraryMoviePage(ctx, query(), libraryID, metadataID, offset, limit, filter)
 	}
 	if err != nil {
 		return nil, nil, 0, err
@@ -110,22 +107,30 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	return views, summaries, total, err
 }
 
-// libraryMoviePage 保留首 Part/首选版本的日期排序，仅为当前页统计版本数。
-func (r *MediaViewRepository) libraryMoviePage(ctx context.Context, files *gorm.DB, libraryID string, offset, limit int) ([]LibraryMetadataSummary, int64, error) {
+// libraryMoviePage 按作品最近入库时间分页，仅为当前页选择首选版本和统计数量。
+func (r *MediaViewRepository) libraryMoviePage(ctx context.Context, files *gorm.DB, libraryID, metadataID string, offset, limit int, filter MediaQueryFilter) ([]LibraryMetadataSummary, int64, error) {
 	db := r.db.WithContext(ctx)
-	candidates := FilterWorkLibraries(db.Table("metadata_items candidate"), "candidate.library_ids", []string{libraryID}).
-		Where("EXISTS (?)", files.Session(&gorm.Session{}).Select("1").Where("work.id=candidate.id")).Select("candidate.id")
+	candidates := FilterVisibleWorkLibraries(db, db.Table("metadata_items work"), "work.library_ids", []string{libraryID}, filter).
+		Where("work.kind='movie'")
+	if metadataID != "" {
+		candidates = candidates.Where("work.id=?", metadataID)
+	}
+	candidates = applyLibraryMetadataFilters(candidates, filter)
 	// Part 组可能跨元数据，沿用原库内范围；不能把最小 Part 限制到当前作品。
 	partScope := files.Session(&gorm.Session{}).Select("MIN(m.part_index)").Where("m.part_group_key = outer_media.part_group_key AND m.part_index > 0")
 	versions := files.Session(&gorm.Session{}).Joins("JOIN media AS outer_media ON outer_media.id = m.id").
 		Where("COALESCE(m.part_group_key, '') = '' OR m.part_index <= 0 OR m.part_index = (?)", partScope)
+	// 归属不表达 Part 资格；先排除仅有后续 Part 的作品，计数和分页用同一集合。
+	candidates = db.Table("(?) candidate", candidates).
+		Where("EXISTS (? OFFSET 0)", versions.Session(&gorm.Session{}).Select("1").Where("work.id=candidate.id")).
+		Select("candidate.id, candidate.latest_media_added_at")
 	priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
-	representative := versions.Session(&gorm.Session{}).Where("work.id=candidate.id").
+	representative := versions.Session(&gorm.Session{}).Where("work.id=page.metadata_id").
 		Joins("LEFT JOIN media_probe_metadata AS probe ON probe.media_id=m.id").
-		Select("m.id AS media_id, m.created_at").Order(priority).Limit(1)
-	page := db.Table("movie_candidates candidate").Joins("JOIN LATERAL (?) selected ON TRUE", representative).
-		Select("candidate.id AS metadata_id, selected.media_id, selected.created_at").
-		Order("selected.created_at DESC, candidate.id DESC").Offset(offset).Limit(limit)
+		Select("m.id AS media_id").Order(priority).Limit(1)
+	page := db.Table("movie_candidates candidate").
+		Select("candidate.id AS metadata_id, candidate.latest_media_added_at").
+		Order("candidate.latest_media_added_at DESC NULLS LAST, candidate.id DESC").Offset(offset).Limit(limit)
 	stats := versions.Session(&gorm.Session{}).Where("work.id=page.metadata_id").
 		Select("COUNT(DISTINCT mi.id) AS count, COUNT(*) AS version_count")
 	var rows []struct {
@@ -133,10 +138,11 @@ func (r *MediaViewRepository) libraryMoviePage(ctx context.Context, files *gorm.
 		Total int64
 	}
 	err := db.Raw(`WITH movie_candidates AS MATERIALIZED (?), page AS MATERIALIZED (?)
-SELECT page.metadata_id, page.media_id, stats.count, stats.version_count, totals.total
+SELECT page.metadata_id, selected.media_id, stats.count, stats.version_count, totals.total
 FROM (SELECT COUNT(*) AS total FROM movie_candidates) totals LEFT JOIN page ON TRUE
+LEFT JOIN LATERAL (?) selected ON page.metadata_id IS NOT NULL
 LEFT JOIN LATERAL (?) stats ON page.metadata_id IS NOT NULL
-ORDER BY page.created_at DESC, page.metadata_id DESC`, candidates, page, stats).Scan(&rows).Error
+ORDER BY page.latest_media_added_at DESC NULLS LAST, page.metadata_id DESC`, candidates, page, representative, stats).Scan(&rows).Error
 	var total int64
 	summaries := make([]LibraryMetadataSummary, 0, len(rows))
 	for _, row := range rows {

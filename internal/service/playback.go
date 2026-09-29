@@ -86,7 +86,6 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 		return nil
 	}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
@@ -205,7 +204,7 @@ func (p *PlaybackService) ContinueHistory(ctx context.Context, userID string, li
 
 // ContinueSeriesHistory 只返回当前媒体库中指定剧集的一个跨季续播或下一集候选。
 func (p *PlaybackService) ContinueSeriesHistory(ctx context.Context, userID, libraryID, seriesID string, visibility MediaVisibility) (*HistoryItem, error) {
-	if seriesID == "" || !visibility.allows(libraryID, false) {
+	if seriesID == "" || !visibility.allows(libraryID) {
 		return nil, nil
 	}
 	visibility.AllowedLibraryIDs = []string{libraryID}
@@ -220,7 +219,7 @@ func (p *PlaybackService) continueHistory(ctx context.Context, userID string, li
 	if visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0 {
 		return []HistoryItem{}, nil
 	}
-	filter := repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}
+	filter := repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}
 	candidates, _, err := p.repo.History.Continuations(ctx, userID, filter, repository.ContinuationWeb, seriesID, 0, limit)
 	if err != nil {
 		return nil, err
@@ -240,7 +239,6 @@ func (p *PlaybackService) continueHistory(ctx context.Context, userID string, li
 
 func (p *PlaybackService) historyItems(ctx context.Context, userID string, limit int, completed *bool, visibility MediaVisibility) ([]HistoryItem, error) {
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
@@ -345,7 +343,6 @@ func (p *PlaybackService) IsFavourite(ctx context.Context, userID, mediaID strin
 // ListFavourites returns every favourited media for a user.
 func (p *PlaybackService) ListFavourites(ctx context.Context, userID string, visibility MediaVisibility) ([]model.MediaView, error) {
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
@@ -408,7 +405,6 @@ func (p *PlaybackService) GetPlaylist(ctx context.Context, playlistID string, vi
 		return &PlaylistDetail{Playlist: pl}, nil
 	}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}

@@ -10,11 +10,14 @@ import (
 )
 
 // PlayProfileRepository persists model.PlayProfile records.
-type PlayProfileRepository struct{ db *gorm.DB }
+type PlayProfileRepository struct {
+	db        *gorm.DB
+	readCache *readCacheState
+}
 
 // Create inserts a new play profile.
 func (r *PlayProfileRepository) Create(ctx context.Context, p *model.PlayProfile) error {
-	return r.db.WithContext(ctx).Create(p).Error
+	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Create(p).Error)
 }
 
 // FindByID returns the profile or (nil, nil).
@@ -55,17 +58,23 @@ func (r *PlayProfileRepository) CountByUser(ctx context.Context, userID string) 
 
 // Update applies a partial update to a profile row.
 func (r *PlayProfileRepository) Update(ctx context.Context, id string, patch map[string]any) error {
-	return r.db.WithContext(ctx).Model(&model.PlayProfile{}).
+	err := r.db.WithContext(ctx).Model(&model.PlayProfile{}).
 		Where("id = ?", id).Updates(patch).Error
+	for _, field := range []string{"is_default", "allow_adult", "allowed_library_ids", "user_id"} {
+		if _, changed := patch[field]; changed {
+			return r.readCache.invalidateAfterWrite(err)
+		}
+	}
+	return err
 }
 
 // Delete soft-deletes a profile.
 func (r *PlayProfileRepository) Delete(ctx context.Context, id string) error {
-	return r.db.WithContext(ctx).Delete(&model.PlayProfile{}, "id = ?", id).Error
+	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Delete(&model.PlayProfile{}, "id = ?", id).Error)
 }
 
 // ClearDefaultsFor resets is_default for all of a user's profiles.
 func (r *PlayProfileRepository) ClearDefaultsFor(ctx context.Context, userID string) error {
-	return r.db.WithContext(ctx).Model(&model.PlayProfile{}).
-		Where("user_id = ?", userID).Update("is_default", false).Error
+	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Model(&model.PlayProfile{}).
+		Where("user_id = ?", userID).Update("is_default", false).Error)
 }

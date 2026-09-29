@@ -25,6 +25,10 @@ type recordingLocalPlaybackProber struct {
 	release <-chan struct{}
 }
 
+func (p *recordingLocalPlaybackProber) ProbeFile(ctx context.Context, file *os.File) (*ProbeResult, error) {
+	return p.Probe(ctx, file.Name())
+}
+
 func (p *recordingLocalPlaybackProber) Probe(_ context.Context, path string) (*ProbeResult, error) {
 	p.mu.Lock()
 	p.paths = append(p.paths, path)
@@ -486,8 +490,11 @@ func TestEmbyPlaybackInfoUsesSourceNameAndSharedVisibility(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Kind: model.MetadataKindMovie, Title: "共享标题", NSFW: true, Source: "tmdb",
+		Kind: model.MetadataKindMovie, Title: "共享标题", Source: "tmdb",
 	})
+	if err := svc.repo.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+lib.ID+`"]`); err != nil {
+		t.Fatal(err)
+	}
 	media := model.Media{
 		PermanentBase: model.PermanentBase{ID: "shared-playback"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: "扫描文件名", Path: `/media/movies/shared.mkv`,
@@ -509,7 +516,7 @@ func TestEmbyPlaybackInfoUsesSourceNameAndSharedVisibility(t *testing.T) {
 		t.Fatalf("hidden playback info: %v", err)
 	}
 	if hidden != nil {
-		t.Fatalf("shared NSFW metadata must hide playback, got %#v", hidden)
+		t.Fatalf("adult library must hide playback, got %#v", hidden)
 	}
 }
 

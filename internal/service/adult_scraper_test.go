@@ -40,7 +40,7 @@ func TestParseAdultDetailHTML(t *testing.T) {
 	if got == nil {
 		t.Fatal("parseAdultDetailHTML returned nil")
 	}
-	if got.Title != "测试标题" || got.OriginalName != "SSIS-001" || !got.NSFW {
+	if got.Title != "测试标题" || got.OriginalName != "SSIS-001" {
 		t.Fatalf("unexpected metadata: %+v", got)
 	}
 	if got.PosterURL != "https://javdb.com/covers/ssis001.jpg" || got.BackdropURL != "https://javdb.com/samples/1.jpg" {
@@ -98,7 +98,7 @@ func TestAdultProviderUsesConfiguredMultipleSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if match == nil || match.Title != "多源命中标题" || match.OriginalName != "SSIS-001" || !match.NSFW {
+	if match == nil || match.Title != "多源命中标题" || match.OriginalName != "SSIS-001" {
 		t.Fatalf("multi-source adult match = %+v", match)
 	}
 }

@@ -295,6 +295,7 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		"idx_people_pending_translation",
 		"idx_metadata_credits_type_pending_translation",
 		"idx_media_library_created_active",
+		"idx_media_library_parent_path",
 		"idx_media_library_episode_active",
 		"idx_media_metadata_active",
 		"idx_media_scrape_pending_pick",

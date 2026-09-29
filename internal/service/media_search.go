@@ -57,7 +57,6 @@ func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string,
 func (s *MediaService) searchMediaPage(ctx context.Context, query string, offset, limit int, visibility MediaVisibility) ([]model.MediaView, int64, error) {
 	filter := repository.MetadataSearchFilter{
 		MediaQueryFilter: repository.MediaQueryFilter{
-			IncludeNSFW:       visibility.IncludeNSFW,
 			AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 			HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 		},

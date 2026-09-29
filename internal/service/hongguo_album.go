@@ -33,7 +33,7 @@ func (s *HongGuoService) refreshAlbum(ctx context.Context, sourceID string) erro
 	return err
 }
 
-// backfillAlbums 按作品持久化状态续跑；成功空关系也完成检查，失败项下一轮重试。
+// backfillAlbums 按作品持久化状态续跑；确认无合集时保存自身第一季，失败项下一轮重试。
 func (s *HongGuoService) backfillAlbums(ctx context.Context, report func(string, error)) error {
 	cutoff, after, failures := time.Now(), "", 0
 	for {

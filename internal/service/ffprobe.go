@@ -9,7 +9,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +70,19 @@ type ProbeResult struct {
 // Probe runs ffprobe against path and returns a typed result. A 30s timeout
 // is applied so a single broken file does not hang the scanner.
 func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, error) {
+	return f.probeLocal(ctx, path, nil)
+}
+
+// ProbeFile 在 Linux 上让子进程读取已打开的可 seek 文件，路径替换不改变探测对象。
+// 其他平台保留普通探测，但回填不会自动删除文件。
+func (f *FFprobeService) ProbeFile(ctx context.Context, file *os.File) (*ProbeResult, error) {
+	if runtime.GOOS != "linux" {
+		return f.Probe(ctx, file.Name())
+	}
+	return f.probeLocal(ctx, "/proc/self/fd/3", file)
+}
+
+func (f *FFprobeService) probeLocal(ctx context.Context, path string, file *os.File) (*ProbeResult, error) {
 	if f == nil {
 		return nil, errors.New("ffprobe service nil")
 	}
@@ -92,6 +107,9 @@ func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, 
 		"-show_chapters",
 		path,
 	)
+	if file != nil {
+		cmd.ExtraFiles = []*os.File{file}
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		if f.log != nil {

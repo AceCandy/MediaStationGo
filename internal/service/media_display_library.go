@@ -10,7 +10,7 @@ func (s *MediaService) attachLibraryMetadata(ctx context.Context, items []model.
 	if s == nil || s.repo == nil || s.repo.Library == nil || len(items) == 0 {
 		return
 	}
-	libs, err := s.repo.Library.List(ctx)
+	libs, err := ListLibrariesBasic(ctx, s.repo, s.cache)
 	if err != nil {
 		return
 	}
@@ -64,7 +64,6 @@ func mediaViewsAsMedia(items []model.MediaView) []model.Media {
 		rows[i].Languages = items[i].Languages
 		rows[i].Countries = items[i].Countries
 		rows[i].Genres = items[i].Genres
-		rows[i].NSFW = items[i].NSFW
 	}
 	return rows
 }

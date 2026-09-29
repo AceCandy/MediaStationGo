@@ -18,7 +18,7 @@ var errCreateScanTask = errors.New("create task execution failed")
 func scanLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		lib, err := svc.Repo.Library.FindByID(c.Request.Context(), id)
+		lib, err := svc.Repo.Library.FindBasicByID(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -117,7 +117,7 @@ func startLibraryRootScanTasks(svc *service.Container, libraryID string, roots [
 	if len(roots) == 0 {
 		return false, nil
 	}
-	lib, err := svc.Repo.Library.FindByID(context.Background(), libraryID)
+	lib, err := svc.Repo.Library.FindBasicByID(context.Background(), libraryID)
 	if err != nil {
 		return false, err
 	}

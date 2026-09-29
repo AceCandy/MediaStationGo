@@ -17,7 +17,7 @@ type HistoryRepository struct{ db *gorm.DB }
 // ListByUserMetadataIDs 读取已由调用方过滤可见性的分集进度，不截断为最近若干条。
 func (r *HistoryRepository) ListByUserMetadataIDs(ctx context.Context, userID string, metadataIDs []string, filters ...MediaQueryFilter) ([]model.PlaybackHistory, error) {
 	rows := []model.PlaybackHistory{}
-	filter := MediaQueryFilter{IncludeNSFW: true}
+	filter := MediaQueryFilter{}
 	if len(filters) > 0 {
 		filter = filters[0]
 	}
@@ -110,7 +110,7 @@ func (r *HistoryRepository) upsertBatch(ctx context.Context, rows []*model.Playb
 // ListByUser returns the most recent history rows for the user.
 func (r *HistoryRepository) ListByUser(ctx context.Context, userID string, limit int) ([]model.PlaybackHistory, error) {
 	var rows []model.PlaybackHistory
-	err := r.db.WithContext(ctx).Table("(?) AS history", PlaybackStates(ctx, r.db, "legacy", userID, MediaQueryFilter{IncludeNSFW: true})).
+	err := r.db.WithContext(ctx).Table("(?) AS history", PlaybackStates(ctx, r.db, "legacy", userID, MediaQueryFilter{})).
 		Order("watched_at desc").Limit(limit).Scan(&rows).Error
 	return rows, err
 }

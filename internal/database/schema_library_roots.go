@@ -71,16 +71,6 @@ func relativePathWithinRoot(pathValue, root string) (string, bool) {
 	if pathValue == "" || root == "" {
 		return "", false
 	}
-	if strings.HasPrefix(strings.ToLower(root), "cloud://") || strings.HasPrefix(strings.ToLower(pathValue), "cloud://") {
-		prefix := strings.TrimRight(root, "/") + "/"
-		if strings.EqualFold(pathValue, root) {
-			return "", true
-		}
-		if strings.HasPrefix(strings.ToLower(pathValue), strings.ToLower(prefix)) {
-			return strings.TrimPrefix(pathValue, prefix), true
-		}
-		return "", false
-	}
 	cleanPath := filepath.Clean(pathValue)
 	cleanRoot := filepath.Clean(root)
 	rel, err := filepath.Rel(cleanRoot, cleanPath)

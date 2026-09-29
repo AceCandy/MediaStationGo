@@ -34,7 +34,7 @@ func statsHandler(svc *service.Container) gin.HandlerFunc {
 
 func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.Snapshot) error {
 	visibility := mediaVisibilityForRequest(c, svc)
-	libs, err := svc.Repo.Library.List(c.Request.Context())
+	libs, err := svc.Repo.Library.ListBasic(c.Request.Context())
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,6 @@ func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.
 	snap.TotalSeconds = sum.Seconds
 
 	recent, err := svc.Repo.MediaView.ListRecentByLibraries(c.Request.Context(), activeLibraryIDs, 12, repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	})
@@ -136,10 +135,6 @@ func boolString(value bool) string {
 }
 
 func applyMediaVisibilityQuery(q *gorm.DB, visibility service.MediaVisibility) *gorm.DB {
-	q = q.Joins("LEFT JOIN metadata_items AS stats_metadata ON stats_metadata.id = media.metadata_id")
-	if !visibility.IncludeNSFW {
-		q = q.Where("COALESCE(stats_metadata.nsfw, FALSE) = FALSE")
-	}
 	if len(visibility.HiddenLibraryIDs) > 0 {
 		q = q.Where("media.library_id <> ALL(?)", &visibility.HiddenLibraryIDs)
 	}

@@ -131,9 +131,6 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 			if !root.Enabled {
 				continue
 			}
-			if isRetiredCloudPath(root.Path) {
-				continue
-			}
 			watchRoot, info, err := resolveAccessibleMappedPath(root.Path)
 			if err != nil || !info.IsDir() {
 				w.log.Warn("watch path inaccessible",
@@ -534,7 +531,7 @@ func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, 
 	if res != nil && res.Added+res.Updated > 0 {
 		w.log.Info("watcher ingested media", zap.String("path", d.path))
 		if w.scanner.scraper != nil {
-			lib, err := w.scanner.repo.Library.FindByID(ctx, d.libraryID)
+			lib, err := w.scanner.repo.Library.FindBasicByID(ctx, d.libraryID)
 			if err == nil && !libraryUsesNFOOnly(lib) {
 				w.scanner.scraper.WakeScrapeWorker()
 			}

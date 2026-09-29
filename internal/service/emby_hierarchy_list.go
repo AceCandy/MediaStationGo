@@ -20,6 +20,7 @@ func (e *EmbyService) hierarchyItems(ctx context.Context, p ItemsParams) (map[st
 		return nil, false, nil
 	}
 	q := e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), p.UserID)
+	q = e.workLibraryScope(ctx, q, "emby_metadata.library_ids", ItemsParams{UserID: p.UserID})
 	q = seriesScopeQuery(q).Where("media.season_num > 0 OR media.episode_num > 0")
 	if parent.Kind == model.MetadataKindSeason {
 		q = q.Where("scope_season.id = ?", parent.ID)
@@ -27,16 +28,24 @@ func (e *EmbyService) hierarchyItems(ctx context.Context, p ItemsParams) (map[st
 		q = q.Where("scope_series.id = ?", parent.ID)
 	}
 	if parent.Kind == model.MetadataKindSeason || p.Recursive || containsItemType(p.IncludeItemTypes, "Episode") {
-		views, total, err := e.metadataPage(ctx, q, p.UserID, "MIN(scope_season.season_num), MIN(emby_metadata.episode_num), MIN(media.created_at), media.metadata_id", p.StartIndex, p.Limit)
+		views, total, err := e.metadataPageWithCount(ctx, q, p.UserID, "MIN(scope_season.season_num), MIN(emby_metadata.episode_num), MIN(media.created_at), media.metadata_id", p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
 		if err != nil {
 			return nil, true, err
 		}
 		return map[string]any{"Items": e.payloadsForViewsWithFields(ctx, views, p.UserID, p.Fields), "TotalRecordCount": int(total), "StartIndex": p.StartIndex}, true, nil
 	}
-	var total int64
-	groups := q.Session(&gorm.Session{}).Select("scope_season.id").Group("scope_season.id")
-	if err := e.repo.DB.WithContext(ctx).Table("(?) AS seasons", groups).Count(&total).Error; err != nil {
+	db := e.repo.DB.WithContext(ctx)
+	candidates := e.workLibraryScope(ctx, db.Table("metadata_items season"), "season.library_ids", ItemsParams{UserID: p.UserID}).
+		Where("season.kind='season' AND season.parent_id=?", parent.ID).
+		Select("season.id, ROW_NUMBER() OVER (ORDER BY season.season_num, season.id) AS ordinal").Order("season.season_num, season.id")
+	files := q.Session(&gorm.Session{}).Select("1").Where("scope_season.id=recent.id")
+	eligible := db.Table("work_batch recent").Select("recent.ordinal").Where("EXISTS (? OFFSET 0)", files)
+	ids, total, err := e.filteredWorkBatchPage(ctx, candidates, eligible, p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
+	if err != nil {
 		return nil, true, err
+	}
+	if len(ids) == 0 {
+		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": int(total), "StartIndex": p.StartIndex}, true, nil
 	}
 	var rows []struct {
 		ID           string
@@ -45,9 +54,9 @@ func (e *EmbyService) hierarchyItems(ctx context.Context, p ItemsParams) (map[st
 		LibraryID    string
 		SeriesName   string
 	}
-	err = q.Session(&gorm.Session{}).Select(`scope_season.id AS id, MIN(scope_season.season_num) AS season_num,
+	err = q.Session(&gorm.Session{}).Where("scope_season.id IN ?", ids).Select(`scope_season.id AS id, MIN(scope_season.season_num) AS season_num,
 		COUNT(DISTINCT media.metadata_id) AS episode_count, MIN(media.library_id) AS library_id, MIN(scope_series.title) AS series_name`).
-		Group("scope_season.id").Order("MIN(scope_season.season_num), scope_season.id").Offset(p.StartIndex).Limit(p.Limit).Scan(&rows).Error
+		Group("scope_season.id").Order("MIN(scope_season.season_num), scope_season.id").Scan(&rows).Error
 	if err != nil {
 		return nil, true, err
 	}

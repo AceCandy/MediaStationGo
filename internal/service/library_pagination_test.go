@@ -46,10 +46,10 @@ func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
 		{MetadataID: "page-a", MediaID: "file-a", Count: 3, VersionCount: 4},
 	}
 	for _, filter := range []repository.MediaQueryFilter{
-		{IncludeNSFW: true},
-		{IncludeNSFW: true, MissingPoster: true},
-		{IncludeNSFW: true, MissingChineseTitle: true},
-		{IncludeNSFW: true, MissingPoster: true, MissingChineseTitle: true},
+		{},
+		{MissingPoster: true},
+		{MissingChineseTitle: true},
+		{MissingPoster: true, MissingChineseTitle: true},
 	} {
 		for offset := 0; offset <= len(want); offset++ {
 			_, rows, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "page-library", "series", "", offset, 1, filter)
@@ -77,7 +77,7 @@ func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
 	}
 }
 
-func TestLibraryMoviePageMatchesVersionOrder(t *testing.T) {
+func TestLibraryMoviePageKeepsVersionsWithWorkTimeOrder(t *testing.T) {
 	e := newTestEmbyService(t)
 	db := e.repo.DB
 	for _, sql := range []string{
@@ -87,7 +87,6 @@ SELECT 'file-'||n||'-'||v,'movie-'||n,'movies','/movies/'||n||'/'||v,TIMESTAMP '
 CASE WHEN v>4 THEN 'parts-'||n ELSE '' END,CASE WHEN v>4 THEN v-4 ELSE 0 END,CASE WHEN v=4 THEN 'https://example.invalid/file' ELSE '' END
 FROM generate_series(1,40) n CROSS JOIN generate_series(1,8) v`,
 		`INSERT INTO media_probe_metadata(media_id,width,height,size_bytes,probe_json,schema_version,probed_at) SELECT id,CASE WHEN id LIKE '%-1' THEN 3840 ELSE 1920 END,1080,100,'{}',1,NOW() FROM media`,
-		`UPDATE metadata_items SET nsfw=true WHERE id='movie-40'`,
 		`UPDATE metadata_items SET library_ids=NULL WHERE id='movie-1'`,
 		`ANALYZE media`, `ANALYZE metadata_items`,
 	} {
@@ -105,66 +104,108 @@ FROM generate_series(1,40) n CROSS JOIN generate_series(1,8) v`,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, includeNSFW := range []bool{false, true} {
-		for _, offset := range []int{0, 2, 40, 41} {
-			filter := repository.MediaQueryFilter{IncludeNSFW: includeNSFW, AllowedLibraryIDs: []string{"movies"}}
-			_, got, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "movies", "movie", "", offset, 3, filter)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// 保留旧电影页聚合，代表版本时间不能替换成 MAX(created_at)。
-			q := db.Table("media m").Joins("JOIN metadata_items work ON work.id=m.metadata_id").Where("m.library_id='movies' AND work.kind='movie'")
-			if !includeNSFW {
-				q = q.Where("NOT COALESCE(work.nsfw,false)")
-			}
-			var count int64
-			if err := db.Table("(?) works", q.Session(&gorm.Session{}).Select("work.id").Group("work.id")).Count(&count).Error; err != nil {
-				t.Fatal(err)
-			}
-			part := q.Session(&gorm.Session{}).Select("MIN(m.part_index)").Where("m.part_group_key=outer_media.part_group_key AND m.part_index>0")
-			priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
-			var want []repository.LibraryMetadataSummary
-			err = q.Joins("JOIN media outer_media ON outer_media.id=m.id").Joins("LEFT JOIN media_probe_metadata probe ON probe.media_id=m.id").
-				Where("COALESCE(m.part_group_key,'')='' OR m.part_index<=0 OR m.part_index=(?)", part).
-				Select("work.id AS metadata_id,(ARRAY_AGG(m.id ORDER BY " + priority + "))[1] AS media_id,COUNT(DISTINCT work.id) AS count,COUNT(*) AS version_count").
-				Group("work.id").Order("(ARRAY_AGG(m.created_at ORDER BY " + priority + "))[1] DESC,work.id DESC").Offset(offset).Limit(3).Scan(&want).Error
-			if err != nil || total != count || len(got) != len(want) || len(got) > 0 && !reflect.DeepEqual(got, want) {
-				t.Fatalf("offset=%d got=%+v want=%+v total=%d/%d err=%v", offset, got, want, total, count, err)
-			}
-			if offset != 0 {
-				continue
-			}
-			var raw []byte
-			if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE,FORMAT JSON,TIMING OFF) "+candidateSQL, candidateVars...).Scan(&raw); err != nil {
-				t.Fatal(err)
-			}
-			type node struct {
-				Relation string  `json:"Relation Name"`
-				Alias    string  `json:"Alias"`
-				Rows     float64 `json:"Actual Rows"`
-				Removed  float64 `json:"Rows Removed by Filter"`
-				Loops    float64 `json:"Actual Loops"`
-				Plans    []node  `json:"Plans"`
-			}
-			var plans []struct {
-				Plan          node
-				ExecutionTime float64 `json:"Execution Time"`
-			}
-			if err := json.Unmarshal(raw, &plans); err != nil {
-				t.Fatal(err)
-			}
-			var check func(node)
-			check = func(n node) {
-				if n.Relation == "media" && (n.Rows+n.Removed)*n.Loops > 4000 {
-					t.Errorf("movie candidate revisits unrelated files: %+v", n)
-				}
-				for _, child := range n.Plans {
-					check(child)
-				}
-			}
-			check(plans[0].Plan)
-			t.Logf("movie count/page %.3f ms", plans[0].ExecutionTime)
+	for _, offset := range []int{0, 2, 40, 41} {
+		filter := repository.MediaQueryFilter{AllowedLibraryIDs: []string{"movies"}}
+		_, got, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "movies", "movie", "", offset, 3, filter)
+		if err != nil {
+			t.Fatal(err)
 		}
+		// 首选版本及 Part 规则不变，排序采用整个作品（含其他库）的最新入库时间。
+		q := db.Table("media m").Joins("JOIN metadata_items work ON work.id=m.metadata_id").Where("m.library_id='movies' AND work.kind='movie'")
+		var count int64
+		if err := db.Table("(?) works", q.Session(&gorm.Session{}).Select("work.id").Group("work.id")).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		part := q.Session(&gorm.Session{}).Select("MIN(m.part_index)").Where("m.part_group_key=outer_media.part_group_key AND m.part_index>0")
+		priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
+		var want []repository.LibraryMetadataSummary
+		err = q.Joins("JOIN media outer_media ON outer_media.id=m.id").Joins("LEFT JOIN media_probe_metadata probe ON probe.media_id=m.id").
+			Where("COALESCE(m.part_group_key,'')='' OR m.part_index<=0 OR m.part_index=(?)", part).
+			Select("work.id AS metadata_id,(ARRAY_AGG(m.id ORDER BY " + priority + "))[1] AS media_id,COUNT(DISTINCT work.id) AS count,COUNT(*) AS version_count").
+			Group("work.id").Order("(SELECT MAX(all_files.created_at) FROM media all_files WHERE all_files.metadata_id=work.id) DESC NULLS LAST,work.id DESC").Offset(offset).Limit(3).Scan(&want).Error
+		if err != nil || total != count || len(got) != len(want) || len(got) > 0 && !reflect.DeepEqual(got, want) {
+			t.Fatalf("offset=%d got=%+v want=%+v total=%d/%d err=%v", offset, got, want, total, count, err)
+		}
+		if offset != 0 {
+			continue
+		}
+		var raw []byte
+		if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE,FORMAT JSON,TIMING OFF) "+candidateSQL, candidateVars...).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		type node struct {
+			Relation string  `json:"Relation Name"`
+			Alias    string  `json:"Alias"`
+			Rows     float64 `json:"Actual Rows"`
+			Removed  float64 `json:"Rows Removed by Filter"`
+			Loops    float64 `json:"Actual Loops"`
+			Plans    []node  `json:"Plans"`
+		}
+		var plans []struct {
+			Plan          node
+			ExecutionTime float64 `json:"Execution Time"`
+		}
+		if err := json.Unmarshal(raw, &plans); err != nil {
+			t.Fatal(err)
+		}
+		var check func(node)
+		check = func(n node) {
+			if n.Relation == "media_probe_metadata" && n.Loops > 3*8 {
+				t.Errorf("representative versions evaluated before page: %+v", n)
+			}
+			if n.Relation == "media" && (n.Rows+n.Removed)*n.Loops > 4000 {
+				t.Errorf("movie candidate revisits unrelated files: %+v", n)
+			}
+			for _, child := range n.Plans {
+				check(child)
+			}
+		}
+		check(plans[0].Plan)
+		t.Logf("movie count/page %.3f ms", plans[0].ExecutionTime)
+	}
+}
+
+func TestLibraryMoviePageUsesGlobalWorkTime(t *testing.T) {
+	e := newTestEmbyService(t)
+	db := e.repo.DB
+	for _, query := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) SELECT id,'movie',id,'local' FROM unnest(ARRAY['a','b','c','head','tail']) id`,
+		`INSERT INTO media(id,metadata_id,library_id,path,created_at,part_group_key,part_index) VALUES
+('a-first','a','visible','/fixture/a-first','2026-01-01','',0),
+('a-new','a','visible','/fixture/a-new','2026-02-01','',0),
+('b-file','b','visible','/fixture/b','2026-01-15','',0),
+('c-file','c','visible','/fixture/c','2026-01-02','',0),
+('c-hidden','c','hidden','/fixture/c-hidden','2026-03-01','',0),
+('head-file','head','visible','/fixture/head','2025-01-01','cross-work',1),
+('tail-file','tail','visible','/fixture/tail','2026-04-01','cross-work',2)`,
+		`INSERT INTO media_probe_metadata(media_id,width,height,size_bytes,probe_json,schema_version,probed_at)
+SELECT id,CASE WHEN id='a-first' THEN 3840 ELSE 1920 END,1080,100,'{}',1,now() FROM media`,
+		`UPDATE metadata_items SET latest_media_added_at=NULL WHERE id='head'`,
+	} {
+		if err := db.Exec(query).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	filter := repository.MediaQueryFilter{AllowedLibraryIDs: []string{"visible"}, HiddenLibraryIDs: []string{"hidden"}}
+	want := []repository.LibraryMetadataSummary{
+		{MetadataID: "c", MediaID: "c-file", Count: 1, VersionCount: 1},
+		{MetadataID: "a", MediaID: "a-first", Count: 1, VersionCount: 2},
+		{MetadataID: "b", MediaID: "b-file", Count: 1, VersionCount: 1},
+		{MetadataID: "head", MediaID: "head-file", Count: 1, VersionCount: 1},
+	}
+	for start := 0; start <= len(want); start++ {
+		_, got, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "visible", "movie", "", start, 2, filter)
+		end := min(start+2, len(want))
+		if err != nil || total != int64(len(want)) || len(got) != end-start || len(got) > 0 && !reflect.DeepEqual(got, want[start:end]) {
+			t.Fatalf("start=%d rows=%+v total=%d err=%v", start, got, total, err)
+		}
+	}
+	if err := db.Exec("DELETE FROM media WHERE id='c-hidden'").Error; err != nil {
+		t.Fatal(err)
+	}
+	_, rows, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "visible", "movie", "", 0, 1, filter)
+	if err != nil || total != 4 || len(rows) != 1 || rows[0].MetadataID != "a" {
+		t.Fatalf("newest version deletion did not reorder works: %+v total=%d err=%v", rows, total, err)
 	}
 }
 
@@ -184,7 +225,7 @@ func TestLibrarySeriesPageReadsSeasonSetOnce(t *testing.T) {
 	}
 	reads := &paginationReadLog{Interface: db.Logger}
 	db.Logger = reads
-	_, cards, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "set-library", "series", "", 0, 1, repository.MediaQueryFilter{IncludeNSFW: true})
+	_, cards, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "set-library", "series", "", 0, 1, repository.MediaQueryFilter{})
 	if err != nil || total != 1 || len(cards) != 1 || cards[0].Count != 2000 || cards[0].VersionCount != 2000 {
 		t.Fatalf("cards=%+v total=%d err=%v", cards, total, err)
 	}
@@ -270,7 +311,7 @@ func TestLibrarySeriesEpisodesScopesProjectionBeforeJoins(t *testing.T) {
 	}
 	reads := &paginationReadLog{Interface: db.Logger}
 	db.Logger = reads
-	rows, err := emby.repo.MediaView.ListLibrarySeriesViews(t.Context(), "bounded-library", "bounded-series", repository.MediaQueryFilter{IncludeNSFW: true})
+	rows, err := emby.repo.MediaView.ListLibrarySeriesViews(t.Context(), "bounded-library", "bounded-series", repository.MediaQueryFilter{})
 	if err != nil || len(rows) != 12 {
 		t.Fatalf("rows=%d err=%v", len(rows), err)
 	}
@@ -511,7 +552,7 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	if err != nil || count != 1 || len(movies) != 0 || reads.fileRows != 0 {
 		t.Fatalf("empty page=%+v total=%d reads=%d err=%v", movies, count, reads.fileRows, err)
 	}
-	if err := db.Model(&model.MetadataItem{}).Where("id = ?", first.Rep.SeriesID).Update("nsfw", true).Error; err != nil {
+	if err := db.Model(&model.Media{}).Where("metadata_id IN (SELECT ep.id FROM metadata_items ep JOIN metadata_items season ON season.id=ep.parent_id WHERE season.parent_id=?)", first.Rep.SeriesID).Update("library_id", "hidden-library").Error; err != nil {
 		t.Fatal(err)
 	}
 	cards, total, err = web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", "", visibility)

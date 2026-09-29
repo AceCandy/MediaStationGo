@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"gorm.io/gorm"
@@ -34,9 +33,6 @@ func (r *HongGuoRepository) PendingMedia(ctx context.Context, page int) ([]HongG
 }
 
 func (r *MediaRepository) upsertHongGuoMedia(ctx context.Context, m *model.Media) error {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
-		return errCloudMediaPathUnsupported
-	}
 	refresh := func() {}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var library model.Library

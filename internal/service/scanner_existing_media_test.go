@@ -25,7 +25,6 @@ func TestExistingLocalMediaSnapshotFiltersAndCleansLocalRows(t *testing.T) {
 			ScanFileMTimeNS:   123456789,
 			FileID:            "dev:inode",
 		},
-		{LibraryID: "lib-1", Path: "cloud://openlist/Movie.mkv", SizeBytes: 99},
 		{LibraryID: "lib-2", Path: filepath.Join("D:", "media", "Other.mkv"), SizeBytes: 88},
 	}).Error; err != nil {
 		t.Fatal(err)

@@ -45,7 +45,7 @@ func TestOpenSearchMetadataSearchQuery(t *testing.T) {
 
 	backend := NewOpenSearchMediaBackend(config.SearchConfig{Backend: "opensearch", OpenSearchURL: upstream.URL, Index: "metadata-test"})
 	ids, total, err := backend.SearchMetadataIDs(t.Context(), "流浪 地球", 5, 10, MetadataSearchFilter{
-		MediaQueryFilter:  MediaQueryFilter{IncludeNSFW: false},
+		MediaQueryFilter:  MediaQueryFilter{},
 		Fields:            MetadataSearchFieldsTitle,
 		Kinds:             []string{"movie", "series"},
 		LibraryRestricted: true,
@@ -192,10 +192,10 @@ func TestOpenSearchMetadataIndexLifecycle(t *testing.T) {
 
 	mappings := mapping["mappings"].(map[string]any)
 	properties := mappings["properties"].(map[string]any)
-	if len(properties) != 8 {
+	if len(properties) != 7 {
 		t.Fatalf("metadata mapping properties = %#v", properties)
 	}
-	for _, key := range []string{"id", "kind", "title", "original_name", "overview", "genres", "nsfw", "library_ids"} {
+	for _, key := range []string{"id", "kind", "title", "original_name", "overview", "genres", "library_ids"} {
 		if _, ok := properties[key]; !ok {
 			t.Fatalf("metadata mapping missing %q: %#v", key, properties)
 		}

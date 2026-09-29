@@ -93,7 +93,9 @@ func (r *HongGuoRepository) SearchCandidates(ctx context.Context, query string, 
 		Select("1").Where("b.work_id = w.id")
 	// 与媒体库分页保持相同的存在性边界，避免展开全部分集后再计算可见作品。
 	workScope := func(ids ...[]string) *gorm.DB {
-		works := r.hongGuoSearchWorks(ctx, ids...).Where("EXISTS (? OFFSET 0)", files).Where("w.kind IN ?", filter.Kinds)
+		works := FilterVisibleWorkLibraries(r.db.WithContext(ctx), r.hongGuoSearchWorks(ctx, ids...), "w.library_ids", nil, filter.MediaQueryFilter).
+			Where("w.kind IN ?", filter.Kinds).
+			Where("CASE WHEN w.library_ids IS NOT NULL AND w.library_ids <> '[]'::jsonb AND w.latest_media_added_at IS NOT NULL THEN TRUE ELSE EXISTS (? OFFSET 0) END", files)
 		if len(filter.PersonIDs) > 0 {
 			works = works.Where("EXISTS (SELECT 1 FROM hongguo_credits c WHERE c.work_id = w.id AND 'hg-person-' || c.person_id = ANY(?))", &filter.PersonIDs)
 		}
@@ -115,7 +117,6 @@ func (r *HongGuoRepository) SearchCandidates(ctx context.Context, query string, 
 		if err != nil {
 			return nil, err
 		}
-		searchFilter.IncludeNSFW = true
 		if searchFilter.LibraryRestricted && len(searchFilter.VisibleLibraryIDs) == 0 {
 			return []MetadataSearchCandidate{}, nil
 		}

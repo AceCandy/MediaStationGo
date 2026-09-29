@@ -90,3 +90,54 @@ role; Stop waits for only one special job kind.
 
 Correct: compare the request generation before any auth mutation/retry, resolve
 current authorization centrally, and cancel/join every admitted scheduler job.
+
+## Probe cleanup safety
+
+### Scope / signatures
+
+- Applies to `MediaProbeService.probeMedia(ctx, mediaID, cleanup)` and scanner
+  missing-file removal. `ProbeMedia` passes false; backfill passes true.
+- `FFprobeService.ProbeFile(ctx, *os.File)` uses Linux inherited descriptor 3
+  (`/proc/self/fd/3`), retaining the existing limiter and timeout. Non-Linux
+  probing remains path-based and must not authorize automatic deletion.
+
+### Contracts
+
+- Hold the original file open through probe, persistence or cleanup. A detached
+  `FileInfo` is not sufficient: device/inode can be recycled after unlink.
+- Only local backfill failures classified by `exec.ExitError.Stderr` containing
+  `moov atom not found` qualify. Never delete for direct probes or other errors.
+- Recheck the database source identity, regular-file identity, size and mtime;
+  move with `renameNoReplace` to a same-parent private `.probe-cleanup-*`
+  directory, recheck after moving, then delete. Never use copy/delete fallback.
+- On mismatch, cancellation or removal failure, restore without overwrite.
+  A restoration collision preserves the quarantined file and reports its
+  controlled relative location, not an absolute mapped STRM target.
+- Scanner `RemovePath`, `pruneMissingMedia`, and `pruneMissingMediaForRoot`
+  hold the shared service's `cleanupMu` read lock from existence check through
+  deletion; cleanup holds its write lock. Walkers skip hidden directories.
+- This is process-local coordination, not a content snapshot against arbitrary
+  in-place writers, a cross-process transaction, or crash recovery. Do not lock
+  the entire scan merely to guard its final missing-file deletion step.
+
+### Validation / cases
+
+- Same-size/same-time path replacement → preserve replacement and reject stale
+  successful probe results; identity must not be inferred from timestamps alone.
+- Normal damaged source → automatically delete; local STRM sidecar stays intact.
+- Replacement during rename → restore; occupied original path → preserve both
+  files and provide manual recovery location. Remove only empty temp directories.
+- Temporary disappearance → scanner waits, then sees restored file; genuine
+  deletion → existing scanner removal still works.
+- Wrong: `Stat`/`SameFile` followed by `Remove(originalPath)`. Correct: pin the
+  object, probe that object, quarantine, verify and remove the isolated object.
+
+### Required checks
+
+- `TestMediaProbeBackfillDeletesMoovDamagedVideoOnly` (including STRM error redaction),
+  `TestMediaProbeRejectsReplacementWithMatchingSizeAndTime`,
+  `TestFFprobeFileReadsOpenedObjectAfterPathReplacement`,
+  `TestProbeQuarantineRechecksAndRestoresWithoutOverwrite`,
+  `TestScannerPruningWaitsForProbeRestoration`, and
+  `TestMediaProbeCleanupWaitsForScanner`; exercise both lock directions under race
+  detection and retain the PostgreSQL-backed full regression.

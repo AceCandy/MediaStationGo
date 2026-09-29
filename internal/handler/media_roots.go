@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -30,16 +29,12 @@ func createLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		root, err := svc.Media.AddLibraryRoot(c.Request.Context(), c.Param("id"), req)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {
-				status = http.StatusBadRequest
-			}
-			c.JSON(status, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		go func() { _ = svc.Watcher.Refresh(context.Background()) }()
 		if root.Enabled {
-			lib, _ := svc.Repo.Library.FindByID(c.Request.Context(), c.Param("id"))
+			lib, _ := svc.Repo.Library.FindBasicByID(c.Request.Context(), c.Param("id"))
 			libraryName := c.Param("id")
 			if lib != nil {
 				libraryName = lib.Name
@@ -60,11 +55,7 @@ func updateLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		root, err := svc.Media.UpdateLibraryRoot(c.Request.Context(), c.Param("id"), c.Param("root_id"), req)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {
-				status = http.StatusBadRequest
-			}
-			c.JSON(status, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		if root == nil {

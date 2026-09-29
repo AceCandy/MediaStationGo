@@ -116,6 +116,10 @@ func TestMetadataSearchLIKEFilterRequiresChineseTokensAndKeepsNumbersAtomic(t *t
 
 func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
+	adultLibrary := model.Library{Name: "Adult", Path: "/media/adult", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &adultLibrary); err != nil {
+		t.Fatal(err)
+	}
 	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &library); err != nil {
 		t.Fatal(err)
@@ -127,20 +131,21 @@ func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 	}
 	adultMetadata := model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-adult"}, Kind: model.MetadataKindMovie,
-		Title: "Shared Adult", ReleaseDate: "2026-01-01", Year: 2026, NSFW: true, Source: "tmdb",
+		Title: "Shared Adult", ReleaseDate: "2026-01-01", Year: 2026, Source: "tmdb",
 	}
 	if err := repos.DB.Create(&[]model.MetadataItem{publicMetadata, adultMetadata}).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := []model.Media{
 		{PermanentBase: model.PermanentBase{ID: "media-public"}, LibraryID: library.ID, MetadataID: publicMetadata.ID, Title: "Raw Public", Path: "/media/movies/public.mkv"},
-		{PermanentBase: model.PermanentBase{ID: "media-adult"}, LibraryID: library.ID, MetadataID: adultMetadata.ID, Title: "Raw Adult", Path: "/media/movies/adult.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "media-adult"}, LibraryID: adultLibrary.ID, MetadataID: adultMetadata.ID, Title: "Raw Adult", Path: "/media/adult/adult.mkv"},
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
 
-	rows, total, err := repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{library.ID}, 0, 10, MediaQueryFilter{})
+	libraryIDs := []string{library.ID, adultLibrary.ID}
+	rows, total, err := repos.MediaView.ListByLibrariesFiltered(t.Context(), libraryIDs, 0, 10, MediaQueryFilter{HiddenLibraryIDs: []string{adultLibrary.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,14 +153,14 @@ func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 		t.Fatalf("public view total=%d rows=%#v", total, rows)
 	}
 
-	rows, total, err = repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{library.ID}, 0, 1, MediaQueryFilter{IncludeNSFW: true})
+	rows, total, err = repos.MediaView.ListByLibrariesFiltered(t.Context(), libraryIDs, 0, 1, MediaQueryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if total != 2 || len(rows) != 1 || rows[0].ID != "media-adult" || rows[0].Year != 2026 {
 		t.Fatalf("first page total=%d rows=%#v", total, rows)
 	}
-	rows, total, err = repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{library.ID}, 1, 1, MediaQueryFilter{IncludeNSFW: true})
+	rows, total, err = repos.MediaView.ListByLibrariesFiltered(t.Context(), libraryIDs, 1, 1, MediaQueryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +168,7 @@ func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 		t.Fatalf("second page total=%d rows=%#v", total, rows)
 	}
 
-	rows, total, err = repos.MediaView.SearchFilteredPage(t.Context(), "Shared Adult", 0, 10, MediaQueryFilter{})
+	rows, total, err = repos.MediaView.SearchFilteredPage(t.Context(), "Shared Adult", 0, 10, MediaQueryFilter{HiddenLibraryIDs: []string{adultLibrary.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,9 +212,9 @@ func TestMediaViewFiltersMissingPosterAndChineseTitle(t *testing.T) {
 		filter MediaQueryFilter
 		want   map[string]bool
 	}{
-		{name: "missing poster", filter: MediaQueryFilter{IncludeNSFW: true, MissingPoster: true}, want: map[string]bool{"media-chinese": true, "media-english-no-poster": true}},
-		{name: "missing Chinese title", filter: MediaQueryFilter{IncludeNSFW: true, MissingChineseTitle: true}, want: map[string]bool{"media-english-no-poster": true, "media-english-poster": true}},
-		{name: "combined", filter: MediaQueryFilter{IncludeNSFW: true, MissingPoster: true, MissingChineseTitle: true}, want: map[string]bool{"media-english-no-poster": true}},
+		{name: "missing poster", filter: MediaQueryFilter{MissingPoster: true}, want: map[string]bool{"media-chinese": true, "media-english-no-poster": true}},
+		{name: "missing Chinese title", filter: MediaQueryFilter{MissingChineseTitle: true}, want: map[string]bool{"media-english-no-poster": true, "media-english-poster": true}},
+		{name: "combined", filter: MediaQueryFilter{MissingPoster: true, MissingChineseTitle: true}, want: map[string]bool{"media-english-no-poster": true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -295,7 +300,7 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	rows, total, err := repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{library.ID}, 0, 10, MediaQueryFilter{IncludeNSFW: true})
+	rows, total, err := repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{library.ID}, 0, 10, MediaQueryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +334,10 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"season_id", "series_title", "title", "nsfw", "tmdb_id"} {
+	if strings.Contains(string(payload), `"nsfw"`) {
+		t.Fatal("retired media flag is serialized")
+	}
+	for _, field := range []string{"season_id", "series_title", "title", "tmdb_id"} {
 		if count := strings.Count(string(payload), `"`+field+`":`); count != 1 {
 			t.Fatalf("JSON field %q count=%d payload=%s", field, count, payload)
 		}

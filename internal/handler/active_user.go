@@ -43,6 +43,7 @@ func activeUserRequired(svc *service.Container) gin.HandlerFunc {
 		}
 		c.Set(middleware.CtxUserRole, u.Role)
 		c.Set(middleware.CtxUserTier, u.Tier)
+		c.Request = c.Request.WithContext(service.WithAuthenticatedUser(c.Request.Context(), u))
 		c.Next()
 	}
 }
@@ -79,6 +80,7 @@ func activeEmbyUserRequired(svc *service.Container) gin.HandlerFunc {
 		c.Set(embyCtxUserName, u.Username)
 		c.Set(middleware.CtxUserRole, u.Role)
 		c.Set(middleware.CtxUserTier, u.Tier)
+		c.Request = c.Request.WithContext(service.WithAuthenticatedUser(c.Request.Context(), u))
 		c.Next()
 	}
 }

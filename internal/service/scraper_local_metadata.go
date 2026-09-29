@@ -76,7 +76,6 @@ func mergeLocalMetadataIntoMatch(match *Match, local *LocalMetadata) {
 	}
 	if match.OriginalName == "" && local.AdultCode != "" {
 		match.OriginalName = local.AdultCode
-		match.NSFW = true
 	}
 	if match.Overview == "" && local.Overview != "" {
 		match.Overview = local.Overview
@@ -116,9 +115,6 @@ func mergeLocalMetadataIntoMatch(match *Match, local *LocalMetadata) {
 	}
 	if len(match.Languages) == 0 && local.Languages != "" {
 		match.Languages = splitNFOList(local.Languages)
-	}
-	if local.NSFW {
-		match.NSFW = true
 	}
 }
 

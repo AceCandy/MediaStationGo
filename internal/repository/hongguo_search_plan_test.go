@@ -53,7 +53,7 @@ SELECT 'file-'||n||'-'||e,'work-'||n FROM generate_series(1,200) n CROSS JOIN ge
 		t.Fatal(err)
 	}
 	statements = nil
-	filter := MediaQueryFilter{IncludeNSFW: true, AllowedLibraryIDs: []string{"library"}, HiddenLibraryIDs: []string{"hidden"}}
+	filter := MediaQueryFilter{AllowedLibraryIDs: []string{"library"}, HiddenLibraryIDs: []string{"hidden"}}
 	rows, err := repos.HongGuo.SearchCandidates(t.Context(), "Plan target", MetadataSearchFilter{MediaQueryFilter: filter, Kinds: []string{"series"}})
 	if err != nil || len(rows) != 1 || rows[0].ID != "hg-group-1" {
 		t.Fatalf("candidates=%v err=%v", rows, err)
@@ -72,7 +72,7 @@ SELECT 'file-'||n||'-'||e,'work-'||n FROM generate_series(1,200) n CROSS JOIN ge
 		t.Run([]string{"revalidation", "representatives"}[i], func(t *testing.T) {
 			// 保留原始参数绑定，不能执行日志中不可用的 Go 数组插值。
 			var raw []byte
-			if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+query.sql, query.vars...).Row().Scan(&raw); err != nil {
+			if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+query.sql, query.vars...).Scan(&raw); err != nil {
 				t.Fatal(err)
 			}
 			var plans []struct {

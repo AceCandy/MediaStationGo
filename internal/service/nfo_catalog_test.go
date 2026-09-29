@@ -56,7 +56,7 @@ func TestNFOFreshStartupAndScan(t *testing.T) {
 	if err != nil || media == nil || media.CatalogSource != model.CatalogSourceNFO || media.MetadataID != "" {
 		t.Fatalf("media=%+v err=%v", media, err)
 	}
-	rows, _, total, err := repos.MediaView.ListLibraryMetadataPage(t.Context(), lib.ID, model.MetadataKindMovie, "", 0, 50, repository.MediaQueryFilter{IncludeNSFW: true})
+	rows, _, total, err := repos.MediaView.ListLibraryMetadataPage(t.Context(), lib.ID, model.MetadataKindMovie, "", 0, 50, repository.MediaQueryFilter{})
 	if err != nil || total != 1 || len(rows) != 1 || rows[0].Title != "本地旅行" || rows[0].PosterURL == "" {
 		t.Fatalf("page=%+v total=%d err=%v", rows, total, err)
 	}
@@ -118,11 +118,11 @@ func TestNFOFreshStartupAndScan(t *testing.T) {
 	if err := db.Model(&model.Favorite{}).Count(&shared).Error; err != nil || shared != 0 {
 		t.Fatalf("shared favorites=%d err=%v", shared, err)
 	}
-	search, total, err := repos.MediaView.SearchFilteredPage(t.Context(), "本地旅行", 0, 50, repository.MediaQueryFilter{IncludeNSFW: true})
+	search, total, err := repos.MediaView.SearchFilteredPage(t.Context(), "本地旅行", 0, 50, repository.MediaQueryFilter{})
 	if err != nil || total != 1 || len(search) != 1 {
 		t.Fatalf("search=%+v total=%d err=%v", search, total, err)
 	}
-	all, total, err := repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{lib.ID}, 0, 50, repository.MediaQueryFilter{IncludeNSFW: true})
+	all, total, err := repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{lib.ID}, 0, 50, repository.MediaQueryFilter{})
 	if err != nil || total != 1 || len(all) != 1 {
 		t.Fatalf("list=%+v total=%d err=%v", all, total, err)
 	}
@@ -184,7 +184,7 @@ func TestNFOSeriesHierarchyAndStateIsolation(t *testing.T) {
 	if err := db.Order("path").Find(&files).Error; err != nil {
 		t.Fatal(err)
 	}
-	views, err := repos.MediaView.NFOItemViews(t.Context(), items[0].ID, repository.MediaQueryFilter{IncludeNSFW: true})
+	views, err := repos.MediaView.NFOItemViews(t.Context(), items[0].ID, repository.MediaQueryFilter{})
 	if err != nil || len(views) == 0 {
 		t.Fatal(err)
 	}
@@ -347,24 +347,13 @@ func TestNFORepositoryPreservesFilesAndPreviousSnapshot(t *testing.T) {
 	if err != nil || got.MetadataID != "" || got.ScrapeStatus != "error" {
 		t.Fatalf("invalid isolation/status: %#v %v", got, err)
 	}
-	views, err := repos.MediaView.NFOItemViews(t.Context(), "nfo-"+binding.ItemID, repository.MediaQueryFilter{IncludeNSFW: true})
+	views, err := repos.MediaView.NFOItemViews(t.Context(), "nfo-"+binding.ItemID, repository.MediaQueryFilter{})
 	if err != nil || len(views) != 1 || views[0].Title != binding.Title || views[0].MetadataID != "" || views[0].CatalogItemID != "nfo-"+binding.ItemID {
 		t.Fatalf("independent view=%+v err=%v", views, err)
 	}
-	views, err = repos.MediaView.NFOItemViews(t.Context(), "nfo-"+binding.ItemID, repository.MediaQueryFilter{IncludeNSFW: true, HiddenLibraryIDs: []string{lib.ID}})
+	views, err = repos.MediaView.NFOItemViews(t.Context(), "nfo-"+binding.ItemID, repository.MediaQueryFilter{HiddenLibraryIDs: []string{lib.ID}})
 	if err != nil || len(views) != 0 {
 		t.Fatalf("hidden library leaked: %+v %v", views, err)
-	}
-	if err := db.Model(&model.NFOItem{}).Where("id = ?", binding.ItemID).Update("nsfw", true).Error; err != nil {
-		t.Fatal(err)
-	}
-	views, err = repos.MediaView.NFOItemViews(t.Context(), binding.ItemID, repository.MediaQueryFilter{})
-	if err != nil || len(views) != 0 {
-		t.Fatalf("item NSFW leaked despite clean file snapshot: %+v %v", views, err)
-	}
-	views, err = repos.MediaView.NFOItemViews(t.Context(), binding.ItemID, repository.MediaQueryFilter{IncludeNSFW: true})
-	if err != nil || len(views) != 1 || !views[0].NSFW {
-		t.Fatalf("projected NSFW lost: %+v %v", views, err)
 	}
 }
 

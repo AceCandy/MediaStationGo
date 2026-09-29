@@ -206,7 +206,7 @@ func nfoFields(local *LocalMetadata) model.NFOFields {
 		Title: local.Title, OriginalName: local.OriginalName, Overview: local.Overview,
 		Year: local.Year, ReleaseDate: local.ReleaseDate, Rating: local.Rating,
 		Genres: local.Genres, Countries: local.Countries, Languages: local.Languages,
-		NSFW: local.NSFW, ExternalIDs: string(ids), People: string(people),
+		ExternalIDs: string(ids), People: string(people),
 	}
 }
 

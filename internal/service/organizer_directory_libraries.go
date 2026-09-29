@@ -41,9 +41,6 @@ func (o *OrganizerService) organizeLibraryForLayout(ctx context.Context, destRoo
 		if !lib.Enabled || strings.TrimSpace(lib.Path) == "" {
 			continue
 		}
-		if isRetiredCloudPath(lib.Path) {
-			continue
-		}
 		if isOrganizeStagingDir(lib.Path) {
 			// "手动整理"等暂存库不作为入库目标,避免把媒体留在暂存目录里。
 			continue
@@ -188,9 +185,6 @@ func (o *OrganizerService) ensureOrganizeLibraryForRoot(ctx context.Context, roo
 	if root == "" || root == "." {
 		return model.Library{}, false
 	}
-	if isRetiredCloudPath(root) {
-		return model.Library{}, false
-	}
 	libraries, err := o.repo.Library.List(ctx)
 	if err != nil {
 		if o.log != nil {
@@ -202,9 +196,6 @@ func (o *OrganizerService) ensureOrganizeLibraryForRoot(ctx context.Context, roo
 	hasContainingLibrary := false
 	for _, lib := range libraries {
 		if !lib.Enabled || strings.TrimSpace(lib.Path) == "" {
-			continue
-		}
-		if isRetiredCloudPath(lib.Path) {
 			continue
 		}
 		lib.Path = resolveMappedDestinationPath(lib.Path)

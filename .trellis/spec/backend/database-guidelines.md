@@ -145,15 +145,15 @@ details, and rankings. A real PostgreSQL test must execute every branch.
 
 ### Emby Series Pagination Query Boundary
 
-`seriesMetadataPage` delegates to `seriesWorkPage`: persisted work membership
-prefilters Series, then the original visible episode scope checks eligibility.
-Keep library, visibility and played filters inside that scope. Apply person
-and favorite filters through `applySeriesPageFilters` after the Series alias
-exists, consistently for count, page and summary queries. Materialize qualified
-work IDs/ordinals once for count/page, retaining accurate totals on empty pages.
+`seriesMetadataPage` delegates to `seriesWorkPage`: persisted membership and
+work sorting produce candidates; qualify batches of 50 through the original visible
+episode scope. Refill until the effective offset/page is satisfied. Apply person
+and favorite filters through `applySeriesPageFilters` consistently. Exact count
+uses the same candidate set and scoped file predicates but reads library files once;
+per-work probes are too expensive for fileless catalog episodes. Count and batches
+share a read-only repeatable-read transaction and retain totals on empty pages.
 Only file-dependent sorts compute file dates; DateLastContentAdded uses work time.
-Latest skips the count. Keep the catalog-larger-than-files plan regression:
-work-first is not permission to probe every empty episode in the catalog.
+Latest skips count. Plan tests capture each stage, not just the final hydration.
 
 Web Series ordering still needs episode release/year/file-time fallback and
 retains its validated library-scoped file boundary, with page-only display
@@ -482,6 +482,16 @@ db.Where("id IN ?", ids)
 db.Where("id = ANY(?)", &ids)
 ```
 
+## Request preflight reads
+
+1. Scope: library presentation and Web/Emby visibility preflight.
+2. Signatures: `Library.ListBasic/FindBasicByID` omit Roots and table-existence checks; full `List/FindByID` retain them. Service basic-read helpers cache JSON for 30 seconds.
+3. Contracts: keys include repository-instance UUID and atomic generation. Successful library/visibility writes advance the generation; external transactions invalidate the parent Container only after commit. Authentication still rereads account status and token version every request. Only matching target IDs reuse the immutable authenticated visibility snapshot.
+4. Errors: do not cache errors or missing single libraries; return independent decoded objects. Permission calculations and path-sensitive/transactional consumers read the repository directly.
+5. Cases: old concurrent reads fill only their captured old key; rollback does not invalidate the parent. Process-local invalidation does not promise cross-instance immediacy; permission TTL remains the existing upper bound without stacked library caching.
+6. Tests: preflight tests assert cold/hot SELECT counts, Roots preservation, errors, expiry, write/delete invalidation, target-user isolation, blocked old reads and rollback. Run the concurrency cases with `-race` and real PostgreSQL.
+7. Wrong: cache authentication or full directory-bearing Library responses. Correct: cache only basic presentation data, keep live authentication and explicit permission checks.
+
 ## Runtime Configuration Defaults
 
 - Define each runtime default once in the owning config package. Constructors
@@ -494,6 +504,16 @@ db.Where("id = ANY(?)", &ids)
   explicitly requires a fixed value.
 
 ---
+
+## Media-level adult flags removed
+
+1. Scope: ordinary metadata, NFO items/bindings, API projections, editing, imports and search.
+2. Schema: `removeUnusedLegacyColumns` drops `nsfw` from `metadata_items`, `nfo_items` and `nfo_media_bindings`; PostgreSQL removes dependent indexes. No data conversion or compatibility field is retained.
+3. Contract: `adult.library_ids`, user HideAdult and profile AllowAdult still own library access. With no configured IDs, the existing library name/path fallback applies consistently to file and library entry points. Never infer adult libraries from a media item.
+4. Errors: use the normal migration error path; never run ad-hoc production column deletion or rewrite existing NFO sidecars as part of this change.
+5. Cases: ordinary-library items remain visible regardless of adult-looking titles; hidden adult-library files remain inaccessible. Removing item flags must not remove profile scope or locked-empty handling.
+6. Tests: `TestAutoMigrateRemovesMediaNSFW` repeats complete migration, checks all retired columns/indexes absent and adult-library settings preserved. Media visibility, playback and handler tests cover library boundaries.
+7. Wrong: retain an ignored NSFW API/model field for old data. Correct: remove the field and its read/write/filter consumers, retaining only library authorization.
 
 ## Migrations
 
@@ -722,8 +742,11 @@ It also checks library moves, ancestor refresh, concurrent HongGuo binding/delet
 stale Save/UpdateAll and no recheck enqueue on a library-only change.
 `TestRecentWorkTimeSharedAcrossLibraries` and `TestHongGuoLibraryPagingAndLatest`
 cover cross-library ordering and album members invisible in the current library.
-Real PostgreSQL plans must show date-only work candidates use file existence,
-not all-file date aggregation. Playback filters remain dynamic and may cost more.
+Real PostgreSQL plans must show recent-work candidates avoid all-file date
+aggregation. HongGuo and ordinary leaf known membership can prove visible file
+existence after library permission intersection. NFO normal roots use their own
+library and non-null time, without repeating binding existence. Ordinary structural
+qualifications and playback remain bounded batch checks and may cost more.
 `TestRecentLibraryMembershipAcrossSources` compares known/unknown complete payloads,
 multiple/hidden/locked libraries, cross-library global dates, last-file deletion,
 moves, album regrouping and a fileless first-season representative.
@@ -732,11 +755,42 @@ moves, album regrouping and a fileless first-season representative.
 
 Wrong: order visible files by time, then infer global work time from that subset.
 Correct: order eligible works by their stored global time, then hydrate visible
-page contents. Preserve `DateCreated` and file-version selection contracts.
+page contents. NFO item `DateCreated` uses first item creation; preserve all other
+source/file-version date contracts.
 Wrong: remove qualification because an ID appears in `library_ids`.
-Correct: prefilter membership, then apply the original visibility/state checks.
+Correct: intersect maintained membership with permissions where equivalent;
+otherwise retain exact qualification. State filters always remain effective.
 
 ## Naming Conventions
+
+### Scenario: Event-local multipart reconciliation
+
+1. Scope / Trigger: scanner single-file ingestion/removal and Part calibration.
+2. Signatures: `reconcileMediaParts(ctx, libraryID, directory, recursive)`;
+   `idx_media_library_parent_path` indexes
+   `(library_id, lower(regexp_replace(path, '[^/]*$', '')))`. The expression uses
+   the stored local slash-separated paths; no new directory column is stored.
+3. Contracts: file events pass false and match the lowercased parent prefix with
+   its trailing slash by equality. Full-library/root scans pass true and retain
+   recursive scope. Ordinary names with no old Part key/index skip calibration;
+   ingestion checks old state before upsert and removal reuses the deleted row.
+   Keep case-insensitive same-parent selection, case-sensitive group identity,
+   distinct-index grouping, title restoration and actual library/file boundaries.
+4. Validation / Errors: query failures propagate; migration is idempotent and
+   failures abort startup. Initial index creation can delay startup/block writers;
+   do not create production indexes or restart services as an unannounced test.
+5. Cases: Part2 arrives after Part1 -> update both; remove/rename Part2 -> clear
+   old singleton and calibrate destination; unrelated ordinary changes -> zero
+   Part directory queries. Local changes must not repair nested directories.
+6. Tests: `TestScannerSkipsUnrelatedPartReconciliation`,
+   `TestScannerPartRenameReconcilesBothDirectories`, `TestReconcileMediaPartsQueryScope`
+   and `TestScannerRootReconcilesNestedMediaParts` cover trigger/scope behavior.
+   `TestReconcileMediaPartsDirectoryPlan` captures the real query and bounds
+   Media visits to 19 among 20,019 rows, including a generic prepared plan.
+   `TestEnsurePerformanceIndexesCreatesHotPathIndexes` verifies repeated creation.
+7. Wrong: remove one redundant predicate but retain a per-event full-library
+   index scan plus ILIKE filter. Correct: avoid unrelated events and use indexed
+   parent equality for local calibration, while preserving recursive scan cleanup.
 
 <!-- Table names, column names, index names -->
 

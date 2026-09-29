@@ -207,7 +207,6 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 		Languages:   local.EpisodeLanguages,
 		Countries:   local.EpisodeCountries,
 		Genres:      local.EpisodeGenres,
-		NSFW:        local.EpisodeNSFW,
 		Source:      "local",
 	}
 	if existing, findErr := s.repo.Metadata.FindEpisode(ctx, canonical.ID, media.SeasonNum, media.EpisodeNum); findErr != nil {
@@ -385,7 +384,7 @@ func metadataItemFromMatch(match *Match, kind, source string) *model.MetadataIte
 		Overview: strings.TrimSpace(match.Overview), Rating: match.Rating, Year: match.Year,
 		ReleaseDate: strings.TrimSpace(match.ReleaseDate), Languages: strings.Join(match.Languages, ","),
 		Countries: strings.Join(match.Countries, ","), Genres: strings.Join(match.Genres, ","),
-		NSFW: match.NSFW, Source: source,
+		Source: source,
 	}
 }
 
@@ -431,7 +430,7 @@ func metadataMatchSource(match *Match) string {
 		return "bangumi"
 	case strings.TrimSpace(match.TheTVDBID) != "":
 		return "thetvdb"
-	case match.NSFW:
+	case match.MediaType == "adult":
 		return "adult"
 	default:
 		return "manual"
@@ -451,7 +450,7 @@ func localMetadataMatch(local *LocalMetadata, entityKind string) *Match {
 		ReleaseDate: strings.TrimSpace(local.ReleaseDate), Rating: local.Rating,
 		TMDbID: local.TMDbID, BangumiID: local.BangumiID, DoubanID: strings.TrimSpace(local.DoubanID),
 		TheTVDBID: strings.TrimSpace(local.TheTVDBID), Languages: splitNFOList(local.Languages),
-		Countries: splitNFOList(local.Countries), Genres: splitNFOList(local.Genres), NSFW: local.NSFW,
+		Countries: splitNFOList(local.Countries), Genres: splitNFOList(local.Genres),
 	}
 }
 
@@ -482,7 +481,6 @@ func preserveEpisodeDetails(next, existing *model.MetadataItem) {
 	next.Languages = existing.Languages
 	next.Countries = existing.Countries
 	next.Genres = existing.Genres
-	next.NSFW = existing.NSFW
 	next.Source = existing.Source
 }
 
@@ -513,8 +511,5 @@ func preserveMissingLocalEpisodeDetails(next, existing *model.MetadataItem) {
 	}
 	if next.Genres == "" {
 		next.Genres = existing.Genres
-	}
-	if !next.NSFW {
-		next.NSFW = existing.NSFW
 	}
 }
