@@ -116,6 +116,20 @@ per-user, per-metadata history state but playback events are append-only.
   correlated `JOIN LATERAL (... OFFSET 0)`. Keep the shared effective-state
   algorithm and the separate left-joined successor states: unseen successors
   have no history row. Never bind continuation to the old physical media ID.
+  A public Series ID selects its source and filters the state identity before
+  effective-state/file resolution (HongGuo official album includes every positive
+  season member; standalone works use their internal work ID). Materialize this
+  source/user/scope's effective states once and reuse them for history and the
+  left-joined successor lookup; do not require a successor to have history.
+  HongGuo history and replacement lookup must resolve `(source_id, episode_number)`
+  through the work and `(work_id, number)` episode index before file bindings.
+  Keep movie NULL-episode bindings eligible at episode number 1, same-work episode
+  validation, visible alternate versions and the existing duration/replay rules.
+  A per-history LATERAL alone is not a bound: joining all work bindings before
+  testing `COALESCE(ep.number,1)` multiplies history count by the work's file count.
+  Inspect estimated cost and JIT as well as actual rows/loops: reducing executed
+  scans without reducing repeated effective-state estimates can retain expensive
+  compilation. Do not disable global JIT or add indexes to mask this query shape.
   Tests must verify empty user history executes no file/catalog scans and keep
   the large unrelated-catalog/state plan bound. A changed SQL FROM clause alone
   does not prove a speedup; retain measured old/new plans and semantic regressions.
@@ -282,6 +296,14 @@ per-user, per-metadata history state but playback events are append-only.
   rows/loops against 2,000 series/4,000 episodes per catalog and other-user
   states, stable mixed pages/exact totals and exhausted groups before valid
   candidates. No wall-clock assertion or assumption that a LIMIT bounds scans.
+- `TestContinuationLongWatchedSeriesLookup` adds 200 HongGuo works with 240 episodes
+  each, 2,152 current-user states and unrelated-user states. Capture the public
+  query's real bindings and check both custom and forced generic prepared plans
+  for Web/Resume/NextUp, official album, standalone work and untouched album.
+  Bound episode/binding/media visits, join-filter work and index rechecks; verify
+  exact counts and movie resume. Scoped queries must not trigger JIT. Global
+  generic estimates can still trigger JIT under skewed user distributions: record
+  it separately, and never claim a scoped empty-result timing proves global latency.
 - `TestNextUpRoutesAndWebContinuation` and `TestEmbyTargetUserRequired` cover
   all route aliases, current-user and cross-user access and nested Web markers.
   Run `node scripts/check-history-presentation.mjs` and

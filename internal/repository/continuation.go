@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -37,14 +38,21 @@ func (r *HistoryRepository) Continuations(ctx context.Context, userID string, fi
 	}
 	db := r.db.WithContext(ctx)
 	sources := []string{"legacy"}
-	for _, source := range []string{"nfo", "hongguo"} {
-		var exists bool
-		// 固定来源字面量让预编译计划可利用来源索引。
-		if err := db.Raw("SELECT EXISTS(SELECT 1 FROM media WHERE catalog_source = '" + source + "')").Scan(&exists).Error; err != nil {
-			return nil, 0, err
-		}
-		if exists {
-			sources = append(sources, source)
+	switch {
+	case strings.HasPrefix(seriesID, "nfo-"):
+		sources = []string{"nfo"}
+	case strings.HasPrefix(seriesID, "hg-"):
+		sources = []string{"hongguo"}
+	case seriesID == "":
+		for _, source := range []string{"nfo", "hongguo"} {
+			var exists bool
+			// 固定来源字面量让预编译计划可利用来源索引。
+			if err := db.Raw("SELECT EXISTS(SELECT 1 FROM media WHERE catalog_source = '" + source + "')").Scan(&exists).Error; err != nil {
+				return nil, 0, err
+			}
+			if exists {
+				sources = append(sources, source)
+			}
 		}
 	}
 	var total int64
@@ -158,14 +166,46 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 		// Emby 混合目录的 Resume 接受任意正进度；NextUp 不能重复推荐它。
 		threshold = 1
 	}
-	states := PlaybackStates(ctx, r.db, source, userID, filter)
+	effectiveStates := PlaybackStates(ctx, r.db, source, userID, filter)
+	if seriesID != "" {
+		// 在有效状态和文件解析前收窄历史，不影响无历史的下一集查询。
+		switch source {
+		case "hongguo":
+			works := db.Table("hongguo_works").Select("source_id").Where("kind = 'series'")
+			if strings.HasPrefix(seriesID, "hg-group-") {
+				works = works.Where("related_album_id = ? AND season_index > 0", strings.TrimPrefix(seriesID, "hg-group-"))
+			} else {
+				works = works.Where("id = ?", strings.TrimPrefix(seriesID, "hg-work-"))
+			}
+			effectiveStates = effectiveStates.Where("h.source_id IN (?)", works)
+		case "nfo":
+			effectiveStates = effectiveStates.Where(`h.item_id IN (SELECT ep.id FROM nfo_items ep
+ JOIN nfo_items season ON season.id = ep.parent_id WHERE ep.kind = 'episode' AND season.parent_id = ?)`, strings.TrimPrefix(seriesID, "nfo-"))
+		default:
+			effectiveStates = effectiveStates.Where(`h.metadata_id IN (SELECT ep.id FROM metadata_items ep
+ JOIN metadata_items season ON season.id = ep.parent_id AND season.kind = 'season'
+ WHERE ep.kind = 'episode' AND season.parent_id = ?)`, seriesID)
+		}
+	}
+	// 历史与下一集共用一次有效状态投影，避免逐个候选重复展开替代版本检查。
+	states := db.Table("continuation_states AS h")
+	historyItems := q.Session(&gorm.Session{}).Where(stateIdentity)
+	if source == "hongguo" {
+		// 剧集按作品+集号走唯一索引，再取该集的版本；电影允许空分集绑定。
+		historyItems = db.Raw("? UNION ALL ?",
+			historyItems.Session(&gorm.Session{}).Where("ep.number = st.episode_number"),
+			historyItems.Session(&gorm.Session{}).Where("w.kind = 'movie' AND b.episode_id IS NULL"))
+	}
 	// 只对历史中的逻辑身份查可见版本；边界阻止重新展开整个媒体目录。
-	historyItems := db.Raw("? OFFSET 0", q.Session(&gorm.Session{}).Where(stateIdentity))
+	historyItems = db.Raw("? OFFSET 0", historyItems)
 	watched := db.Table("(?) AS st", states.Session(&gorm.Session{}).Where("h.watched_at IS NOT NULL")).
 		Joins("JOIN LATERAL (?) AS history_item ON TRUE", historyItems).
 		Select("history_item.*").Where("st.completed OR st.position_ms >= ?", threshold)
 	if seriesID != "" {
 		watched = watched.Where("series_id = ?", seriesID)
+	}
+	if source == "hongguo" {
+		stateIdentity = "st.source_id = w.source_id AND st.episode_number = ep.number"
 	}
 	nextItems := q.Session(&gorm.Session{}).Joins("LEFT JOIN (?) st ON "+stateIdentity, states).Where(scope)
 	next := db.Table("(?) AS episode", nextItems).
@@ -176,7 +216,8 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 		anchorFilter = "NOT a.resumable AND a.completed AND a.kind = 'episode'"
 	}
 	// 红果/NFO 批量标记逐集写时间；完成边界取最远集序，不能由写入顺序决定。
-	return db.Raw(`WITH watched AS MATERIALIZED (SELECT visible.*, position_ms >= ? AS resumable FROM (?) visible), anchors AS (
+	return db.Raw(`WITH continuation_states AS MATERIALIZED (?),
+watched AS MATERIALIZED (SELECT visible.*, position_ms >= ? AS resumable FROM (?) visible), anchors AS (
 	 SELECT DISTINCT ON (group_id) *, MAX(watched_at) OVER (PARTITION BY group_id) AS group_watched_at FROM watched
 	 ORDER BY group_id, resumable DESC, CASE WHEN resumable THEN watched_at END DESC,
 	 season_num DESC, work_order DESC, episode_num DESC, item_id DESC, preferred DESC, media_id
@@ -186,5 +227,5 @@ FROM anchors a CROSS JOIN LATERAL (
  SELECT a.item_id, a.media_id, a.history_id, a.position_ms, a.duration_ms, a.completed WHERE a.resumable
  UNION ALL
  SELECT n.item_id, n.media_id, 'next:' || n.item_id, n.position_ms, n.duration_ms, n.completed FROM (?) n WHERE NOT a.resumable AND a.completed
-) picked WHERE `+anchorFilter, threshold, watched, next)
+) picked WHERE `+anchorFilter, effectiveStates, threshold, watched, next)
 }

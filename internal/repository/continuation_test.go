@@ -55,7 +55,7 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 	var candidateQueries []string
 	if err := db.Callback().Row().After("gorm:row").Register("test:continuation-page", func(tx *gorm.DB) {
 		query := tx.Statement.SQL.String()
-		if strings.Contains(query, "WITH watched AS MATERIALIZED") && !strings.HasPrefix(query, "EXPLAIN") {
+		if strings.Contains(query, "watched AS MATERIALIZED") && !strings.HasPrefix(query, "EXPLAIN") {
 			candidateQueries = append(candidateQueries, query)
 		}
 	}); err != nil {
@@ -142,11 +142,13 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rows, total, err := r.Continuations(t.Context(), "viewer", filter, ContinuationNextUp, "series-1", 0, 1)
-	if err != nil || total != 1 || len(rows) != 1 || rows[0].ItemID != "ep-1-2" {
-		t.Fatalf("series filter/exhausted groups: %v total=%d err=%v", rows, total, err)
+	for series, want := range map[string]string{"series-1": "ep-1-2", "nfo-series-1": "nfo-ep-1-2", "hg-group-1": "hg-episode-ep-1-2"} {
+		rows, total, err := r.Continuations(t.Context(), "viewer", filter, ContinuationNextUp, series, 0, 1)
+		if err != nil || total != 1 || len(rows) != 1 || rows[0].ItemID != want {
+			t.Fatalf("series %s filter/exhausted groups: %v total=%d err=%v", series, rows, total, err)
+		}
 	}
-	rows, total, err = r.Continuations(t.Context(), "viewer", filter, ContinuationNextUp, "", 2, 1)
+	rows, total, err := r.Continuations(t.Context(), "viewer", filter, ContinuationNextUp, "", 2, 1)
 	if err != nil || total != 3 || len(rows) != 1 || rows[0].ItemID != "ep-1-2" {
 		t.Fatalf("premature history limit: %v total=%d err=%v", rows, total, err)
 	}
