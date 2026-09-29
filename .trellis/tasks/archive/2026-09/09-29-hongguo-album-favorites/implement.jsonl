@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "红果独立身份、用户数据及查询边界"}
+{"file": ".trellis/spec/backend/work-level-queries.md", "reason": "目标范围与作品级读写"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "事务迁移和 PostgreSQL 验证"}
