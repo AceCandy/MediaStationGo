@@ -1936,3 +1936,37 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 部署后验收 YAMBy 实际耗时；未运行并发压力及全仓测试。
+
+
+## Session 166: 续播按逻辑身份直接定位
+<!-- trellis-session: v=2 fp=ebe7ae5c58c1d47d -->
+
+**Date**: 2026-09-29
+**Task**: 续播按逻辑身份直接定位
+**Branch**: `main`
+
+### Summary
+
+NextUp 先按剧限定来源与历史，红果按作品和集号定位文件，续播共享有效状态投影；补充长剧计划回归和播放规范。生产只读 SQL 对照结果一致，Resume 约 15.4 秒降至 0.68 秒。
+
+### Main Changes
+
+- 提交续播查询优化、回归测试和播放规范，归档 continuation-direct-lookup 任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6b04d6c66005353087c17553e7a5dc5c18779246` | fix(playback): scope continuation state and episode lookups |
+
+### Testing
+
+- [OK] 仓储、服务、handler 全量测试以及定向 race、go vet、gofmt、diff 检查均通过；提交前未改动已验证代码。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未部署或重启；加载新代码后核验真实 HTTP 耗时与 499，关注全局通用预编译计划的 JIT 开销。
