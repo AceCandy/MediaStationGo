@@ -1807,3 +1807,39 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 未推送远程，未主动重启后端；电影字段修改仍需加载后用 Hills/Yamby 实机对照，确认空 Shows 请求是否消失。
+
+
+## Session 162: 媒体库查询优化提交与三项任务归档
+<!-- trellis-session: v=2 fp=98ae7a1fd61b84c1 -->
+
+**Date**: 2026-09-29
+**Task**: 媒体库查询优化提交与三项任务归档
+**Branch**: `main`
+
+### Summary
+
+按用户要求提交全部未提交改动，归档前置查询缓存、作品级分页和页内详情三项任务；保留实现、验证证据及生产验收边界。
+
+### Main Changes
+
+- 提交 244 个文件，包含 Emby/Web 查询优化、红果合集与 Latest、安全清理、过时字段及路径逻辑移除、测试和规范。
+- 三个任务归档至 .trellis/tasks/archive/2026-09/，并关联实现提交 ac72592。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac72592` | perf(catalog): streamline library queries and playback summaries |
+
+### Testing
+
+- [OK] 本轮提交前：后端各包编译检查（go test -run '^$'，未执行测试）、四包 go vet、前端 lint 和 TypeScript 检查、Go 格式及 git diff --check 全部通过；新增内容敏感信息模式扫描未发现命中。
+- [OK] 此前完整数据库回归、最近红果针对性 race、大样本计划及线上只读结果已记录在归档任务；本轮未重跑完整数据库或播放器端到端测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户重启后以播放器请求日志验收实际 HTTP 耗时；未推送远端、未部署或重启服务。
