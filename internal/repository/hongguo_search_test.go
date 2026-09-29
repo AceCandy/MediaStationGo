@@ -17,7 +17,7 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(append(model.HongGuoModels(), &model.HongGuoDownload{})...); err != nil {
+	if err = db.AutoMigrate(append(model.HongGuoModels(), &model.HongGuoDownload{}, &model.HongGuoFavorite{})...); err != nil {
 		t.Fatal(err)
 	}
 	r := New(db).HongGuo

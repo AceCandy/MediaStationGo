@@ -10,7 +10,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // ResumeItems 为直接调用者提供首页续播；HTTP 分页入口复用相同候选查询。
@@ -125,7 +124,7 @@ LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id
 `+repository.HongGuoAlbumJoin+`
 LEFT JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''
 LEFT JOIN (?) s ON s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)
-LEFT JOIN hongguo_user_states f ON f.user_id = ? AND f.source_id = w.source_id AND f.episode_number = 0
+LEFT JOIN hongguo_favorites f ON f.user_id = ? AND f.item_id = `+repository.HongGuoFavoriteIdentitySQL+`
 CROSS JOIN LATERAL (VALUES
 	(CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END,
 	 CASE WHEN w.kind = 'movie' THEN 'Movie' ELSE 'Series' END,
@@ -432,7 +431,7 @@ func lowerStrings(values []string) []string {
 }
 
 // hongGuoContainerMutation 仅更改当前可见且有文件的成员，状态仍使用源作品及源集号。
-func (e *EmbyService) hongGuoContainerMutation(ctx context.Context, userID, id string, favorite *bool, played *bool) (bool, error) {
+func (e *EmbyService) hongGuoContainerMutation(ctx context.Context, userID, id string, played *bool) (bool, error) {
 	if !strings.HasPrefix(id, "hg-") {
 		return false, nil
 	}
@@ -447,29 +446,11 @@ func (e *EmbyService) hongGuoContainerMutation(ctx context.Context, userID, id s
 	if node.Kind == "Movie" || node.Kind == "Episode" {
 		return false, nil
 	}
-	if favorite != nil && node.Kind != "Series" {
-		return true, repository.ErrFavoriteUnsupportedType
-	}
 	seasons := e.hongGuoNodes(ctx, userID, "").Select("id").Where("kind = 'Season'")
 	if node.Kind == "Season" {
 		seasons = seasons.Where("id = ?", id)
 	} else {
 		seasons = seasons.Where("parent_id = ?", id)
-	}
-	if favorite != nil {
-		var sourceIDs []string
-		if err := e.repo.DB.WithContext(ctx).Model(&model.HongGuoWork{}).Where("'hg-season-' || id IN (?)", seasons).Pluck("source_id", &sourceIDs).Error; err != nil {
-			return true, err
-		}
-		states := make([]model.HongGuoUserState, 0, len(sourceIDs))
-		for _, sourceID := range sourceIDs {
-			states = append(states, model.HongGuoUserState{UserID: userID, SourceID: sourceID, Favorite: *favorite})
-		}
-		if len(states) == 0 {
-			return true, errors.New("media not found")
-		}
-		err := e.repo.DB.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"favorite", "updated_at"})}).CreateInBatches(states, 500).Error
-		return true, err
 	}
 	if played == nil {
 		return true, errors.New("missing mutation")

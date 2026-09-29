@@ -20,6 +20,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	if err := migrateHongGuoFavorites(db); err != nil {
+		return err
+	}
 	// 人工聚合已退役；先删成员表，不级联删除其他业务对象。
 	if err := db.Exec("DROP TABLE IF EXISTS hongguo_group_members, hongguo_groups").Error; err != nil {
 		return err
@@ -90,6 +93,22 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return EnsureLatestMediaAddedTriggers(db)
+}
+
+// migrateHongGuoFavorites 合并旧成员收藏；新表已有状态优先，避免重启复活已取消的收藏。
+func migrateHongGuoFavorites(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`INSERT INTO hongguo_favorites (user_id, item_id, favorite, updated_at)
+SELECT s.user_id, CASE WHEN w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0
+ THEN 'hg-group-' || w.related_album_id ELSE s.source_id END,
+ BOOL_OR(s.favorite), MAX(s.updated_at)
+FROM hongguo_user_states s LEFT JOIN hongguo_works w ON w.source_id = s.source_id
+WHERE s.episode_number = 0 GROUP BY 1, 2
+ON CONFLICT (user_id, item_id) DO NOTHING`).Error; err != nil {
+			return err
+		}
+		return tx.Exec("DELETE FROM hongguo_user_states WHERE episode_number = 0").Error
+	})
 }
 
 // ensureHongGuoArtworkOwnership lets discovery posters enter the existing artwork queue.

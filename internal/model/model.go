@@ -79,6 +79,7 @@ func AllModels() []interface{} {
 		&PlaybackHistory{},
 		&PlaybackEvent{},
 		&HongGuoUserState{},
+		&HongGuoFavorite{},
 		&HongGuoPlaybackEvent{},
 		&Favorite{},
 		&Playlist{},

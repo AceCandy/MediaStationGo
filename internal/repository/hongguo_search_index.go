@@ -100,7 +100,7 @@ func (r *HongGuoRepository) SearchCandidates(ctx context.Context, query string, 
 			works = works.Where("EXISTS (SELECT 1 FROM hongguo_credits c WHERE c.work_id = w.id AND 'hg-person-' || c.person_id = ANY(?))", &filter.PersonIDs)
 		}
 		if filter.FavoriteUserID != "" {
-			works = works.Where("EXISTS (SELECT 1 FROM hongguo_user_states s WHERE s.source_id = w.source_id AND s.user_id = ? AND s.episode_number = 0 AND s.favorite)", filter.FavoriteUserID)
+			works = works.Where("EXISTS (SELECT 1 FROM hongguo_favorites s WHERE s.item_id = "+HongGuoFavoriteIdentitySQL+" AND s.user_id = ? AND s.favorite)", filter.FavoriteUserID)
 		}
 		return works
 	}

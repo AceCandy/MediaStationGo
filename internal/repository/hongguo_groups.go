@@ -15,6 +15,9 @@ import (
 // HongGuoWorkIdentitySQL 供已补齐关系的作品列表使用；电影不参与合集。
 const HongGuoWorkIdentitySQL = "CASE WHEN w.kind = 'series' THEN 'hg-group-' || w.related_album_id ELSE 'hg-work-' || w.id END"
 
+// HongGuoFavoriteIdentitySQL 与展示合集共用身份；电影及未归组作品使用可重建的源 ID。
+const HongGuoFavoriteIdentitySQL = "CASE WHEN w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0 THEN 'hg-group-' || w.related_album_id ELSE w.source_id END"
+
 // HongGuoReadyWorkSQL 暂缺合集的剧等待补充任务，不在列表中回退为独立作品。
 const HongGuoReadyWorkSQL = "(w.kind = 'movie' OR (w.related_album_id <> '' AND w.season_index > 0))"
 
@@ -85,7 +88,13 @@ func (r *HongGuoRepository) SaveAlbum(ctx context.Context, sourceID string, albu
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_id = ?", sourceID).First(&work).Error; err != nil {
 			return err
 		}
-		return tx.Model(&model.HongGuoWork{}).Where("id = ?", work.ID).Updates(map[string]any{"related_album_id": album.ID, "season_index": album.Season, "album_checked_at": time.Now(), "album_retry_at": nil}).Error
+		if err := tx.Model(&model.HongGuoWork{}).Where("id = ?", work.ID).Updates(map[string]any{"related_album_id": album.ID, "season_index": album.Season, "album_checked_at": time.Now(), "album_retry_at": nil}).Error; err != nil {
+			return err
+		}
+		if work.Kind != model.MetadataKindSeries {
+			return nil
+		}
+		return promoteHongGuoFavorite(tx, sourceID, album.ID)
 	})
 	if err == nil {
 		r.refreshSearchWork(ctx, work.ID, work.RelatedAlbumID, album.ID)

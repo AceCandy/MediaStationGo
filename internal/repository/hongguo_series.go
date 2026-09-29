@@ -7,7 +7,6 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const hongGuoSeriesIdentity = "CASE WHEN g.id IS NULL THEN 'hg-work-' || w.id ELSE 'hg-group-' || g.id END"
@@ -228,26 +227,30 @@ func (r *MediaViewRepository) hongGuoPresentations(ctx context.Context, ids []st
 	return out, nil
 }
 
-// HongGuoSeriesFavorite 聚合可见成员的收藏；写入仍使用各来源作品的独立身份。
+// HongGuoSeriesFavorite 仅校验目标合集有可见文件，收藏本身直接使用合集身份。
 func (r *MediaViewRepository) HongGuoSeriesFavorite(ctx context.Context, userID, seriesID string, filter MediaQueryFilter, favorite *bool) (bool, error) {
-	q := r.hongGuoSeriesScope(ctx, "", seriesID, filter).Where("w.kind = 'series'")
-	if favorite == nil {
-		var value bool
-		err := q.Joins("LEFT JOIN hongguo_user_states st ON st.source_id = w.source_id AND st.episode_number = 0 AND st.user_id = ?", userID).
-			Select("COALESCE(BOOL_OR(st.favorite),FALSE)").Scan(&value).Error
-		return value, err
-	}
-	var sources []string
-	if err := q.Distinct("w.source_id").Pluck("w.source_id", &sources).Error; err != nil {
-		return false, err
-	}
-	states := make([]model.HongGuoUserState, 0, len(sources))
-	for _, source := range sources {
-		states = append(states, model.HongGuoUserState{UserID: userID, SourceID: source, Favorite: *favorite})
-	}
-	if len(states) == 0 {
+	if userID == "" {
 		return false, gorm.ErrRecordNotFound
 	}
-	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"favorite", "updated_at"})}).CreateInBatches(states, 500).Error
-	return *favorite, err
+	files := r.hongGuoFileScope(ctx, "", filter).Select("1").Where("b.work_id = w.id")
+	q := FilterHongGuoWorkIDs(r.db.WithContext(ctx).Table("hongguo_works w"), []string{seriesID}).Where("w.kind = 'series'")
+	if strings.HasPrefix(seriesID, "hg-work-") {
+		// 兼容尚未补齐合集的详情；已归组作品不能用旧 work ID 绕过展示身份。
+		q = q.Where("w.related_album_id = '' OR w.season_index <= 0")
+	}
+	var itemID string
+	err := q.
+		Where("EXISTS (? OFFSET 0)", files).Select(HongGuoFavoriteIdentitySQL).Limit(1).Scan(&itemID).Error
+	if err != nil {
+		return false, err
+	}
+	if itemID == "" {
+		return false, gorm.ErrRecordNotFound
+	}
+	if favorite != nil && strings.HasPrefix(seriesID, "hg-work-") {
+		// 补齐关系可能与旧详情的收藏并发，复用源入口的行锁和身份重读。
+		err := (&HongGuoRepository{db: r.db}).SetFavorite(ctx, userID, itemID, *favorite)
+		return *favorite, err
+	}
+	return hongGuoFavorite(r.db.WithContext(ctx), userID, itemID, favorite)
 }

@@ -878,7 +878,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'favorite-item',
     category: '播放状态',
     name: '设置收藏状态',
-    description: 'POST 收藏电影或整剧，DELETE 取消收藏。不支持季或单集收藏，也不会自动转换成整剧收藏。红果短剧 官方系列剧收藏只影响当前用户可见且有文件的源成员。',
+    description: 'POST 收藏电影或整剧，DELETE 取消收藏。不支持季或单集收藏，也不会自动转换成整剧收藏。红果短剧按媒体库合集 ID 保存收藏，要求合集有当前用户可见的文件；后续新增季沿用该收藏，Web 与 Emby 共用状态。',
     methods: ['POST', 'DELETE'],
     path: '/Users/:userId/FavoriteItems/:itemId',
     aliases: ['/users/:userId/favoriteitems/:itemId'],

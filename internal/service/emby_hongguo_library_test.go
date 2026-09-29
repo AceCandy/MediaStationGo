@@ -269,6 +269,62 @@ SELECT 'file-'||n||'-'||e,'work-'||n,'episode-'||n||'-'||e FROM generate_series(
 	}); err != nil {
 		t.Fatal(err)
 	}
+	inspectDetail = true
+	if err := e.SetFavorite(t.Context(), "viewer", "hg-group-2000", true); err != nil {
+		t.Fatal(err)
+	}
+	inspectDetail = false
+	if len(queries) != 1 || strings.Contains(queries[0].sql, "hongguo_user_states") || strings.Contains(queries[0].sql, "hongguo_episodes") {
+		t.Fatalf("favorite expanded nodes or playback states: %+v", queries)
+	}
+	var favoritePlan []byte
+	if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+queries[0].sql, queries[0].vars...).Scan(&favoritePlan); err != nil {
+		t.Fatal(err)
+	}
+	var plans []struct {
+		Plan map[string]any
+	}
+	if err := json.Unmarshal(favoritePlan, &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("favorite plan: %s %v", favoritePlan, err)
+	}
+	var inspectFavorite func(map[string]any)
+	inspectFavorite = func(node map[string]any) {
+		if node["Relation Name"] != nil {
+			rows, _ := node["Actual Rows"].(float64)
+			removed, _ := node["Rows Removed by Filter"].(float64)
+			loops, _ := node["Actual Loops"].(float64)
+			maxVisits := float64(300)
+			if node["Alias"] == "aw" {
+				// 收藏卡片的标题定位最多读取本合集三季，不把它误判为无关作品扫描。
+				maxVisits *= 3
+			}
+			if (rows+removed)*loops > maxVisits {
+				t.Fatalf("favorite scanned unrelated rows: relation=%v alias=%v type=%v rows=%v removed=%v loops=%v", node["Relation Name"], node["Alias"], node["Node Type"], rows, removed, loops)
+			}
+		}
+		children, _ := node["Plans"].([]any)
+		for _, child := range children {
+			inspectFavorite(child.(map[string]any))
+		}
+	}
+	inspectFavorite(plans[0].Plan)
+	queries = nil
+	inspectDetail = true
+	cards, cardTotal, err := e.repo.HongGuo.UserCards(t.Context(), "viewer", "favourites", 1, 10, repository.MediaQueryFilter{})
+	if err != nil || cardTotal != 1 || len(cards) != 1 {
+		t.Fatalf("favorite cards=%+v total=%d err=%v", cards, cardTotal, err)
+	}
+	inspectDetail = false
+	if len(queries) != 1 {
+		t.Fatalf("favorite card query not captured: %d", len(queries))
+	}
+	if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+queries[0].sql, queries[0].vars...).Scan(&favoritePlan); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(favoritePlan, &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("favorite card plan: %s %v", favoritePlan, err)
+	}
+	inspectFavorite(plans[0].Plan)
 	for _, mode := range []string{"title", "date", "latest", "latest-history"} {
 		latest := strings.HasPrefix(mode, "latest")
 		if mode == "latest-history" {
@@ -578,6 +634,7 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 		}
 	}
 	assertGlobalBrowsePlan(t, e)
+	assertGlobalFavoriteBrowsePlan(t, e)
 }
 
 func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
@@ -659,8 +716,10 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := db.Exec(`INSERT INTO hongguo_user_states (user_id,source_id,episode_number,favorite) VALUES ('viewer',?,0,true)`, works[1].SourceID).Error; err != nil {
-		t.Fatal(err)
+	for _, work := range []*model.HongGuoWork{works[1], works[4]} {
+		if err := e.repo.HongGuo.SetFavorite(ctx, "viewer", work.SourceID, true); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, user := range []string{"viewer", "other"} {
 		assertGlobalBrowseMatchesHierarchy(t, e, user)

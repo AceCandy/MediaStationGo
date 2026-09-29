@@ -14,8 +14,15 @@ import (
 
 // SetFavorite 按 Emby 作品身份保存收藏，MediaID 仅保留具体版本。
 func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, favorite bool) error {
-	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, &favorite, nil); handled {
+	if strings.HasPrefix(itemID, "hg-group-") {
+		_, err := e.repo.MediaView.HongGuoSeriesFavorite(ctx, userID, itemID, e.mediaQueryFilter(ctx, userID), &favorite)
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
 		return err
+	}
+	if strings.HasPrefix(itemID, "hg-season-") || strings.HasPrefix(itemID, "hg-episode-") {
+		return repository.ErrFavoriteUnsupportedType
 	}
 	target, err := e.itemTarget(ctx, itemID, userID)
 	if err != nil {
@@ -32,7 +39,11 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 		if target.SourceEpisode > 0 {
 			return repository.ErrFavoriteUnsupportedType
 		}
-		return e.repo.HongGuo.SetFavorite(ctx, userID, target.SourceID, favorite)
+		err := e.repo.HongGuo.SetFavorite(ctx, userID, target.SourceID, favorite)
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
 	}
 	if target.ItemID == "" || target.MetadataID == "" {
 		return errors.New("media not found")
@@ -72,7 +83,7 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		}
 		return err
 	}
-	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, nil, &played); handled {
+	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, &played); handled {
 		return err
 	}
 	metadata, err := e.repo.Metadata.FindByID(ctx, itemID)

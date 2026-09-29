@@ -87,6 +87,9 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	if err := repos.Media.Upsert(ctx, &seriesFile); err != nil {
 		t.Fatal(err)
 	}
+	if err := repos.HongGuo.SaveAlbum(ctx, seriesWork.SourceID, hongguo.Album{ID: "9000000000000000099", Season: 2}); err != nil {
+		t.Fatal(err)
+	}
 	// 无发现权限仍可从可见文件访问共享详情；锁定 profile 不得读写来源状态。
 	for _, tc := range []struct {
 		method, path, body, profile, want string
@@ -113,8 +116,20 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 			t.Fatalf("shared source detail %s %s: %d %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
 	}
-	if err := repos.HongGuo.SetFavorite(ctx, "user-1", seriesWork.SourceID, false); err != nil {
+	emby := service.NewEmbyService(svc.Cfg, zap.NewNop(), repos)
+	item, err := emby.Item(ctx, "hg-group-9000000000000000099", "user-1")
+	if err != nil || item == nil || item["UserData"].(map[string]any)["IsFavorite"] != true {
+		t.Fatalf("Web favorite missing in Emby: %+v %v", item, err)
+	}
+	if err := emby.SetFavorite(ctx, "user-1", "hg-group-9000000000000000099", false); err != nil {
 		t.Fatal(err)
+	}
+	webReq := httptest.NewRequest("GET", "/api/media/"+seriesFile.ID+"/series", nil)
+	webReq.Header.Set("Authorization", "Bearer "+signedProbeRoleToken(t, "hongguo-http-test", "user"))
+	webRec := httptest.NewRecorder()
+	router.ServeHTTP(webRec, webReq)
+	if webRec.Code != 200 || !strings.Contains(webRec.Body.String(), `"favourite":false`) {
+		t.Fatalf("Emby cancellation missing in Web: %d %s", webRec.Code, webRec.Body.String())
 	}
 	streamRequest := func(profileID string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/api/stream/"+m.ID, nil)

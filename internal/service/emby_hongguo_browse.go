@@ -87,7 +87,7 @@ SELECT n.id, CASE WHEN g.id IS NULL THEN 'hongguo:work:'||w.source_id
 FROM file_stats m JOIN hongguo_works w ON w.id=m.work_id
 LEFT JOIN hongguo_episodes ep ON ep.id=m.episode_id AND ep.work_id=w.id
 LEFT JOIN albums g ON w.kind='series' AND w.season_index>0 AND g.id=w.related_album_id
-LEFT JOIN hongguo_user_states f ON f.user_id=? AND f.source_id=w.source_id AND f.episode_number=0
+LEFT JOIN hongguo_favorites f ON f.user_id=? AND f.item_id=`+repository.HongGuoFavoriteIdentitySQL+`
 CROSS JOIN LATERAL (VALUES
  (CASE WHEN g.id IS NULL THEN 'hg-work-'||w.id ELSE 'hg-group-'||g.id END,
  CASE WHEN w.kind='movie' THEN 'movie' ELSE 'series' END, COALESCE(g.title,w.title)),

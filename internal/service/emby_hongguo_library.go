@@ -31,6 +31,11 @@ func (e *EmbyService) hongGuoWorkScope(ctx context.Context, p ItemsParams, dateA
 		Where("kind = 'series' AND related_album_id <> '' AND season_index > 0").
 		Select("related_album_id AS id, (ARRAY_AGG(title ORDER BY season_index,source_id))[1] AS title, MAX(latest_media_added_at) AS latest_at").
 		Group("related_album_id")
+	if containsEmbyFilter(p.Filters, "IsFavorite") {
+		// 只汇总收藏合集，但标题和时间仍包含其不可见成员。
+		albums = albums.Where(`related_album_id IN (SELECT SUBSTRING(item_id FROM 10)
+FROM hongguo_favorites WHERE user_id=? AND favorite AND item_id LIKE 'hg-group-%')`, p.UserID)
+	}
 	scoped = e.repo.DB.WithContext(ctx).Table("(?) w", scoped).
 		Joins("LEFT JOIN albums g ON w.kind = 'series' AND g.id = w.related_album_id").
 		Select(`w.work_id, w.source_id, w.rating, w.id, w.kind, COALESCE(g.title,w.title) AS title,
@@ -52,6 +57,13 @@ func (e *EmbyService) hongGuoWorkMembers(ctx context.Context, p ItemsParams, dat
 			Select("source_id, ARRAY_AGG(episode_number) AS episodes").Group("source_id")
 	}
 	scoped = db.Table("hongguo_works w").Where(repository.HongGuoReadyWorkSQL)
+	favorite := containsEmbyFilter(p.Filters, "IsFavorite")
+	if favorite {
+		// 与收藏卡片相同，先用源/合集索引定位成员，再校验收藏身份。
+		scoped = scoped.Joins(`JOIN hongguo_favorites fav ON fav.user_id=? AND fav.favorite
+AND (w.source_id=fav.item_id OR (fav.item_id LIKE 'hg-group-%' AND w.related_album_id=SUBSTRING(fav.item_id FROM 10)))
+AND `+repository.HongGuoFavoriteIdentitySQL+`=fav.item_id`, p.UserID)
+	}
 	if p.ParentID != "" {
 		scoped = repository.FilterWorkLibraries(scoped, "w.library_ids", e.mergedLibraryIDs(ctx, p.ParentID))
 	} else {
@@ -82,7 +94,7 @@ func (e *EmbyService) hongGuoWorkMembers(ctx context.Context, p ItemsParams, dat
 		}
 		scoped = scoped.Where("CASE WHEN w.library_ids IS NULL THEN EXISTS (? OFFSET 0) ELSE EXISTS (?) END", workFiles.Session(&gorm.Session{}).Select("1"), visible)
 	} else {
-		if p.ParentID == "" {
+		if p.ParentID == "" && !favorite {
 			// 全局日期排序必须读取全部可见文件日期，一次按源作品汇总避免逐作品随机回表。
 			stats := files.Session(&gorm.Session{}).Select("b.work_id, " + dateAggregate + "(m.created_at) AS created_at").Group("b.work_id")
 			scoped = scoped.Joins("JOIN (?) dates ON dates.work_id=w.id AND dates.created_at IS NOT NULL", stats)
@@ -271,7 +283,7 @@ func (e *EmbyService) hongGuoLibraryNodes(ctx context.Context, p ItemsParams, wo
  FILTER (WHERE a.id IS NOT NULL))[1],'') AS artwork_id
  FROM page_works w JOIN file_stats v ON v.work_id=w.work_id
  LEFT JOIN hongguo_artworks a ON a.work_id=w.work_id AND a.local_key <> ''
- LEFT JOIN hongguo_user_states f ON f.user_id=? AND f.source_id=w.source_id AND f.episode_number=0
+ LEFT JOIN hongguo_favorites f ON f.user_id=? AND f.item_id=CASE WHEN w.group_id IS NOT NULL THEN w.id ELSE w.source_id END
  GROUP BY w.id,w.kind,w.title,w.group_id`, works, states, files, stats, p.UserID).Scan(&nodes).Error
 	return nodes, err
 }

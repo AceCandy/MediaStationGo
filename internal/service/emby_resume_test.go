@@ -164,7 +164,7 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 	assertPage(p, 6, []string{"nfo-nfo-item-1", "hg-work-hongguo-item-1"})
 	p.SearchTerm = ""
 	create(&model.Favorite{UserID: user, MetadataID: "legacy-item-1", MediaID: "legacy-item-1-file"})
-	create(&model.HongGuoUserState{UserID: user, SourceID: "hongguo-item-1", EpisodeNumber: 0, Favorite: true})
+	create(&model.HongGuoFavorite{UserID: user, ItemID: "hongguo-item-1", Favorite: true})
 	if err := db.Model(&model.NFOUserState{}).Where("user_id = ? AND item_id = ?", user, "nfo-item-1").Update("favorite", true).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -16,7 +16,7 @@ func TestHongGuoOfficialAlbumsAndBackfill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(model.HongGuoModels()...); err != nil {
+	if err = db.AutoMigrate(append(model.HongGuoModels(), &model.HongGuoFavorite{})...); err != nil {
 		t.Fatal(err)
 	}
 	r, ctx := New(db).HongGuo, t.Context()

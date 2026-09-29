@@ -135,7 +135,7 @@ func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams
 	}
 	favorite := "FALSE"
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
-		q = q.Where("EXISTS (SELECT 1 FROM hongguo_user_states f WHERE f.user_id = ? AND f.source_id = w.source_id AND f.episode_number = 0 AND f.favorite)", p.UserID)
+		q = q.Where("EXISTS (SELECT 1 FROM hongguo_favorites f WHERE f.user_id = ? AND f.item_id = "+repository.HongGuoFavoriteIdentitySQL+" AND f.favorite)", p.UserID)
 		favorite = "TRUE"
 	}
 	// 合法合集成员自身已满足原 lateral 查询，归组键无需再次查找合集标题。

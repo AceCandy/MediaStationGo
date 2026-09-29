@@ -100,6 +100,11 @@ func (r *HongGuoRepository) SaveDetailWithChange(ctx context.Context, input hong
 		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"source_category", "kind", "title", "overview", "tags", "episode_count", "total_episodes", "accessible_episodes", "update_text", "source_status", "completed", "first_visible_at", "rating", "rating_count", "refreshed_at", "updated_at"})}, clause.Returning{}).Create(&work).Error; err != nil {
 			return err
 		}
+		if previous.Kind == model.MetadataKindMovie && work.Kind == model.MetadataKindSeries && work.RelatedAlbumID != "" && work.SeasonIndex > 0 {
+			if err := promoteHongGuoFavorite(tx, work.SourceID, work.RelatedAlbumID); err != nil {
+				return err
+			}
+		}
 		// 不删除已存在分集：上游临时缩短列表不应破坏绑定或观看身份。
 		episodes := make([]model.HongGuoEpisode, 0, work.EpisodeCount)
 		for number := 1; number <= work.EpisodeCount; number++ {

@@ -146,6 +146,74 @@ func assertGlobalBrowsePlan(t *testing.T, e *EmbyService) {
 	}
 }
 
+// 少量收藏不应在准确计数或取页时扫描全目录，也不应触发昂贵的 JIT 编译。
+func assertGlobalFavoriteBrowsePlan(t *testing.T, e *EmbyService) {
+	t.Helper()
+	db := e.repo.DB
+	type statement struct {
+		sql  string
+		vars []any
+	}
+	var queries []statement
+	if err := db.Callback().Row().After("gorm:row").Register("test:global-favorite-plan", func(tx *gorm.DB) {
+		if strings.HasPrefix(tx.Statement.SQL.String(), "WITH work_batch AS MATERIALIZED") {
+			queries = append(queries, statement{tx.Statement.SQL.String(), append([]any(nil), tx.Statement.Vars...)})
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Callback().Row().Remove("test:global-favorite-plan")
+	for _, sortBy := range []string{"DateLastContentAdded,SortName", "SortName", "DateCreated"} {
+		queries = nil
+		p := ItemsParams{UserID: "viewer", Recursive: true, IncludeItemTypes: []string{"Series"}, Filters: []string{"IsFavorite"},
+			SortBy: sortBy, SortOrder: "Descending", Limit: 30, Fields: []string{"BasicSyncInfo"}}
+		result, err := e.Items(t.Context(), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items := result["Items"].([]map[string]any)
+		if result["TotalRecordCount"] != int64(1) || len(items) != 1 || items[0]["Id"] != "hg-group-2000" || len(queries) != 2 {
+			t.Fatalf("favorite sort=%s total=%v items=%v queries=%d", sortBy, result["TotalRecordCount"], items, len(queries))
+		}
+		for phase, query := range append([]statement(nil), queries...) {
+			var raw []byte
+			if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON) "+query.sql, query.vars...).Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			type planNode struct {
+				Relation string     `json:"Relation Name"`
+				Rows     float64    `json:"Actual Rows"`
+				Removed  float64    `json:"Rows Removed by Filter"`
+				Loops    float64    `json:"Actual Loops"`
+				Plans    []planNode `json:"Plans"`
+			}
+			var plans []struct {
+				Plan          planNode
+				ExecutionTime float64 `json:"Execution Time"`
+				JIT           struct{ Functions int }
+			}
+			if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 {
+				t.Fatalf("favorite plan decode: %v", err)
+			}
+			visits := map[string]float64{}
+			var inspect func(planNode)
+			inspect = func(n planNode) {
+				if n.Relation != "" {
+					visits[n.Relation] += (n.Rows + n.Removed) * n.Loops
+				}
+				for _, child := range n.Plans {
+					inspect(child)
+				}
+			}
+			inspect(plans[0].Plan)
+			t.Logf("favorite sort=%s phase=%d execution=%.3f ms JIT functions=%d visits=%v", sortBy, phase, plans[0].ExecutionTime, plans[0].JIT.Functions, visits)
+			if visits["hongguo_works"] == 0 || visits["hongguo_works"] > 100 || visits["media"] > 1000 || visits["hongguo_media_bindings"] > 1000 || plans[0].JIT.Functions != 0 {
+				t.Fatal("favorite count/page scans unrelated catalog or triggers JIT")
+			}
+		}
+	}
+}
+
 func assertGlobalBrowseMatchesHierarchy(t *testing.T, e *EmbyService, user string) {
 	t.Helper()
 	ctx := t.Context()
@@ -162,6 +230,9 @@ func assertGlobalBrowseMatchesHierarchy(t *testing.T, e *EmbyService, user strin
 		{"PremiereDate", "Ascending", "", "", []string{"Movie", "Series"}},
 		{"DateCreated", "Descending", "IsPlayed", "", nil},
 		{"DateLastContentAdded", "Descending", "IsUnplayed", "", []string{"Series"}},
+		{"DateLastContentAdded,SortName", "Descending", "IsFavorite", "", []string{"Series"}},
+		{"DateCreated", "Descending", "IsFavorite", "", []string{"Movie", "Series"}},
+		{"SortName", "Ascending", "IsFavorite", "", []string{"Movie", "Series"}},
 		{"DatePlayed", "Ascending", "", "", []string{"Season", "Episode"}},
 		{"CommunityRating", "Descending", "IsFavorite", "", nil},
 		{"PremiereDate", "Descending", "IsUnplayed", "同名", []string{"Movie", "Series"}},

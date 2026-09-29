@@ -1,5 +1,79 @@
 # HongGuoDB Catalog Isolation
 
+## Album favorite persistence
+
+### 1. Scope / Trigger
+
+Web library favorites, Emby favorites, source-state compatibility reads, search
+and favorite-card queries must agree on the album as the favorite object.
+
+### 2. Signatures
+
+`HongGuoSeriesFavorite` validates the requested visible series and reads/writes
+`hongguo_favorites(user_id,item_id,favorite,updated_at)`. The shared runtime
+identity expression is `HongGuoFavoriteIdentitySQL`; `UserState(...,0)` remains
+a compatibility DTO, not a playback-state read.
+
+### 3. Contracts
+
+- Persist one `hg-group-<albumID>` row per user/album, not one row per currently
+  visible member. New seasons inherit the album favorite without any copying.
+- Movies/unresolved sources use stable source IDs. `SaveAlbum` promotes source
+  rows in its relation transaction; changing a movie to a series with an already
+  known album does the same in `SaveDetailWithChange`. A preexisting album state wins. Do not move
+  an album favorite when an individual source changes albums.
+- Keep user data outside catalog cleanup. File removal only hides cards until
+  another member becomes visible; playback state/events remain source-grained.
+- The startup migration groups episode-0 rows by user/new identity using
+  `BOOL_OR`, retains the newest timestamp and orphan source IDs, then deletes
+  only migrated episode-0 rows in the same transaction. Existing new-table
+  cancellations take precedence; repeated startup cannot revive old favorites.
+- Resolve visible membership with native target-work/album predicates and
+  indexed file existence (`OFFSET 0`); do not expand nodes, episodes, artwork
+  or playback state for a favorite write. All read consumers use the same key.
+- Global Movie/Series `IsFavorite` candidates must restrict source/album members
+  from the current user's active favorites before visibility and aggregation.
+  `hongGuoWorkScope` aggregates title/global latest time only for those albums,
+  retaining all valid members, including hidden/fileless seasons. File-date
+  sorts aggregate only favorite members' visible files. Preserve the shared
+  count/page snapshot and ordinary/NFO identity, eligibility and count rules.
+- Schema downgrade requires backup restoration or an explicit reverse migration;
+  rolling back only the executable would hide the new-table favorites.
+
+### 4. Validation & Error Matrix
+
+Invisible/missing album -> no write; locked-empty profile -> no write;
+Season/Episode -> unsupported (400); repeated favorite/cancel -> idempotent.
+An unresolved legacy work detail can use its source identity until `SaveAlbum`.
+
+### 5. Good / Base / Bad Cases
+
+Good: favorite an album while only season 5 has files, then replace those files
+with season 6 and retain one favorite. Bad: save all currently visible source
+IDs and infer the album favorite with `BOOL_OR` over those source rows.
+
+### 6. Tests Required
+
+`TestMigrateHongGuoFavorites`, `TestHongGuoAlbumFavoriteIdentity`, and
+`TestHongGuoHTTPAccessAndStateIsolation` cover migration, user/visibility isolation,
+late members and bidirectional Web/Emby state. `TestHongGuoLibraryPagePlan`
+checks the actual favorite SQL plan against 600,000 bound files, not just query
+count or elapsed time, and bounds favorite-card member lookups with native source/
+album index predicates. Run existing movie, search, favorite and resume regressions.
+The same fixture calls `assertGlobalFavoriteBrowsePlan` through `Items` with
+`Series + IsFavorite + DateLastContentAdded,SortName` and accurate count, plus
+title/file-date sorts. Capture count and page SQL separately: one favorite among
+10,000 works/600,000 files must visit at most 100 work rows, at most 1,000
+file/binding rows and compile no JIT functions. Verify source-movie favorites,
+hidden/locked users, cancellations, mixed-source order and out-of-range totals
+against the hierarchy oracle. Favorite writes and Web cards do not cover this
+global count path; use timed EXPLAIN to distinguish scan cost from JIT cost.
+
+### 7. Wrong vs Correct
+
+Wrong: `hongGuoNodes(...).Where("id = ?", albumID)` followed by per-source writes.
+Correct: target-indexed visible-file existence followed by one favorite upsert.
+
 ## 1. Scope / Trigger
 
 Apply when changing HongGuo collection, file binding, grouping, user state,
@@ -17,7 +91,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - `hongguo_discoveries.source_category` and `hongguo_works.source_category`
   contain `real-drama|comic-drama|ai-drama`, or empty for legacy/direct-ID rows.
   The former `comic` source is not collected or shown; existing rows are retained.
-- User-owned tables: `hongguo_user_states`, `hongguo_playback_events`.
+- User-owned tables: `hongguo_favorites`, `hongguo_user_states`, `hongguo_playback_events`.
 - Shared file: `media.catalog_source=hongguo`, `lookup_catalog_id` is the
   upstream string ID, `metadata_id` must remain NULL (database CHECK).
 - File convention: `[hongguo-<sourceID>]`, source season `S01`, source episode
@@ -216,8 +290,11 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - Disabling stops source tasks and new bindings; a disabled file upsert rolls
   back rather than replacing an existing binding. Existing files, metadata and
   user state remain readable. No destructive uninstall is provided.
-- Official albums only change presentation. State key is `(user_id, source_id,
-  episode_number)`: episode 0 is work favorite, episode 1 is also movie progress.
+- Playback state key is `(user_id, source_id, episode_number)`; episode 1 is also
+  movie progress. Favorites use `(user_id,item_id)` in `hongguo_favorites`:
+  `hg-group-<albumID>` for grouped series, stable source ID for movies/unresolved
+  works. Startup atomically merges legacy episode-0 favorites and removes only
+  those legacy rows; existing new-table states win, including cancellations.
   Events are unique per user/session/source/episode and survive file deletion
   and manual unwatch. User tables are excluded from `HongGuoModels()`.
 - Apply file/profile visibility before logical grouping, count and pagination.
@@ -865,9 +942,10 @@ Pending or failed album checks may temporarily retain standalone `hg-work-<UUID>
 identities. Once the source successfully confirms no album, persist its source ID
 as the album ID and season 1; display it as `hg-group-<sourceID>`. This approved
 normalization changes the card identity and requires client list refresh, but
-never changes source/episode IDs, playback state or favorites.
-Playback and favorites keep source/user keys. Whole-series favorites affect only
-visible member sources; movies use the existing source favorite API. Disable old
+never changes source/episode IDs or playback state. `SaveAlbum` atomically promotes
+unresolved source favorites to the album identity; existing album favorites do not
+move with individual members. Whole-series favorites belong to the album, not a
+snapshot of visible members; movies retain stable source IDs. Disable old
 metadata editing and TMDb/Douban controls for HongGuo while retaining file operations.
 
 ### 4. Validation & Error Matrix

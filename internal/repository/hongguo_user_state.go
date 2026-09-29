@@ -34,6 +34,14 @@ func (r *HongGuoRepository) RecordProgress(ctx context.Context, userID, sessionI
 
 func (r *HongGuoRepository) UserState(ctx context.Context, userID, sourceID string, episode int, filters ...MediaQueryFilter) (model.HongGuoUserState, error) {
 	state := model.HongGuoUserState{UserID: userID, SourceID: sourceID, EpisodeNumber: episode}
+	if episode == 0 {
+		itemID, err := hongGuoFavoriteItemID(r.db.WithContext(ctx), sourceID)
+		if err != nil {
+			return state, err
+		}
+		state.Favorite, err = hongGuoFavorite(r.db.WithContext(ctx), userID, itemID, nil)
+		return state, err
+	}
 	filter := MediaQueryFilter{}
 	if len(filters) > 0 {
 		filter = filters[0]
@@ -49,8 +57,45 @@ func (r *HongGuoRepository) SetFavorite(ctx context.Context, userID, sourceID st
 	if userID == "" || !hongguo.ValidID(sourceID) {
 		return errors.New("红果收藏参数无效")
 	}
-	state := model.HongGuoUserState{UserID: userID, SourceID: sourceID, Favorite: favorite}
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"favorite", "updated_at"})}).Create(&state).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 与 SaveAlbum 共用作品行锁，避免补齐合集与源收藏同时发生时遗漏提升。
+		itemID, err := hongGuoFavoriteItemID(tx.Clauses(clause.Locking{Strength: "UPDATE"}), sourceID)
+		if err != nil {
+			return err
+		}
+		_, err = hongGuoFavorite(tx, userID, itemID, &favorite)
+		return err
+	})
+}
+
+func hongGuoFavoriteItemID(db *gorm.DB, sourceID string) (string, error) {
+	itemID := sourceID
+	err := db.Table("hongguo_works w").Where("w.source_id = ?", sourceID).Select(HongGuoFavoriteIdentitySQL).Scan(&itemID).Error
+	return itemID, err
+}
+
+// promoteHongGuoFavorite 与归组/类型更新共用事务；合集收藏不随单个成员改组而迁走。
+func promoteHongGuoFavorite(tx *gorm.DB, sourceID, albumID string) error {
+	if err := tx.Exec(`INSERT INTO hongguo_favorites (user_id,item_id,favorite,updated_at)
+SELECT user_id, ?, favorite, updated_at FROM hongguo_favorites WHERE item_id = ?
+ON CONFLICT (user_id,item_id) DO NOTHING`, "hg-group-"+albumID, sourceID).Error; err != nil {
+		return err
+	}
+	return tx.Where("item_id = ?", sourceID).Delete(&model.HongGuoFavorite{}).Error
+}
+
+func hongGuoFavorite(db *gorm.DB, userID, itemID string, favorite *bool) (bool, error) {
+	state := model.HongGuoFavorite{UserID: userID, ItemID: itemID}
+	if favorite == nil {
+		err := db.Where("user_id = ? AND item_id = ?", userID, itemID).Take(&state).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return state.Favorite, err
+	}
+	state.Favorite = *favorite
+	err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "item_id"}}, DoUpdates: clause.AssignmentColumns([]string{"favorite", "updated_at"})}).Create(&state).Error
+	return state.Favorite, err
 }
 
 func (r *HongGuoRepository) MarkPlayed(ctx context.Context, userID string, media model.MediaView, played bool) error {
@@ -88,33 +133,44 @@ func (r *HongGuoRepository) UserCards(ctx context.Context, userID, tab string, p
 	if userID == "" || (tab != "favourites" && tab != "history" && tab != "continue") || page < 1 || page > 1000000 || size < 1 || size > 100 {
 		return nil, 0, errors.New("用户资料查询参数无效")
 	}
-	q := r.db.WithContext(ctx).Table("(?) AS s", PlaybackStates(ctx, r.db, "hongguo", userID, filter)).
-		Joins("JOIN hongguo_works w ON w.source_id = s.source_id").
-		Joins("JOIN hongguo_media_bindings b ON b.work_id = w.id").
-		Joins("JOIN media m ON m.id = b.media_id AND m.catalog_source = 'hongguo'").
-		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id").
-		Joins(HongGuoAlbumJoin).
-		Where("s.user_id = ?", userID)
+	q := r.db.WithContext(ctx)
 	if tab == "favourites" {
-		q = q.Where("s.episode_number = 0 AND s.favorite")
+		// 原生索引先定位收藏成员，不能只用 CASE 身份连接而扫描所有作品。
+		q = q.Table("hongguo_favorites s").Joins(`JOIN hongguo_works w ON
+(w.source_id = s.item_id OR (s.item_id LIKE 'hg-group-%' AND w.related_album_id = SUBSTRING(s.item_id FROM 10)))
+AND ` + HongGuoFavoriteIdentitySQL + " = s.item_id").Where("s.favorite")
 	} else {
+		q = q.Table("(?) AS s", PlaybackStates(ctx, r.db, "hongguo", userID, filter)).Joins("JOIN hongguo_works w ON w.source_id = s.source_id")
 		q = q.Where("s.episode_number > 0 AND s.episode_number = COALESCE(ep.number,1) AND s.watched_at IS NOT NULL")
 		if tab == "continue" {
 			q = q.Where("s.position_ms > 0")
 		}
 	}
+	q = q.
+		Joins("JOIN hongguo_media_bindings b ON b.work_id = w.id").
+		Joins("JOIN media m ON m.id = b.media_id AND m.catalog_source = 'hongguo'").
+		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id").
+		Joins(HongGuoAlbumJoin).
+		Where("s.user_id = ?", userID)
 	if len(filter.AllowedLibraryIDs) > 0 {
 		q = q.Where("m.library_id = ANY(?)", &filter.AllowedLibraryIDs)
 	}
 	if len(filter.HiddenLibraryIDs) > 0 {
 		q = q.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
-	key := "CASE WHEN s.episode_number = 0 AND g.id IS NOT NULL THEN g.id ELSE s.source_id || ':' || s.episode_number END"
+	key := "s.source_id || ':' || s.episode_number"
+	fields := "s.episode_number, s.position_ms, s.duration_ms, s.completed"
+	order := "s.updated_at DESC, CASE WHEN m.id = s.media_id THEN 0 ELSE 1 END, m.id"
+	if tab == "favourites" {
+		key = "s.item_id"
+		fields = "0 AS episode_number, 0 AS position_ms, 0 AS duration_ms, FALSE AS completed"
+		order = "w.season_index, w.source_id, m.id"
+	}
 	if tab == "continue" {
 		// 继续观看按展示剧集聚合；完整历史仍保留每个源分集。
 		key = "CASE WHEN g.id IS NOT NULL THEN 'group:' || g.id ELSE 'work:' || s.source_id END"
 	}
-	q = q.Select("DISTINCT ON (" + key + ") s.source_id, COALESCE(g.title,w.title) AS title, w.kind, m.id AS media_id, CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END AS season_number, s.episode_number, s.position_ms, s.duration_ms, s.completed, s.updated_at").Order(key + ", s.updated_at DESC, CASE WHEN m.id = s.media_id THEN 0 ELSE 1 END, m.id")
+	q = q.Select("DISTINCT ON (" + key + ") w.source_id, COALESCE(g.title,w.title) AS title, w.kind, m.id AS media_id, CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END AS season_number, " + fields + ", s.updated_at").Order(key + ", " + order)
 	outer := r.db.WithContext(ctx).Table("(?) AS cards", q)
 	var total int64
 	if err := outer.Count(&total).Error; err != nil {

@@ -25,7 +25,7 @@ func (e *EmbyService) globalBatchCandidates(ctx context.Context, p ItemsParams, 
 	if containsOnlyFavoriteItemTypes(globalItemKinds(p)) && !strings.HasPrefix(globalItemsOrder(p), "played_at ") {
 		scoped, albums, _ := e.hongGuoWorkScope(ctx, base, globalWorkDateAggregate(p))
 		works := db.Table("(?) s", scoped).
-			Joins("LEFT JOIN hongguo_user_states fav ON fav.source_id=s.source_id AND fav.user_id=? AND fav.episode_number=0", p.UserID).
+			Joins("LEFT JOIN hongguo_favorites fav ON fav.item_id=CASE WHEN s.id LIKE 'hg-group-%' THEN s.id ELSE s.source_id END AND fav.user_id=?", p.UserID).
 			Select(`s.id, s.kind, s.title, MAX(s.created_at) AS created_at, MAX(s.latest_at) AS latest_at,
 NULL::timestamp AS played_at, BOOL_OR(COALESCE(fav.favorite,FALSE)) AS favorite,
 CASE WHEN s.id LIKE 'hg-group-%' THEN 0 ELSE MAX(s.rating) END AS rating, '' AS release_date, 0 AS year,

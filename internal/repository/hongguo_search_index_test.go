@@ -116,7 +116,7 @@ func TestHongGuoSearchIndexLifecycleAndVisibility(t *testing.T) {
 	filter.LibraryRestricted = false
 	filter.FavoriteUserID = "viewer"
 	assertResult(0)
-	if err := repos.DB.Create(&model.HongGuoUserState{UserID: "viewer", SourceID: second.SourceID, Favorite: true}).Error; err != nil {
+	if err := repos.HongGuo.SetFavorite(ctx, "viewer", second.SourceID, true); err != nil {
 		t.Fatal(err)
 	}
 	assertResult(1)
