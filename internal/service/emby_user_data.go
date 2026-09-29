@@ -59,6 +59,12 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 
 // MarkPlayed 按作品身份标记已看，并保留当前具体版本。
 func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, played bool) error {
+	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, played); handled {
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
+	}
 	views, err := e.mediaViewsForItemID(ctx, itemID, userID)
 	if err != nil {
 		return err
@@ -83,9 +89,6 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		}
 		return err
 	}
-	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, &played); handled {
-		return err
-	}
 	metadata, err := e.repo.Metadata.FindByID(ctx, itemID)
 	if err != nil {
 		return err
@@ -106,7 +109,11 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		if media == nil {
 			return errors.New("media not found")
 		}
-		return e.repo.HongGuo.MarkPlayed(ctx, userID, *media, played)
+		err = e.repo.HongGuo.MarkPlayed(ctx, userID, *media, played)
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
 	}
 	if err != nil || target.MetadataID == "" || target.MediaID == "" {
 		return errors.New("media not found")

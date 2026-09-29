@@ -48,6 +48,11 @@ func (e *EmbyService) hongGuoNodes(ctx context.Context, userID, libraryID string
 // hongGuoItemNodes 在层级聚合前限定目标身份的文件，供详情和季集浏览共用。
 // 外层仍按节点身份筛选；不能把已入合集的旧 work 身份重新暴露为独立作品。
 func (e *EmbyService) hongGuoItemNodes(ctx context.Context, userID string, ids ...string) *gorm.DB {
+	return e.hongGuoFileNodes(ctx, userID, e.hongGuoItemFiles(ctx, userID, ids...))
+}
+
+// hongGuoItemFiles 共用原生身份和文件权限范围，写状态无需展开展示节点。
+func (e *EmbyService) hongGuoItemFiles(ctx context.Context, userID string, ids ...string) *gorm.DB {
 	bindings := e.repo.DB.WithContext(ctx).Table("hongguo_media_bindings scoped_binding").Select("scoped_binding.media_id")
 	var groups, works, episodes []string
 	for _, id := range ids {
@@ -78,7 +83,7 @@ func (e *EmbyService) hongGuoItemNodes(ctx context.Context, userID string, ids .
 		}
 	}
 	files := e.hongGuoVisibleFiles(ctx, userID, "").Where("m.id IN (?)", bindings)
-	return e.hongGuoFileNodes(ctx, userID, e.repo.DB.Raw("? OFFSET 0", files))
+	return e.repo.DB.Raw("? OFFSET 0", files)
 }
 
 func (e *EmbyService) hongGuoVisibleFiles(ctx context.Context, userID, libraryID string) *gorm.DB {
@@ -431,57 +436,49 @@ func lowerStrings(values []string) []string {
 }
 
 // hongGuoContainerMutation 仅更改当前可见且有文件的成员，状态仍使用源作品及源集号。
-func (e *EmbyService) hongGuoContainerMutation(ctx context.Context, userID, id string, played *bool) (bool, error) {
-	if !strings.HasPrefix(id, "hg-") {
+func (e *EmbyService) hongGuoContainerMutation(ctx context.Context, userID, id string, played bool) (bool, error) {
+	if !strings.HasPrefix(id, "hg-") || strings.HasPrefix(id, "hg-episode-") {
 		return false, nil
 	}
-	var nodes []hongGuoNode
-	if err := e.hongGuoNodes(ctx, userID, "").Where("id = ?", id).Limit(1).Scan(&nodes).Error; err != nil {
-		return true, err
-	}
-	if len(nodes) == 0 {
+	query := e.repo.DB.WithContext(ctx).Table("(?) AS m", e.hongGuoItemFiles(ctx, userID, id)).
+		Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
+		Joins("JOIN hongguo_works w ON w.id = b.work_id").
+		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
+		Joins("LEFT JOIN media_probe_metadata pm ON pm.media_id = m.id")
+	switch {
+	case strings.HasPrefix(id, "hg-season-"):
+		query = query.Where("w.kind = 'series'")
+	case strings.HasPrefix(id, "hg-work-"):
+		// 合集成员不再接受旧的独立作品身份。
+		query = query.Where("w.kind = 'movie' OR COALESCE(w.related_album_id,'') = '' OR COALESCE(w.season_index,0) <= 0")
+	case strings.HasPrefix(id, "hg-group-"):
+	default:
 		return true, errors.New("media not found")
 	}
-	node := nodes[0]
-	if node.Kind == "Movie" || node.Kind == "Episode" {
-		return false, nil
-	}
-	seasons := e.hongGuoNodes(ctx, userID, "").Select("id").Where("kind = 'Season'")
-	if node.Kind == "Season" {
-		seasons = seasons.Where("id = ?", id)
-	} else {
-		seasons = seasons.Where("parent_id = ?", id)
-	}
-	if played == nil {
-		return true, errors.New("missing mutation")
-	}
-	children := e.hongGuoNodes(ctx, userID, "").Where("kind = 'Episode' AND parent_id IN (?)", seasons)
+	// 与节点 MIN(media_id) 保持相同的多版本代表；只读取写状态所需字段。
+	query = query.Select(`DISTINCT ON (w.id,ep.id) m.id,m.catalog_source,m.lookup_catalog_id,
+w.kind AS view_metadata_kind,COALESCE(ep.number,0) AS view_episode_num,
+COALESCE(pm.duration_ms,0) AS view_probe_duration_ms`).Order("w.id,ep.id,m.id")
+	handled := true
 	err := e.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		repos := repository.New(tx)
-		after := ""
-		for {
-			var batch []hongGuoNode
-			if err := tx.Table("(?) AS children", children).Where("id > ?", after).Order("id").Limit(100).Scan(&batch).Error; err != nil {
-				return err
-			}
-			if len(batch) == 0 {
-				return nil
-			}
-			ids := make([]string, len(batch))
-			for i, child := range batch {
-				ids[i] = child.MediaID
-			}
-			views, err := repos.MediaView.FindByIDs(ctx, ids, e.mediaQueryFilter(ctx, userID))
-			if err != nil {
-				return err
-			}
-			for _, view := range views {
-				if err := repos.HongGuo.MarkPlayed(ctx, userID, view, *played); err != nil {
-					return err
-				}
-			}
-			after = batch[len(batch)-1].ID
+		var views []model.MediaView
+		if err := tx.Table("(?) AS targets", query).Scan(&views).Error; err != nil {
+			return err
 		}
+		if len(views) == 0 {
+			return errors.New("media not found")
+		}
+		if views[0].MetadataKind == model.MetadataKindMovie {
+			handled = false
+			return nil
+		}
+		episodes := views[:0]
+		for _, view := range views {
+			if view.EpisodeNum > 0 {
+				episodes = append(episodes, view)
+			}
+		}
+		return repository.New(tx).HongGuo.MarkPlayedBatch(ctx, userID, episodes, played)
 	})
-	return true, err
+	return handled || err != nil, err
 }

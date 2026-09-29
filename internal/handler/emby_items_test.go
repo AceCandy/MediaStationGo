@@ -419,4 +419,48 @@ func TestEmbyHongGuoDetailClickRoutes(t *testing.T) {
 			}
 		}
 	}
+	// 覆盖大量分集的写入及成功后的 UserData 查询，不能只验写入耗时。
+	for _, sql := range []string{
+		`INSERT INTO hongguo_episodes (id,work_id,number) SELECT 'bulk-episode-'||n,'work-1',n FROM generate_series(2,528) n`,
+		`INSERT INTO media (id,library_id,catalog_source,lookup_catalog_id,path,episode_num)
+SELECT 'bulk-file-'||n,'library','hongguo','1001','/test/hg/bulk/'||n,n FROM generate_series(2,528) n`,
+		`INSERT INTO hongguo_media_bindings (media_id,work_id,episode_id)
+SELECT 'bulk-file-'||n,'work-1','bulk-episode-'||n FROM generate_series(2,528) n`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"hg-season-work-1", "hg-group-album"} {
+		for _, method := range []string{http.MethodPost, http.MethodDelete} {
+			request := httptest.NewRequest(method, "/emby/Users/user-1/PlayedItems/"+id, nil)
+			request.Header.Set("X-Emby-Token", token)
+			response := httptest.NewRecorder()
+			started := time.Now()
+			router.ServeHTTP(response, request)
+			t.Logf("528-episode HTTP %s %s: %s", method, id, time.Since(started))
+			var data struct {
+				Played            bool
+				UnplayedItemCount *int
+			}
+			wantUnplayed := 0
+			if method == http.MethodDelete {
+				wantUnplayed = 528
+				if id == "hg-group-album" {
+					wantUnplayed++
+				}
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &data); err != nil || response.Code != http.StatusOK || data.Played != (method == http.MethodPost) || data.UnplayedItemCount == nil || *data.UnplayedItemCount != wantUnplayed {
+				t.Fatalf("%s %s: status=%d data=%s err=%v", method, id, response.Code, response.Body.String(), err)
+			}
+			var completed int64
+			wantCompleted := int64(0)
+			if data.Played {
+				wantCompleted = 528
+			}
+			if err := db.Model(&model.HongGuoUserState{}).Where("user_id = 'user-1' AND source_id = '1001' AND completed").Count(&completed).Error; err != nil || completed != wantCompleted {
+				t.Fatalf("response differs from episode states: completed=%d err=%v", completed, err)
+			}
+		}
+	}
 }

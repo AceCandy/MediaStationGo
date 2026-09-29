@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -99,20 +100,38 @@ func hongGuoFavorite(db *gorm.DB, userID, itemID string, favorite *bool) (bool, 
 }
 
 func (r *HongGuoRepository) MarkPlayed(ctx context.Context, userID string, media model.MediaView, played bool) error {
-	if userID == "" || media.ID == "" || media.CatalogSource != model.TaskSystemHongGuo || !hongguo.ValidID(media.LookupCatalogID) {
-		return errors.New("红果已看参数无效")
+	return r.MarkPlayedBatch(ctx, userID, []model.MediaView{media}, played)
+}
+
+// MarkPlayedBatch 原子更新已按源作品/集号去重的可见分集，不生成或删除播放事件。
+func (r *HongGuoRepository) MarkPlayedBatch(ctx context.Context, userID string, media []model.MediaView, played bool) error {
+	if len(media) == 0 {
+		return nil
 	}
-	if !played {
-		return r.db.WithContext(ctx).Where("user_id = ? AND source_id = ? AND episode_number = ?", userID, media.LookupCatalogID, max(1, media.EpisodeNum)).Delete(&model.HongGuoUserState{}).Error
-	}
+	states := make([]model.HongGuoUserState, 0, len(media))
 	now := time.Now()
-	state := model.HongGuoUserState{UserID: userID, SourceID: media.LookupCatalogID, EpisodeNumber: max(1, media.EpisodeNum), MediaID: media.ID, Completed: played}
-	if played {
-		state.WatchedAt = &now
-		state.DurationMs = media.ProbeDurationMS
-		state.PositionMs = media.ProbeDurationMS
+	for _, view := range media {
+		if userID == "" || view.ID == "" || view.CatalogSource != model.TaskSystemHongGuo || !hongguo.ValidID(view.LookupCatalogID) {
+			return errors.New("红果已看参数无效")
+		}
+		states = append(states, model.HongGuoUserState{UserID: userID, SourceID: view.LookupCatalogID, EpisodeNumber: max(1, view.EpisodeNum), MediaID: view.ID,
+			Completed: true, WatchedAt: &now, DurationMs: view.ProbeDurationMS, PositionMs: view.ProbeDurationMS})
 	}
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "resume_position_ms", "completed", "watched_at", "updated_at"})}).Create(&state).Error
+	if played {
+		return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "resume_position_ms", "completed", "watched_at", "updated_at"})}).CreateInBatches(&states, 500).Error
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for batch := range slices.Chunk(states, 500) {
+			keys := make([][]any, 0, len(batch))
+			for _, state := range batch {
+				keys = append(keys, []any{state.SourceID, state.EpisodeNumber})
+			}
+			if err := tx.Where("user_id = ? AND (source_id,episode_number) IN ?", userID, keys).Delete(&model.HongGuoUserState{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // HongGuoUserCard 按当前可见文件展示用户状态，不公开其他用户及来源原始地址。

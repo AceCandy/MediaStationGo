@@ -168,6 +168,15 @@ per-user, per-metadata history state but playback events are append-only.
   Season affects only its own episodes (including season zero). Missing and
   invisible episodes and other users' history remain unchanged; no events
   are added or deleted. Batch upserts use the active history identity index.
+- HongGuo container mutations reuse `hongGuoItemFiles` for native target IDs
+  and visibility, then select one minimum file ID per bound source episode.
+  Preserve obsolete grouped-work rejection and containers with no bound episodes
+  as no-ops. Do not expand `hongGuoNodes`, artwork, favorites or effective playback
+  state just to locate mutation targets. `HongGuoRepository.MarkPlayedBatch`
+  accepts already-deduplicated visible views; use 500-row upserts/deletes under
+  the enclosing transaction, retaining `(user_id,source_id,episode_number)`.
+  A later batch failure rolls back all earlier writes, including unwatch deletes.
+  Movie/Episode paths still validate visible identities and invalidate item caches.
 - Series/Season `Played` is derived from all visible file-backed episodes,
   not the container's legacy history row. New episodes start unplayed.
   Detail and list payloads agree; lists use one current-page aggregate query,
@@ -295,6 +304,16 @@ per-user, per-metadata history state but playback events are append-only.
 - `TestEmbyPlayedHierarchyScopeAndRollback` covers season isolation, season
   zero, multi-version deduplication, missing/hidden children, legacy parent
   history, child-to-parent aggregation, and transactional rollback.
+- `TestHongGuoContainerPlayedScopeAndRollback` covers 528 episodes per season,
+  alternate versions, hidden/fileless episodes, locked profiles, source/user
+  isolation, repeated mark/unmark, representative durations, cache invalidation,
+  newly added episodes, event/favorite preservation and second-batch rollback.
+  `TestHongGuoLibraryPagePlan` exercises the actual mutation entry with 600,000
+  bound files: one target read, no display/state joins or JIT, and table visits
+  bounded by the requested season/album, not total catalog size.
+  `TestEmbyHongGuoDetailClickRoutes` checks 528-episode POST/DELETE and returned
+  UserData, including the post-write detail query. Test timings are not deployed
+  player end-to-end measurements.
 - Cover the Emby concrete-source fast path with a query callback asserting no
   SQL contains `metadata_identifiers`, plus a mismatched-source ownership case.
 - `TestEmbyProgressClampsProbeDuration` covers missing-runtime end reports with
