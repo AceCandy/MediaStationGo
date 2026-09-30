@@ -12,6 +12,11 @@ confirmed there are no existing NFO libraries.
 - `NFORepository.Ingest(ctx, media, input) (changed bool, err error)` writes
   independent items and file snapshots transactionally; source is `nfo`, with
   NULL `media.metadata_id`.
+- `NFORepository.IngestWithResult(ctx, media, input) (changed, added bool, err error)`
+  exposes the same transaction plus committed file-creation classification.
+  The original `Ingest` signature delegates to it for existing callers.
+- `NFORepository.ScanInputs(ctx, media) (manifest string, compatible bool, err error)`
+  reads same-library NFO dependencies and current scan-fact compatibility.
 - Scans and file events use common kinds `scan`/`watch` and definitions
   `library_scan`/`library_watch`, including NFO and HongGuo libraries.
 - `POST /api/tasks/definitions/library_scan/run` requires `{library_id: string}`.
@@ -54,6 +59,49 @@ confirmed there are no existing NFO libraries.
   file facts and snapshot fingerprint do not rewrite accepted snapshots.
   File-size/mtime changes invalidate complete probe documents in the same
   transaction. Invalid/missing NFO retains the previous binding and snapshot.
+- Full/root scans pass their existing recognition batch to the NFO media
+  builder, reloading settings/rules at most every 100 constructions and at root
+  flush. Single-file events read current settings independently. NFO/image
+  dependencies are checked even when the video size/mtime is unchanged. These
+  scans skip the unused ordinary existing-media snapshot.
+- Scanner Added/Updated uses `IngestWithResult`, with `added` determined by the
+  path read after the advisory lock and source/library validation. Both result
+  flags are false on transaction failure/cancellation. Do not replace its
+  locked path read with a cached existence check or weaken shared upsert's
+  conflict ownership revalidation. No extra transaction-external path read is
+  performed only for statistics.
+- `NFOMediaBinding.ScanInputs` is a nullable text success manifest, hidden from
+  JSON and excluded from the accepted-content fingerprint. Legacy/invalid/unknown
+  manifests require a full read. Bump the manifest version when selection or
+  derived-input contracts change. Only successful, stable reads can replace it;
+  errors keep accepted metadata and the previous successful manifest.
+- NFO scan readers share parsed documents, poster dimensions and prepared assets
+  within the existing 100-file batch, clearing at root flush. Cache entries are
+  bounded to 512 per map. Every hit checks current file versions; prepared assets
+  are value copies so GORM-generated IDs/times cannot contaminate fingerprints.
+  Errors are not memoized. Ordinary local-metadata readers use the nil path.
+- Linux dependency versions contain device/inode, ctime, mtime, size and mode;
+  unsupported platforms fall back to full reads. Track media, visited existing
+  NFO/image candidates (including rejected landscape posters), XML references,
+  candidate directories and managed asset files. Record directory versions before
+  probing missing candidates; missing directories use the nearest existing parent.
+  Broken symlinks disable skipping because their targets can recover elsewhere.
+  Glob retains existing pattern semantics and tracks matching directory parents.
+- After media construction, `NFORepository.ScanInputs` performs one lightweight
+  path lookup with source/library ownership; its compatibility flag additionally
+  checks file facts, status and root/relative path. Matching construction-context SHA-256,
+  dependencies and current local-image path permissions allow skipping XML,
+  image preparation and the write transaction. Misses retain all original
+  transaction locks and ownership/conflict checks; cached existence never decides
+  an Added result. Read-only skip ownership is observed at that SELECT; a later
+  concurrent deletion/transfer does not resurrect or write the media. All actual
+  changes still use locked transaction ownership checks. Recognition/STRM reads
+  still run before this skip. Failed JSON decoding clears the whole manifest.
+- Changed dependency versions with the same content fingerprint update only
+  `scan_inputs`, leaving metadata, UpdatedAt and Updated counts intact. Successful
+  video identity/ctime changes also use the original probe invalidation path.
+  A missing managed image forces preparation to restore it when its source exists.
+  Unstable reads or more than 512 dependencies do not persist a skip manifest.
 - Valid unrelated XML is not accepted as an empty NFO. Explicit season zero is
   supported; missing/invalid seasons are not silently converted into specials.
 - Adult visibility is library-scoped. Items, bindings and snapshots have no
@@ -135,6 +183,19 @@ claim complete isolation while the scanner still uses the old writer.
 
 `TestNFORepositoryPreservesFilesAndPreviousSnapshot` covers repeat/changed
 snapshots, invalid-NFO preservation, independent views and library filters.
+`TestNFOScanBatchesRecognitionAndAvoidsRedundantReads` covers 101-file movie/TV
+full/root scans, bounded setting reads, zero ordinary snapshot reads, zero NFO
+write locks on a Linux unchanged rescan, sidecar-only results, and current rules
+for single-file events. `TestNFOScanCacheReusesStableInputsAndCopiesAssets` and
+`TestNFOScanInputsDetectSelectionChangesAndUnstableReads` cover reuse, copies,
+version changes, candidate selection and unstable/unsupported dependencies.
+`TestNFOIncrementalScanPreservesEditsAndRepairsAssets` and
+`TestNFOIncrementalTVTracksSharedDocumentsAndArtwork` cover legacy manifests,
+manual edits, same-size/restored-mtime replacements, repair/error/cancel recovery,
+shared parent documents, hierarchy/version isolation and managed artwork.
+`TestNFOIngestResultCommitBoundaries` covers creation, unchanged/update results,
+rollback and cancellation; `TestMediaUpsertConcurrentPath` also verifies one
+added result across concurrent NFO first writers and rejection across sources.
 `TestNFORejectsWrongDocumentAndUnknownSeason` covers document/season validation.
 `TestNFOTasksUseCommonDefinitions`, `TestNFOTaskLegacySystemFilter`,
 `TestNFOWatcherSharesMixedBatch`, and `TestNFOSchedulerSharesLibraries`

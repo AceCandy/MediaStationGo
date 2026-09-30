@@ -644,6 +644,9 @@ HongGuo expects schema version 2; ordinary metadata remains version 1.
 `HongGuoRepository.PrepareMediaSearchRefresh(mediaQuery *gorm.DB, sourceIDs ...string) func()`
 captures old bindings for the exact media scope and optional incoming source works;
 invoke its returned function only after the outer database transaction commits.
+`MediaRepository.WithBatchedHongGuoSearch(limit)` returns a writer copy and a
+`func(context.Context)` flush callback. Only that serial writer's HongGuo Upserts
+defer index publication; the original repository continues publishing immediately.
 Web `/api/media?q=...` uses `MediaService.searchMediaPage` for grouped, ungrouped,
 paged and suggestion requests; `RankWebMetadataSearchCandidatePage` retains
 ordinary/NFO overview and genre matches and their logical-ID tie order.
@@ -726,6 +729,17 @@ alias. Incremental updates retain near-real-time visibility (no per-episode
 `refresh=wait_for`); current database checks prevent forbidden results. This does not
 provide multi-process synchronization or support out-of-band administrator SQL.
 
+Scan batches retain per-file transactions and capture the old binding under the
+final media row lock. Only successful commits enter the batch; after 100 commits
+or explicit tail flush, deduplicate works and old/current albums before refreshing
+through the same index owner and lock. The batch stores identities, never document
+snapshots, so intervening writes are reflected in the refreshed projection.
+Partial success followed by failure must still flush. Cancelled publication uses
+the existing index-failure fallback and blocks incomplete rebuild activation;
+rolled-back writes publish no candidates. Do not batch by suppressing global
+index writes, capturing bindings before the row lock, or moving publication inside
+the file transaction.
+
 ### 4. Validation & Error Matrix
 
 Missing/unready/failing index -> PostgreSQL fallback. Known failed incremental
@@ -781,6 +795,10 @@ failure state, startup/restart, rollback, partial progress and rebuild recovery.
 `TestHongGuoSearchServiceMutationOwners` exercises all audited service mutation
 families, including outer library rollback and partially committed prune batches.
 `TestOpenSearchHongGuoSchemaCompatibility` rejects v1 without changing ordinary v1.
+`TestHongGuoSearchBatchCommitBoundaries` covers commit limits, rollback, partial
+tail flush, direct-writer isolation and cancellation/rebuild fallback.
+`TestHongGuoSearchBatchRefreshesOldAndCurrentAlbums` checks old/new identity cleanup
+and current library membership after the captured album changes.
 
 ### 7. Wrong vs Correct
 

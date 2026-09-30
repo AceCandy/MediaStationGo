@@ -19,6 +19,23 @@ type NFOIngest struct {
 	Binding            model.NFOMediaBinding
 	Artwork            []NFOArtwork
 	PreserveItemFields []bool
+	// FileChanged 补充仅凭 size/mtime 无法发现的视频身份或变更时间变化。
+	FileChanged bool `json:"-"`
+}
+
+// ScanInputs 读取同库 NFO 绑定并返回扫描事实兼容性；写入仍由事务复核归属。
+func (r *NFORepository) ScanInputs(ctx context.Context, media *model.Media) (string, bool, error) {
+	var state struct {
+		ScanInputs string
+		Compatible bool
+	}
+	err := r.db.WithContext(ctx).Table("nfo_media_bindings AS b").
+		Select("b.scan_inputs, (m.scan_file_size_bytes = ? AND m.scan_file_mtime_ns = ? AND m.scrape_status = 'matched' AND COALESCE(m.scrape_error, '') = '' AND COALESCE(m.library_root_id, '') = ? AND COALESCE(m.relative_path, '') = ?) AS compatible", media.ScanFileSizeBytes, media.ScanFileMTimeNS, media.LibraryRootID, media.RelativePath).
+		Joins("JOIN media AS m ON m.id = b.media_id").Joins("JOIN libraries AS l ON l.id = m.library_id").
+		Where("m.path = ? AND m.library_id = ? AND m.catalog_source = ? AND COALESCE(m.metadata_id, '') = ''", media.Path, media.LibraryID, model.CatalogSourceNFO).
+		Where("l.deleted_at IS NULL AND l.type IN ?", []string{model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV}).
+		Limit(1).Scan(&state).Error
+	return state.ScanInputs, state.Compatible, err
 }
 
 // NFOArtwork 是入库事务待保存的图片资产，不关联普通元数据。
@@ -64,11 +81,16 @@ func (r *NFORepository) UpdateMetadata(ctx context.Context, mediaID, itemID stri
 // Ingest 将文件事实、条目层级和资料绑定作为一次事务保存。
 // 无有效资料时仅更新文件状态，保留已有资料绑定。
 func (r *NFORepository) Ingest(ctx context.Context, media *model.Media, input *NFOIngest) (bool, error) {
+	changed, _, err := r.IngestWithResult(ctx, media, input)
+	return changed, err
+}
+
+// IngestWithResult 在同一事务内确定资料变化和文件新增，避免扫描计数重复查询路径。
+func (r *NFORepository) IngestWithResult(ctx context.Context, media *model.Media, input *NFOIngest) (changed, added bool, err error) {
 	if media == nil || media.CatalogSource != model.CatalogSourceNFO || media.MetadataID != "" {
-		return false, errors.New("本地资料文件归属无效")
+		return false, false, errors.New("本地资料文件归属无效")
 	}
-	changed := false
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		status, reason := media.ScrapeStatus, media.ScrapeError
 		// 同路径首次入库也需要串行化，不能依赖尚不存在的行锁。
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "nfo:"+media.Path).Error; err != nil {
@@ -86,13 +108,19 @@ func (r *NFORepository) Ingest(ctx context.Context, media *model.Media, input *N
 		if existing.ID != "" && (existing.CatalogSource != model.CatalogSourceNFO || existing.LibraryID != media.LibraryID) {
 			return errors.New("文件尚未迁入本地资料体系或属于其他媒体库")
 		}
-		fileChanged := existing.ID != "" && (existing.ScanFileSizeBytes != media.ScanFileSizeBytes || existing.ScanFileMTimeNS != media.ScanFileMTimeNS)
+		added = existing.ID == ""
+		fileChanged := existing.ID != "" && (existing.ScanFileSizeBytes != media.ScanFileSizeBytes || existing.ScanFileMTimeNS != media.ScanFileMTimeNS || input != nil && input.FileChanged)
 		if existing.ID != "" && !fileChanged && existing.ScrapeStatus == status && existing.ScrapeError == reason && existing.LibraryRootID == media.LibraryRootID && existing.RelativePath == media.RelativePath {
 			var binding model.NFOMediaBinding
 			if err := tx.Where("media_id = ?", existing.ID).Limit(1).Find(&binding).Error; err != nil {
 				return err
 			}
 			if input == nil || binding.MediaID != "" && binding.Fingerprint == input.Binding.Fingerprint {
+				if input != nil && binding.ScanInputs != input.Binding.ScanInputs {
+					if err := tx.Model(&model.NFOMediaBinding{}).Where("media_id = ?", existing.ID).UpdateColumn("scan_inputs", input.Binding.ScanInputs).Error; err != nil {
+						return err
+					}
+				}
 				*media = existing
 				return nil
 			}
@@ -191,5 +219,5 @@ func (r *NFORepository) Ingest(ctx context.Context, media *model.Media, input *N
 		changed = true
 		return nil
 	})
-	return changed && err == nil, err
+	return changed && err == nil, added && err == nil, err
 }

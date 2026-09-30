@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "扫描与探测边界"}
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "红果绑定与搜索一致性"}
+{"file": ".trellis/spec/backend/nfo-catalog.md", "reason": "NFO 共享读取、依赖快照、增量跳过及事务/失败边界"}
+{"file": "internal/service/nfo_scan_inputs.go", "reason": "可靠文件版本、有界缓存、候选目录与受控图片依赖"}
+{"file": "internal/service/nfo_scan_inputs_test.go", "reason": "增量与共享读取的资料、图片、候选及失败恢复回归"}

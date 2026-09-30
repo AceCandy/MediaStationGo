@@ -50,11 +50,15 @@ func nfoEpisodeIdentity(path string) (string, string) {
 
 // readNFOIngest 独立读取各层资料，不把单集外部 ID 合并成整剧身份。
 func readNFOIngest(lib *model.Library, media *model.Media, root string) (*repository.NFOIngest, error) {
+	return (*nfoScanReader)(nil).readNFOIngest(lib, media, root)
+}
+
+func (r *nfoScanReader) readNFOIngest(lib *model.Library, media *model.Media, root string) (*repository.NFOIngest, error) {
 	path := filepath.Clean(media.Path)
 	input := &repository.NFOIngest{}
 	read := func(doc *nfoDocument, source, kind, key string) model.NFOItem {
 		input.PreserveItemFields = append(input.PreserveItemFields, doc == nil)
-		local := metadataFromDoc(doc, filepath.Dir(source), false)
+		local := r.metadataFromDoc(doc, filepath.Dir(source), false)
 		if local == nil {
 			local = &LocalMetadata{}
 		}
@@ -67,7 +71,7 @@ func readNFOIngest(lib *model.Library, media *model.Media, root string) (*reposi
 		} else if kind == model.MetadataKindEpisode {
 			index = 2
 		}
-		mergeArtworkMetadata(local, artPath, "")
+		r.mergeArtworkMetadata(local, artPath, "")
 		for _, image := range []struct{ kind, path string }{{model.ArtworkTypePoster, local.PosterURL}, {model.ArtworkTypeBackdrop, local.BackdropURL}} {
 			if isLocalPath(image.path) {
 				input.Artwork = append(input.Artwork, repository.NFOArtwork{ItemIndex: index, Type: image.kind, SourcePath: image.path})
@@ -76,7 +80,7 @@ func readNFOIngest(lib *model.Library, media *model.Media, root string) (*reposi
 		return model.NFOItem{Kind: kind, LocalKey: key, NFOFields: nfoFields(local)}
 	}
 	if libraryIsMovieType(lib) {
-		doc, source, err := findMovieNFO(path, root)
+		doc, source, err := r.findMovieNFO(path, root)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +98,7 @@ func readNFOIngest(lib *model.Library, media *model.Media, root string) (*reposi
 		if _, ok := seasonFromDir(filepath.Base(showDir)); ok {
 			showDir = filepath.Dir(showDir)
 		}
-		showDoc, showPath, showErr := findShowNFO(path, root)
+		showDoc, showPath, showErr := r.findShowNFO(path, root)
 		if showErr != nil && !errors.Is(showErr, os.ErrNotExist) {
 			return nil, showErr
 		}
@@ -104,7 +108,7 @@ func readNFOIngest(lib *model.Library, media *model.Media, root string) (*reposi
 			}
 			showDir = filepath.Dir(showPath)
 		}
-		epDoc, epPath, epErr := readNFO(nfoPath(path))
+		epDoc, epPath, epErr := r.readNFO(nfoPath(path))
 		if epErr != nil {
 			return nil, epErr
 		}
@@ -139,7 +143,7 @@ func readNFOIngest(lib *model.Library, media *model.Media, root string) (*reposi
 		}
 		show := read(showDoc, showPath, model.MetadataKindSeries, showKey)
 		show.Title = firstText(show.Title, filepath.Base(showDir))
-		seasonDoc, seasonPath, err := readNFO(filepath.Join(filepath.Dir(path), "season.nfo"))
+		seasonDoc, seasonPath, err := r.readNFO(filepath.Join(filepath.Dir(path), "season.nfo"))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -210,20 +214,41 @@ func nfoFields(local *LocalMetadata) model.NFOFields {
 	}
 }
 
-func (s *ScannerService) ingestNFOMedia(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size, mtime int64, res *ScanResult) {
+func (s *ScannerService) ingestNFOMedia(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size, mtime int64, writeBatch *localMediaWriteBatch, res *ScanResult) {
 	rootPath := lib.Path
 	if root != nil {
 		rootPath = root.Path
 	}
-	media := s.buildLocalScanMedia(localScanMediaInput{lib: lib, root: root, path: path, ext: strings.ToLower(filepath.Ext(path)), size: size, modTimeNS: mtime})
+	reader := newNFOScanReader(writeBatch)
+	if info, err := reader.stat(path); err != nil || info.Size() != size || info.ModTime().UnixNano() != mtime {
+		reader.unstable = true
+	}
+	media := s.buildLocalScanMedia(localScanMediaInput{lib: lib, root: root, path: path, ext: strings.ToLower(filepath.Ext(path)), size: size, modTimeNS: mtime, writeBatch: writeBatch})
 	media.CatalogSource = model.CatalogSourceNFO
 	media.ScrapeStatus = "matched"
-	input, readErr := readNFOIngest(lib, media, rootPath)
+	previousData, compatible, err := s.repo.NFO.ScanInputs(ctx, media)
+	if err != nil {
+		addScanError(res, path, err)
+		return
+	}
+	var previous nfoScanInputs
+	if err := json.Unmarshal([]byte(previousData), &previous); err != nil {
+		previous = nfoScanInputs{}
+	}
+	scanContext := nfoScanContext(lib, media, rootPath)
+	oldVideo, hasVideo := previous.Files[filepath.Clean(path)]
+	if compatible && !reader.unstable && hasVideo && previous.unchanged(scanContext, s.imageProxy) {
+		res.LocalMetadata++
+		res.Skipped++
+		s.publishLocalScanProgress(path, res)
+		return
+	}
+	input, readErr := reader.readNFOIngest(lib, media, rootPath)
 	if readErr == nil && len(input.Artwork) > 0 {
 		store := NewArtworkStore(s.cfg, s.repo.Artwork, s.imageProxy)
 		for i := range input.Artwork {
 			artwork := &input.Artwork[i]
-			artwork.Asset, readErr = store.prepareLocalAsset(media.Path, artwork.Type, artwork.SourcePath)
+			artwork.Asset, readErr = reader.prepareLocalAsset(store, media.Path, artwork.Type, artwork.SourcePath)
 			if readErr != nil {
 				break
 			}
@@ -232,6 +257,10 @@ func (s *ScannerService) ingestNFOMedia(ctx context.Context, lib *model.Library,
 			readErr = fingerprintNFOIngest(input)
 		}
 	}
+	if readErr == nil {
+		input.FileChanged = hasVideo && oldVideo != reader.inputs.Files[filepath.Clean(path)]
+		input.Binding.ScanInputs = reader.snapshot(scanContext, s.imageProxy)
+	}
 	if readErr != nil {
 		input = nil
 		media.ScrapeStatus, media.ScrapeError = "error", sanitizeTaskLogError(readErr).Error()
@@ -239,12 +268,7 @@ func (s *ScannerService) ingestNFOMedia(ctx context.Context, lib *model.Library,
 			media.ScrapeStatus, media.ScrapeError = "no_match", "未找到本地 NFO"
 		}
 	}
-	existing, err := s.repo.Media.FindByPath(ctx, path)
-	if err != nil {
-		addScanError(res, path, err)
-		return
-	}
-	changed, err := s.repo.NFO.Ingest(ctx, media, input)
+	changed, added, err := s.repo.NFO.IngestWithResult(ctx, media, input)
 	if err != nil {
 		addScanError(res, path, err)
 		return
@@ -256,7 +280,7 @@ func (s *ScannerService) ingestNFOMedia(ctx context.Context, lib *model.Library,
 	}
 	if !changed {
 		res.Skipped++
-	} else if existing == nil {
+	} else if added {
 		res.Added++
 		res.addChange(ScanChangeAdded, path, "")
 	} else {

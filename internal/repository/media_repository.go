@@ -11,9 +11,10 @@ import (
 
 // MediaRepository persists model.Media records.
 type MediaRepository struct {
-	db      *gorm.DB
-	view    *MediaViewRepository
-	hongGuo *HongGuoRepository
+	db                 *gorm.DB
+	view               *MediaViewRepository
+	hongGuo            *HongGuoRepository
+	hongGuoSearchBatch *hongGuoMediaSearchBatch
 }
 
 type MediaSearchBackend interface {

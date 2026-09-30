@@ -58,7 +58,7 @@ func (r *MediaRepository) upsertHongGuoMedia(ctx context.Context, m *model.Media
 		if err := tx.Select("id").Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, "id = ?", m.ID).Error; err != nil {
 			return err
 		}
-		refresh = r.hongGuo.PrepareMediaSearchRefresh(tx.Model(&model.Media{}).Where("id = ?", m.ID), m.LookupCatalogID)
+		refresh = r.hongGuo.prepareMediaSearchRefresh(tx.Model(&model.Media{}).Where("id = ?", m.ID), r.hongGuoSearchBatch, m.LookupCatalogID)
 		return bindHongGuoMedia(tx, m)
 	})
 	if err == nil {

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func firstRemoteURL(baseDir string, values ...string) string {
+func (r *nfoScanReader) firstRemoteURL(baseDir string, values ...string) string {
 	for _, value := range values {
 		value = cleanXMLText(value)
 		if value == "" {
@@ -16,12 +16,12 @@ func firstRemoteURL(baseDir string, values ...string) string {
 		if isHTTPURL(value) {
 			return value
 		}
-		if filepath.IsAbs(value) && fileExists(value) {
+		if filepath.IsAbs(value) && r.fileExists(value) {
 			return filepath.Clean(value)
 		}
 		if baseDir != "" {
 			local := filepath.Join(baseDir, filepath.FromSlash(value))
-			if fileExists(local) {
+			if r.fileExists(local) {
 				return filepath.Clean(local)
 			}
 		}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // ingestFile upserts a single media file. seenInodes dedups hardlinks within a
@@ -19,7 +20,7 @@ import (
 func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size, modTimeNS int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) {
 	res.Visited++
 	if libraryUsesNFOOnly(lib) {
-		s.ingestNFOMedia(ctx, lib, root, path, size, modTimeNS, res)
+		s.ingestNFOMedia(ctx, lib, root, path, size, modTimeNS, writeBatch, res)
 		return
 	}
 	ext := strings.ToLower(filepath.Ext(path))
@@ -56,6 +57,7 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		parsedSeason:  parsedSeason,
 		parsedEpisode: parsedEpisode,
 		localMeta:     localMeta,
+		writeBatch:    writeBatch,
 	})
 	if localMeta != nil {
 		res.LocalMetadata++
@@ -199,6 +201,7 @@ type localScanMediaInput struct {
 	parsedSeason  int
 	parsedEpisode int
 	localMeta     *LocalMetadata
+	writeBatch    *localMediaWriteBatch
 }
 
 func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Media {
@@ -207,7 +210,13 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 	if multipart {
 		titlePath = mediaPartBasePath(in.path, part)
 	}
-	title, year := CleanQueryWithRecognition(context.Background(), s.repo, titlePath)
+	var title string
+	var year int
+	if in.writeBatch != nil {
+		title, year = in.writeBatch.cleanQuery(titlePath)
+	} else {
+		title, year = CleanQueryWithRecognition(context.Background(), s.repo, titlePath)
+	}
 	if title == "" {
 		title = strings.TrimSuffix(filepath.Base(titlePath), filepath.Ext(titlePath))
 	}
@@ -285,7 +294,11 @@ func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 		s.log.Warn("invalidate changed media probe failed", zap.String("path", in.path), zap.Error(err))
 		return
 	}
-	if err := s.upsertLocalScanMedia(in.ctx, in.media); err != nil {
+	writer := s.repo.Media
+	if in.writeBatch != nil {
+		writer = in.writeBatch.mediaRepo
+	}
+	if err := s.upsertLocalScanMedia(in.ctx, in.media, writer); err != nil {
 		addScanError(in.res, in.path, err)
 		s.log.Warn("upsert media failed", zap.String("path", in.path), zap.Error(err))
 		return
@@ -311,12 +324,12 @@ func (s *ScannerService) invalidateChangedMediaProbe(ctx context.Context, path, 
 	return s.repo.MediaProbe.DeleteByMediaID(ctx, media.ID)
 }
 
-func (s *ScannerService) upsertLocalScanMedia(ctx context.Context, media *model.Media) error {
+func (s *ScannerService) upsertLocalScanMedia(ctx context.Context, media *model.Media, writer *repository.MediaRepository) error {
 	task, expectedMetadataID, err := s.startExistingMetadataMatchTask(ctx, media)
 	if err != nil {
 		return err
 	}
-	err = s.repo.Media.Upsert(ctx, media)
+	err = writer.Upsert(ctx, media)
 	if task == nil {
 		return err
 	}

@@ -47,8 +47,10 @@ type NFOMediaBinding struct {
 	Item        NFOItem `gorm:"foreignKey:ItemID;constraint:OnDelete:RESTRICT" json:"-"`
 	VersionName string  `gorm:"type:text" json:"version_name,omitempty"`
 	Fingerprint string  `gorm:"size:64;not null" json:"-"`
-	NFOFields   `gorm:"embedded"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	// ScanInputs 是上次成功读取的依赖状态；旧记录为空时仍完整读取。
+	ScanInputs string `gorm:"type:text" json:"-"`
+	NFOFields  `gorm:"embedded"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // NFOUserState 按本地逻辑条目记录收藏与播放状态；删除文件不删除用户状态。

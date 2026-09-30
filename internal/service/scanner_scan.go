@@ -83,10 +83,13 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 	}
 	res := &ScanResult{LibraryID: lib.ID}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
-	existingMedia, err := s.existingLocalMediaSnapshot(ctx, lib.ID)
-	if err != nil {
-		s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
-		existingMedia = nil
+	var existingMedia map[string]existingLocalMedia
+	if !libraryUsesNFOOnly(lib) {
+		existingMedia, err = s.existingLocalMediaSnapshot(ctx, lib.ID)
+		if err != nil {
+			s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
+			existingMedia = nil
+		}
 	}
 
 	roots, err := s.localLibraryScanRoots(ctx, lib)
@@ -178,10 +181,14 @@ func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, l
 		return res, err
 	}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
-	existingMedia, err := s.existingLocalMediaSnapshot(ctx, lib.ID)
-	if err != nil {
-		s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
-		existingMedia = nil
+	var existingMedia map[string]existingLocalMedia
+	if !libraryUsesNFOOnly(lib) {
+		var err error
+		existingMedia, err = s.existingLocalMediaSnapshot(ctx, lib.ID)
+		if err != nil {
+			s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
+			existingMedia = nil
+		}
 	}
 	seen, walkErr := s.scanLocalLibraryFiles(ctx, lib, root, existingMedia, writeBatch, res, progress, 1, 1, 0)
 	writeBatch.Flush()

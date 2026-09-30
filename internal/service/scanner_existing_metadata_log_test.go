@@ -45,7 +45,7 @@ func TestScannerLogsFirstExistingMetadataBindingOnce(t *testing.T) {
 	mediaPath := filepath.Join(library.Path, "已有电影.mkv")
 
 	first := &model.Media{LibraryID: library.ID, Title: "已有电影", Path: mediaPath, TMDbID: 27205}
-	if err := scanner.upsertLocalScanMedia(t.Context(), first); err != nil {
+	if err := scanner.upsertLocalScanMedia(t.Context(), first, scanner.repo.Media); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := repos.Media.FindByID(t.Context(), first.ID)
@@ -61,7 +61,7 @@ func TestScannerLogsFirstExistingMetadataBindingOnce(t *testing.T) {
 	}
 
 	rescan := &model.Media{LibraryID: library.ID, Title: "已有电影", Path: mediaPath, TMDbID: 27205}
-	if err := scanner.upsertLocalScanMedia(t.Context(), rescan); err != nil {
+	if err := scanner.upsertLocalScanMedia(t.Context(), rescan, scanner.repo.Media); err != nil {
 		t.Fatal(err)
 	}
 	if got := tracker.Snapshot(); len(got.Recent) != 1 {

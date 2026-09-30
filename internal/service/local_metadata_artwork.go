@@ -21,26 +21,30 @@ func metadataFromArtwork(mediaPath, showBaseDir string) *LocalMetadata {
 }
 
 func mergeArtworkMetadata(meta *LocalMetadata, mediaPath, showBaseDir string) {
+	(*nfoScanReader)(nil).mergeArtworkMetadata(meta, mediaPath, showBaseDir)
+}
+
+func (r *nfoScanReader) mergeArtworkMetadata(meta *LocalMetadata, mediaPath, showBaseDir string) {
 	if meta == nil {
 		return
 	}
 	mediaDir := filepath.Dir(mediaPath)
-	if localPoster := firstLocalPoster(mediaPath, showBaseDir); localPoster != "" {
+	if localPoster := r.firstLocalPoster(mediaPath, showBaseDir); localPoster != "" {
 		meta.PosterURL = localPoster
 	} else if meta.PosterURL == "" {
-		meta.PosterURL = firstAdultLooseImage(mediaDir, "poster")
+		meta.PosterURL = r.firstAdultLooseImage(mediaDir, "poster")
 	}
 	dirs := []string{mediaDir, showBaseDir}
 	for _, dir := range dirs {
 		if dir == "" {
 			continue
 		}
-		if img := firstExistingImage(dir, localBackdropCandidates(mediaPath)...); img != "" {
+		if img := r.firstExistingImage(dir, localBackdropCandidates(mediaPath)...); img != "" {
 			meta.BackdropURL = img
 			break
 		}
 		if meta.BackdropURL == "" {
-			meta.BackdropURL = firstAdultLooseImage(dir, "backdrop")
+			meta.BackdropURL = r.firstAdultLooseImage(dir, "backdrop")
 		}
 	}
 	if !isLocalPath(meta.PosterURL) {
@@ -130,14 +134,14 @@ func adultDMMNameCandidates(code string) []string {
 	return []string{prefix + padded}
 }
 
-func firstExistingImage(dir string, names ...string) string {
+func (r *nfoScanReader) firstExistingImage(dir string, names ...string) string {
 	if dir == "" {
 		return ""
 	}
 	for _, name := range names {
 		for _, ext := range []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tbn"} {
 			path := filepath.Join(dir, name+ext)
-			if fileExists(path) {
+			if r.fileExists(path) {
 				return filepath.Clean(path)
 			}
 		}
@@ -175,7 +179,7 @@ func nfoBackdropValues(doc *nfoDocument) []string {
 	return values
 }
 
-func firstLocalPoster(mediaPath, showBaseDir string) string {
+func (r *nfoScanReader) firstLocalPoster(mediaPath, showBaseDir string) string {
 	mediaDir := filepath.Dir(mediaPath)
 	dirs := []string{}
 	if showBaseDir != "" && !samePath(showBaseDir, mediaDir) {
@@ -183,14 +187,14 @@ func firstLocalPoster(mediaPath, showBaseDir string) string {
 	}
 	dirs = append(dirs, mediaDir)
 	for _, dir := range dirs {
-		if localPoster := firstExistingPosterImage(dir, localPosterCandidates(mediaPath)...); localPoster != "" {
+		if localPoster := r.firstExistingPosterImage(dir, localPosterCandidates(mediaPath)...); localPoster != "" {
 			return localPoster
 		}
 	}
 	return ""
 }
 
-func firstExistingPosterImage(dir string, names ...string) string {
+func (r *nfoScanReader) firstExistingPosterImage(dir string, names ...string) string {
 	if dir == "" {
 		return ""
 	}
@@ -200,7 +204,7 @@ func firstExistingPosterImage(dir string, names ...string) string {
 		}
 		for _, ext := range []string{".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tbn"} {
 			path := filepath.Join(dir, name+ext)
-			if fileExists(path) && likelyPosterImage(path) {
+			if r.fileExists(path) && r.likelyPosterImage(path) {
 				return filepath.Clean(path)
 			}
 		}
@@ -208,11 +212,11 @@ func firstExistingPosterImage(dir string, names ...string) string {
 	return ""
 }
 
-func firstAdultLooseImage(dir, kind string) string {
+func (r *nfoScanReader) firstAdultLooseImage(dir, kind string) string {
 	if dir == "" {
 		return ""
 	}
-	matches, _ := filepath.Glob(filepath.Join(dir, "*"))
+	matches, _ := r.glob(filepath.Join(dir, "*"))
 	preferred := []string{}
 	fallback := []string{}
 	for _, path := range matches {
@@ -231,7 +235,7 @@ func firstAdultLooseImage(dir, kind string) string {
 		} else if strings.Contains(name, "fanart") || strings.Contains(name, "backdrop") || strings.Contains(name, "background") || strings.Contains(name, "landscape") || strings.Contains(name, "jp") {
 			preferred = append(preferred, path)
 		}
-		if kind != "poster" || likelyPosterImage(path) {
+		if kind != "poster" || r.likelyPosterImage(path) {
 			fallback = append(fallback, path)
 		}
 	}
@@ -259,9 +263,24 @@ func isRejectedPosterName(name string) bool {
 	return false
 }
 
-func likelyPosterImage(path string) bool {
+func (r *nfoScanReader) likelyPosterImage(path string) bool {
+	var version nfoInputVersion
+	var reliable bool
+	if r != nil {
+		info, err := r.stat(path)
+		if err != nil {
+			return false
+		}
+		version, reliable = nfoFileVersion(info)
+		if cached, ok := r.cache.posters[path]; ok && reliable && cached.version == version {
+			return cached.poster
+		}
+	}
 	file, err := os.Open(path) // #nosec G304 -- path is a discovered artwork sidecar under the configured library root.
 	if err != nil {
+		if r != nil {
+			r.unstable = true
+		}
 		return false
 	}
 	defer file.Close()
@@ -269,7 +288,14 @@ func likelyPosterImage(path string) bool {
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return true
 	}
-	return cfg.Height >= cfg.Width
+	poster := cfg.Height >= cfg.Width
+	if r != nil {
+		_, _ = r.stat(path)
+		if reliable && !r.unstable && len(r.cache.posters) < maxNFOScanCacheEntries {
+			r.cache.posters[path] = nfoCachedPoster{version: version, poster: poster}
+		}
+	}
+	return poster
 }
 
 func fileExists(path string) bool {

@@ -604,6 +604,25 @@ progress, complete probe-document invalidation, or automatic track backfill.
 
 - A library scan discovers and persists media only. It never calls ffprobe or
   enqueues per-file probe work in a hidden queue.
+- Ordinary/HongGuo full and root scans lazily reuse recognition settings and
+  parsed rules for at most 100 changed/new media constructions, resetting at
+  write-batch/root flush. Unchanged files never load these settings. The next
+  batch observes configuration changes; disabled recognition retains its old
+  bypass behavior. NFO full/root scans reuse the same rules for at most 100
+  media constructions, including unchanged files: their NFO/image checks still
+  precede the repository fingerprint decision. Single-file watcher ingestion
+  retains its existing recognition path; no global cache or provider/identity
+  policy is introduced.
+- NFO full/root scans do not load the ordinary existing-media snapshot that
+  their ingestion branch never uses. NFO Added/Updated statistics come from
+  `IngestWithResult` after its transaction commits; no separate path read is
+  needed just for counting. NFO retains file/sidecar reads, individual
+  transactions and all source/library checks; see the NFO catalog contract.
+- A scan owns a `MediaRepository.WithBatchedHongGuoSearch(100)` writer and must
+  flush its committed search changes even when its new-file buffer is empty.
+  Existing files still write immediately in individual transactions. Root
+  completion, walk failure and cancellation all settle the batch before return;
+  see the HongGuo catalog search contract for publication/fallback semantics.
 - Enabled roots are scanned serially in configured order. Each root flushes its
   pending writes before pruning missing media. A failed root is not pruned and
   does not stop later roots. `walk` propagates directory/file-info errors;
@@ -678,6 +697,11 @@ progress, complete probe-document invalidation, or automatic track backfill.
 - Assert scan details are capped with an omitted count while final metrics stay
   exact, including `skipped` and `errors`.
 - Assert unsupported STRM rows are skipped without a probe call or limit use.
+- `TestScanBatchRecognitionReloadsBetweenBatches` checks enabled/disabled rules
+  and bounded settings reads. `TestScanBatchesRecognitionAndHongGuoSearch` checks
+  101 files produce 10 recognition-setting reads and two work-index writes,
+  unchanged rescans perform neither, update-only root scans flush their tail,
+  and single-file ingestion retains immediate publication.
 
 ### 7. Wrong vs Correct
 

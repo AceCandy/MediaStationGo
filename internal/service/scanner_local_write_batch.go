@@ -7,14 +7,21 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 type localMediaWriteBatch struct {
-	scanner *ScannerService
-	ctx     context.Context
-	res     *ScanResult
-	limit   int
-	items   []localMediaWriteItem
+	scanner            *ScannerService
+	ctx                context.Context
+	res                *ScanResult
+	limit              int
+	items              []localMediaWriteItem
+	mediaRepo          *repository.MediaRepository
+	flushSearch        func(context.Context)
+	recognitionUses    int
+	recognitionEnabled bool
+	recognitionRules   []recognitionWordRule
+	nfoCache           *nfoScanCache
 }
 
 type localMediaWriteItem struct {
@@ -27,7 +34,25 @@ func newLocalMediaWriteBatch(scanner *ScannerService, ctx context.Context, res *
 	if limit <= 0 {
 		limit = 100
 	}
-	return &localMediaWriteBatch{scanner: scanner, ctx: ctx, res: res, limit: limit}
+	writer, flush := scanner.repo.Media.WithBatchedHongGuoSearch(limit)
+	return &localMediaWriteBatch{scanner: scanner, ctx: ctx, res: res, limit: limit, mediaRepo: writer, flushSearch: flush}
+}
+
+// cleanQuery 仅为需入库的文件读取规则，每批重新读取以接收扫描期间的设置变更。
+func (b *localMediaWriteBatch) cleanQuery(raw string) (string, int) {
+	if b.recognitionUses == 0 {
+		cfg := recognitionWordsConfig(b.ctx, b.scanner.repo)
+		b.recognitionEnabled = cfg.Enabled
+		b.recognitionRules = nil
+		if cfg.Enabled {
+			b.recognitionRules = parseRecognitionWordRules(recognitionWordsCombinedText(cfg))
+		}
+	}
+	b.recognitionUses = (b.recognitionUses + 1) % b.limit
+	if b.recognitionEnabled {
+		raw = applyRecognitionWordRules(raw, b.recognitionRules)
+	}
+	return CleanQuery(raw)
 }
 
 func (b *localMediaWriteBatch) Add(path string, media *model.Media) {
@@ -51,7 +76,14 @@ func (b *localMediaWriteBatch) AddWithReason(path string, media *model.Media, up
 }
 
 func (b *localMediaWriteBatch) Flush() {
-	if b == nil || len(b.items) == 0 || b.scanner == nil || b.scanner.repo == nil || b.scanner.repo.DB == nil {
+	if b == nil {
+		return
+	}
+	// 更新文件不进入新增缓冲，收尾时仍须刷新其已提交的索引变更。
+	defer b.flushSearch(b.ctx)
+	b.recognitionUses = 0
+	b.nfoCache = nil
+	if len(b.items) == 0 || b.scanner == nil || b.scanner.repo == nil || b.scanner.repo.DB == nil {
 		return
 	}
 	items := b.items
@@ -82,7 +114,7 @@ func (b *localMediaWriteBatch) Flush() {
 			b.scanner.log.Warn("invalidate changed media probe failed", zap.String("path", item.path), zap.Error(err))
 			continue
 		}
-		if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media); err != nil {
+		if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media, b.mediaRepo); err != nil {
 			addScanError(b.res, item.path, err)
 			b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
 			continue
@@ -136,7 +168,7 @@ func (b *localMediaWriteBatch) upsertExistingItem(item localMediaWriteItem) {
 		b.scanner.log.Warn("invalidate changed media probe failed", zap.String("path", item.path), zap.Error(err))
 		return
 	}
-	if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media); err != nil {
+	if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media, b.mediaRepo); err != nil {
 		addScanError(b.res, item.path, err)
 		b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
 		return

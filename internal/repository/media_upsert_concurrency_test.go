@@ -62,6 +62,7 @@ func TestMediaUpsertConcurrentPath(t *testing.T) {
 			// NFO 同源已有事务级路径锁，第二个事务应在 INSERT 之前等待。
 			synchronizeInsert := sources != [2]string{"nfo", "nfo"}
 			media := [2]model.Media{}
+			added := [2]bool{}
 			var verify *gorm.DB
 			for i, source := range sources {
 				conn, err := pool.Conn(ctx)
@@ -94,7 +95,8 @@ func TestMediaUpsertConcurrentPath(t *testing.T) {
 				go func() {
 					<-start
 					if source == model.CatalogSourceNFO {
-						_, err := New(worker).NFO.Ingest(ctx, &media[i], nil)
+						_, wasAdded, err := New(worker).NFO.IngestWithResult(ctx, &media[i], nil)
+						added[i] = wasAdded
 						done[i] <- err
 					} else {
 						done[i] <- (&MediaRepository{db: worker}).Upsert(ctx, &media[i])
@@ -118,6 +120,13 @@ func TestMediaUpsertConcurrentPath(t *testing.T) {
 			secondErr := <-done[1]
 			if firstErr != nil {
 				t.Fatalf("first writer: %v", firstErr)
+			}
+			if sources[0] == model.CatalogSourceNFO && sources[1] == model.CatalogSourceNFO {
+				if added[0] == added[1] {
+					t.Fatalf("concurrent NFO writers must count one added file: %v", added)
+				}
+			} else if sources[0] == model.CatalogSourceNFO && !added[0] || sources[1] == model.CatalogSourceNFO && added[1] {
+				t.Fatalf("NFO added result does not match committed writer: %v", added)
 			}
 			if sources[0] == sources[1] {
 				if secondErr != nil || media[0].ID != media[1].ID {

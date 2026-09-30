@@ -8,6 +8,10 @@ import (
 )
 
 func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMetadata {
+	return (*nfoScanReader)(nil).metadataFromDoc(doc, baseDir, seriesLike)
+}
+
+func (r *nfoScanReader) metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMetadata {
 	if doc == nil {
 		return nil
 	}
@@ -19,8 +23,8 @@ func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMe
 		ReleaseDate:  normalizeReleaseDate(firstText(doc.Premiered, doc.ReleaseDate, doc.Release, doc.Aired)),
 		Overview:     firstText(doc.Plot, doc.Outline, doc.OriginalPlot),
 		Rating:       float32(doc.Rating),
-		PosterURL:    firstRemoteURL(baseDir, nfoPosterValues(doc)...),
-		BackdropURL:  firstRemoteURL(baseDir, nfoBackdropValues(doc)...),
+		PosterURL:    r.firstRemoteURL(baseDir, nfoPosterValues(doc)...),
+		BackdropURL:  r.firstRemoteURL(baseDir, nfoBackdropValues(doc)...),
 		TMDbID:       int(doc.TMDbID),
 		BangumiID:    mustAtoi(externalIDFromUniqueIDs(doc.UniqueIDs, "bangumi", "bgm")),
 		DoubanID:     externalIDFromUniqueIDs(doc.UniqueIDs, "douban"),

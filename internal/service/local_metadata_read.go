@@ -27,6 +27,10 @@ func ReadLocalMetadata(mediaPath, libraryRoot string, seriesLike bool) (*LocalMe
 }
 
 func findMovieNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
+	return (*nfoScanReader)(nil).findMovieNFO(mediaPath, libraryRoot)
+}
+
+func (r *nfoScanReader) findMovieNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
 	mediaDir := filepath.Dir(mediaPath)
 	base := strings.TrimSuffix(filepath.Base(mediaPath), filepath.Ext(mediaPath))
 	adultCode := AdultCodeFromMediaPath(mediaPath)
@@ -49,20 +53,20 @@ func findMovieNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
 			continue
 		}
 		seen[key] = struct{}{}
-		if doc, _, err := readNFO(path); err == nil {
+		if doc, _, err := r.readNFO(path); err == nil {
 			return doc, path, nil
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, "", err
 		}
 	}
 	if libraryRoot == "" || !samePath(mediaDir, filepath.Clean(libraryRoot)) {
-		matches, _ := filepath.Glob(filepath.Join(mediaDir, "*.nfo"))
+		matches, _ := r.glob(filepath.Join(mediaDir, "*.nfo"))
 		if adultCode != "" {
 			codeKey := strings.ToLower(strings.ReplaceAll(adultCode, "-", ""))
 			for _, match := range matches {
 				baseKey := strings.ToLower(strings.ReplaceAll(strings.TrimSuffix(filepath.Base(match), filepath.Ext(match)), "-", ""))
 				if strings.Contains(baseKey, codeKey) || strings.Contains(codeKey, baseKey) {
-					if doc, _, err := readNFO(match); err == nil {
+					if doc, _, err := r.readNFO(match); err == nil {
 						return doc, match, nil
 					} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 						return nil, "", err
@@ -71,7 +75,7 @@ func findMovieNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
 			}
 		}
 		if len(matches) == 1 {
-			if doc, _, err := readNFO(matches[0]); err == nil {
+			if doc, _, err := r.readNFO(matches[0]); err == nil {
 				return doc, matches[0], nil
 			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return nil, "", err
@@ -109,6 +113,22 @@ func readSeriesMetadata(mediaPath, libraryRoot string) (*LocalMetadata, error) {
 }
 
 func readNFO(path string) (*nfoDocument, string, error) {
+	return (*nfoScanReader)(nil).readNFO(path)
+}
+
+func (r *nfoScanReader) readNFO(path string) (*nfoDocument, string, error) {
+	var version nfoInputVersion
+	var reliable bool
+	if r != nil {
+		info, err := r.stat(path)
+		if err != nil {
+			return nil, "", err
+		}
+		version, reliable = nfoFileVersion(info)
+		if cached, ok := r.cache.docs[path]; ok && reliable && cached.version == version {
+			return cached.doc, path, nil
+		}
+	}
 	body, err := os.ReadFile(path) // #nosec G304 -- path is a discovered NFO sidecar under the configured library root.
 	if err != nil {
 		return nil, "", err
@@ -117,10 +137,20 @@ func readNFO(path string) (*nfoDocument, string, error) {
 	if err := xml.Unmarshal(body, &doc); err != nil {
 		return nil, "", err
 	}
+	if r != nil {
+		_, _ = r.stat(path)
+		if reliable && !r.unstable && len(r.cache.docs) < maxNFOScanCacheEntries {
+			r.cache.docs[path] = nfoCachedDocument{version: version, doc: &doc}
+		}
+	}
 	return &doc, path, nil
 }
 
 func findShowNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
+	return (*nfoScanReader)(nil).findShowNFO(mediaPath, libraryRoot)
+}
+
+func (r *nfoScanReader) findShowNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
 	dir := filepath.Dir(mediaPath)
 	root := filepath.Clean(libraryRoot)
 	for {
@@ -133,7 +163,7 @@ func findShowNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
 		names = append(names, base+".nfo")
 		for _, name := range names {
 			path := filepath.Join(dir, name)
-			if doc, _, err := readNFO(path); err == nil {
+			if doc, _, err := r.readNFO(path); err == nil {
 				return doc, path, nil
 			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return nil, "", err
