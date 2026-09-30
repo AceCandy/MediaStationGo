@@ -251,8 +251,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 	if s == nil || s.repo == nil || s.repo.DB == nil {
 		return result, errors.New("media probe unavailable")
 	}
-	countQuery := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m").
-		Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id"), automatic)
+	countQuery := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m"), automatic)
 	if libraryID != "" {
 		countQuery = countQuery.Where("m.library_id = ?", libraryID)
 	}
@@ -424,7 +423,10 @@ func pendingProbeQuery(query *gorm.DB, automatic bool) *gorm.DB {
 			Where("NOT EXISTS (SELECT 1 FROM libraries l WHERE l.id = m.library_id AND LOWER(TRIM(l.type)) IN ?)", []string{"tv", "anime", "variety", "show", "shows", model.LibraryTypeNFOTV}).
 			Where("NOT EXISTS (SELECT 1 FROM metadata_items mi WHERE mi.id = m.metadata_id AND mi.kind IN ?)", []string{model.MetadataKindSeries, model.MetadataKindSeason, model.MetadataKindEpisode})
 	}
-	return query.Where("(p.media_id IS NULL OR p.probe_json = '' OR p.schema_version <> ?) AND LOWER(m.path) NOT LIKE ?", ProbeDocumentSchemaVersion, "%.iso")
+	// 有效文档通过覆盖索引排除，空闲检查与计数无需读取完整 JSON。
+	return query.Where(`NOT EXISTS (SELECT 1 FROM media_probe_metadata current_probe
+		WHERE current_probe.media_id = m.id AND current_probe.probe_json <> '' AND current_probe.schema_version = ?)`, ProbeDocumentSchemaVersion).
+		Where("LOWER(m.path) NOT LIKE '%.iso'")
 }
 
 func (s *MediaProbeService) hasPendingProbe(ctx context.Context) (bool, error) {
@@ -432,7 +434,7 @@ func (s *MediaProbeService) hasPendingProbe(ctx context.Context) (bool, error) {
 		return false, ErrMediaProbeBackfillUnavailable
 	}
 	var mediaID string
-	err := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m").Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id"), true).
+	err := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m"), true).
 		Select("m.id").Limit(1).Scan(&mediaID).Error
 	return mediaID != "", err
 }

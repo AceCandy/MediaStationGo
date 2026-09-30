@@ -288,6 +288,12 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 	if err := ensurePerformanceIndexes(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.AutoMigrate(&model.MediaProbeMetadata{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensurePerformanceIndexes(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := ensurePerformanceIndexes(db); err != nil {
 		t.Fatalf("repeat migration: %v", err)
 	}
@@ -301,6 +307,8 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		"idx_media_scrape_pending_pick",
 		"idx_media_scrape_group",
 		"idx_media_scrape_running",
+		"idx_media_probe_automatic_candidates",
+		"idx_media_probe_nonempty_document",
 		"idx_media_recent_metadata",
 		"idx_metadata_parent_episode_active",
 		"idx_favorites_user_media_active",

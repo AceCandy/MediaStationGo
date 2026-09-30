@@ -724,6 +724,42 @@ if walkErr == nil {
 }
 ```
 
+## Scenario: Indexed Background Pending Checks
+
+1. Scope / Trigger: catalog media-priority checks and event-driven automatic
+   probe checks, including the common case with no pending work.
+2. Signatures: `hasActiveMediaScrapes(ctx)` uses one statement with separate
+   pending and running `EXISTS` branches. `pendingProbeQuery(query, automatic)`
+   excludes a nonempty current-version document through `NOT EXISTS`.
+3. Contracts: preserve ordinary-source NULL/empty/pending/running scrape states,
+   automatic episode/library/metadata exclusions, manual episode inclusion,
+   ISO exclusion and existing wake/coalescing behavior. Probe JSON and schema
+   version remain NOT NULL. Keep the ISO suffix literal in SQL so generic
+   prepared plans can use `idx_media_probe_automatic_candidates`:
+   `(id) INCLUDE (library_id, metadata_id) WHERE COALESCE(episode_num, 0) = 0
+   AND LOWER(path) NOT LIKE '%.iso'`. Library/metadata qualification remains in
+   the query. `idx_media_probe_nonempty_document` covers `(media_id)` with
+   `INCLUDE (schema_version) WHERE probe_json <> ''`; it supports a parameterized
+   document version without reading JSON. Counts need no probe join; pages keep
+   their join to load outdated documents. Candidate work still scales with
+   automatic-eligible files; these indexes do not promise constant-time checks.
+4. Validation / Errors: propagate query errors and cancellation. Install indexes
+   idempotently through migration; skip the document index if its table is absent.
+   Validate in isolated PostgreSQL schemas, without applying production indexes
+   or restarting the service as a test. First index creation can delay startup
+   and briefly block media/probe writes.
+5. Cases: no pending media -> indexed false; outdated/empty/missing document ->
+   pending; current nonempty document -> excluded; an unnumbered TV-library or
+   episode-metadata file -> automatic skip but retained for manual backfill.
+6. Tests: `TestActiveMediaScrapesPreservesStatusAndSource`,
+   `TestPendingProbeQueryPreservesScope`, `TestBackgroundPendingChecksUseIndexes`
+   capture actual GORM SQL and check generic plans over mixed media scopes.
+   Retain automatic coalesced-wake/manual backfill regressions and repeated
+   `TestEnsurePerformanceIndexesCreatesHotPathIndexes` with/without the probe table.
+7. Wrong: aggregate pending/running together or rejoin full probe documents for
+   each idle check. Correct: separate indexed existence checks and exclude
+   current documents through their covering index, preserving business filters.
+
 ## Scenario: Persistent TMDb Season/Episode Recheck Queue
 
 ### 1. Scope / Trigger

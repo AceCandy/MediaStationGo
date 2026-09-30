@@ -535,6 +535,7 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_pending_pick ON media ((CASE WHEN COALESCE(season_num, 0) > 0 OR COALESCE(episode_num, 0) > 0 THEN 1 ELSE 0 END), id) WHERE COALESCE(catalog_source, '') = '' AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = 'pending')`,
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_group ON media (BTRIM(COALESCE(series_hint, '')), BTRIM(COALESCE(metadata_id, '')), id) WHERE COALESCE(catalog_source, '') = '' AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = 'pending')`,
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_running ON media (id) WHERE COALESCE(catalog_source, '') = '' AND scrape_status = 'running'`,
+		`CREATE INDEX IF NOT EXISTS idx_media_probe_automatic_candidates ON media (id) INCLUDE (library_id, metadata_id) WHERE COALESCE(episode_num, 0) = 0 AND LOWER(path) NOT LIKE '%.iso'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_kind_release_active ON metadata_items(kind, release_date DESC, year DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_season_active ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_episode_active ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
@@ -556,6 +557,11 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		statements = append(statements,
 			`CREATE INDEX IF NOT EXISTS idx_hg_download_transfer_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND raw_size = 0 AND COALESCE(sha256, '') = ''`,
 			`CREATE INDEX IF NOT EXISTS idx_hg_download_verification_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND (raw_size > 0 OR COALESCE(sha256, '') <> '')`,
+		)
+	}
+	if db.Migrator().HasTable(&model.MediaProbeMetadata{}) {
+		statements = append(statements,
+			`CREATE INDEX IF NOT EXISTS idx_media_probe_nonempty_document ON media_probe_metadata (media_id) INCLUDE (schema_version) WHERE probe_json <> ''`,
 		)
 	}
 	statements = append(statements,

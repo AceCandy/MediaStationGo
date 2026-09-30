@@ -211,11 +211,13 @@ func (s *ScraperService) recoverRunningMediaScrapes(ctx context.Context) error {
 
 func (s *ScraperService) hasActiveMediaScrapes(ctx context.Context) (bool, error) {
 	var active bool
-	err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Select("COUNT(*) > 0").
-		Where("COALESCE(catalog_source, '') = ''").
-		Where("scrape_status IS NULL OR scrape_status = '' OR scrape_status IN ?", []string{"pending", "running"}).
-		Scan(&active).Error
+	// 分开判断待处理与运行中状态，复用各自的部分索引。
+	err := s.repo.DB.WithContext(ctx).Raw(`SELECT EXISTS (
+		SELECT 1 FROM media WHERE COALESCE(catalog_source, '') = ''
+		AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = 'pending')
+	) OR EXISTS (
+		SELECT 1 FROM media WHERE COALESCE(catalog_source, '') = '' AND scrape_status = 'running'
+	)`).Scan(&active).Error
 	return active, err
 }
 
