@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 166
-- **Last Active**: 2026-09-29
+- **Total Sessions**: 167
+- **Last Active**: 2026-09-30
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1972 | Active |
+| `journal-2.md` | ~1994 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 167 | 2026-09-30 | 红果弹幕实时合并与配置 | `1373da9` | `main` |
 | 166 | 2026-09-29 | 续播按逻辑身份直接定位 | `6b04d6c66005353087c17553e7a5dc5c18779246` | `main` |
 | 165 | 2026-09-29 | 红果批量已观看性能修复 | `4e27a0e` | `main` |
 | 164 | 2026-09-29 | 红果合集收藏与收藏列表性能修复 | `ed51a23` | `main` |

@@ -1970,3 +1970,25 @@ NextUp 先按剧限定来源与历史，红果按作品和集号定位文件，�
 ### Next Steps
 
 - 尚未部署或重启；加载新代码后核验真实 HTTP 耗时与 499，关注全局通用预编译计划的 JIT 开销。
+
+
+## Session 167: 红果弹幕实时合并与配置
+<!-- trellis-session: v=2 fp=bf4883b193944fd1 -->
+
+**Date**: 2026-09-30
+**Task**: 红果弹幕实时合并与配置
+**Branch**: `main`
+
+### Summary
+
+实现红果按集弹幕实时与历史合并、异步增量保存和加密 App 参数配置；定向数据库/race/旧逻辑/Web 验证通过。登录态、YAMBy 实机和生产迁移待验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1373da9` | feat(danmu): add Hongguo live danmu merge |
+
+### Status
+
+[OK] **Completed**
