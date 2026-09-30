@@ -6,6 +6,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -40,8 +41,16 @@ func getAPIConfigHandler(svc *service.Container) gin.HandlerFunc {
 
 func updateAPIConfigHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		isHongGuo := strings.EqualFold(strings.TrimSpace(c.Param("provider")), "hongguo")
+		if isHongGuo {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		}
 		var patch service.APIConfigPatch
 		if err := c.ShouldBindJSON(&patch); err != nil {
+			if isHongGuo {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "红果参数格式无效或过大"})
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

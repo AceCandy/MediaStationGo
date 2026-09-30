@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
@@ -159,8 +161,29 @@ func embyServerDomainsHandler(_ *service.Container) gin.HandlerFunc {
 	}
 }
 
-func embyDanmuRawHandler(_ *service.Container) gin.HandlerFunc {
+func embyDanmuRawHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if svc.HongGuoDanmu != nil {
+			source, episode, video, matched, err := svc.Emby.HongGuoDanmuTarget(c.Request.Context(), embyUserID(c), c.Param("id"))
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				embyError(c, http.StatusNotFound, "not found")
+				return
+			}
+			if err != nil {
+				embyError(c, http.StatusInternalServerError, "danmu lookup failed")
+				return
+			}
+			if matched {
+				data, err := svc.HongGuoDanmu.Get(c.Request.Context(), source, episode, video)
+				if err != nil {
+					embyError(c, http.StatusInternalServerError, "danmu unavailable")
+					return
+				}
+				c.Header("Cache-Control", "no-store")
+				c.Data(http.StatusOK, "application/xml; charset=utf-8", data)
+				return
+			}
+		}
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", nil)
 	}
 }

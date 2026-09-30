@@ -39,6 +39,7 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 	builder.initImageProxy()
 	builder.c.HongGuo = NewHongGuoService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir)
 	builder.c.HongGuoDownloads = NewHongGuoDownloadService(repos, builder.c.HongGuo, builder.c.Tasks)
+	builder.c.HongGuoDanmu = NewHongGuoDanmuService(repos.HongGuo, builder.c.APIConfig, log)
 	builder.c.Scheduler.hongguo = builder.c.HongGuo
 	builder.c.Scheduler.SetHongGuoDownloads(builder.c.HongGuoDownloads)
 	builder.attachRuntimeContext()

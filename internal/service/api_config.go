@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
@@ -44,6 +45,7 @@ func NewAPIConfigService(log *zap.Logger, repo *repository.Container, crypto *Cr
 // SeedDefaults inserts a row for every well-known provider on first run.
 func (s *APIConfigService) SeedDefaults(ctx context.Context) error {
 	defaults := []model.APIConfig{
+		{Provider: "hongguo", Description: "红果实时弹幕（参数可空）", Enabled: true},
 		{Provider: "tmdb", BaseURL: "https://api.themoviedb.org/3", Description: "TMDb (movies + tv)", Enabled: true},
 		{Provider: "bangumi", BaseURL: "https://api.bgm.tv", Description: "Bangumi (anime)", Enabled: true},
 		{Provider: "thetvdb", BaseURL: "https://api4.thetvdb.com/v4", Description: "TheTVDB (tv)", Enabled: true},
@@ -87,6 +89,8 @@ type PublicView struct {
 	MaskedKey        string    `json:"masked_key,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+
+	HongGuoApp map[string]bool `json:"hongguo_app,omitempty"`
 }
 
 // List returns every API config row (with masked keys).
@@ -165,6 +169,8 @@ type APIConfigPatch struct {
 	UseProxyPool     *bool   `json:"use_proxy_pool,omitempty"`
 	WebSearchEnabled *bool   `json:"web_search_enabled,omitempty"`
 	Description      *string `json:"description,omitempty"`
+
+	HongGuoApp *hongguo.DanmuAppConfig `json:"hongguo_app,omitempty"`
 }
 
 // Update applies the patch and returns the new public view.
@@ -172,6 +178,12 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 	provider = strings.TrimSpace(strings.ToLower(provider))
 	if provider == "" {
 		return nil, errors.New("provider required")
+	}
+	if provider == "hongguo" {
+		return s.updateHongGuoApp(ctx, patch)
+	}
+	if patch.HongGuoApp != nil {
+		return nil, errors.New("hongguo_app requires hongguo provider")
 	}
 
 	row, err := s.findByProvider(ctx, provider)
@@ -334,7 +346,13 @@ func (s *APIConfigService) toPublic(r *model.APIConfig) PublicView {
 		CreatedAt:        r.CreatedAt,
 		UpdatedAt:        r.UpdatedAt,
 	}
-	if pv.HasKey {
+	if r.Provider == "hongguo" {
+		app, err := s.decodeHongGuoApp(r.APIKey)
+		if err == nil {
+			pv.HongGuoApp = app.Configured()
+		}
+		pv.BaseURL, pv.Model, pv.Extra = "", "", ""
+	} else if pv.HasKey {
 		pv.MaskedKey = MaskAPIKey(plain)
 	}
 	return pv

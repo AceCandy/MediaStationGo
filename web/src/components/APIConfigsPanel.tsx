@@ -6,6 +6,7 @@ import {
   apiConfigsAPI,
   type APIConfig,
   type APIConfigPatch,
+  type HongGuoAppConfig,
   type ProxyPoolConfig,
   type ProxyPoolInput,
   type ProxyPoolItem,
@@ -47,7 +48,7 @@ export function APIConfigsPanel() {
         <div>
           <p className="font-display text-lg font-semibold text-ink-600">外部 API 配置</p>
           <p className="text-xs text-ink-50">
-            TMDb / Bangumi / TheTVDB / Fanart / OpenAI / Douban / Adult 密钥与源管理
+            TMDb / Bangumi / TheTVDB / Fanart / OpenAI / Douban / Adult / 红果 密钥与源管理
           </p>
         </div>
       </div>
@@ -113,10 +114,11 @@ export function APIConfigsPanel() {
                           </span>
                         ) : (
                           <span className="inline-flex rounded-full bg-sand-300/40 px-2 py-0.5 text-sand-500">
-                            未配置
+                            {item.provider === 'hongguo' ? '匿名模式' : '未配置'}
                           </span>
                         )}
                       </div>
+                      {item.provider === 'hongguo' && <p className="mt-1 text-xs text-ink-50">{item.enabled ? '播放请求时实时合并历史弹幕' : '已停用实时获取，仅返回历史弹幕'}</p>}
                     </td>
                     <td className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -131,8 +133,8 @@ export function APIConfigsPanel() {
                           <button
                             onClick={async () => {
                               if (!(await confirmAction({
-                                title: item.provider === 'douban' ? '清除 Cookie' : '清除 API Key',
-                                message: item.provider === 'douban'
+                                title: item.provider === 'hongguo' ? '清除红果 App 参数' : item.provider === 'douban' ? '清除 Cookie' : '清除 API Key',
+                                message: item.provider === 'hongguo' ? '清除全部 App 参数并恢复匿名模式？已存弹幕不会删除。' : item.provider === 'douban'
                                   ? `确定清除 ${item.provider} 的 Cookie?`
                                   : `确定清除 ${item.provider} 的 API Key?`,
                                 confirmText: '清除',
@@ -142,7 +144,7 @@ export function APIConfigsPanel() {
                               refresh()
                             }}
                             className="rounded-lg p-1.5 text-ink-50 transition hover:bg-red-400/10 hover:text-red-400"
-                            title={item.provider === 'douban' ? '清除 Cookie' : '清除密钥'}
+                            title={item.provider === 'hongguo' ? '清除红果 App 参数' : item.provider === 'douban' ? '清除 Cookie' : '清除密钥'}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -183,12 +185,26 @@ function EditingRow({
   const isAdult = item.provider === 'adult'
   const isDouban = item.provider === 'douban'
   const isOpenAI = item.provider === 'openai'
+  const isHongGuo = item.provider === 'hongguo'
+  const [hongGuoApp, setHongGuoApp] = useState<HongGuoAppConfig>({})
+  const [hongGuoQuery, setHongGuoQuery] = useState('')
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      const patch: APIConfigPatch = { base_url: baseURL, enabled }
+      const patch: APIConfigPatch = isHongGuo ? { enabled } : { base_url: baseURL, enabled }
+      if (isHongGuo) {
+        patch.hongguo_app = { ...hongGuoApp }
+        if (hongGuoQuery.trim()) {
+          let query: unknown
+          try { query = JSON.parse(hongGuoQuery) } catch { toast.error('高级参数必须是 JSON 对象'); return }
+          if (!query || typeof query !== 'object' || Array.isArray(query) || Object.values(query).some((v) => typeof v !== 'string')) {
+            toast.error('高级参数必须是字符串键值 JSON 对象'); return
+          }
+          patch.hongguo_app.query = query as Record<string, string>
+        }
+      }
       if (isAdult) patch.extra = extra
       if (isDouban) {
         patch.image_direct = imageDirect
@@ -218,7 +234,7 @@ function EditingRow({
         <form onSubmit={submit} className="space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <span className="text-sm font-medium text-ink-600">{item.provider}</span>
-            {!isAdult && (
+            {!isAdult && !isHongGuo && (
               <label className="min-w-64 flex-1 text-xs text-ink-50">
                 {isDouban ? 'Cookie' : 'API Key'}
                 <input
@@ -250,7 +266,32 @@ function EditingRow({
               <X size={12} />
             </button>
           </div>
-          <section className="border-t border-gray-200 pt-3">
+          {isHongGuo ? (
+            <section className="space-y-3 border-t border-gray-200 pt-3">
+              <p className="text-xs text-ink-50">全部可选，留空保留原值；无参数时匿名请求。只获取当前播放集，实时与历史去重合并；不保证源站返回全量弹幕。</p>
+              <div className="grid gap-3 md:grid-cols-2">
+                {([
+                  ['cookie', 'Cookie'], ['token', 'x-tt-token'], ['user_agent', 'User-Agent'], ['device_id', 'device_id'], ['iid', 'iid'],
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="min-w-0 text-xs text-ink-50">
+                    {label} · {item.hongguo_app?.[key] ? '已配置' : '未配置'}
+                    <input className="input-base mt-1 w-full" type="password" autoComplete="off" maxLength={16384}
+                      placeholder="留空保留原值" value={hongGuoApp[key] ?? ''}
+                      onChange={(e) => setHongGuoApp({ ...hongGuoApp, [key]: e.target.value || undefined })} />
+                  </label>
+                ))}
+              </div>
+              <details>
+                <summary className="cursor-pointer text-xs text-ink-50">高级 App 查询参数 · {item.hongguo_app?.query ? '已配置' : '未配置'}</summary>
+                <label className="mt-2 block text-xs text-ink-50">参数 JSON（留空保留，填写后替换此组查询参数）
+                  <textarea className="input-base mt-1 min-h-24 w-full resize-y" autoComplete="off" maxLength={8192}
+                    placeholder={'{"version_name":"6.8.1.32","version_code":"68132","aid":"8662"}'}
+                    value={hongGuoQuery} onChange={(e) => setHongGuoQuery(e.target.value)} />
+                </label>
+                <p className="mt-1 text-xs text-ink-50">仅支持 App 版本、渠道、设备类型等公共参数；不支持自定义地址、签名或时间戳。已保存内容不回显。</p>
+              </details>
+            </section>
+          ) : <section className="border-t border-gray-200 pt-3">
             <h3 className="text-xs font-semibold text-ink-600">高级设置</h3>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="text-xs text-ink-50">
@@ -315,7 +356,7 @@ function EditingRow({
                 </>
               )}
             </div>
-          </section>
+          </section>}
         </form>
       </td>
     </tr>

@@ -12,12 +12,14 @@ export interface APIConfig {
   web_search_enabled: boolean
   description?: string
   has_key: boolean
+  hongguo_app?: Partial<Record<keyof HongGuoAppConfig, boolean>>
   masked_key?: string
   created_at: string
   updated_at: string
 }
 
 export interface APIConfigPatch {
+  hongguo_app?: HongGuoAppConfig
   api_key?: string
   base_url?: string
   model?: string
@@ -27,6 +29,15 @@ export interface APIConfigPatch {
   use_proxy_pool?: boolean
   web_search_enabled?: boolean
   description?: string
+}
+
+export interface HongGuoAppConfig {
+  cookie?: string
+  token?: string
+  user_agent?: string
+  device_id?: string
+  iid?: string
+  query?: Record<string, string>
 }
 
 export interface ProxyPoolItem {

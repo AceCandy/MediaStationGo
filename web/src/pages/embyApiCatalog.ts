@@ -141,6 +141,19 @@ const userDataFields: readonly EmbyApiField[] = [
 
 export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
   {
+    id: 'danmu-raw', category: '图片与播放', name: '当前集弹幕',
+    description: '红果当前集实时弹幕与数据库历史按单条 ID 去重合并，新增条目异步保存。普通媒体和 NFO 保留空响应。',
+    methods: ['GET'], path: '/api/danmu/:id/raw', auth: 'token', support: 'implemented',
+    parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: '可见红果分集 ID、电影 ID 或已绑定文件 ID；合集、季和人物不能批量获取。' }],
+    responses: [
+      { status: '200', contentType: 'application/xml; charset=utf-8', description: '红果返回 Emby 插件兼容 i/d/p XML，p 的时间单位为秒（保留毫秒），ID 保持字符串；Cache-Control: no-store。上游失败或禁用时返回历史，没有数据时返回空 XML。' },
+      { status: '200', contentType: 'text/plain; charset=utf-8', description: '非红果保持空响应。' },
+      { status: '404', contentType: 'application/json', description: '红果目标不存在、不可见或不是可播放叶子。' },
+      { status: '500', contentType: 'application/json', description: '本地查询或弹幕存储读取失败。' },
+    ],
+    notes: ['仅在请求此接口时获取当前集，不预取、不扫描整季；不保证源站全量。播放器是否调用和显示需客户端验收。'],
+  },
+  {
     id: 'system-info-public',
     category: '发现与认证',
     name: '公开服务器信息',

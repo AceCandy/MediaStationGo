@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/hongguo-catalog.md","reason":"红果身份和旧播放逻辑隔离"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"新增表和并发去重"}
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"配置加密和按请求解析"}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"Emby raw 输出与目录同步"}

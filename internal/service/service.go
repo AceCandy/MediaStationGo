@@ -23,6 +23,7 @@ type Container struct {
 	Tasks            *TaskTrackerService
 	HongGuo          *HongGuoService
 	HongGuoDownloads *HongGuoDownloadService
+	HongGuoDanmu     *HongGuoDanmuService
 	Auth             *AuthService
 	Media            *MediaService
 	Scan             *ScannerService
@@ -162,6 +163,9 @@ func (c *Container) Close() {
 	}
 	if c.HongGuoDownloads != nil {
 		c.HongGuoDownloads.Wait()
+	}
+	if c.HongGuoDanmu != nil {
+		c.HongGuoDanmu.Close()
 	}
 	if c.Scraper != nil {
 		c.Scraper.WaitCatalogHydrationWorker()

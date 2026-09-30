@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/hongguo-catalog.md","reason":"核验目录、状态与权限隔离"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"核验新表幂等和旧数据保持"}
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"核验配置隔离和秘密保护"}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"核验 raw 路由和 XML 输出"}
