@@ -289,3 +289,25 @@ Web 与 Emby 详情及 PlaybackInfo 复用后台轨道回填，补齐同季下�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 178: Hills 播放信息响应诊断
+<!-- trellis-session: v=2 fp=81bd13a11f8a5a8e -->
+
+**Date**: 2026-10-02
+**Task**: Hills 播放信息响应诊断
+**Branch**: `main`
+
+### Summary
+
+PlaybackInfo 返回前记录白名单脱敏结构摘要，覆盖媒体源能力、默认选轨和地址结构，不记录原始路径、URL、认证值或用户身份，保持响应不变。定向 race 测试和 diff 检查通过，单独人工复核完成。诊断代码交付已归档；未重启服务、未取得新的现场摘要，Hills 连播退出根因仍未确认。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `943d32f` | chore(emby): 增加播放信息脱敏诊断摘要 |
+
+### Status
+
+[OK] **Completed**
