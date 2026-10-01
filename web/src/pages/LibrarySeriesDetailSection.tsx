@@ -48,6 +48,18 @@ export function LibrarySeriesDetailSection({ selectedSeries, selectedEpisodes, a
   const versions = versionResult?.episodeID === episodeID && !loadingEpisodes ? versionResult.items : []
   const version = versions.find((item) => item.id === params.get('version')) ?? versions.find((item) => item.id === mediaID) ?? versions[0]
   const versionID = version?.id
+  const nextEpisodeID = selectedSeries && versionID && !loadingEpisodes && !episodesError && episode && episode.episode_num > 0
+    ? season?.episodes.find((item) => item.season_num === episode.season_num && item.episode_num === episode.episode_num + 1)?.id
+    : undefined
+  useEffect(() => {
+    if (!nextEpisodeID) return
+    let cancelled = false
+    // 只预补同季下一集；读取最新轨道，避免分集列表的旧数据触发重复探测。
+    void mediaAPI.get(nextEpisodeID).then((nextMedia) => {
+      if (!cancelled && (nextMedia.tracks?.length ?? 0) === 0) return mediaAPI.ensureProbe(nextEpisodeID)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [nextEpisodeID])
   useEffect(() => {
     if (!selectedSeries || !season || !episodeID || loadingEpisodes) return
     const next = new URLSearchParams(params)
