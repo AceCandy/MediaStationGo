@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
@@ -114,6 +115,17 @@ type ScanResult struct {
 	Errors         []string     `json:"errors,omitempty"`
 	Changes        []ScanChange `json:"changes,omitempty"`
 	OmittedChanges int          `json:"omitted_changes,omitempty"`
+	// 自动回填范围独立于有上限的日志明细，仅记录本次成功写入的媒体。
+	probeMediaIDs      []string
+	skipAutomaticProbe bool
+}
+
+// addProbeMedia 在写入成功后收集自动回填范围，剧集库和 ISO 在入口跳过。
+func (res *ScanResult) addProbeMedia(media *model.Media) {
+	if res.skipAutomaticProbe || media.ID == "" || media.EpisodeNum != 0 || strings.HasSuffix(strings.ToLower(media.Path), ".iso") {
+		return
+	}
+	res.probeMediaIDs = append(res.probeMediaIDs, media.ID)
 }
 
 type ScanProgress struct {

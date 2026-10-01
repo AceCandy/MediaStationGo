@@ -177,8 +177,8 @@ func scanTaskProgress(task *service.TaskHandle) service.ScanProgressFunc {
 }
 
 func wakeProbeBackfillAfterScan(svc *service.Container, res *service.ScanResult) {
-	if svc != nil && svc.Scan != nil && res != nil && res.Added+res.Updated > 0 {
-		svc.Scan.WakeProbeBackfill()
+	if svc != nil && svc.Scan != nil {
+		svc.Scan.WakeProbeBackfill(res)
 	}
 }
 

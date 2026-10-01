@@ -102,7 +102,7 @@ func (s *ScannerService) ScanAndScrapeLibrariesForPath(ctx context.Context, dest
 	}
 	targets := selectOrganizeScanTargets(libraries, destRoot, preferredLibraryID)
 	out := make([]OrganizeScanSummary, 0, len(targets))
-	needsProbeBackfill := false
+	probeResult := &ScanResult{}
 	for _, lib := range targets {
 		summary := OrganizeScanSummary{
 			LibraryID: lib.ID,
@@ -115,7 +115,7 @@ func (s *ScannerService) ScanAndScrapeLibrariesForPath(ctx context.Context, dest
 			summary.Added = res.Added
 			summary.Updated = res.Updated
 			summary.Removed = res.Removed
-			needsProbeBackfill = needsProbeBackfill || res.Added+res.Updated > 0
+			probeResult.probeMediaIDs = append(probeResult.probeMediaIDs, res.probeMediaIDs...)
 		}
 		if err != nil {
 			summary.Error = err.Error()
@@ -125,9 +125,7 @@ func (s *ScannerService) ScanAndScrapeLibrariesForPath(ctx context.Context, dest
 		out = append(out, summary)
 	}
 	scrapes := s.scrapeOrganizeTargets(ctx, targets, scrapeAfter)
-	if needsProbeBackfill {
-		s.WakeProbeBackfill()
-	}
+	s.WakeProbeBackfill(probeResult)
 	return out, scrapes
 }
 

@@ -86,12 +86,12 @@ func TestPendingProbeQueryPreservesScope(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got, err := probe.hasPendingProbe(t.Context())
+			got, err := probe.hasPendingProbe(t.Context(), nil)
 			if err != nil || got != tc.automatic {
 				t.Fatalf("automatic pending = %v, error = %v, want %v", got, err, tc.automatic)
 			}
 			var count int64
-			if err := pendingProbeQuery(db.Table("media AS m"), false).Count(&count).Error; err != nil || (count > 0) != tc.manual {
+			if err := pendingProbeQuery(db.Table("media AS m"), false, nil).Count(&count).Error; err != nil || (count > 0) != tc.manual {
 				t.Fatalf("manual count = %d, error = %v, want pending %v", count, err, tc.manual)
 			}
 			if err := db.Exec("DELETE FROM media WHERE id = 'candidate'").Error; err != nil {
@@ -155,7 +155,10 @@ func TestBackgroundPendingChecksUseIndexes(t *testing.T) {
 			return (&ScraperService{repo: repository.New(db)}).hasActiveMediaScrapes(t.Context())
 		}},
 		{"probe", func() (bool, error) {
-			return NewMediaProbeService(repository.New(db), nil).hasPendingProbe(t.Context())
+			return NewMediaProbeService(repository.New(db), nil).hasPendingProbe(t.Context(), nil)
+		}},
+		{"probe_scoped", func() (bool, error) {
+			return NewMediaProbeService(repository.New(db), nil).hasPendingProbe(t.Context(), []string{fmt.Sprintf("%036d", 20500)})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -165,23 +168,30 @@ func TestBackgroundPendingChecksUseIndexes(t *testing.T) {
 			}
 			// 使用实际执行的查询，同时验证 PostgreSQL 通用预编译计划。
 			query, vars := statement, append([]any(nil), args...)
-			if err := db.Exec("SET plan_cache_mode = force_generic_plan").Error; err != nil {
-				t.Fatal(err)
-			}
-			if err := db.Exec("PREPARE pending_" + tc.name + " AS " + query).Error; err != nil {
-				t.Fatal(err)
-			}
-			execute := "EXECUTE pending_" + tc.name
-			if len(vars) > 0 {
-				placeholders := make([]string, len(vars))
-				for i := range vars {
-					placeholders[i] = fmt.Sprintf("$%d", i+1)
-				}
-				execute = db.Dialector.Explain(execute+"("+strings.Join(placeholders, ",")+")", vars...)
-			}
 			var raw string
-			if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON, TIMING OFF) " + execute).Row().Scan(&raw); err != nil {
-				t.Fatal(err)
+			if tc.name == "probe_scoped" {
+				// 数组参数保留原始绑定值，不能重放日志里的数组占位文本。
+				if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON, TIMING OFF) "+query, vars...).Scan(&raw); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := db.Exec("SET plan_cache_mode = force_generic_plan").Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Exec("PREPARE pending_" + tc.name + " AS " + query).Error; err != nil {
+					t.Fatal(err)
+				}
+				execute := "EXECUTE pending_" + tc.name
+				if len(vars) > 0 {
+					placeholders := make([]string, len(vars))
+					for i := range vars {
+						placeholders[i] = fmt.Sprintf("$%d", i+1)
+					}
+					execute = db.Dialector.Explain(execute+"("+strings.Join(placeholders, ",")+")", vars...)
+				}
+				if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON, TIMING OFF) " + execute).Row().Scan(&raw); err != nil {
+					t.Fatal(err)
+				}
 			}
 			type planNode struct {
 				Type     string     `json:"Node Type"`
@@ -200,7 +210,11 @@ func TestBackgroundPendingChecksUseIndexes(t *testing.T) {
 			}
 			var walk func(planNode)
 			walk = func(node planNode) {
-				if node.Relation == "media" && (strings.Contains(node.Type, "Seq Scan") || (node.Rows+node.Removed)*node.Loops > 700) {
+				maxRows := float64(700)
+				if tc.name == "probe_scoped" {
+					maxRows = 1
+				}
+				if node.Relation == "media" && (strings.Contains(node.Type, "Seq Scan") || (node.Rows+node.Removed)*node.Loops > maxRows) {
 					t.Fatalf("idle check scanned unrelated media: %s", raw)
 				}
 				for _, child := range node.Plans {

@@ -119,6 +119,7 @@ func (b *localMediaWriteBatch) Flush() {
 			b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
 			continue
 		}
+		b.res.addProbeMedia(item.media)
 		if wasExisting {
 			b.res.Updated++
 			b.res.addChange(ScanChangeUpdated, item.path, item.updateReason)
@@ -173,6 +174,7 @@ func (b *localMediaWriteBatch) upsertExistingItem(item localMediaWriteItem) {
 		b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
 		return
 	}
+	b.res.addProbeMedia(item.media)
 	b.res.Updated++
 	b.res.addChange(ScanChangeUpdated, item.path, item.updateReason)
 }

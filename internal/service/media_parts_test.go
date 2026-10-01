@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,11 +72,15 @@ func TestScannerReconcilesMediaPartsAndRestoresSingleton(t *testing.T) {
 	if err := os.WriteFile(part2, []byte("two"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := scanner.IngestPath(t.Context(), library.ID, part2); err != nil {
+	res, err := scanner.IngestPathResult(t.Context(), library.ID, part2)
+	if err != nil {
 		t.Fatal(err)
 	}
 	first = loadMediaByPath(t, repos, part1)
 	second := loadMediaByPath(t, repos, part2)
+	if !slices.Contains(res.probeMediaIDs, first.ID) || !slices.Contains(res.probeMediaIDs, second.ID) {
+		t.Fatal("part event omitted the updated sibling from probe scope")
+	}
 	if first.PartGroupKey == "" || first.PartGroupKey != second.PartGroupKey || first.PartIndex != 1 || second.PartIndex != 2 {
 		t.Fatalf("multipart relation = first(%q,%d) second(%q,%d)", first.PartGroupKey, first.PartIndex, second.PartGroupKey, second.PartIndex)
 	}
@@ -249,7 +254,7 @@ func TestReconcileMediaPartsQueryScope(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			changed, err := scanner.reconcileMediaParts(t.Context(), library.ID, test.directory, test.recursive)
+			changed, err := scanner.reconcileMediaParts(t.Context(), library.ID, test.directory, test.recursive, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -276,7 +281,7 @@ func TestReconcileMediaPartsQueryScope(t *testing.T) {
 			if err := repos.DB.Where("path = ?", paths[1]).Delete(&model.Media{}).Error; err != nil {
 				t.Fatal(err)
 			}
-			if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, test.directory, test.recursive); err != nil {
+			if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, test.directory, test.recursive, nil); err != nil {
 				t.Fatal(err)
 			}
 			remaining := loadMediaByPath(t, repos, paths[0])
@@ -351,7 +356,7 @@ func TestReconcileMediaPartsDirectoryPlan(t *testing.T) {
 		t.Logf("local=%v media visits=%.0f execution=%.3f ms", local, visits, plans[0].Time)
 	}
 	for _, recursive := range []bool{true, false} {
-		if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, "/Media/target", recursive); err != nil {
+		if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, "/Media/target", recursive, nil); err != nil {
 			t.Fatal(err)
 		}
 		if statement == "" {

@@ -58,7 +58,7 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 		_, partCandidate := parseMediaPartCandidate(removedMedia.Path)
 		if partCandidate || removedMedia.PartGroupKey != "" || removedMedia.PartIndex != 0 {
-			if _, err := s.reconcileMediaParts(ctx, removedMedia.LibraryID, filepath.Dir(removedMedia.Path), false); err != nil {
+			if _, err := s.reconcileMediaParts(ctx, removedMedia.LibraryID, filepath.Dir(removedMedia.Path), false, nil); err != nil {
 				return res.RowsAffected, err
 			}
 		}

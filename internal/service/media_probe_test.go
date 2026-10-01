@@ -796,11 +796,11 @@ func TestMediaProbeAutomaticBackfillSkipsEpisodesButManualIncludesThem(t *testin
 		}
 	}
 	probe := NewMediaProbeService(repository.New(db), &stubMediaProbeRunner{result: probeResultFixture()})
-	result, err := probe.backfill(t.Context(), "", 0, nil, true)
+	result, err := probe.backfill(t.Context(), "", 0, nil, true, nil)
 	if err != nil || result.Total != 1 || result.Completed != 1 {
 		t.Fatalf("automatic result = %#v, error = %v", result, err)
 	}
-	pending, err := probe.hasPendingProbe(t.Context())
+	pending, err := probe.hasPendingProbe(t.Context(), nil)
 	if err != nil || pending {
 		t.Fatalf("episodes must not wake automatic backfill: pending=%v, error=%v", pending, err)
 	}

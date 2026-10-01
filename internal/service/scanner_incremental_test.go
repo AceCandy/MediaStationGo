@@ -97,7 +97,7 @@ func TestScanLibraryImportsISOImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if res.Added != 1 || res.ErrorCount != 0 {
+	if res.Added != 1 || res.ErrorCount != 0 || len(res.probeMediaIDs) != 0 {
 		t.Fatalf("scan result = %#v, want one ISO image added without errors", res)
 	}
 	var media model.Media

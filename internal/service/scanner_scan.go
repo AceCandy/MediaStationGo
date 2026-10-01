@@ -81,7 +81,7 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 	if lib == nil {
 		return nil, errors.New("library not found")
 	}
-	res := &ScanResult{LibraryID: lib.ID}
+	res := &ScanResult{LibraryID: lib.ID, skipAutomaticProbe: librarySupportsSeasons(lib)}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
 	var existingMedia map[string]existingLocalMedia
 	if !libraryUsesNFOOnly(lib) {
@@ -134,7 +134,7 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 			s.emitScanProgress(progress, ScanProgressRootFailed, &root, i+1, len(roots), scannedRoots, res)
 			continue
 		}
-		if reconciled, reconcileErr := s.reconcileMovieLibraryEpisodes(ctx, lib, root.ID); reconcileErr != nil {
+		if reconciled, reconcileErr := s.reconcileMovieLibraryEpisodes(ctx, lib, root.ID, res); reconcileErr != nil {
 			addScanError(res, root.Path, reconcileErr)
 			s.log.Warn("reconcile movie library episodes failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(reconcileErr))
 		} else {
@@ -155,7 +155,7 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 	if scanErr != nil && scannedRoots == 0 {
 		return res, scanErr
 	}
-	if changed, err := s.reconcileMediaParts(ctx, lib.ID, "", true); err != nil {
+	if changed, err := s.reconcileMediaParts(ctx, lib.ID, "", true, res); err != nil {
 		addScanError(res, "", err)
 		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.Error(err))
 	} else {
@@ -171,7 +171,7 @@ func (s *ScannerService) scanLocalLibraryRoot(ctx context.Context, lib *model.Li
 }
 
 func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, lib *model.Library, root *model.LibraryRoot, autoScrape bool, progress ScanProgressFunc) (*ScanResult, error) {
-	res := &ScanResult{LibraryID: lib.ID}
+	res := &ScanResult{LibraryID: lib.ID, skipAutomaticProbe: librarySupportsSeasons(lib)}
 	if root == nil || !root.Enabled {
 		return res, errors.New("library root disabled or not found")
 	}
@@ -197,7 +197,7 @@ func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, l
 		s.emitScanProgress(progress, ScanProgressRootFailed, root, 1, 1, 0, res)
 		return res, walkErr
 	}
-	if reconciled, reconcileErr := s.reconcileMovieLibraryEpisodes(ctx, lib, root.ID); reconcileErr != nil {
+	if reconciled, reconcileErr := s.reconcileMovieLibraryEpisodes(ctx, lib, root.ID, res); reconcileErr != nil {
 		addScanError(res, root.Path, reconcileErr)
 		s.log.Warn("reconcile movie library episodes failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(reconcileErr))
 	} else {
@@ -212,7 +212,7 @@ func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, l
 			res.addChange(ScanChangeRemoved, path, "")
 		}
 	}
-	if changed, err := s.reconcileMediaParts(ctx, lib.ID, root.Path, true); err != nil {
+	if changed, err := s.reconcileMediaParts(ctx, lib.ID, root.Path, true, res); err != nil {
 		addScanError(res, root.Path, err)
 		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
 	} else {
@@ -264,9 +264,10 @@ func (s *ScannerService) emitScanProgress(progress ScanProgressFunc, phase strin
 	progress(item)
 }
 
-func (s *ScannerService) WakeProbeBackfill() {
-	if s != nil && s.mediaProbe != nil {
-		s.mediaProbe.WakeBackfill()
+// WakeProbeBackfill 只交接本次入库的非剧集媒体；空范围不会退化为全库检查。
+func (s *ScannerService) WakeProbeBackfill(res *ScanResult) {
+	if s != nil && s.mediaProbe != nil && res != nil && len(res.probeMediaIDs) > 0 {
+		s.mediaProbe.WakeMediaBackfill(res.probeMediaIDs)
 	}
 }
 
@@ -310,13 +311,11 @@ func (s *ScannerService) finishLocalLibraryScan(ctx context.Context, lib *model.
 // added or updated.
 func (s *ScannerService) IngestPath(ctx context.Context, libraryID, path string) (bool, error) {
 	res, err := s.IngestPathResult(ctx, libraryID, path)
+	s.WakeProbeBackfill(res)
 	if err != nil || res == nil {
 		return false, err
 	}
 	changed := res.Added+res.Updated > 0
-	if changed {
-		s.WakeProbeBackfill()
-	}
 	return changed, nil
 }
 
@@ -344,7 +343,7 @@ func (s *ScannerService) IngestPathResult(ctx context.Context, libraryID, path s
 	if _, ok := videoExtensions[ext]; !ok {
 		return nil, nil
 	}
-	res := &ScanResult{LibraryID: lib.ID}
+	res := &ScanResult{LibraryID: lib.ID, skipAutomaticProbe: librarySupportsSeasons(lib)}
 	_, reconcileParts := parseMediaPartCandidate(path)
 	if !reconcileParts {
 		// 写入可能清除旧分段字段，必须在入库前判断；普通文件只需路径索引点查。
@@ -356,7 +355,7 @@ func (s *ScannerService) IngestPathResult(ctx context.Context, libraryID, path s
 	}
 	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res)
 	if reconcileParts {
-		changed, reconcileErr := s.reconcileMediaParts(ctx, lib.ID, filepath.Dir(path), false)
+		changed, reconcileErr := s.reconcileMediaParts(ctx, lib.ID, filepath.Dir(path), false, res)
 		if reconcileErr != nil {
 			return res, reconcileErr
 		}

@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"go.uber.org/zap"
@@ -218,6 +219,13 @@ func TestScanLibraryReconcilesDirtyMovieEpisodes(t *testing.T) {
 		{LibraryID: lib.ID, MetadataID: seriesMetadata.ID, SeriesID: seriesMetadata.ID, Title: "Wrong Series", Path: paths[1], SeasonNum: 1, EpisodeNum: 36, ScrapeStatus: "matched"},
 		{LibraryID: lib.ID, SeriesID: "stale", Title: "Failed Movie", Path: paths[2], SeasonNum: 1, EpisodeNum: 2, ScrapeStatus: "error", ScrapeError: "old failure"},
 	}
+	for i := range rows {
+		info, err := os.Stat(rows[i].Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows[i].ScanFileSizeBytes, rows[i].ScanFileMTimeNS = info.Size(), info.ModTime().UnixNano()
+	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -229,6 +237,14 @@ func TestScanLibraryReconcilesDirtyMovieEpisodes(t *testing.T) {
 	}
 	if res.Reconciled != 3 {
 		t.Fatalf("Reconciled = %d, want 3", res.Reconciled)
+	}
+	if res.Updated != 0 || len(res.probeMediaIDs) != len(rows) {
+		t.Fatal("unchanged dirty movies did not retain their reconciliation probe scope")
+	}
+	for _, row := range rows {
+		if !slices.Contains(res.probeMediaIDs, row.ID) {
+			t.Fatal("movie episode reconciliation lost its updated media ID")
+		}
 	}
 	var got []model.Media
 	if err := db.Order("path").Find(&got).Error; err != nil {

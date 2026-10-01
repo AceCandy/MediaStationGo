@@ -104,10 +104,10 @@ func activeMediaPartCandidate(libraryID, path string) (mediaPartCandidate, strin
 }
 
 // reconcileMediaParts 校准同级分段；全库/根扫描才递归处理子目录。
-func (s *ScannerService) reconcileMediaParts(ctx context.Context, libraryID, directory string, recursive bool) ([]string, error) {
+func (s *ScannerService) reconcileMediaParts(ctx context.Context, libraryID, directory string, recursive bool, res *ScanResult) ([]string, error) {
 	var rows []model.Media
 	query := s.repo.DB.WithContext(ctx).
-		Select("id", "path", "part_group_key", "part_index", "local_metadata_hint", "scan_title", "scan_year", "scrape_status").
+		Select("id", "path", "episode_num", "part_group_key", "part_index", "local_metadata_hint", "scan_title", "scan_year", "scrape_status").
 		Where("library_id = ?", libraryID)
 	directory = filepath.Clean(strings.TrimSpace(directory))
 	if !recursive {
@@ -194,6 +194,9 @@ func (s *ScannerService) reconcileMediaParts(ctx context.Context, libraryID, dir
 			return changed, err
 		}
 		changed = append(changed, row.Path)
+		if res != nil {
+			res.addProbeMedia(&row)
+		}
 	}
 	sort.Strings(changed)
 	return changed, nil

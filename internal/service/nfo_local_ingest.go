@@ -287,5 +287,8 @@ func (s *ScannerService) ingestNFOMedia(ctx context.Context, lib *model.Library,
 		res.Updated++
 		res.addChange(ScanChangeUpdated, path, "本地 NFO 资料")
 	}
+	if changed {
+		res.addProbeMedia(media)
+	}
 	s.publishLocalScanProgress(path, res)
 }

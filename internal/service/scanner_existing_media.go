@@ -36,18 +36,19 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 
 type dirtyMovieMedia struct {
 	ID           string
+	Path         string
 	MetadataID   string
 	MetadataKind string
 	ScrapeStatus string
 }
 
 // reconcileMovieLibraryEpisodes 清理本次重扫路径中历史遗留的电影季集字段。
-func (s *ScannerService) reconcileMovieLibraryEpisodes(ctx context.Context, lib *model.Library, rootID string) (int, error) {
+func (s *ScannerService) reconcileMovieLibraryEpisodes(ctx context.Context, lib *model.Library, rootID string, res *ScanResult) (int, error) {
 	if s == nil || s.repo == nil || s.repo.DB == nil || !libraryIsMovieType(lib) {
 		return 0, nil
 	}
 	query := s.repo.DB.WithContext(ctx).Table("media AS m").
-		Select("m.id, m.metadata_id, COALESCE(mi.kind, '') AS metadata_kind, m.scrape_status").
+		Select("m.id, m.path, m.metadata_id, COALESCE(mi.kind, '') AS metadata_kind, m.scrape_status").
 		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id").
 		Where("m.library_id = ? AND (m.season_num <> 0 OR m.episode_num <> 0)", lib.ID)
 	if strings.TrimSpace(rootID) != "" {
@@ -79,6 +80,9 @@ func (s *ScannerService) reconcileMovieLibraryEpisodes(ctx context.Context, lib 
 	})
 	if err != nil {
 		return 0, err
+	}
+	for _, row := range rows {
+		res.addProbeMedia(&model.Media{PermanentBase: model.PermanentBase{ID: row.ID}, Path: row.Path})
 	}
 	if s.repo.MediaView != nil {
 		s.repo.MediaView.RefreshMetadataIDs(ctx, staleMetadataIDs...)

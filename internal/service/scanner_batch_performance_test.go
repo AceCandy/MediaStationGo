@@ -84,6 +84,13 @@ func TestNFOScanBatchesRecognitionAndAvoidsRedundantReads(t *testing.T) {
 				if err != nil || res == nil || res.ErrorCount != 0 || res.Added != added || res.Updated != updated || res.Skipped != skipped {
 					t.Fatalf("scan=%+v err=%v, want added/updated/skipped=%d/%d/%d", res, err, added, updated, skipped)
 				}
+				wantProbe := added + updated
+				if kind == model.LibraryTypeNFOTV {
+					wantProbe = 0
+				}
+				if len(res.probeMediaIDs) != wantProbe {
+					t.Fatalf("probe scope=%d, want %d", len(res.probeMediaIDs), wantProbe)
+				}
 				if counter.reads.Load() != 10 || counter.mediaPaths.Load() != pathReads || counter.snapshots.Load() != 0 {
 					t.Fatalf("setting/path/snapshot reads=%d/%d/%d, want 10/%d/0", counter.reads.Load(), counter.mediaPaths.Load(), counter.snapshots.Load(), pathReads)
 				}
@@ -136,6 +143,9 @@ func TestNFOScanBatchesRecognitionAndAvoidsRedundantReads(t *testing.T) {
 			media, err := repos.Media.FindByPath(t.Context(), paths[1])
 			if err != nil || media == nil || media.Title != "latest" {
 				t.Fatalf("single file title=%+v err=%v", media, err)
+			}
+			if kind == model.LibraryTypeNFOMovie && (len(res.probeMediaIDs) != 1 || res.probeMediaIDs[0] != media.ID) || kind == model.LibraryTypeNFOTV && len(res.probeMediaIDs) != 0 {
+				t.Fatal("NFO single-file event lost its actual media scope")
 			}
 		})
 	}

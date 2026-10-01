@@ -147,7 +147,7 @@ func TestScannerPruningWaitsForProbeRestoration(t *testing.T) {
 				switch mode {
 				case "watcher":
 					watcher := &WatcherService{scanner: scanner, log: zap.NewNop()}
-					details, key := watcher.processPath(t.Context(), duePath{path: path, libraryID: lib.ID})
+					details, key, _ := watcher.processPath(t.Context(), duePath{path: path, libraryID: lib.ID})
 					if key == "failed" {
 						return errors.New(strings.Join(details, "; "))
 					}

@@ -303,6 +303,7 @@ func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 		s.log.Warn("upsert media failed", zap.String("path", in.path), zap.Error(err))
 		return
 	}
+	in.res.addProbeMedia(in.media)
 	if in.isNewMedia {
 		in.res.Added++
 		in.res.addChange(ScanChangeAdded, in.path, "")

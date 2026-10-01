@@ -594,7 +594,9 @@ progress, complete probe-document invalidation, or automatic track backfill.
   `removed`, and `errors` through task metrics.
 - `MediaProbeService.StartBackfill(trigger, name, sourcePath, libraryID, limit)`
   starts the shared visible probe execution.
-- `MediaProbeService.WakeBackfill()` requests a coalesced automatic pass.
+- `ScannerService.WakeProbeBackfill(res)` hands off the committed scan scope.
+- `MediaProbeService.WakeMediaBackfill(mediaIDs)` coalesces automatic events by ID;
+  `WakeBackfill()` requests startup recovery across all eligible media.
 - `RemovePath(ctx, path)` returns access failures without deleting rows; its
   missing-file path also requires an accessible owning library root.
 - Missing, malformed, or non-current `media_probe_metadata` is the durable
@@ -645,12 +647,23 @@ progress, complete probe-document invalidation, or automatic track backfill.
 - A changed local file deletes its previous complete probe document before the
   media fingerprint update. If deletion fails, that media update is rejected so
   stale tracks are never presented as current.
-- Scan, watcher, STRM refresh, and organizer batches request probe backfill only
-  after their ingestion work settles and only when at least one media row was
-  added or updated. Partial-success error paths still request backfill.
+- Scan, watcher, and organizer batches hand off only their successfully persisted
+  media IDs after ingestion settles, including partial-success error paths,
+  multipart reconciliation and movie episode-field repairs. `ScanResult` keeps
+  this private scope independently of its 200-row change-detail cap. Ordinary
+  immediate/batch writes and NFO commits collect their actual persisted IDs;
+  episodic libraries are skipped at result construction, and episode-numbered
+  files and ISO images are skipped before collecting IDs. Empty event scopes
+  perform no pending query and must never become a full-library wake.
 - Automatic and manual backfill share `TaskKindProbe` and the same executor.
   Automatic executions use trigger `event`; a wake received while probe work is
-  active is coalesced and checked again after the active execution settles.
+  active is merged by ID and checked again after the active execution settles.
+  Pending checks, counts, pages and execution retain the same ID scope, using a
+  bound PostgreSQL array instead of expanding large batches into placeholders.
+  `nil` scope means full recovery/manual work; a non-nil empty slice means no
+  media. A startup wake covers already queued IDs; events received after scope
+  collection remain queued for the next pass. A task-admission race requeues
+  the original scope without broadening it.
 - Automatic probe checks, counts, and pages exclude episodic libraries
   (`tv`, `anime`, `variety`, `show`, `shows`, `nfo_tv`), scanned episode numbers,
   and series/season/episode metadata. Manual backfill still includes these rows.
@@ -670,6 +683,8 @@ progress, complete probe-document invalidation, or automatic track backfill.
 | Scan partially persists media and then returns an error | Finish the scan error path and still wake probe backfill for the persisted additions/updates |
 | Another probe task is active | Manual start returns `ErrMediaProbeBackfillRunning`; automatic wake remains pending without parallel work |
 | Automatic wake finds no missing/outdated document | Create no probe execution |
+| Empty event scope or episodic-library ingestion | Perform no automatic pending query or probe task |
+| Event for A while unrelated B lacks tracks | Check/count/page/probe A only; startup recovery can still find B |
 | ffprobe fails | Record one bounded failure detail; leave database state eligible for a later explicit wake |
 | STRM has no supported target | Count it as skipped; do not call ffprobe and do not consume `limit` |
 
@@ -694,6 +709,12 @@ progress, complete probe-document invalidation, or automatic track backfill.
   files retain it.
 - Assert automatic execution is visible as one event task, duplicate/running
   wakes coalesce, and manual/automatic executions cannot overlap.
+- `TestScannerProbeScopeKeepsAllCommittedChanges` verifies over 200 additions,
+  existing updates, scoped counts/pages, empty SQL scope and unrelated old work.
+  `TestScannerEpisodicLibrariesSkipProbeAtIngest` covers single/full/root scans,
+  unnumbered episodes, normalized types and NFO TV. Scoped wake regressions retain
+  events received during active work, manual exclusion, startup recovery and
+  scope-preserving requeue. NFO scan tests verify committed IDs and skipped TV.
 - Assert scan details are capped with an omitted count while final metrics stay
   exact, including `skipped` and `errors`.
 - Assert unsupported STRM rows are skipped without a probe call or limit use.
@@ -710,7 +731,7 @@ progress, complete probe-document invalidation, or automatic track backfill.
 queueLocalMediaProbe(path)
 
 // Correct: persist scan results, finish the batch, then request shared work.
-scanner.WakeProbeBackfill()
+scanner.WakeProbeBackfill(result)
 ```
 
 ```go
@@ -729,7 +750,7 @@ if walkErr == nil {
 1. Scope / Trigger: catalog media-priority checks and event-driven automatic
    probe checks, including the common case with no pending work.
 2. Signatures: `hasActiveMediaScrapes(ctx)` uses one statement with separate
-   pending and running `EXISTS` branches. `pendingProbeQuery(query, automatic)`
+   pending and running `EXISTS` branches. `pendingProbeQuery(query, automatic, mediaIDs)`
    excludes a nonempty current-version document through `NOT EXISTS`.
 3. Contracts: preserve ordinary-source NULL/empty/pending/running scrape states,
    automatic episode/library/metadata exclusions, manual episode inclusion,
@@ -741,8 +762,10 @@ if walkErr == nil {
    the query. `idx_media_probe_nonempty_document` covers `(media_id)` with
    `INCLUDE (schema_version) WHERE probe_json <> ''`; it supports a parameterized
    document version without reading JSON. Counts need no probe join; pages keep
-   their join to load outdated documents. Candidate work still scales with
-   automatic-eligible files; these indexes do not promise constant-time checks.
+   their join to load outdated documents. Ingestion events constrain media by
+   `m.id = ANY(?)` with bound IDs, so their work scales with the event scope.
+   Startup recovery still scales with automatic-eligible files; the covering
+   indexes do not make a full-library check constant-time.
 4. Validation / Errors: propagate query errors and cancellation. Install indexes
    idempotently through migration; skip the document index if its table is absent.
    Validate in isolated PostgreSQL schemas, without applying production indexes
@@ -754,6 +777,8 @@ if walkErr == nil {
 6. Tests: `TestActiveMediaScrapesPreservesStatusAndSource`,
    `TestPendingProbeQueryPreservesScope`, `TestBackgroundPendingChecksUseIndexes`
    capture actual GORM SQL and check generic plans over mixed media scopes.
+   The scoped probe case replays original SQL/bound array variables and verifies
+   one requested ID visits at most one media row among 20,700 unrelated rows.
    Retain automatic coalesced-wake/manual backfill regressions and repeated
    `TestEnsurePerformanceIndexesCreatesHotPathIndexes` with/without the probe table.
 7. Wrong: aggregate pending/running together or rejoin full probe documents for

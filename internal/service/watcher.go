@@ -444,17 +444,17 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 		w.log.Error("create watcher task execution failed")
 		return
 	}
-	defer func() {
-		if metrics["added"]+metrics["updated"] > 0 {
-			w.scanner.WakeProbeBackfill()
-		}
-	}()
+	probeResult := &ScanResult{}
+	defer w.scanner.WakeProbeBackfill(probeResult)
 	for _, d := range candidates {
 		if ctx.Err() != nil {
 			w.requeue([]duePath{d})
 			continue
 		}
-		details, key := w.processPath(ctx, d)
+		details, key, res := w.processPath(ctx, d)
+		if res != nil {
+			probeResult.probeMediaIDs = append(probeResult.probeMediaIDs, res.probeMediaIDs...)
+		}
 		if key == "failed" {
 			w.requeue([]duePath{d})
 		}
@@ -490,26 +490,26 @@ func (w *WatcherService) requeue(paths []duePath) {
 }
 
 // processPath ingests or removes one changed media path and returns one update's details.
-func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, string) {
+func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, string, *ScanResult) {
 	fi, err := os.Stat(d.path)
 	if err != nil {
 		if removed, derr := w.scanner.RemovePath(ctx, d.path); derr != nil {
 			w.log.Warn("watcher remove failed", zap.String("path", d.path), zap.Error(derr))
 			safeErr := sanitizeTaskLogError(derr)
-			return []string{fmt.Sprintf("❌ 删除 %s 失败: %v", d.path, safeErr)}, "failed"
+			return []string{fmt.Sprintf("❌ 删除 %s 失败: %v", d.path, safeErr)}, "failed", nil
 		} else if removed > 0 {
 			w.log.Info("watcher removed media", zap.String("path", d.path))
-			return []string{"🗑️ 删除 " + d.path}, "removed"
+			return []string{"🗑️ 删除 " + d.path}, "removed", nil
 		}
-		return []string{"⏭️ 删除路径无对应媒体记录 " + d.path}, "skipped"
+		return []string{"⏭️ 删除路径无对应媒体记录 " + d.path}, "skipped", nil
 	}
 	if fi.IsDir() {
-		return nil, "skipped"
+		return nil, "skipped", nil
 	}
 	metadataChanged := false
 	if d.metadata {
 		if changed, err := w.scanner.refreshLocalMetadataHints(ctx, d.libraryID, d.path); err != nil {
-			return []string{fmt.Sprintf("❌ 本地资料 %s: %v", d.path, sanitizeTaskLogError(err))}, "failed"
+			return []string{fmt.Sprintf("❌ 本地资料 %s: %v", d.path, sanitizeTaskLogError(err))}, "failed", nil
 		} else if changed {
 			metadataChanged = true
 			w.scanner.startAutoScrape(ctx, d.libraryID)
@@ -519,14 +519,14 @@ func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, 
 	if ierr != nil {
 		w.log.Warn("watcher ingest failed", zap.String("path", d.path), zap.Error(ierr))
 		safeErr := sanitizeTaskLogError(ierr)
-		return []string{fmt.Sprintf("❌ 入库 %s 失败: %v", d.path, safeErr)}, "failed"
+		return []string{fmt.Sprintf("❌ 入库 %s 失败: %v", d.path, safeErr)}, "failed", res
 	}
 	if res != nil && res.ErrorCount > 0 {
 		details := make([]string, 0, len(res.Errors))
 		for _, item := range res.Errors {
 			details = append(details, "❌ "+sanitizeTaskLogError(errors.New(item)).Error())
 		}
-		return details, "failed"
+		return details, "failed", res
 	}
 	if res != nil && res.Added+res.Updated > 0 {
 		w.log.Info("watcher ingested media", zap.String("path", d.path))
@@ -538,12 +538,12 @@ func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, 
 		}
 		details := res.ChangeDetails()
 		if res.Added > 0 {
-			return details, "added"
+			return details, "added", res
 		}
-		return details, "updated"
+		return details, "updated", res
 	}
 	if metadataChanged {
-		return []string{"🔄 更新本地资料提示 " + d.path}, "metadata"
+		return []string{"🔄 更新本地资料提示 " + d.path}, "metadata", res
 	}
-	return []string{"⏭️ 文件未产生入库变化 " + d.path}, "skipped"
+	return []string{"⏭️ 文件未产生入库变化 " + d.path}, "skipped", res
 }

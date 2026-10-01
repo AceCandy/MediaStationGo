@@ -32,7 +32,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		}
 	}
 	metrics := map[string]int64{}
-	needsProbeBackfill := false
+	probeResult := &ScanResult{}
 	for _, l := range libs {
 		if !l.Enabled {
 			continue
@@ -58,7 +58,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 			metrics["skipped"] += int64(res.Skipped)
 			metrics["removed"] += res.Removed
 			metrics["errors"] += int64(res.ErrorCount)
-			needsProbeBackfill = needsProbeBackfill || res.Added+res.Updated > 0
+			probeResult.probeMediaIDs = append(probeResult.probeMediaIDs, res.probeMediaIDs...)
 		}
 		if err != nil {
 			if res == nil || res.ErrorCount == 0 {
@@ -80,9 +80,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 	if task != nil {
 		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库扫描结束", Metrics: metrics})
 	}
-	if needsProbeBackfill {
-		s.scanner.WakeProbeBackfill()
-	}
+	s.scanner.WakeProbeBackfill(probeResult)
 	return nil
 }
 
