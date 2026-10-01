@@ -215,3 +215,25 @@ Web 与 Emby 详情及 PlaybackInfo 复用后台轨道回填，补齐同季下�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 175: 补齐 Emby 默认选轨索引
+<!-- trellis-session: v=2 fp=643f411cef3be6a0 -->
+
+**Date**: 2026-10-01
+**Task**: 补齐 Emby 默认选轨索引
+**Branch**: `main`
+
+### Summary
+
+详情和 PlaybackInfo 共享 MediaSource 补齐默认音轨与字幕索引，显式选轨仅覆盖选中版本。相关 service/handler race 测试、Web lint/build、浏览器验证与独立审查通过。任务已归档，测试服务和临时构建产物已清理。尚未部署，Hills 实机连播及退出根因尚未验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f7d7cbe` | fix(emby): 补齐媒体源默认音轨和字幕索引 |
+
+### Status
+
+[OK] **Completed**

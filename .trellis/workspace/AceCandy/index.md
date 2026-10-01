@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 174
+- **Total Sessions**: 175
 - **Last Active**: 2026-10-01
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~217 | Active |
+| `journal-3.md` | ~239 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 175 | 2026-10-01 | 补齐 Emby 默认选轨索引 | `f7d7cbe` | `main` |
 | 174 | 2026-10-01 | 详情与连播下一集轨道回填 | `309b0b3` | `main` |
 | 173 | 2026-10-01 | 同季下一集轨道预补充 | `a82c99f` | `main` |
 | 172 | 2026-10-01 | 补齐红果季响应关联字段 | `b8ecfa9` | `main` |
