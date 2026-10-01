@@ -1,0 +1,32 @@
+{
+  "id": "emby-default-stream-indices",
+  "name": "emby-default-stream-indices",
+  "title": "补齐 Emby 默认选轨索引",
+  "description": "共享 MediaSource 返回默认音轨和字幕索引，覆盖显式选轨及多版本隔离",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "emby",
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-01",
+  "completedAt": "2026-10-01",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "f7d7cbe",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/service/emby_playback.go",
+    "internal/service/emby_playback_test.go",
+    "internal/service/emby_default_streams_test.go",
+    ".trellis/spec/backend/emby-api-catalog-sync.md",
+    "web/src/pages/embyApiCatalog.ts"
+  ],
+  "notes": "",
+  "meta": {}
+}
