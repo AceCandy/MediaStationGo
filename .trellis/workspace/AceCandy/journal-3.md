@@ -193,3 +193,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 174: 详情与连播下一集轨道回填
+<!-- trellis-session: v=2 fp=44e4ea1330fa2f3d -->
+
+**Date**: 2026-10-01
+**Task**: 详情与连播下一集轨道回填
+**Branch**: `main`
+
+### Summary
+
+Web 与 Emby 详情及 PlaybackInfo 复用后台轨道回填，补齐同季下一集全部可见版本，串行间隔 1 秒并跳过完整文档。定向 race 回归、前端 lint/build 和浏览器检查通过；临时服务已清理，真实播放器与媒体源尚未联调。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `309b0b3` | fix(probe): 为详情和播放请求回填下一集全部版本 |
+
+### Status
+
+[OK] **Completed**
