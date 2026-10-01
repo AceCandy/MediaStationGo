@@ -66,6 +66,7 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)
+		logEmbyPlaybackInfo(svc.Log, c.Param("id"), out)
 		mediaID := selection.MediaSourceID
 		if mediaID == "" {
 			mediaID = c.Param("id")

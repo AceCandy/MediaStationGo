@@ -24,6 +24,14 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 - Failed response content is capped at 64 KiB and uses the same sensitive JSON-field redaction as request bodies.
 - Non-JSON content containing a sensitive field marker is replaced as a whole instead of persisted verbatim.
 - Successful, redirect, and media-byte responses never persist response content.
+- PlaybackInfo emits an INFO `emby playback info response summary` application
+  log after request-token attachment. Its allowlist contains media source IDs,
+  capabilities, container, runtime, default indices, stream types/indices/codecs,
+  and address-structure booleans only. Never log raw Path/DirectStreamUrl,
+  credentials, media titles, or user identity. The summary does not populate
+  player request `response_body` or change the client response. Application INFO
+  logging must be enabled to collect it; historical success bodies cannot be
+  reconstructed from player request logs.
 - 视频流 handler 不通过 `Item` 或 `PlayableMediaID` 解析 metadata、season、series ID；非 concrete media ID 返回 404。
 
 ## 4. Validation & Error Matrix
