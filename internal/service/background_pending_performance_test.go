@@ -86,7 +86,7 @@ func TestPendingProbeQueryPreservesScope(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got, err := probe.hasPendingProbe(t.Context(), nil)
+			got, err := probe.hasPendingProbe(t.Context(), nil, true)
 			if err != nil || got != tc.automatic {
 				t.Fatalf("automatic pending = %v, error = %v, want %v", got, err, tc.automatic)
 			}
@@ -155,10 +155,10 @@ func TestBackgroundPendingChecksUseIndexes(t *testing.T) {
 			return (&ScraperService{repo: repository.New(db)}).hasActiveMediaScrapes(t.Context())
 		}},
 		{"probe", func() (bool, error) {
-			return NewMediaProbeService(repository.New(db), nil).hasPendingProbe(t.Context(), nil)
+			return NewMediaProbeService(repository.New(db), nil).hasPendingProbe(t.Context(), nil, true)
 		}},
 		{"probe_scoped", func() (bool, error) {
-			return NewMediaProbeService(repository.New(db), nil).hasPendingProbe(t.Context(), []string{fmt.Sprintf("%036d", 20500)})
+			return NewMediaProbeService(repository.New(db), nil).hasPendingProbe(t.Context(), []string{fmt.Sprintf("%036d", 20500)}, true)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

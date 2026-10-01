@@ -37,7 +37,7 @@ func TestScannerProbeScopeKeepsAllCommittedChanges(t *testing.T) {
 		t.Fatalf("scan: result=%+v error=%v", res, err)
 	}
 	probe := NewMediaProbeService(repos, &stubMediaProbeRunner{result: probeResultFixture()})
-	pending, err := probe.hasPendingProbe(t.Context(), res.probeMediaIDs)
+	pending, err := probe.hasPendingProbe(t.Context(), res.probeMediaIDs, true)
 	if err != nil || !pending {
 		t.Fatalf("scoped pending=%v error=%v", pending, err)
 	}
@@ -48,11 +48,11 @@ func TestScannerProbeScopeKeepsAllCommittedChanges(t *testing.T) {
 	if _, ok := probe.Load(t.Context(), oldID); ok {
 		t.Fatal("event backfill included unrelated old pending media")
 	}
-	pending, err = probe.hasPendingProbe(t.Context(), res.probeMediaIDs)
+	pending, err = probe.hasPendingProbe(t.Context(), res.probeMediaIDs, true)
 	if err != nil || pending {
 		t.Fatalf("completed scope pending=%v error=%v", pending, err)
 	}
-	pending, err = probe.hasPendingProbe(t.Context(), []string{})
+	pending, err = probe.hasPendingProbe(t.Context(), []string{}, true)
 	if err != nil || pending {
 		t.Fatalf("empty scope must not include old pending media: pending=%v error=%v", pending, err)
 	}
@@ -255,29 +255,53 @@ func TestMediaProbeWakeScopeMergesWithoutExpanding(t *testing.T) {
 	probe := &MediaProbeService{tasks: NewTaskTrackerService(zap.NewNop(), nil), autoRunning: true}
 	probe.WakeMediaBackfill([]string{"a", "a", "", " "})
 	probe.WakeMediaBackfill([]string{"b"})
-	ids, ok := probe.takeAutomaticWake()
+	ids, _, ok := probe.takeAutomaticWake()
 	slices.Sort(ids)
 	if !ok || !slices.Equal(ids, []string{"a", "b"}) {
 		t.Fatalf("merged scope=%v wake=%v", ids, ok)
 	}
 	// 同类任务竞争时重新排队必须保留范围。
-	probe.wakeBackfill(ids, ids == nil)
-	ids, ok = probe.takeAutomaticWake()
+	probe.wakeBackfill(ids, ids == nil, false)
+	ids, _, ok = probe.takeAutomaticWake()
 	if !ok || len(ids) != 2 {
 		t.Fatalf("requeued scope=%v wake=%v", ids, ok)
 	}
 	probe.WakeMediaBackfill([]string{"a"})
 	probe.WakeBackfill()
-	ids, ok = probe.takeAutomaticWake()
+	ids, _, ok = probe.takeAutomaticWake()
 	if !ok || ids != nil {
 		t.Fatalf("startup scope=%v wake=%v", ids, ok)
 	}
 	probe.WakeMediaBackfill([]string{"b"})
-	ids, ok = probe.takeAutomaticWake()
+	ids, _, ok = probe.takeAutomaticWake()
 	if !ok || !slices.Equal(ids, []string{"b"}) {
 		t.Fatalf("event after startup scope=%v wake=%v", ids, ok)
 	}
-	if _, ok := probe.takeAutomaticWake(); ok {
+	if _, _, ok := probe.takeAutomaticWake(); ok {
 		t.Fatal("coordinator retained consumed events")
+	}
+}
+
+func TestMediaProbeDetailWakeKeepsIngestPolicy(t *testing.T) {
+	probe := &MediaProbeService{tasks: NewTaskTrackerService(zap.NewNop(), nil), autoRunning: true}
+	probe.wakeBackfill([]string{"next-a", "next-a", ""}, false, true)
+	probe.wakeBackfill([]string{"next-b"}, false, true)
+	probe.WakeBackfill()
+	ids, detail, ok := probe.takeAutomaticWake()
+	slices.Sort(ids)
+	if !ok || !detail || !slices.Equal(ids, []string{"next-a", "next-b"}) {
+		t.Fatalf("detail scope=%v detail=%v wake=%v", ids, detail, ok)
+	}
+	probe.wakeBackfill(ids, false, detail)
+	ids, detail, ok = probe.takeAutomaticWake()
+	if !ok || !detail || len(ids) != 2 {
+		t.Fatalf("requeued detail scope=%v detail=%v wake=%v", ids, detail, ok)
+	}
+	ids, detail, ok = probe.takeAutomaticWake()
+	if !ok || detail || ids != nil {
+		t.Fatalf("startup scope=%v detail=%v wake=%v", ids, detail, ok)
+	}
+	if _, _, ok := probe.takeAutomaticWake(); ok {
+		t.Fatal("consumed scope remained queued")
 	}
 }

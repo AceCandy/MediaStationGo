@@ -597,6 +597,11 @@ progress, complete probe-document invalidation, or automatic track backfill.
 - `ScannerService.WakeProbeBackfill(res)` hands off the committed scan scope.
 - `MediaProbeService.WakeMediaBackfill(mediaIDs)` coalesces automatic events by ID;
   `WakeBackfill()` requests startup recovery across all eligible media.
+- `WakeNextEpisodeBackfill(ctx, mediaView, mediaQueryFilter)` is called after
+  visibility checks by Web `getMediaHandler` and Emby `Item`, and after
+  playback-selection validation by Emby `PlaybackInfoWithOptions` (GET/POST).
+  `MediaViewRepository.NextEpisodeMediaIDs` resolves every visible file at the
+  same canonical season identity and exact episode number +1.
 - `RemovePath(ctx, path)` returns access failures without deleting rows; its
   missing-file path also requires an accessible owning library root.
 - Missing, malformed, or non-current `media_probe_metadata` is the durable
@@ -661,12 +666,24 @@ progress, complete probe-document invalidation, or automatic track backfill.
   Pending checks, counts, pages and execution retain the same ID scope, using a
   bound PostgreSQL array instead of expanding large batches into placeholders.
   `nil` scope means full recovery/manual work; a non-nil empty slice means no
-  media. A startup wake covers already queued IDs; events received after scope
+  media. A startup wake covers already queued ingestion IDs; events received after scope
   collection remain queued for the next pass. A task-admission race requeues
   the original scope without broadening it.
 - Automatic probe checks, counts, and pages exclude episodic libraries
   (`tv`, `anime`, `variety`, `show`, `shows`, `nfo_tv`), scanned episode numbers,
   and series/season/episode metadata. Manual backfill still includes these rows.
+- Detail-triggered next-episode scopes bypass only those ingestion exclusions.
+  They remain separate from startup scopes and share the coordinator, task
+  admission, event history, logs and missing-document predicate. Repeated wakes
+  merge IDs; admission races requeue the same detail scope. The executor probes
+  serially, waits a cancelable one second between attempts and retains the
+  existing HTTP probe delay. Detail-triggered work never deletes damaged files.
+  HongGuo uses the source-work season identity, NFO uses the local season item,
+  and ordinary episodes use canonical season metadata. No cross-season jump,
+  missing-episode skip, hidden-library file or whole-series scan is permitted.
+  Put the trigger in backend detail consumers and successful PlaybackInfo
+  requests, never only in a Web effect. Continuous playback must not require
+  opening details; rejected playback selections must not enqueue next episodes.
 - Startup may wake the coordinator, but the database query decides whether work
   exists. Valid current documents are never probed again. ISO images and STRM
   rows without a supported local or HTTP(S) target are skipped without invoking
@@ -684,6 +701,9 @@ progress, complete probe-document invalidation, or automatic track backfill.
 | Another probe task is active | Manual start returns `ErrMediaProbeBackfillRunning`; automatic wake remains pending without parallel work |
 | Automatic wake finds no missing/outdated document | Create no probe execution |
 | Empty event scope or episodic-library ingestion | Perform no automatic pending query or probe task |
+| Visible episode detail | Queue all visible versions at same season/episode +1; return without waiting for probing |
+| Movie, unidentified episode, absent next episode or valid probe documents | Start no detail backfill execution |
+| Cancel during detail probe spacing | Stop promptly; retain unprocessed files for a future detail request |
 | Event for A while unrelated B lacks tracks | Check/count/page/probe A only; startup recovery can still find B |
 | ffprobe fails | Record one bounded failure detail; leave database state eligible for a later explicit wake |
 | STRM has no supported target | Count it as skipped; do not call ffprobe and do not consume `limit` |
@@ -718,6 +738,14 @@ progress, complete probe-document invalidation, or automatic track backfill.
 - Assert scan details are capped with an omitted count while final metrics stay
   exact, including `skipped` and `errors`.
 - Assert unsupported STRM rows are skipped without a probe call or limit use.
+- `TestNextEpisodeMediaIDs`, `TestEmbyDetailQueuesNextEpisodeVersions`,
+  `TestEmbyPlaybackInfoQueuesNextEpisodeVersions`,
+  `TestGetMediaQueuesNextEpisodeBackfill`,
+  `TestMediaProbeDetailWakeKeepsIngestPolicy` and
+  `TestDetailBackfillSpacingCancelsAndPreservesFiles` cover catalog identities,
+  all visible versions, actual detail handoff, existing documents, queue policy,
+  mutual exclusion, spacing, cancellation and non-deletion. Run with isolated
+  PostgreSQL and `-race`; keep episodic ingestion exclusions passing.
 - `TestScanBatchRecognitionReloadsBetweenBatches` checks enabled/disabled rules
   and bounded settings reads. `TestScanBatchesRecognitionAndHongGuoSearch` checks
   101 files produce 10 recognition-setting reads and two work-index writes,
@@ -733,6 +761,10 @@ queueLocalMediaProbe(path)
 // Correct: persist scan results, finish the batch, then request shared work.
 scanner.WakeProbeBackfill(result)
 ```
+
+Wrong: pre-probe one representative version only in a Web detail effect.
+Correct: authenticated backend detail and successful PlaybackInfo entry points call
+`WakeNextEpisodeBackfill` with their visibility filter.
 
 ```go
 // Wrong: prune after an incomplete walk and delete media that may still exist.

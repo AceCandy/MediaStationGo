@@ -78,6 +78,8 @@ type MediaProbeService struct {
 	autoRunning bool
 	// autoMediaIDs 合并事件范围；autoPending 单独保留启动时的全库恢复请求。
 	autoMediaIDs map[string]struct{}
+	// detailMediaIDs 保留详情主动预取范围，不受入库时的剧集排除规则影响。
+	detailMediaIDs map[string]struct{}
 	// ponytail: 单进程全局锁仅协调隔离与扫描删除；扫描量大时再按库拆分。
 	cleanupMu sync.RWMutex
 }
@@ -250,6 +252,7 @@ func (s *MediaProbeService) BackfillAll(ctx context.Context, limit int, progress
 
 func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult), automatic bool, mediaIDs []string) (ProbeBackfillResult, error) {
 	var result ProbeBackfillResult
+	detail := !automatic && mediaIDs != nil
 	if s == nil || s.repo == nil || s.repo.DB == nil {
 		return result, errors.New("media probe unavailable")
 	}
@@ -300,7 +303,14 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 			if _, err := UnmarshalProbeDocument(row.ProbeJSON, row.SchemaVersion); err == nil {
 				result.Skipped++
 			} else {
-				probed, deleted, err := s.probeMedia(ctx, row.MediaID, true)
+				if detail && probeAttempts > 0 {
+					select {
+					case <-ctx.Done():
+						return result, ctx.Err()
+					case <-time.After(time.Second):
+					}
+				}
+				probed, deleted, err := s.probeMedia(ctx, row.MediaID, !detail)
 				if errors.Is(err, errMediaProbeSourceUnavailable) {
 					result.Skipped++
 				} else if err != nil || probed == nil || probed.Document == nil {
@@ -436,23 +446,23 @@ func pendingProbeQuery(query *gorm.DB, automatic bool, mediaIDs []string) *gorm.
 		Where("LOWER(m.path) NOT LIKE '%.iso'")
 }
 
-func (s *MediaProbeService) hasPendingProbe(ctx context.Context, mediaIDs []string) (bool, error) {
+func (s *MediaProbeService) hasPendingProbe(ctx context.Context, mediaIDs []string, automatic bool) (bool, error) {
 	if s == nil || s.repo == nil || s.repo.DB == nil {
 		return false, ErrMediaProbeBackfillUnavailable
 	}
 	var mediaID string
-	err := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m"), true, mediaIDs).
+	err := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m"), automatic, mediaIDs).
 		Select("m.id").Limit(1).Scan(&mediaID).Error
 	return mediaID != "", err
 }
 
 // StartBackfill 启动任务中心可见的手动或事件轨道回填，所有入口共享同类任务互斥。
 func (s *MediaProbeService) StartBackfill(trigger, name, sourcePath, libraryID string, limit int) error {
-	return s.startBackfill(trigger, name, sourcePath, libraryID, limit, nil)
+	return s.startBackfill(trigger, name, sourcePath, libraryID, limit, nil, trigger == TaskTriggerEvent)
 }
 
 // startBackfill 保留事件的媒体范围，并与手动全量回填共享任务互斥。
-func (s *MediaProbeService) startBackfill(trigger, name, sourcePath, libraryID string, limit int, mediaIDs []string) error {
+func (s *MediaProbeService) startBackfill(trigger, name, sourcePath, libraryID string, limit int, mediaIDs []string, automatic bool) error {
 	if s == nil || s.tasks == nil {
 		return ErrMediaProbeBackfillUnavailable
 	}
@@ -465,22 +475,35 @@ func (s *MediaProbeService) startBackfill(trigger, name, sourcePath, libraryID s
 		}
 		return ErrMediaProbeBackfillUnavailable
 	}
-	go s.runBackfillTask(task, strings.TrimSpace(libraryID), limit, trigger == TaskTriggerEvent, mediaIDs)
+	go s.runBackfillTask(task, strings.TrimSpace(libraryID), limit, automatic, mediaIDs)
 	return nil
 }
 
 // WakeBackfill 请求启动时的全库恢复；入库事件使用 WakeMediaBackfill 保留媒体范围。
 func (s *MediaProbeService) WakeBackfill() {
-	s.wakeBackfill(nil, true)
+	s.wakeBackfill(nil, true, false)
 }
 
 // WakeMediaBackfill 合并本次成功入库的媒体 ID，空范围不会启动全库检查。
 func (s *MediaProbeService) WakeMediaBackfill(mediaIDs []string) {
-	s.wakeBackfill(mediaIDs, false)
+	s.wakeBackfill(mediaIDs, false, false)
+}
+
+// WakeNextEpisodeBackfill 由已通过校验的详情或播放信息入口预取下一集全部可见版本。
+func (s *MediaProbeService) WakeNextEpisodeBackfill(ctx context.Context, media *model.MediaView, filter repository.MediaQueryFilter) {
+	if s == nil || s.tasks == nil || s.repo == nil || s.repo.MediaView == nil {
+		return
+	}
+	ids, err := s.repo.MediaView.NextEpisodeMediaIDs(ctx, media, filter)
+	if err != nil {
+		s.logBackfillError("resolve next episode media failed", err)
+		return
+	}
+	s.wakeBackfill(ids, false, true)
 }
 
 // wakeBackfill 合并重复事件；full 请求覆盖当前已排队的媒体范围。
-func (s *MediaProbeService) wakeBackfill(mediaIDs []string, full bool) {
+func (s *MediaProbeService) wakeBackfill(mediaIDs []string, full, detail bool) {
 	if s == nil || s.tasks == nil {
 		return
 	}
@@ -492,13 +515,20 @@ func (s *MediaProbeService) wakeBackfill(mediaIDs []string, full bool) {
 			if strings.TrimSpace(id) == "" {
 				continue
 			}
-			if s.autoMediaIDs == nil {
-				s.autoMediaIDs = make(map[string]struct{})
+			if detail {
+				if s.detailMediaIDs == nil {
+					s.detailMediaIDs = make(map[string]struct{})
+				}
+				s.detailMediaIDs[id] = struct{}{}
+			} else {
+				if s.autoMediaIDs == nil {
+					s.autoMediaIDs = make(map[string]struct{})
+				}
+				s.autoMediaIDs[id] = struct{}{}
 			}
-			s.autoMediaIDs[id] = struct{}{}
 		}
 	}
-	if !s.autoPending && len(s.autoMediaIDs) == 0 {
+	if !s.autoPending && len(s.autoMediaIDs) == 0 && len(s.detailMediaIDs) == 0 {
 		s.autoMu.Unlock()
 		return
 	}
@@ -513,7 +543,7 @@ func (s *MediaProbeService) wakeBackfill(mediaIDs []string, full bool) {
 
 func (s *MediaProbeService) runAutomaticBackfill() {
 	for {
-		mediaIDs, wake := s.takeAutomaticWake()
+		mediaIDs, detail, wake := s.takeAutomaticWake()
 		if !wake {
 			return
 		}
@@ -530,7 +560,7 @@ func (s *MediaProbeService) runAutomaticBackfill() {
 			case <-time.After(100 * time.Millisecond):
 			}
 		}
-		pending, err := s.hasPendingProbe(ctx, mediaIDs)
+		pending, err := s.hasPendingProbe(ctx, mediaIDs, !detail)
 		if err != nil {
 			s.logBackfillError("check automatic media probe backfill failed", err)
 			continue
@@ -538,9 +568,9 @@ func (s *MediaProbeService) runAutomaticBackfill() {
 		if !pending {
 			continue
 		}
-		if err := s.startBackfill(TaskTriggerEvent, "媒体轨道回填", "", "", 0, mediaIDs); err != nil {
+		if err := s.startBackfill(TaskTriggerEvent, "媒体轨道回填", "", "", 0, mediaIDs, !detail); err != nil {
 			if errors.Is(err, ErrMediaProbeBackfillRunning) {
-				s.wakeBackfill(mediaIDs, mediaIDs == nil)
+				s.wakeBackfill(mediaIDs, mediaIDs == nil, detail)
 				continue
 			}
 			s.logBackfillError("start automatic media probe backfill failed", err)
@@ -549,12 +579,20 @@ func (s *MediaProbeService) runAutomaticBackfill() {
 }
 
 // takeAutomaticWake 原子取出待办范围；执行期间新到的事件留给下一轮。
-func (s *MediaProbeService) takeAutomaticWake() ([]string, bool) {
+func (s *MediaProbeService) takeAutomaticWake() ([]string, bool, bool) {
 	s.autoMu.Lock()
 	defer s.autoMu.Unlock()
+	if len(s.detailMediaIDs) > 0 {
+		ids := make([]string, 0, len(s.detailMediaIDs))
+		for id := range s.detailMediaIDs {
+			ids = append(ids, id)
+		}
+		s.detailMediaIDs = nil
+		return ids, true, true
+	}
 	if !s.autoPending && len(s.autoMediaIDs) == 0 {
 		s.autoRunning = false
-		return nil, false
+		return nil, false, false
 	}
 	var mediaIDs []string
 	if !s.autoPending {
@@ -565,7 +603,7 @@ func (s *MediaProbeService) takeAutomaticWake() ([]string, bool) {
 	}
 	s.autoPending = false
 	s.autoMediaIDs = nil
-	return mediaIDs, true
+	return mediaIDs, false, true
 }
 
 func (s *MediaProbeService) stopAutomaticBackfill() {

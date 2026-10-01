@@ -50,6 +50,7 @@ func (e *EmbyService) PlaybackInfoWithOptions(ctx context.Context, mediaID, user
 	if err := e.validatePlaybackSelection(siblings, m.ID, selection, documents, subtitles); err != nil {
 		return nil, err
 	}
+	e.mediaProbe.WakeNextEpisodeBackfill(ctx, m, e.mediaQueryFilter(ctx, userID))
 	return map[string]any{
 		"MediaSources":  e.mediaSourcesFromViewsWithData(ctx, siblings, false, selection, documents, subtitles),
 		"PlaySessionId": uuid.NewString(),

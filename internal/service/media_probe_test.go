@@ -800,7 +800,7 @@ func TestMediaProbeAutomaticBackfillSkipsEpisodesButManualIncludesThem(t *testin
 	if err != nil || result.Total != 1 || result.Completed != 1 {
 		t.Fatalf("automatic result = %#v, error = %v", result, err)
 	}
-	pending, err := probe.hasPendingProbe(t.Context(), nil)
+	pending, err := probe.hasPendingProbe(t.Context(), nil, true)
 	if err != nil || pending {
 		t.Fatalf("episodes must not wake automatic backfill: pending=%v, error=%v", pending, err)
 	}

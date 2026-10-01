@@ -12,6 +12,7 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -264,7 +265,8 @@ func listMediaHandler(svc *service.Container) gin.HandlerFunc {
 
 func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m, err := svc.Media.GetMediaVisible(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))
+		visibility := mediaVisibilityForRequest(c, svc)
+		m, err := svc.Media.GetMediaVisible(c.Request.Context(), c.Param("id"), visibility)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -273,6 +275,10 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
+		svc.MediaProbe.WakeNextEpisodeBackfill(c.Request.Context(), m, repository.MediaQueryFilter{
+			AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+			HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+		})
 		c.JSON(http.StatusOK, m)
 	}
 }

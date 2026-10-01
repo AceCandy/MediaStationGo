@@ -86,6 +86,7 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 		return nil, err
 	}
 	fav, pos, completed := e.userDataForTarget(ctx, userID, target)
+	e.mediaProbe.WakeNextEpisodeBackfill(ctx, m, e.mediaQueryFilter(ctx, userID))
 	return e.itemPayloadWithRelations(ctx, m, userID, fav, pos, completed, true, nil), nil
 }
 

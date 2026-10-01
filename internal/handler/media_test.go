@@ -312,6 +312,65 @@ func TestListMediaVersionsReturnsOnlyVisibleSiblings(t *testing.T) {
 	requestMediaVersions(t, svc, viewer.ID, "missing", http.StatusNotFound)
 }
 
+func TestGetMediaQueuesNextEpisodeBackfill(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []any{
+		&model.User{Base: model.Base{ID: "viewer"}, Username: "viewer", Role: "admin", Tier: "plus", IsActive: true},
+		&model.Library{Base: model.Base{ID: "library"}, Name: "HongGuo", Path: t.TempDir(), Type: model.LibraryTypeHongGuo},
+		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "work"}, SourceID: "1001", Kind: "series", Title: "Fixture"},
+		&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "ep1"}, WorkID: "work", Number: 1},
+		&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "ep2"}, WorkID: "work", Number: 2},
+	} {
+		if err := db.Create(value).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"current", "next-a", "next-b"} {
+		if err := db.Create(&model.Media{PermanentBase: model.PermanentBase{ID: id}, LibraryID: "library", CatalogSource: "hongguo", Path: "/fixture/" + id + ".mkv"}).Error; err != nil {
+			t.Fatal(err)
+		}
+		ep := "ep2"
+		if id == "current" {
+			ep = "ep1"
+		}
+		if err := db.Create(&model.HongGuoMediaBinding{MediaID: id, WorkID: "work", EpisodeID: &ep}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	repos := repository.New(db)
+	tracker := service.NewTaskTrackerService(zap.NewNop(), nil)
+	// 不启动外部探测器；通过任务范围验证实际 HTTP 详情入口的交接。
+	probe := service.NewMediaProbeService(repos, nil).SetTaskTracker(zap.NewNop(), tracker, t.Context())
+	svc := &service.Container{Repo: repos, Media: service.NewMediaService(&config.Config{}, zap.NewNop(), repos), MediaProbe: probe}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, "viewer")
+	c.Set(middleware.CtxUserRole, "admin")
+	c.Params = gin.Params{{Key: "id", Value: "current"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/media/current", nil)
+	getMediaHandler(svc)(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", w.Code, w.Body.String())
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, task := range tracker.Snapshot().Recent {
+			if task.Kind == service.TaskKindProbe && task.Trigger == service.TaskTriggerEvent && task.Metrics["total"] == 2 {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("Web detail did not hand off both next-episode versions")
+}
+
 func TestGetMediaSTRMTargetReturnsOnlyVisibleTarget(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
