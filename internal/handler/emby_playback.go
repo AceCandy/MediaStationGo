@@ -66,6 +66,11 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)
+		mediaID := selection.MediaSourceID
+		if mediaID == "" {
+			mediaID = c.Param("id")
+		}
+		svc.Emby.PrefetchNextEpisodeRedirects(svc.Context(), mediaID, uid, c.Request.UserAgent(), svc.Stream)
 		c.JSON(http.StatusOK, out)
 	}
 }
