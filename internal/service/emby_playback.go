@@ -269,6 +269,14 @@ func (e *EmbyService) mediaSourceWithSelection(ctx context.Context, m *model.Med
 		playURL = appendPlaybackSelection(playURL, selection.AudioStreamIndex, selection.SubtitleStreamIndex)
 	}
 	src := e.baseMediaSource(ctx, m, displayName, container, isRemote, playURL, doc, liveSubtitles, subtitles)
+	if strings.TrimSpace(selection.MediaSourceID) == m.ID {
+		if selection.AudioStreamIndex != nil && *selection.AudioStreamIndex >= 0 {
+			src["DefaultAudioStreamIndex"] = *selection.AudioStreamIndex
+		}
+		if selection.SubtitleStreamIndex != nil {
+			src["DefaultSubtitleStreamIndex"] = *selection.SubtitleStreamIndex
+		}
+	}
 	if !asEmbedded && playURL != "" {
 		src["DirectStreamUrl"] = playURL
 	}
@@ -310,6 +318,18 @@ func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displ
 	if doc != nil && doc.Format.Duration > 0 {
 		runTimeTicks = int64(math.Round(doc.Format.Duration * 10_000_000))
 	}
+	streams := e.mediaStreams(ctx, m, doc, liveSubtitles, subtitles)
+	audioIndex, _ := resolveAudioStreamIndex(doc, nil)
+	subtitleIndex := -1
+	// 默认索引必须对应实际返回的轨道；轻量列表使用已有标量音轨，不额外探测。
+	for _, stream := range streams {
+		if audioIndex == -1 && stream["Type"] == "Audio" {
+			audioIndex = stream["Index"].(int)
+		}
+		if subtitleIndex == -1 && stream["Type"] == "Subtitle" && stream["IsDefault"] == true {
+			subtitleIndex = stream["Index"].(int)
+		}
+	}
 	src := map[string]any{
 		"Id":                    m.ID,
 		"Name":                  displayName,
@@ -328,8 +348,10 @@ func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displ
 		"SupportsDirectPlay":    !isRemote || playURL != "",
 		"SupportsProbing":       true,
 		"RunTimeTicks":          runTimeTicks,
-		"MediaStreams":          e.mediaStreams(ctx, m, doc, liveSubtitles, subtitles),
+		"MediaStreams":          streams,
 	}
+	src["DefaultAudioStreamIndex"] = audioIndex
+	src["DefaultSubtitleStreamIndex"] = subtitleIndex
 	if doc != nil && doc.Format.BitRate > 0 {
 		src["Bitrate"] = doc.Format.BitRate
 	}

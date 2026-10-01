@@ -56,6 +56,17 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
 - Date-valued item fields such as `PremiereDate` and `DateCreated` are UTC strings formatted as `2006-01-02T15:04:05.0000000Z`; do not place a `time.Time` directly in an Emby response map.
 - Binary, redirect, HEAD, subtitle, and no-content behavior must state their actual status/content type instead of presenting a JSON example.
 - Examples use fictitious IDs, hosts, usernames, and tokens. Never include local media paths, real account data, signed URLs, or secrets.
+- Shared MediaSource payloads expose `DefaultAudioStreamIndex` and
+  `DefaultSubtitleStreamIndex` using absolute returned stream indices. Audio
+  follows `resolveAudioStreamIndex` (default-marked audio, then first audio);
+  scalar list payloads use their existing returned audio without extra probing.
+  Subtitles select the first default-marked returned subtitle, otherwise -1.
+  Explicit selection overrides only its selected media source; audio -1 retains
+  automatic selection and subtitle -1 disables subtitles. Keep zero distinct
+  from omission and preserve nonselected versions' defaults. Cover shared payloads
+  with `TestEmbyMediaSourceDefaultStreamIndices` and actual PlaybackInfo versions
+  with `TestEmbyPlaybackInfoReusesVersionProbeAndSubtitleData`. This fixes a field
+  omission; Hills continuous-playback behavior still needs on-device verification.
 - PlaybackInfo `DeviceProfile.TranscodingProfiles[].MinSegments` accepts JSON
   integers and integer strings through `EmbyFlexibleInt`; its existing empty/null
   compatibility treats those values as unspecified. Malformed numbers remain 400.

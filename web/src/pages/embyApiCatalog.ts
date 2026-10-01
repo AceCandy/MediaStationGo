@@ -746,6 +746,8 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       fields: [
         { name: 'MediaSources', type: 'array', description: '媒体源、容器、流和 DirectStreamUrl。' },
         { name: 'MediaSources[].MediaStreams', type: 'array', description: '视频、音频和字幕轨。' },
+        { name: 'MediaSources[].DefaultAudioStreamIndex', type: 'number', description: '默认或显式选择的音轨绝对索引；没有音轨时为 -1。' },
+        { name: 'MediaSources[].DefaultSubtitleStreamIndex', type: 'number', description: '默认或显式选择的字幕轨绝对索引；无默认字幕或关闭字幕时为 -1。' },
         { name: 'PlaySessionId', type: 'string', description: '本次播放会话 ID。' },
         { name: 'DateCreated', type: 'string', description: '播放信息生成时间。' },
       ],

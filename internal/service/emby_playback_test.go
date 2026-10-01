@@ -587,8 +587,18 @@ func TestEmbyPlaybackInfoReusesVersionProbeAndSubtitleData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sources := out["MediaSources"].([]map[string]any); len(sources) != len(media) {
+	sources := out["MediaSources"].([]map[string]any)
+	if len(sources) != len(media) {
 		t.Fatalf("media sources = %#v, want %d versions", sources, len(media))
+	}
+	for _, source := range sources {
+		wantSubtitle := -1
+		if source["Id"] == media[0].ID {
+			wantSubtitle = subtitleIndex
+		}
+		if source["DefaultAudioStreamIndex"] != 1 || source["DefaultSubtitleStreamIndex"] != wantSubtitle {
+			t.Fatalf("source defaults = %#v, want audio 1/subtitle %d", source, wantSubtitle)
+		}
 	}
 	if singleProbeReads != 0 || batchProbeReads != 1 {
 		t.Fatalf("probe reads: single=%d batch=%d, want single=0 batch=1", singleProbeReads, batchProbeReads)
