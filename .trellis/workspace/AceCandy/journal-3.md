@@ -137,3 +137,37 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 172: 补齐红果季响应关联字段
+<!-- trellis-session: v=2 fp=5ca15433d9830a84 -->
+
+**Date**: 2026-10-01
+**Task**: 补齐红果季响应关联字段
+**Branch**: `main`
+
+### Summary
+
+红果季列表和详情补充 SeriesId=ParentId、SeriesName=第 x 季，复用现有格式化函数；同步接口说明和规范。
+
+### Main Changes
+
+- 季响应共用组装函数增加两个字段，无新增数据库查询。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b8ecfa9` | fix(hongguo): 补齐季响应的剧集关联字段 |
+
+### Testing
+
+- [OK] 新增回归测试先失败后通过；相关四个 Go 测试、前端 lint/build、git diff --check 通过；已复核差异。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未重启或部署服务、未执行全量测试或浏览器验收；Hills 季页面空白是否解决仍需实机验证。
