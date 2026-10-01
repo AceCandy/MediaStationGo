@@ -417,14 +417,19 @@ func (e *EmbyService) hongGuoNodePayload(ctx context.Context, node hongGuoNode, 
 	if node.SourceID != "" {
 		providers["HongGuoDB"] = node.SourceID
 	}
-	return map[string]any{
+	item := map[string]any{
 		"Id": node.ID, "Name": node.Title, "Type": node.Kind, "ServerId": embyServerID,
 		"IsFolder": true, "ParentId": node.ParentID, "IndexNumber": node.SeasonNumber,
 		"DateCreated": formatEmbyDateTime(node.CreatedAt), "ImageTags": images,
 		"Overview": node.Overview, "Genres": genres, "CommunityRating": node.Rating,
 		"ProviderIds": providers, "RecursiveItemCount": node.EpisodeCount,
 		"UserData": map[string]any{"IsFavorite": node.Kind == "Series" && node.Favorite, "Played": node.Played, "PlaybackPositionTicks": 0, "UnplayedItemCount": node.UnplayedItemCount},
-	}, nil
+	}
+	if node.Kind == "Season" {
+		item["SeriesId"] = node.ParentID
+		item["SeriesName"] = seasonName(node.SeasonNumber)
+	}
+	return item, nil
 }
 
 func lowerStrings(values []string) []string {

@@ -137,6 +137,10 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - Emby identities: `hg-work-`, `hg-season-`, `hg-episode-`, `hg-person-`
   followed by internal UUID; `hg-group-` is followed by official album ID.
   Provider ID values remain upstream IDs.
+- Emby Season lists/details include `SeriesId = ParentId` and `SeriesName`
+  formatted by `seasonName` (for example `第 4 季`); keep the work title in `Name`.
+  `TestHongGuoSeasonPayloadSeriesFields` covers grouped/standalone parents and
+  verifies these fields are not added to Series containers.
 
 ## 3. Contracts
 

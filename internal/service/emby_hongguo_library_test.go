@@ -26,6 +26,31 @@ func TestHongGuoLibraryCollectionType(t *testing.T) {
 	}
 }
 
+func TestHongGuoSeasonPayloadSeriesFields(t *testing.T) {
+	e := &EmbyService{}
+	for _, parentID := range []string{"hg-group-album", "hg-work-standalone"} {
+		item, err := e.hongGuoNodePayload(t.Context(), hongGuoNode{
+			ID: "hg-season-work", Kind: "Season", Title: "示例作品第四季",
+			ParentID: parentID, SeasonNumber: 4,
+		}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item["SeriesId"] != parentID || item["SeriesName"] != "第 4 季" || item["ParentId"] != parentID || item["Name"] != "示例作品第四季" {
+			t.Fatalf("season hierarchy fields: %v", item)
+		}
+	}
+	item, err := e.hongGuoNodePayload(t.Context(), hongGuoNode{ID: "hg-group-album", Kind: "Series"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"SeriesId", "SeriesName"} {
+		if _, ok := item[field]; ok {
+			t.Fatalf("series unexpectedly contains %s: %v", field, item)
+		}
+	}
+}
+
 func TestEmbyLibraryDoesNotClaimUnplayedCount(t *testing.T) {
 	e := &EmbyService{}
 	for _, kind := range []string{"movie", "tv", "anime", model.LibraryTypeHongGuo, model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV} {

@@ -71,6 +71,8 @@ const itemFields: readonly EmbyApiField[] = [
   { name: 'Id', type: 'string', description: '媒体项 ID。红果剧集核验合集后使用 hg-group-合集ID；官方确认无合集时使用自身源ID作为合集、第1季。作品列表和红果库最近添加暂不展示缺合集ID或有效季号的剧，补充任务完成后可刷新查看；电影、分集身份、观看历史和收藏不变。' },
   { name: 'Name', type: 'string', description: '标题。' },
   { name: 'Type', type: 'string', description: 'Movie、Series、Season、Episode 等 Emby 类型。Movie 省略 SeriesId、SeriesName、SeasonId、SeasonName、ParentIndexNumber、IndexNumber；Episode 保留这些字段，包括特别篇的零季号。' },
+  { name: 'SeriesId', type: 'string', description: '所属整剧 ID；红果 Season 与 ParentId 一致，列表和详情均返回。' },
+  { name: 'SeriesName', type: 'string', description: '所属整剧名称；红果 Season 按“第 x 季”返回，例如“第 4 季”。' },
   { name: 'MediaType', type: 'string', description: 'Video 等媒体类型。' },
   { name: 'RunTimeTicks', type: 'number', description: '以 100ns 为单位的时长。' },
   { name: 'DateCreated', type: 'string', description: '媒体项创建时间（UTC）。NFO 使用本地条目首次创建时间，新增版本、删除文件或重扫不改写仍存在条目的时间；其他来源保持原有规则。具体 MediaSource 和 PlaybackInfo 的文件时间不受影响。' },
