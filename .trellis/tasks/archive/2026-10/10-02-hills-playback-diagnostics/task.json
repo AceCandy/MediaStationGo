@@ -1,0 +1,31 @@
+{
+  "id": "hills-playback-diagnostics",
+  "name": "hills-playback-diagnostics",
+  "title": "定位 Hills 连播响应差异",
+  "description": "记录 PlaybackInfo 脱敏结构摘要，核对自动连播和手动点播的媒体源能力及地址选择",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "emby",
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-02",
+  "completedAt": "2026-10-02",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "943d32f",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/handler/emby_playback.go",
+    "internal/handler/emby_playback_diagnostics.go",
+    "internal/handler/emby_playback_diagnostics_test.go",
+    ".trellis/spec/backend/player-request-logging.md"
+  ],
+  "notes": "本次交付脱敏诊断代码；未取得运行服务新摘要，Hills 连播根因未确认。",
+  "meta": {}
+}
