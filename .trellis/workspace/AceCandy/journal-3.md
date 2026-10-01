@@ -267,3 +267,25 @@ Web 与 Emby 详情及 PlaybackInfo 复用后台轨道回填，补齐同季下�
 ### Next Steps
 
 - 更新服务后实测 YAMBy；仍需确认设备网络可达性及验证后直链失效风险。
+
+
+## Session 177: 下一集轨道就绪后预缓存播放直链
+<!-- trellis-session: v=2 fp=bf6ff45653c8b633 -->
+
+**Date**: 2026-10-02
+**Task**: 下一集轨道就绪后预缓存播放直链
+**Branch**: `main`
+
+### Summary
+
+成功的GET/POST PlaybackInfo后台等待下一集完整轨道文档，再验证并缓存配置的302直链；复用现有同UA缓存和并发合并，不重复探测。定向竞态、隔离数据库回归（无跳过）、前端lint/build和浏览器检查通过。仅提交本任务，保留另一项播放诊断的工作区改动。未部署或真机验收，直链提前过期风险沿用既有缓存约束。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5ef8a79` | feat(playback): 轨道信息就绪后预缓存下一集直链 |
+
+### Status
+
+[OK] **Completed**
