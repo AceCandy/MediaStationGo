@@ -895,6 +895,15 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 			}
 			ids = append(ids, node.ID)
 		}
+		for _, node := range nodes {
+			if node.Kind == "Episode" {
+				want[node.ID] = want[node.ParentID]
+				item, err := e.Item(ctx, node.ID, "")
+				if err != nil || item == nil || item["ImageTags"].(map[string]string)["Primary"] != node.ID || len(item["BackdropImageTags"].([]string)) != 0 {
+					t.Fatalf("episode poster must be Primary only: %s %v %v", node.ID, item, err)
+				}
+			}
+		}
 		for _, id := range ids {
 			for _, imageType := range []string{"Primary", "Backdrop"} {
 				expected := want[id]
@@ -914,5 +923,14 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 	}
 	if got, err := e.ImageURL(ctx, "hg-work-"+works[3].ID, "Primary"); err != nil || got != "" {
 		t.Fatalf("missing local artwork: %q %v", got, err)
+	}
+	var episodes []model.HongGuoEpisode
+	if err := db.Where("work_id = ?", works[3].ID).Find(&episodes).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, episode := range episodes {
+		if got, err := e.ImageURL(ctx, "hg-episode-"+episode.ID, "Primary"); err != nil || got != "" {
+			t.Fatalf("episode missing local artwork: %q %v", got, err)
+		}
 	}
 }

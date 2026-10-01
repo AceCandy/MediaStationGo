@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
@@ -241,5 +242,66 @@ func TestHongGuoLibrarySeriesPresentation(t *testing.T) {
 		if err != nil || n != 0 || len(rows) != 0 {
 			t.Fatalf("repository visibility leaked: %+v total=%d err=%v", rows, n, err)
 		}
+	}
+	seasonPoster := model.HongGuoArtwork{WorkID: &works[2].ID, LocalKey: "season.jpg"}
+	if err := db.Create(&seasonPoster).Error; err != nil {
+		t.Fatal(err)
+	}
+	seasonNumber = 3
+	episodes, err = svc.ListLibrarySeriesEpisodes(ctx, library.ID, "metadata:"+seriesID, &seasonNumber, visibility)
+	if err != nil || len(episodes) != 2 {
+		t.Fatalf("episode artwork list: %+v %v", episodes, err)
+	}
+	for _, ep := range episodes {
+		want := ""
+		if ep.LookupCatalogID == works[2].SourceID {
+			want = "/api/catalogs/hongguo/artwork/" + seasonPoster.ID
+		}
+		if ep.PosterURL != want || ep.BackdropURL != want || ep.ReleaseDate != "" {
+			t.Fatalf("episode must use its own season poster without inventing a release date: %+v want=%q", ep, want)
+		}
+		view := serviceTestMediaView(t, repos, ep.ID)
+		if view.PosterURL != want || view.BackdropURL != want {
+			t.Fatalf("episode detail artwork: %+v want=%q", view, want)
+		}
+	}
+	// 同季号的不同作品分别使用自己的红果上线日期，按北京时间跨日。
+	wantDates := map[string]string{works[2].SourceID: "2026-09-29", works[3].SourceID: "2026-09-30"}
+	for i, work := range works[2:] {
+		visibleAt := time.Date(2026, 9, 28+i, 16, 4, 0, 0, time.UTC)
+		if err := db.Model(work).Update("first_visible_at", visibleAt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	emby := NewEmbyService(&config.Config{}, zap.NewNop(), repos)
+	episodes, err = svc.ListLibrarySeriesEpisodes(ctx, library.ID, "metadata:"+seriesID, &seasonNumber, visibility)
+	if err != nil || len(episodes) != 2 {
+		t.Fatalf("episode date list: %+v %v", episodes, err)
+	}
+	for _, ep := range episodes {
+		want := wantDates[ep.LookupCatalogID]
+		view := serviceTestMediaView(t, repos, ep.ID)
+		if want == "" || ep.ReleaseDate != want || view.ReleaseDate != want {
+			t.Fatalf("episode must use its own work's Beijing date: list=%+v detail=%+v want=%q", ep, view, want)
+		}
+		item, err := emby.Item(ctx, ep.CatalogItemID, "")
+		if err != nil || item["PremiereDate"] != want+"T00:00:00.0000000Z" {
+			t.Fatalf("Emby episode date: %+v %v", item, err)
+		}
+		items, err := emby.Items(ctx, ItemsParams{ParentID: ep.SeasonID, IncludeItemTypes: []string{"Episode"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := items["Items"].([]map[string]any)
+		if len(rows) != 1 || rows[0]["PremiereDate"] != item["PremiereDate"] {
+			t.Fatalf("Emby episode list date: %+v", rows)
+		}
+	}
+	missingDate, err := emby.Item(ctx, view.CatalogItemID, "")
+	if err != nil || missingDate == nil {
+		t.Fatalf("Emby missing-date episode: %+v %v", missingDate, err)
+	}
+	if _, exists := missingDate["PremiereDate"]; exists {
+		t.Fatalf("missing work date must stay absent: %+v", missingDate)
 	}
 }

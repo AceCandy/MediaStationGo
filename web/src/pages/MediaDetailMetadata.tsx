@@ -96,7 +96,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
         </motion.div>
 
         <motion.div {...rise(0.08)} className="space-y-2.5 text-xs font-bold tracking-wide">
-          <MetadataFacts rating={isEpisode ? undefined : media.rating} date={media.release_date || (media.year > 0 ? `${media.year} 年` : undefined)} durationSeconds={scope !== 'series' ? [media.duration_sec] : undefined} />
+          <MetadataFacts rating={isEpisode ? undefined : media.rating} date={media.release_date || (media.year > 0 ? `${media.year} 年` : undefined)} dateLabel={isEpisode && media.catalog_source === 'hongguo' ? '红果上线' : undefined} durationSeconds={scope !== 'series' ? [media.duration_sec] : undefined} />
           {scope !== 'series' && <div className="flex flex-wrap items-center gap-2.5">
             {media.width > 0 && (
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">

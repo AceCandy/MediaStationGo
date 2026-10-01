@@ -152,12 +152,14 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - Source images live under `DataDir/catalogs/hongguo/artwork`; public DTOs/logs
   exclude upstream image URLs and credentials. Retain an old image until its
   replacement succeeds. Missing local images enqueue repair.
-- Emby `ImageURL` resolves `hg-group/work/season` directly against works and local
+- Emby `ImageURL` resolves `hg-group/work/season/episode` directly against works and local
   artwork, with a short-circuit visible-file EXISTS under the existing public
   image scope. Never expand `hongGuoNodes` or playback state for a single poster.
   Group artwork follows `NULLIF(season_index,0) NULLS LAST, work.id` among members
   with visible files; a fileless first season does not supply its poster. Grouped
-  series no longer accept their former hg-work root; episodes still have no poster.
+  series no longer accept their former hg-work root. Episodes use their own work's
+  local poster as Primary, requiring a visible file bound to that exact episode;
+  a visible sibling cannot authorize its image. Episode Backdrop/Art stays absent.
   Emby missing-image PNGs use `Cache-Control: no-store`; successful files retain
   normal long caching. Verify real bytes/dimensions, not merely HTTP 200.
 - Emby detail and entity-child browsing use `hongGuoItemNodes` to restrict visible
@@ -943,8 +945,17 @@ from the first stored official season, ordered by season index then source ID.
 This does not require a playable file for that season. If season 1 is not stored,
 use the earliest stored season. Do not mix another season's richer fields into it.
 Season details retain their own work metadata; missing season posters stay empty.
-Missing episode overview/still/release date stays empty and uses ordinary UI rules.
-Never claim `first_visible_at` is a release date or create metadata surrogates.
+Missing episode overview stays empty and uses ordinary UI rules. Episode display
+`ReleaseDate` uses its own work's `first_visible_at`, formatted as `YYYY-MM-DD`
+in `Asia/Shanghai`; all episodes of that work share this date. A missing timestamp
+leaves the display date empty. Web details label it as HongGuo availability;
+Emby `PremiereDate` uses the existing UTC-midnight date serialization. Duplicate
+season numbers must not borrow another work's timestamp.
+Episode display artwork falls back to its own work's local poster in `PosterURL`
+and `BackdropURL`, shared by Web detail/list and Emby Primary. This is a display
+fallback, not a stored episode still; missing work artwork leaves both URLs empty.
+This display mapping does not establish an episode or worldwide premiere date,
+rewrite the stored timestamp, or create metadata surrogates.
 
 Filter files by library/profile visibility before grouping and pagination. Count
 distinct episode identities, not files. Duplicate official season numbers retain

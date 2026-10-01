@@ -52,12 +52,18 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 			artwork = artwork.Where("w.id = ? AND NOT (w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0)", strings.TrimPrefix(id, "hg-work-"))
 		case strings.HasPrefix(id, "hg-season-"):
 			artwork = artwork.Where("w.id = ? AND w.kind = 'series'", strings.TrimPrefix(id, "hg-season-"))
+		case strings.HasPrefix(id, "hg-episode-"):
+			artwork = artwork.Joins("JOIN hongguo_episodes ep ON ep.work_id = w.id").
+				Where("ep.id = ? AND w.kind = 'series'", strings.TrimPrefix(id, "hg-episode-"))
 		default:
 			return "", nil
 		}
 		// 图片只探测目标作品的可见文件；不展开季集或计算播放状态。
 		files := e.hongGuoVisibleFiles(ctx, "", "").Select("1").
 			Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Where("b.work_id = w.id")
+		if strings.HasPrefix(id, "hg-episode-") {
+			files = files.Where("b.episode_id = ?", strings.TrimPrefix(id, "hg-episode-"))
+		}
 		var artworkID string
 		if err := artwork.Where("EXISTS (? OFFSET 0)", files).Select("a.id").
 			Order("NULLIF(w.season_index,0) NULLS LAST,w.id").Limit(1).Scan(&artworkID).Error; err != nil {

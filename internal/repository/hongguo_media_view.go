@@ -127,11 +127,12 @@ CASE WHEN ep.id IS NULL THEN '' ELSE 'hg-season-' || w.id END AS view_season_id,
 CASE WHEN ep.id IS NULL THEN w.title ELSE '第' || ep.number || '集' END AS view_title,
 CASE WHEN ep.id IS NULL THEN w.overview ELSE '' END AS view_overview,
 CASE WHEN ep.id IS NULL THEN w.rating ELSE 0 END AS view_rating,
+CASE WHEN ep.id IS NULL THEN '' ELSE COALESCE(TO_CHAR(w.first_visible_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD'),'') END AS view_release_date,
 CASE WHEN ep.id IS NULL THEN 0 ELSE CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END END AS view_season_num,
 COALESCE(ep.number,0) AS view_episode_num,
 CASE WHEN ep.id IS NULL THEN 'movie' ELSE 'episode' END AS view_metadata_kind,
 'hongguo' AS view_metadata_source,
-CASE WHEN ep.id IS NULL THEN COALESCE(a.id,'') ELSE '' END AS view_poster_asset_id,
+COALESCE(a.id,'') AS view_poster_asset_id,
 COALESCE(pm.duration_ms,0) AS view_probe_duration_ms,
 COALESCE(pm.size_bytes,0) AS view_probe_size_bytes,
 COALESCE(pm.container,'') AS view_probe_container,
@@ -143,6 +144,10 @@ COALESCE(pm.audio_codec,'') AS view_probe_audio_codec`).Scan(&rows).Error
 		rows[i].Normalize()
 		if rows[i].PosterAssetID != "" {
 			rows[i].PosterURL = "/api/catalogs/hongguo/artwork/" + rows[i].PosterAssetID
+			// 红果暂无单集剧照，分集展示使用所属作品封面。
+			if rows[i].MetadataKind == model.MetadataKindEpisode {
+				rows[i].BackdropURL = rows[i].PosterURL
+			}
 		}
 	}
 	return rows, err
