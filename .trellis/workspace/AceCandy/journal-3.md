@@ -237,3 +237,33 @@ Web 与 Emby 详情及 PlaybackInfo 复用后台轨道回填，补齐同季下�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 176: 播放直链缓存前验证与403重试
+<!-- trellis-session: v=2 fp=dd7e100aa5e52d9e -->
+
+**Date**: 2026-10-02
+**Task**: 播放直链缓存前验证与403重试
+**Branch**: `main`
+
+### Summary
+
+缓存前以播放器相同 UA 验证最终直链可读，403 最多重新取链两次，共用 15 秒预算且失败不缓存。定向 race、播放路由回归、前端 lint/build 与接口目录浏览器检查通过，任务已提交归档；未推送、部署或重启业务服务，修复后的播放器实机效果待验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a298ba6` | fix(stream): 缓存前验证播放直链并重试403 |
+
+### Testing
+
+- [OK] 定向服务 race 回归、播放 handler 回归、前端 lint/build、check-nextup.mjs 通过；差异复核通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 更新服务后实测 YAMBy；仍需确认设备网络可达性及验证后直链失效风险。

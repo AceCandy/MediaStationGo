@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 175
-- **Last Active**: 2026-10-01
+- **Total Sessions**: 176
+- **Last Active**: 2026-10-02
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~239 | Active |
+| `journal-3.md` | ~269 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 176 | 2026-10-02 | 播放直链缓存前验证与403重试 | `a298ba6` | `main` |
 | 175 | 2026-10-01 | 补齐 Emby 默认选轨索引 | `f7d7cbe` | `main` |
 | 174 | 2026-10-01 | 详情与连播下一集轨道回填 | `309b0b3` | `main` |
 | 173 | 2026-10-01 | 同季下一集轨道预补充 | `a82c99f` | `main` |
