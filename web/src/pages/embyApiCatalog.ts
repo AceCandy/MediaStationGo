@@ -808,7 +808,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     ],
     responses: [
       { status: '200 / 206', contentType: 'video/* 或 application/octet-stream', description: '返回媒体内容；范围请求由流服务处理。HEAD 仅返回响应头。' },
-      { status: '302', contentType: '无响应体', description: 'STRM 或远程媒体可能重定向到外部播放地址。' },
+      { status: '302', contentType: '无响应体', description: 'STRM 或远程媒体可能重定向到外部播放地址。配置直链解析时，以相同 User-Agent 验证最终地址可读后缓存；验证遇到 403 最多重新取链两次，失败不缓存并回退原地址。' },
       { status: '404 / 500 / 502', contentType: 'application/json', description: '具体媒体不存在，或媒体查询、底层流服务失败。' },
       { status: '499', contentType: '无响应体', description: '客户端在播放流处理完成前取消请求。' },
     ],
@@ -825,7 +825,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: '具体媒体源 ID，即 PlaybackInfo MediaSources[].Id。' }],
     responses: [
       { status: '200 / 206', contentType: '媒体内容', description: '本地文件由流服务输出。' },
-      { status: '302', contentType: '无响应体', description: '远程 STRM 地址重定向。' },
+      { status: '302', contentType: '无响应体', description: '远程 STRM 地址重定向；配置直链解析时先验证可读性，403 最多重新取链两次，失败不缓存并回退原地址。' },
     ],
     notes: ['这是唯一只注册在 /emby 前缀下的播放别名，不存在无前缀 /api/stream/:id。'],
   },

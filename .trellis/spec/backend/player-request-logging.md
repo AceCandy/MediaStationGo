@@ -17,6 +17,8 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 - A media ID uniquely owns one immutable STRM playback address. A different STRM address requires a different media ID.
 - `rawURL` is used only on cache miss to resolve the upstream Location; it is not cache identity.
 - Successful URL resolutions and valid HTTP-500 local-file fallbacks are cached; other failures are not. Equal keys share one in-flight upstream request.
+- Before caching a remote target, GET the redirect chain with the same player User-Agent and `Range: bytes=0-0`, without player credentials or a cookie jar. Accept only final HTTP 200/206 with one readable byte; close the body without buffering media. Cache the validated final URL.
+- A target-validation HTTP 403 permits up to two fresh source resolutions (three attempts total). Other validation failures are not retried and must not trigger the source-500 local fallback. Resolution, validation and retries share the existing 15-second context budget; cancellation releases the in-flight entry and never caches a failure.
 - Player request `body` remains the sanitized request body. `response_body` is populated only for status 400 or greater.
 - Failed response content is capped at 64 KiB and uses the same sensitive JSON-field redaction as request bodies.
 - Non-JSON content containing a sensitive field marker is replaced as a whole instead of persisted verbatim.
@@ -30,6 +32,9 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 | Same media ID and User-Agent before TTL | Return cached Location without an upstream request |
 | Different media ID with the same URL and User-Agent | Resolve independently |
 | Different User-Agent or expired entry | Resolve again |
+| New Location validates as HTTP 200/206 with readable data | Cache the final validated URL |
+| Target validation returns HTTP 403 | Resolve again up to twice; cache only a validated success |
+| Validation fails, returns an empty body, or exhausts retries | Preserve the original-URL redirect fallback without caching the failed target |
 | Upstream HTTP 500 with a valid `ffprobe.path_mappings` file | Serve the local file and cache the fallback |
 | Other upstream error, missing local file, or invalid Location | Redirect to the original URL without caching the failure |
 | Emby video stream request is canceled | Record status 499 with no response body |
@@ -49,6 +54,7 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 - Assert different media IDs do not share a cache entry even when URL and User-Agent match.
 - Assert User-Agent isolation, TTL expiry, and failure non-caching.
 - Assert HTTP 500 uses and caches an existing mapped local file, while other statuses and missing files keep the original redirect fallback.
+- Assert target 403 recovery/exhaustion, non-403 failure without retries or local fallback, empty-body rejection, one-byte reads, redirect-chain validation, and cancellation cleanup.
 - Assert only 4xx/5xx bodies are captured, sensitive JSON fields are redacted, oversized bodies use the truncation marker, and client responses remain unchanged.
 - Assert PostgreSQL migration adds `response_body` idempotently and canceled Emby video streams return 499.
 

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -44,6 +45,111 @@ func TestPlaybackRedirectResolvePrefixes(t *testing.T) {
 	}
 }
 
+func TestPlaybackRedirectResolverValidatesBeforeCaching(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		status      int
+		failures    int
+		wantCalls   int
+		wantSuccess bool
+	}{
+		{"forbidden then success", http.StatusForbidden, 1, 2, true},
+		{"two forbidden then success", http.StatusForbidden, 2, 3, true},
+		{"forbidden exhausted", http.StatusForbidden, 3, 3, false},
+		{"server error is not retried", http.StatusInternalServerError, 1, 1, false},
+		{"not found is not retried", http.StatusNotFound, 1, 1, false},
+		{"empty successful body", http.StatusOK, 1, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sourceCalls, validationCalls int
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.UserAgent() != "Player/1" || req.Header.Get("Range") != "bytes=0-0" || req.Header.Get("Authorization") != "" || req.Header.Get("Cookie") != "" {
+					t.Errorf("unexpected validation request headers")
+				}
+				if req.URL.Path == "/source" {
+					sourceCalls++
+					w.Header().Set("Location", fmt.Sprintf("/video?generation=%d", sourceCalls))
+					w.WriteHeader(http.StatusFound)
+					return
+				}
+				validationCalls++
+				if validationCalls <= tc.failures {
+					w.WriteHeader(tc.status)
+					return
+				}
+				w.WriteHeader(http.StatusPartialContent)
+				_, _ = w.Write([]byte("v"))
+			}))
+			defer upstream.Close()
+			resolver := newPlaybackRedirectResolver()
+			fallbackCalls := 0
+			resolve := func() (playbackRedirectResolveResult, error) {
+				return resolver.Resolve(t.Context(), "media", upstream.URL+"/source", "Player/1", func() string {
+					fallbackCalls++
+					return "/local/video.mp4"
+				})
+			}
+			result, err := resolve()
+			if (err == nil) != tc.wantSuccess || sourceCalls != tc.wantCalls || validationCalls != tc.wantCalls || fallbackCalls != 0 {
+				t.Fatalf("result=%#v err=%v calls=%d/%d fallback=%d", result, err, sourceCalls, validationCalls, fallbackCalls)
+			}
+			if tc.wantSuccess {
+				cached, err := resolve()
+				if err != nil || !cached.cacheHit || cached.target != result.target || sourceCalls != tc.wantCalls {
+					t.Fatalf("validated result not reused: %#v err=%v calls=%d", cached, err, sourceCalls)
+				}
+			} else if len(resolver.cache) != 0 {
+				t.Fatal("failed validation was cached")
+			} else {
+				recovered, err := resolve()
+				if err != nil || recovered.cacheHit || sourceCalls != tc.wantCalls+1 {
+					t.Fatalf("failed validation blocked fresh resolution: %#v err=%v calls=%d", recovered, err, sourceCalls)
+				}
+			}
+		})
+	}
+}
+
+func TestPlaybackRedirectValidationReadsOneByte(t *testing.T) {
+	resolver := newPlaybackRedirectResolver()
+	body := strings.NewReader("video payload must not be buffered")
+	resolver.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/source" {
+			return redirectResponseTransport(http.StatusFound, "/video")(req)
+		}
+		resp, err := redirectResponseTransport(http.StatusOK, "")(req)
+		resp.Body = io.NopCloser(body)
+		return resp, err
+	})
+	before := body.Len()
+	if _, err := resolver.Resolve(t.Context(), "media", "http://origin.example/source", "Player/1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if body.Len() != before-1 {
+		t.Fatalf("validation read %d bytes, want 1", before-body.Len())
+	}
+}
+
+func TestPlaybackRedirectValidationCancellation(t *testing.T) {
+	resolver := newPlaybackRedirectResolver()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	resolver.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/source" {
+			return redirectResponseTransport(http.StatusFound, "/video")(req)
+		}
+		cancel()
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})
+	if _, err := resolver.Resolve(ctx, "media", "http://origin.example/source", "Player/1", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("validation cancellation error = %v", err)
+	}
+	if len(resolver.cache) != 0 || len(resolver.flights) != 0 {
+		t.Fatal("canceled validation retained cache or in-flight request")
+	}
+}
+
 func TestPlaybackRedirectResolverCoalescesConcurrentRequests(t *testing.T) {
 	resolver := newPlaybackRedirectResolver()
 	var calls atomic.Int32
@@ -52,6 +158,11 @@ func TestPlaybackRedirectResolverCoalescesConcurrentRequests(t *testing.T) {
 	resolver.client = &http.Client{
 		Timeout: time.Second,
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path == "/direct/Movie.mkv" {
+				resp, err := redirectResponseTransport(http.StatusPartialContent, "")(req)
+				resp.Body = io.NopCloser(strings.NewReader("v"))
+				return resp, err
+			}
 			if calls.Add(1) == 1 {
 				close(started)
 			}
@@ -145,8 +256,11 @@ func TestServeFileResolvesAndCachesConfiguredSTRMRedirect(t *testing.T) {
 			w.WriteHeader(http.StatusFound)
 		case "/direct/Movie.mkv":
 			followedCalls.Add(1)
-			w.Header().Set("Location", "https://cdn.example.test/final.mkv")
+			w.Header().Set("Location", "/final.mkv?sig=resolved-secret")
 			w.WriteHeader(http.StatusFound)
+		case "/final.mkv":
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write([]byte("v"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -168,7 +282,7 @@ func TestServeFileResolvesAndCachesConfiguredSTRMRedirect(t *testing.T) {
 	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
 	now := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
 	svc.redirectResolver.now = func() time.Time { return now }
-	wantLocation := upstream.URL + "/direct/Movie.mkv?sig=resolved-secret"
+	wantLocation := upstream.URL + "/final.mkv?sig=resolved-secret"
 
 	for i := 0; i < 2; i++ {
 		w := servePlaybackRedirectRequest(t, svc, "resolved-strm", http.MethodGet, "Player/1")
@@ -182,8 +296,8 @@ func TestServeFileResolvesAndCachesConfiguredSTRMRedirect(t *testing.T) {
 	if got := sourceCalls.Load(); got != 1 {
 		t.Fatalf("same URL/User-Agent upstream calls = %d, want 1", got)
 	}
-	if got := followedCalls.Load(); got != 0 {
-		t.Fatalf("resolver followed Location %d times", got)
+	if got := followedCalls.Load(); got != 1 {
+		t.Fatalf("resolver validated Location %d times, want 1", got)
 	}
 
 	servePlaybackRedirectRequest(t, svc, "resolved-strm", http.MethodGet, "player/1")
@@ -212,6 +326,11 @@ func TestServeFileResolvesAndCachesConfiguredSTRMRedirect(t *testing.T) {
 func TestServeFileResolvesMappedURLBeforeRedirect(t *testing.T) {
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/direct/Movie.mkv" {
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write([]byte("v"))
+			return
+		}
 		calls.Add(1)
 		if r.Method != http.MethodGet || r.Header.Get("Range") != "bytes=0-0" || r.UserAgent() != "SenPlayer/1" {
 			t.Errorf("resolver request = %s Range %q UA %q", r.Method, r.Header.Get("Range"), r.UserAgent())
@@ -219,7 +338,7 @@ func TestServeFileResolvesMappedURLBeforeRedirect(t *testing.T) {
 		if r.URL.Path != "/d/archive/Movie.mkv" {
 			t.Errorf("mapped resolver path = %q", r.URL.Path)
 		}
-		w.Header().Set("Location", "https://cdn.example.test/Movie.mkv?token=direct-secret")
+		w.Header().Set("Location", "/direct/Movie.mkv?token=direct-secret")
 		w.WriteHeader(http.StatusFound)
 	}))
 	defer upstream.Close()
@@ -251,7 +370,7 @@ func TestServeFileResolvesMappedURLBeforeRedirect(t *testing.T) {
 	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
 	for _, item := range media {
 		w := servePlaybackRedirectRequest(t, svc, item.id, http.MethodHead, "SenPlayer/1")
-		if w.Code != http.StatusFound || w.Header().Get("Location") != "https://cdn.example.test/Movie.mkv?token=direct-secret" {
+		if w.Code != http.StatusFound || w.Header().Get("Location") != upstream.URL+"/direct/Movie.mkv?token=direct-secret" {
 			t.Fatalf("%s status/location = %d/%q", item.id, w.Code, w.Header().Get("Location"))
 		}
 	}

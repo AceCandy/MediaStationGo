@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -104,10 +105,25 @@ func (r *playbackRedirectResolver) Resolve(ctx context.Context, mediaID, rawURL,
 	r.flights[key] = flight
 	r.mu.Unlock()
 
-	target, err := r.resolve(ctx, base, userAgent)
+	ctx, cancel := context.WithTimeout(ctx, playbackRedirectResolveTimeout)
+	defer cancel()
+	var target string
+	var err error
+	var validating bool
+	for attempt := 0; attempt < 3; attempt++ {
+		target, err = r.resolve(ctx, base, userAgent)
+		validating = err == nil
+		if validating {
+			target, err = r.validateTarget(ctx, target, userAgent)
+		}
+		var statusErr *playbackRedirectResponseError
+		if !validating || !errors.As(err, &statusErr) || statusErr.status != http.StatusForbidden {
+			break
+		}
+	}
 	result := playbackRedirectResolveResult{target: target}
 	var statusErr *playbackRedirectResponseError
-	if errors.As(err, &statusErr) && statusErr.status == http.StatusInternalServerError && localFallback != nil {
+	if !validating && errors.As(err, &statusErr) && statusErr.status == http.StatusInternalServerError && localFallback != nil {
 		if localPath := localFallback(); localPath != "" {
 			result.target = localPath
 			result.local = true
@@ -169,6 +185,46 @@ func (r *playbackRedirectResolver) resolve(ctx context.Context, source *url.URL,
 		return "", errPlaybackRedirectLocation
 	}
 	return resolved.String(), nil
+}
+
+// validateTarget 确认最终直链可读后才允许缓存；不携带播放器凭据或缓冲视频正文。
+func (r *playbackRedirectResolver) validateTarget(ctx context.Context, target, userAgent string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return "", errPlaybackRedirectLocation
+	}
+	req.Header.Set("Range", "bytes=0-0")
+	req.Header["User-Agent"] = []string{userAgent}
+	baseClient := r.client
+	if baseClient == nil {
+		baseClient = http.DefaultClient
+	}
+	client := *baseClient
+	client.Jar = nil
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if _, ok := absolutePlaybackRedirectURL(req.URL.String()); !ok || len(via) >= 10 {
+			return errPlaybackRedirectLocation
+		}
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", errPlaybackRedirectRequest
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return "", &playbackRedirectResponseError{status: resp.StatusCode}
+	}
+	if _, err := io.ReadFull(resp.Body, make([]byte, 1)); err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", errPlaybackRedirectRequest
+	}
+	return resp.Request.URL.String(), nil
 }
 
 func (r *playbackRedirectResolver) currentTime() time.Time {
