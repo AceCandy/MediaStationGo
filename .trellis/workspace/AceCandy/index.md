@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 169
-- **Last Active**: 2026-09-30
+- **Total Sessions**: 170
+- **Last Active**: 2026-10-01
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~81 | Active |
+| `journal-3.md` | ~117 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 170 | 2026-10-01 | 按入库媒体范围执行自动轨道回填 | `857f243` | `main` |
 | 169 | 2026-09-30 | 后台待办检查性能优化 | `49211b6` | `main` |
 | 168 | 2026-09-30 | 媒体库扫描性能优化完成 | `a221959` | `main` |
 | 167 | 2026-09-30 | 红果弹幕实时合并与配置 | `1373da9` | `main` |
