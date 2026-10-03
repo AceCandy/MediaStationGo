@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -129,6 +130,66 @@ func TestDanmuLive(t *testing.T) {
 	t.Logf("anonymous comments=%d complete=%t", len(rows), err == nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDanmuFiltersSourceWindows(t *testing.T) {
+	for _, next := range []any{60000, 30000, "bad", 86400001} {
+		t.Run(fmt.Sprint(next), func(t *testing.T) {
+			calls := 0
+			row := func(id string, offset any, fields map[string]any) any {
+				common := map[string]any{"content": map[string]any{"text": "a\x00b"}}
+				for key, value := range fields {
+					common[key] = value
+				}
+				return map[string]any{"comment": map[string]any{"comment_id": id, "common": common, "expand": map[string]any{"offset_time": offset}}}
+			}
+			client := NewClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				body := `{"code":0,"data":{"video_model":{"video_duration":45}}}`
+				if strings.Contains(req.URL.Path, "commentapi") {
+					calls++
+					list := []any{
+						row("1", 0, map[string]any{"group_id": "456", "status": 1}),
+						row("2", 29999, map[string]any{"status": "1"}),
+						row("3", 30000, nil), row("4", -1, nil),
+						row("5", 1000, map[string]any{"group_id": "789"}),
+						row("6", 1000, map[string]any{"status": 0}),
+						row("7", 1000, nil),
+						row("8", 1000, map[string]any{"group_id": nil}),
+						row("9", 1000, map[string]any{"status": nil}),
+						row("10", 45000, nil), row("11", 1.5, nil), row("1", 1, nil),
+					}
+					windowEnd := any(30000)
+					if calls == 2 {
+						windowEnd = next
+						list = []any{row("12", 30000, nil), row("13", 44999, nil), row("14", 45000, nil), row("15", 1000, nil), row("1", 30001, nil)}
+					}
+					data, _ := json.Marshal(map[string]any{"code": 0, "data": map[string]any{"data_list": list, "extra": map[string]any{"next_query_danmaku_list_time": windowEnd}}})
+					body = string(data)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})})
+			rows, err := client.Danmus(t.Context(), "123", 1, "456", DanmuAppConfig{})
+			want := "1,2,7"
+			if next == 60000 {
+				want += ",12,13"
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil {
+				t.Fatal("invalid window accepted")
+			}
+			var ids []string
+			for _, item := range rows {
+				ids = append(ids, item.ID)
+				if item.Content != "ab" {
+					t.Fatal("NUL sanitization changed")
+				}
+			}
+			if calls != 2 || strings.Join(ids, ",") != want {
+				t.Fatalf("calls=%d ids=%v want=%s", calls, ids, want)
+			}
+		})
 	}
 }
 

@@ -144,7 +144,7 @@ const userDataFields: readonly EmbyApiField[] = [
 export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
   {
     id: 'danmu-raw', category: '图片与播放', name: '当前集弹幕',
-    description: '红果当前集实时弹幕与数据库历史按单条 ID 去重合并，新增条目异步保存。普通媒体和 NFO 保留空响应。',
+    description: '红果当前集实时弹幕与数据库历史按单条 ID 去重合并，同集、同视频和同参数的在途请求共用抓取，新增条目异步保存。普通媒体和 NFO 保留空响应。',
     methods: ['GET'], path: '/api/danmu/:id/raw', auth: 'token', support: 'implemented',
     parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: '可见红果分集 ID、电影 ID 或已绑定文件 ID；合集、季和人物不能批量获取。' }],
     responses: [
@@ -153,7 +153,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { status: '404', contentType: 'application/json', description: '红果目标不存在、不可见或不是可播放叶子。' },
       { status: '500', contentType: 'application/json', description: '本地查询或弹幕存储读取失败。' },
     ],
-    notes: ['仅在请求此接口时获取当前集，不预取、不扫描整季；不保证源站全量。播放器是否调用和显示需客户端验收。'],
+    notes: ['仅在请求此接口时获取当前集，不预取、不扫描整季；不保证源站全量。播放器是否调用和显示需客户端验收。', '实时弹幕过滤时间窗口外记录及明确的错集、非公开状态；上游省略身份或状态字段时保留兼容，已保存历史不删除。', '仅合并在途请求，不缓存已完成结果；取消单个请求不影响其他等待者，配置变更后不复用旧参数请求。'],
   },
   {
     id: 'system-info-public',

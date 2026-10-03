@@ -68,6 +68,7 @@ func (c *Client) Danmus(ctx context.Context, sourceID string, episode int, video
 		return nil, err
 	}
 	var rows []Danmu
+	seen := make(map[string]bool)
 	start, cursor := int64(0), ""
 	aid, _ := strconv.Atoi(query.Get("aid"))
 	for page := 0; page < 128; page++ {
@@ -92,6 +93,14 @@ func (c *Client) Danmus(ctx context.Context, sourceID string, episode int, video
 		if len(list) > 4096 {
 			return rows, errors.New("红果弹幕窗口过大")
 		}
+		extra, info := object(data["extra"]), object(data["common_list_info"])
+		next := start + 30000
+		if value, exists := extra["next_query_danmaku_list_time"]; exists {
+			next, err = strconv.ParseInt(scalar(value), 10, 64)
+			if err != nil || next <= start || next > 86400000 {
+				return rows, errors.New("红果弹幕时间窗口无效")
+			}
+		}
 		for _, raw := range list {
 			comment := object(object(raw)["comment"])
 			common := object(comment["common"])
@@ -100,25 +109,22 @@ func (c *Client) Danmus(ctx context.Context, sourceID string, episode int, video
 			offset, err := strconv.ParseInt(scalar(expand["offset_time"]), 10, 64)
 			// PostgreSQL text 和 XML 均不接受 NUL，不能让一条异常内容阻止整批新增。
 			text := strings.ReplaceAll(scalar(object(common["content"])["text"]), "\x00", "")
-			if !ValidID(id) || err != nil || offset < 0 || strings.TrimSpace(text) == "" || len(text) > 16384 {
+			if seen[id] || !ValidID(id) || err != nil || offset < start || offset >= min(next, duration) || strings.TrimSpace(text) == "" || len(text) > 16384 {
 				continue
 			}
-			if group := scalar(common["group_id"]); group != "" && group != videoID {
+			// 兼容省略身份或状态的响应；明确提供时必须属于当前集且为公开状态。
+			if group, exists := common["group_id"]; exists && scalar(group) != videoID {
 				continue
 			}
+			if status, exists := common["status"]; exists && scalar(status) != "1" {
+				continue
+			}
+			seen[id] = true
 			created, _ := strconv.ParseInt(scalar(common["create_timestamp"]), 10, 64)
 			rows = append(rows, Danmu{ID: id, OffsetMS: offset, Content: text, CreatedAt: max(0, created)})
 		}
 		if len(rows) > 20000 {
 			return rows[:20000], errors.New("红果弹幕达到本次条数上限")
-		}
-		extra, info := object(data["extra"]), object(data["common_list_info"])
-		next := start + 30000
-		if value, exists := extra["next_query_danmaku_list_time"]; exists {
-			next, err = strconv.ParseInt(scalar(value), 10, 64)
-			if err != nil || next <= start {
-				return rows, errors.New("红果弹幕时间窗口未前进")
-			}
 		}
 		if next >= duration {
 			return rows, nil

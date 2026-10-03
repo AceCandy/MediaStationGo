@@ -40,9 +40,21 @@ hydration, download, favorites, watched state and playback progress.
 - Fetch at most 128 windows, 20,000 returned records, 2 MiB per response and
   25 seconds total, with 180 ms between windows. A repeated cursor or non-advancing
   time ends the fetch with partial data. Source counts do not prove completeness.
-- At most three requests hold fetch/save slots. Saturation returns history;
-  there is no result cache. Saving has a separate five-second context; shutdown
-  stops admission under the same mutex as WaitGroup.Add and joins accepted work.
+- Validate each time window before accepting its rows; offsets must be in
+  `[start, min(next,duration))`. Deduplicate accepted IDs across windows. Preserve
+  compatibility when `group_id` or `status` is omitted; provided fields must
+  match the requested video and public status `1`, including numeric/string `1`.
+- At most three shared fetch/save operations hold slots. Concurrent requests
+  share only in-flight work keyed by source, episode, video and a SHA-256 digest
+  of the resolved App parameter snapshot. Configuration changes/disable are
+  observed before joining; never use plaintext credentials in flight keys/logs.
+  Saturation returns history; there is no result cache or refresh cooldown.
+  Canceling one waiter does not affect others; the last waiter cancels upstream
+  and removes the flight so later callers cannot join canceled work. Responses
+  own their byte slices. Saving has a separate five-second context; shutdown
+  stops admission under the same mutex as WaitGroup.Add and joins requests,
+  shared fetches and incremental saves. Completed flights are removed before
+  publishing their result; response delivery does not wait for persistence.
 - Permission checks precede comment reads/network. Only visible episodes,
   movie works and bound files are targets; groups/seasons/people return 404.
   Ordinary/NFO requests retain empty 200 text responses. XML uses seconds with
@@ -69,6 +81,14 @@ smaller result as deletion, or fetching every episode from PlaybackInfo.
 - `TestDanmuSigning`, `TestDanmuWindowsAndSafeFailures`,
   `TestDanmuResolvesOnlyRequestedEpisode`: vectors, identity snapshot, partial
   failures, bounded parsing and single-episode mapping fallback.
+- `TestDanmuFiltersSourceWindows`: public/missing/malformed fields, wrong video,
+  window boundaries, cross-window duplicate IDs and invalid-window partial data.
+- `TestHongGuoDanmuCoalescesRequests`,
+  `TestHongGuoDanmuSharedFetchCancellation`,
+  `TestHongGuoDanmuFlightConfigurationIsolation`,
+  `TestHongGuoDanmuCanceledFlightDoesNotRemoveReplacement`: same-key sharing under full
+  slots, caller cancellation, independent response bytes, source/episode/video
+  isolation, parameter updates/disable, persistence and shutdown under `-race`.
 - `TestHongGuoAPIConfigIsolation`, `TestHongGuoDanmuMergeXML`,
   `TestHongGuoDanmuAsyncPersistenceAndClose`, `TestHongGuoDanmuTargetVisibility`,
   `TestHongGuoDanmuSaveFailureAndFallback`: secrets, merge, permission, persistence

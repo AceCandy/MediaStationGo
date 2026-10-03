@@ -1,7 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -19,21 +22,38 @@ import (
 
 // HongGuoDanmuService 仅由弹幕出口调用；关闭时等待已接纳请求和增量保存。
 type HongGuoDanmuService struct {
-	repo   *repository.HongGuoRepository
-	config *APIConfigService
-	client *hongguo.Client
-	log    *zap.Logger
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	closed bool
-	wg     sync.WaitGroup
-	slots  chan struct{}
+	repo    *repository.HongGuoRepository
+	config  *APIConfigService
+	client  *hongguo.Client
+	log     *zap.Logger
+	ctx     context.Context
+	cancel  context.CancelFunc
+	mu      sync.Mutex
+	closed  bool
+	wg      sync.WaitGroup
+	slots   chan struct{}
+	flights map[hongGuoDanmuKey]*hongGuoDanmuFlight
+}
+
+// hongGuoDanmuKey 隔离分集、视频映射和参数快照，不在键中保留明文凭据。
+type hongGuoDanmuKey struct {
+	source, video string
+	episode       int
+	appHash       [32]byte
+}
+
+// hongGuoDanmuFlight 只共享在途抓取；最后一个等待者离开时取消上游。
+type hongGuoDanmuFlight struct {
+	done    chan struct{}
+	cancel  context.CancelFunc
+	waiters int
+	output  []byte
+	err     error
 }
 
 func NewHongGuoDanmuService(repo *repository.HongGuoRepository, config *APIConfigService, log *zap.Logger) *HongGuoDanmuService {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &HongGuoDanmuService{repo: repo, config: config, client: hongguo.NewClient(nil), log: log, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 3)}
+	return &HongGuoDanmuService{repo: repo, config: config, client: hongguo.NewClient(nil), log: log, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 3), flights: make(map[hongGuoDanmuKey]*hongGuoDanmuFlight)}
 }
 
 func (s *HongGuoDanmuService) Close() {
@@ -53,12 +73,7 @@ func (s *HongGuoDanmuService) Get(ctx context.Context, source string, episode in
 	}
 	s.wg.Add(1)
 	s.mu.Unlock()
-	async := false
-	defer func() {
-		if !async {
-			s.wg.Done()
-		}
-	}()
+	defer s.wg.Done()
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
@@ -71,39 +86,79 @@ func (s *HongGuoDanmuService) Get(ctx context.Context, source string, episode in
 	if err != nil || !enabled {
 		return marshalHongGuoDanmus(history)
 	}
-	select {
-	case s.slots <- struct{}{}:
-	default:
-		return marshalHongGuoDanmus(history)
+	parameters, _ := json.Marshal(app)
+	key := hongGuoDanmuKey{source: source, video: video, episode: episode, appHash: sha256.Sum256(parameters)}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, context.Canceled
 	}
-	defer func() {
-		if !async {
-			<-s.slots
+	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	flight := s.flights[key]
+	if flight == nil {
+		select {
+		case s.slots <- struct{}{}:
+		default:
+			s.mu.Unlock()
+			return marshalHongGuoDanmus(history)
 		}
+		workCtx, workCancel := context.WithCancel(s.ctx)
+		flight = &hongGuoDanmuFlight{done: make(chan struct{}), cancel: workCancel}
+		s.flights[key] = flight
+		s.wg.Add(1)
+		go s.loadDanmus(workCtx, key, flight, history, app)
+	}
+	flight.waiters++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		flight.waiters--
+		if flight.waiters == 0 && s.flights[key] == flight {
+			delete(s.flights, key)
+			flight.cancel()
+		}
+		s.mu.Unlock()
 	}()
-	live, fetchErr := s.client.Danmus(ctx, source, episode, video, app)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-flight.done:
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return bytes.Clone(flight.output), flight.err
+	}
+}
+
+// loadDanmus 共用一次上游抓取与增量保存，响应不等待数据库写入。
+func (s *HongGuoDanmuService) loadDanmus(ctx context.Context, key hongGuoDanmuKey, flight *hongGuoDanmuFlight, history []model.HongGuoDanmu, app hongguo.DanmuAppConfig) {
+	defer s.wg.Done()
+	defer flight.cancel()
+	defer func() { <-s.slots }()
+	live, fetchErr := s.client.Danmus(ctx, key.source, key.episode, key.video, app)
 	if fetchErr != nil {
 		s.log.Debug("hongguo danmu: upstream incomplete", zap.Int("received", len(live)))
 	}
-	merged, added := mergeHongGuoDanmus(source, episode, history, live)
+	merged, added := mergeHongGuoDanmus(key.source, key.episode, history, live)
 	output, err := marshalHongGuoDanmus(merged)
-	if err != nil {
-		return nil, err
+	s.mu.Lock()
+	flight.output, flight.err = output, err
+	if s.flights[key] == flight {
+		delete(s.flights, key)
 	}
-	if len(added) > 0 {
-		async = true
-		go func() {
-			defer s.wg.Done()
-			defer func() { <-s.slots }()
-			// 保存独立于播放器取消，关闭最多等待此有界写入完成。
-			saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer saveCancel()
-			if err := s.repo.InsertDanmus(saveCtx, added); err != nil {
-				s.log.Warn("hongguo danmu: incremental save failed", zap.Int("count", len(added)))
-			}
-		}()
+	close(flight.done)
+	s.mu.Unlock()
+	if err == nil && len(added) > 0 {
+		// 保存独立于播放器取消，关闭最多等待此有界写入完成。
+		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer saveCancel()
+		if err := s.repo.InsertDanmus(saveCtx, added); err != nil {
+			s.log.Warn("hongguo danmu: incremental save failed", zap.Int("count", len(added)))
+		}
 	}
-	return output, nil
 }
 
 func mergeHongGuoDanmus(source string, episode int, history []model.HongGuoDanmu, live []hongguo.Danmu) ([]model.HongGuoDanmu, []model.HongGuoDanmu) {
