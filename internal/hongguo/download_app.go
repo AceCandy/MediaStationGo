@@ -38,6 +38,11 @@ func (c *Client) resolveDownloadApp(ctx context.Context, videoID string) (Downlo
 
 // appRequest 只接收内部固定接口地址，签名和设备参数不持久化。
 func (c *Client) appRequest(ctx context.Context, endpoint string, payload any) ([]byte, error) {
+	return c.appRequestWithIdentity(ctx, endpoint, payload, "", "")
+}
+
+// appRequestWithIdentity 允许目录分页在一次扫描内复用匿名身份。
+func (c *Client) appRequestWithIdentity(ctx context.Context, endpoint string, payload any, device, install string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var random [16]byte
@@ -54,6 +59,12 @@ func (c *Client) appRequest(ctx context.Context, endpoint string, payload any) (
 		"device_brand": {"Redmi"}, "language": {"zh"}, "os_api": {"36"}, "os_version": {"16"},
 		"resolution": {"1280*2772"}, "dpi": {"520"}, "ac": {"wifi"},
 		"device_id": {deviceID(random[:8])}, "iid": {deviceID(random[8:])},
+	}
+	if device != "" {
+		query.Set("device_id", device)
+	}
+	if install != "" {
+		query.Set("iid", install)
 	}
 	now := time.Now()
 	query.Set("_rticket", strconv.FormatInt(now.UnixMilli(), 10))

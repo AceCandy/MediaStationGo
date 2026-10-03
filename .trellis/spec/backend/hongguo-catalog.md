@@ -231,6 +231,25 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   saved without resetting its checkpoint, then fails explicitly. Only an empty
   page resets a category to page 1 for the next run. HTTP/parse/save failures
   stop the run and preserve the last committed checkpoint.
+- Incremental scans advance using the persisted `NextPage`; never force page 1
+  on every iteration. A repeated page before finding the saved boundary is an
+  error and must retain the checkpoint rather than claim no new works.
+- `cmd/hongguo-backfill` runs an explicit anonymous App historical scan. Default
+  is read-only; `--apply` uses existing configuration and tables without migrations.
+  Scan the three official genres with stable in-memory identity, session and
+  advancing offsets; only explicit `has_more=false` proves this response stream
+  ended; a final offset reset is accepted only when `has_more=false`. Requests
+  have at most three attempts; invalid/repeated pages reset the session once at
+  the same offset before failing. Scanning has a 30-minute deadline.
+  Cancellation/failure preserves committed pages; rerunning rescans idempotently.
+- `SaveAppDiscoveryPage` never changes Web checkpoints or canonical details.
+  Append new source IDs and fill missing summary fields; fill empty categories
+  in both discovery/work tables, preserving established values. Existing canonical
+  category takes precedence when filling an empty discovery. New summaries remain
+  available to existing pending-detail refresh; this command does not start that
+  worker or enqueue video downloads. New artwork follows the existing artwork queue.
+  Imported counts use actual inserted unhydrated IDs; category counts exclude new
+  IDs and count each affected existing source once per page.
 - The public aggregate category routes currently expose a capped window, not
   the entire source catalog. Topic routes such as `/category/ai-drama/drama`
   expose additional IDs with explicit parent-category evidence. An approved

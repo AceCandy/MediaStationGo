@@ -275,6 +275,116 @@ func TestHongGuoDiscoveryDefersDetailsAndResumes(t *testing.T) {
 	}
 }
 
+func TestHongGuoDiscoveryIncrementalReachesSecondPage(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	ctx := t.Context()
+	if err := repos.HongGuo.SaveSyncState(ctx, model.HongGuoSyncState{Category: "real-drama", NextPage: 1, AfterID: "100"}); err != nil {
+		t.Fatal(err)
+	}
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
+	service := NewHongGuoService(repos, tasks, nil, t.TempDir())
+	t.Cleanup(service.Wait)
+	requests := []string{}
+	service.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.URL.RequestURI())
+		for _, rank := range hongguo.Ranks {
+			if r.URL.Path == "/rank/"+rank.Key {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(hongGuoRankTestPage(rank.Label, "200"))), Header: make(http.Header), Request: r}, nil
+			}
+		}
+		items := []string{}
+		if r.URL.Path == "/category/real-drama" {
+			switch r.URL.Query().Get("page") {
+			case "":
+				for i := 0; i < 24; i++ {
+					items = append(items, fmt.Sprintf(`{"series_id":"%d"}`, 200+i))
+				}
+			case "2":
+				items = []string{`{"series_id":"300"}`, `{"series_id":"100"}`}
+			default:
+				t.Errorf("unexpected page %s", r.URL.RequestURI())
+			}
+		}
+		body := `_ROUTER_DATA={"loaderData":{"category_page":{"recommendList":[` + strings.Join(items, ",") + `]}}}`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+	})})
+	if _, err := runHongGuoDiscoveryOnly(ctx, service); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) < 2 || requests[0] != "/category/real-drama" || requests[1] != "/category/real-drama?page=2" {
+		t.Fatalf("incremental pages=%v", requests)
+	}
+	var count int64
+	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "300").Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("second-page new work missing: count=%d err=%v", count, err)
+	}
+	state, err := repos.HongGuo.SyncState(ctx, "real-drama")
+	if err != nil || state.NextPage != 1 || state.AfterID != "200" {
+		t.Fatalf("boundary=%+v err=%v", state, err)
+	}
+}
+
+func TestHongGuoDiscoveryIncrementalRejectsRepeatedPage(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	ctx := t.Context()
+	if err := repos.HongGuo.SaveSyncState(ctx, model.HongGuoSyncState{Category: "real-drama", NextPage: 1, AfterID: "100"}); err != nil {
+		t.Fatal(err)
+	}
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
+	service := NewHongGuoService(repos, tasks, nil, t.TempDir())
+	t.Cleanup(service.Wait)
+	requests := []string{}
+	service.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.URL.RequestURI())
+		for _, rank := range hongguo.Ranks {
+			if r.URL.Path == "/rank/"+rank.Key {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(hongGuoRankTestPage(rank.Label, "200"))), Header: make(http.Header), Request: r}, nil
+			}
+		}
+		items := []string{}
+		if r.URL.Path == "/category/real-drama" {
+			switch r.URL.Query().Get("page") {
+			case "":
+				for i := 0; i < 24; i++ {
+					items = append(items, fmt.Sprintf(`{"series_id":"%d"}`, 200+i))
+				}
+			case "2":
+				for i := 0; i < 24; i++ {
+					items = append(items, fmt.Sprintf(`{"series_id":"%d"}`, 200+i))
+				}
+			default:
+				t.Errorf("unexpected page %s", r.URL.RequestURI())
+			}
+		}
+		body := `_ROUTER_DATA={"loaderData":{"category_page":{"recommendList":[` + strings.Join(items, ",") + `]}}}`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+	})})
+	if _, err := runHongGuoDiscoveryOnly(ctx, service); err == nil || !strings.Contains(err.Error(), "分页未推进") {
+		t.Fatalf("expected pagination error, got %v", err)
+	}
+	state, err := repos.HongGuo.SyncState(ctx, "real-drama")
+	if err != nil || state.NextPage != 2 {
+		t.Fatalf("repeated page reset checkpoint: %+v %v", state, err)
+	}
+
+}
+
 func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {

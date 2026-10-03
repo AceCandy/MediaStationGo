@@ -332,9 +332,6 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]string), no
 		boundaryID := state.AfterID
 		for {
 			page := state.NextPage
-			if incremental {
-				page = 1
-			}
 			works, itemCount, err := s.client.Category(ctx, category, page)
 			if err != nil {
 				if page > 1 && errors.Is(err, hongguo.ErrNotFound) {
@@ -370,14 +367,6 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]string), no
 				state.AfterID = works[0].SourceID
 			}
 			if len(works) > 0 && added == 0 {
-				if incremental {
-					state.NextPage = 1
-					if err := s.repo.HongGuo.SaveDiscoveryPage(ctx, nil, state); err != nil {
-						return err
-					}
-					notice(fmt.Sprintf("ℹ️ 红果分类 %s 增量扫描至第 %d 页，未发现新作品", category, page))
-					break
-				}
 				return fmt.Errorf("红果分类 %s 第 %d 页重复返回本轮已见作品，分页未推进；保留检查点，未确认拉取完成", category, state.NextPage)
 			}
 			if complete {
