@@ -579,3 +579,38 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Next Steps
 
 - 尚未部署或重启后端，运行库未应用新索引；部署时评估首次建索引阻塞并验证实际页面耗时。
+
+
+## Session 188: Emby 作品排序与分页优化提交收尾
+<!-- trellis-session: v=2 fp=1d7ccfab4ab6392c -->
+
+**Date**: 2026-10-05
+**Task**: Emby 作品排序与分页优化提交收尾
+**Branch**: `main`
+
+### Summary
+
+提交普通作品年份排序、NFO 元数据排序、分页批量与上映日期并列查询优化，同步规范及 API 目录。当前无活动任务，跳过任务归档。
+
+### Main Changes
+
+- 提交全部 12 个相关文件；普通作品按年份排序，NFO 支持上映日期、年份和评分排序，候选批量容纳一页，仅日期和年份并列时读取文件日期。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b05ad0f` | fix: 修正 Emby 作品排序并优化分页查询 |
+
+### Testing
+
+- [OK] 独立只读复核未发现明确生产逻辑错误；git diff --check 与暂存差异检查通过；API 目录文件 ESLint 通过。
+- [OK] Go service/repository 测试包编译成功；定向数据库回归与性能用例因缺少 MEDIASTATION_TEST_POSTGRES_DSN 全部跳过，未完成数据库行为及执行计划验证。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在测试 PostgreSQL 环境运行相关回归及性能用例；稀疏资格且 limit 大于 50 的分页边界仍存在测试覆盖缺口。
