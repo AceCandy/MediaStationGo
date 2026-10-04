@@ -22,8 +22,9 @@ function load(name, mocks, exportName = name) {
 const Metadata = load('MediaDetailMetadata', { '../api/library': {}, '../components/STRMDeleteDialog': {}, '../components/DoubanBindingDialog': {} })
 const AdminMenu = load('MediaDetailAdminPanel', {}, 'MediaDetailAdminMenu')
 const menuProps = { tmdbRefreshPending: false, doubanEnrichmentPending: false, doubanDegraded: false, onMetadataEdit() {}, onProbe() {}, onSoftDelete() {} }
-const seriesMenu = renderToStaticMarkup(createElement(AdminMenu, { ...menuProps, label: '整剧更多操作' }))
-assert.doesNotMatch(seriesMenu, /整理入库|刷新tmdb信息|整剧智能刮削/, 'series menu omits scraping and organizing')
+const seriesMenu = renderToStaticMarkup(createElement(AdminMenu, { ...menuProps, label: '整剧更多操作', onTMDbRefresh() {} }))
+assert.doesNotMatch(seriesMenu, /整理入库|整剧智能刮削/, 'series menu omits scraping and organizing')
+assert.match(seriesMenu, /刷新tmdb信息/, 'series menu exposes canonical TMDb refresh')
 assert.match(seriesMenu, /编辑元数据/)
 assert.match(seriesMenu, /强制探测媒体轨/)
 assert.match(seriesMenu, /永久删除/)

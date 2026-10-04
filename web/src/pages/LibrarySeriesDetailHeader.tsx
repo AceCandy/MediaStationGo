@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Play } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+import { api, LONG_REQUEST_TIMEOUT } from '../api/client'
 import { mediaAPI } from '../api/library'
 import { playbackAPI } from '../api/playback'
+import { ModalShell } from '../components/ModalShell'
 import type { Media } from '../types'
 import type { HistoryItem } from '../types/history'
 import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
@@ -32,6 +34,9 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, resume
   const [failed, setFailed] = useState(false)
   const [revision, setRevision] = useState(0)
   const favouritePending = useRef(false)
+  const tmdbRefreshPendingRef = useRef(false)
+  const [tmdbRefreshPending, setTMDbRefreshPending] = useState(false)
+  const generation = useRef(0)
   useEffect(() => {
     let cancelled = false
     setData(null)
@@ -39,8 +44,29 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, resume
     mediaAPI.series(series.rep.id)
       .then((result) => { if (!cancelled) setData(result) })
       .catch(() => { if (!cancelled) setFailed(true) })
-    return () => { cancelled = true }
+    return () => { cancelled = true; generation.current += 1 }
   }, [series.rep.id, revision])
+
+  const refreshTMDb = async () => {
+    if (!data?.series.metadata_id || tmdbRefreshPendingRef.current || seriesToolBusy) return
+    tmdbRefreshPendingRef.current = true
+    setTMDbRefreshPending(true)
+    const requestGeneration = generation.current
+    const toastID = toast.loading('正在刷新整剧 TMDB 信息，请稍候…')
+    try {
+      await api.post(`/metadata/${encodeURIComponent(data.series.metadata_id)}/tmdb/refresh`, undefined, { timeout: LONG_REQUEST_TIMEOUT })
+      if (requestGeneration !== generation.current) { toast.dismiss(toastID); return }
+      const result = await mediaAPI.series(series.rep.id)
+      if (requestGeneration !== generation.current) { toast.dismiss(toastID); return }
+      setData(result)
+      toast.success('整剧 TMDB 信息已刷新', { id: toastID })
+    } catch (err: unknown) {
+      toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '整剧 TMDB 信息刷新未完成，请稍后重试', { id: toastID })
+    } finally {
+      tmdbRefreshPendingRef.current = false
+      setTMDbRefreshPending(false)
+    }
+  }
 
   const toggleFavourite = async () => {
     if (!data || favouritePending.current) return
@@ -68,12 +94,13 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, resume
     <p className="text-sm text-[var(--app-muted)]">共 {series.count} {allEpisodes.some((ep) => ep.episode_num <= 0) ? '项' : '集'}</p>
     <div className="flex flex-wrap items-center gap-3">
       {resume && <Link to={`/play/${resume.id}`} state={{ from: resumeFrom() }} className="btn-primary"><Play size={16} fill="currentColor" aria-hidden="true" />{continuing ? '继续观看' : '播放'} · {resume.episode_num > 0 ? `S${resume.season_num} E${resume.episode_num}` : episodeLabel(resume)}</Link>}
-      {isAdmin && series.count > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={series.rep.catalog_source === 'hongguo' ? undefined : onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
+      {isAdmin && series.count > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy || tmdbRefreshPending} onTMDbRefresh={data?.series.metadata_id && !series.rep.catalog_source ? refreshTMDb : undefined} tmdbRefreshPending={tmdbRefreshPending} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={series.rep.catalog_source === 'hongguo' ? undefined : onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
     </div>
   </div>
 
   return (
     <div className="relative isolate rounded-3xl border border-[var(--app-border)] bg-[var(--app-panel)]">
+      {tmdbRefreshPending && <ModalShell ariaLabel="正在刷新整剧 TMDB 信息" maxWidth="max-w-sm" zIndex={100}><p role="status" className="p-8 text-center text-[var(--app-text)]">正在刷新整剧信息，请稍候…</p></ModalShell>}
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl">{data && <MediaDetailBackdrop media={data.series} />}</div>
       <div className="p-5 sm:p-8">
         <button type="button" onClick={onBack} className="btn-ghost gap-2"><ArrowLeft size={16} />返回媒体库</button>
