@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -121,9 +122,19 @@ func (r *MediaViewRepository) libraryMoviePage(ctx context.Context, files *gorm.
 	partScope := files.Session(&gorm.Session{}).Select("MIN(m.part_index)").Where("m.part_group_key = outer_media.part_group_key AND m.part_index > 0")
 	versions := files.Session(&gorm.Session{}).Joins("JOIN media AS outer_media ON outer_media.id = m.id").
 		Where("COALESCE(m.part_group_key, '') = '' OR m.part_index <= 0 OR m.part_index = (?)", partScope)
+	// 候选已确定电影身份及作品筛选，只检查文件；Part 最小值仍使用原库内范围。
+	eligible := db.Table("media AS outer_media").Select("1").
+		Where("outer_media.library_id = ? AND outer_media.metadata_id = candidate.id", libraryID).
+		Where("COALESCE(outer_media.part_group_key, '') = '' OR outer_media.part_index <= 0 OR outer_media.part_index = (?)", partScope)
+	if len(filter.AllowedLibraryIDs) > 0 {
+		eligible = eligible.Where("outer_media.library_id = ANY(?)", &filter.AllowedLibraryIDs)
+	}
+	if len(filter.HiddenLibraryIDs) > 0 {
+		eligible = eligible.Where("outer_media.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
+	}
 	// 归属不表达 Part 资格；先排除仅有后续 Part 的作品，计数和分页用同一集合。
 	candidates = db.Table("(?) candidate", candidates).
-		Where("EXISTS (? OFFSET 0)", versions.Session(&gorm.Session{}).Select("1").Where("work.id=candidate.id")).
+		Where("EXISTS (? OFFSET 0)", eligible).
 		Select("candidate.id, candidate.latest_media_added_at")
 	priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
 	representative := versions.Session(&gorm.Session{}).Where("work.id=page.metadata_id").
@@ -138,12 +149,25 @@ func (r *MediaViewRepository) libraryMoviePage(ctx context.Context, files *gorm.
 		LibraryMetadataSummary
 		Total int64
 	}
-	err := db.Raw(`WITH movie_candidates AS MATERIALIZED (?), page AS MATERIALIZED (?)
+	err := db.Transaction(func(tx *gorm.DB) error {
+		// 短列表不值得编译整套表达式；显式恢复设置也兼容调用方已有事务。
+		var previousJIT string
+		if err := tx.Raw("SHOW jit").Scan(&previousJIT).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("SET LOCAL jit = off").Error; err != nil {
+			return err
+		}
+		if err := tx.Raw(`WITH movie_candidates AS MATERIALIZED (?), page AS MATERIALIZED (?)
 SELECT page.metadata_id, selected.media_id, stats.count, stats.version_count, totals.total
 FROM (SELECT COUNT(*) AS total FROM movie_candidates) totals LEFT JOIN page ON TRUE
 LEFT JOIN LATERAL (?) selected ON page.metadata_id IS NOT NULL
 LEFT JOIN LATERAL (?) stats ON page.metadata_id IS NOT NULL
-ORDER BY page.latest_media_added_at DESC NULLS LAST, page.metadata_id DESC`, candidates, page, representative, stats).Scan(&rows).Error
+ORDER BY page.latest_media_added_at DESC NULLS LAST, page.metadata_id DESC`, candidates, page, representative, stats).Scan(&rows).Error; err != nil {
+			return err
+		}
+		return tx.Exec("SELECT set_config('jit', ?, true)", previousJIT).Error
+	}, &sql.TxOptions{ReadOnly: true})
 	var total int64
 	summaries := make([]LibraryMetadataSummary, 0, len(rows))
 	for _, row := range rows {

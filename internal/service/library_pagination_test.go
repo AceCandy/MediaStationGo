@@ -136,6 +136,7 @@ FROM generate_series(1,40) n CROSS JOIN generate_series(1,8) v`,
 		type node struct {
 			Relation string  `json:"Relation Name"`
 			Alias    string  `json:"Alias"`
+			Subplan  string  `json:"Subplan Name"`
 			Rows     float64 `json:"Actual Rows"`
 			Removed  float64 `json:"Rows Removed by Filter"`
 			Loops    float64 `json:"Actual Loops"`
@@ -164,7 +165,107 @@ FROM generate_series(1,40) n CROSS JOIN generate_series(1,8) v`,
 			}
 		}
 		check(plans[0].Plan)
+		var candidateMetadataReads float64
+		var countMetadata func(node, bool)
+		countMetadata = func(n node, candidate bool) {
+			candidate = candidate || n.Subplan == "CTE movie_candidates"
+			if candidate && n.Relation == "metadata_items" {
+				candidateMetadataReads += (n.Rows + n.Removed) * n.Loops
+			}
+			for _, child := range n.Plans {
+				countMetadata(child, candidate)
+			}
+		}
+		countMetadata(plans[0].Plan, false)
+		if candidateMetadataReads > 440 {
+			t.Errorf("movie eligibility rereads known metadata: %.0f visits", candidateMetadataReads)
+		}
 		t.Logf("movie count/page %.3f ms", plans[0].ExecutionTime)
+	}
+}
+
+func TestLibraryMoviePageScopesJIT(t *testing.T) {
+	e := newTestEmbyService(t)
+	db := e.repo.DB
+	for _, initial := range []string{"on", "off"} {
+		for _, nested := range []bool{false, true} {
+			for _, fail := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/nested=%t/fail=%t", initial, nested, fail), func(t *testing.T) {
+					if err := db.Exec("SET jit = " + initial).Error; err != nil {
+						t.Fatal(err)
+					}
+					seen := false
+					if err := db.Callback().Row().Before("gorm:row").Register("test:jit-scope", func(tx *gorm.DB) {
+						if !strings.HasPrefix(tx.Statement.SQL.String(), "WITH movie_candidates AS MATERIALIZED") {
+							return
+						}
+						seen = true
+						var current string
+						if err := tx.Statement.ConnPool.QueryRowContext(t.Context(), "SHOW jit").Scan(&current); err != nil {
+							t.Error(err)
+						}
+						if current != "off" {
+							t.Errorf("query jit=%s", current)
+						}
+						if fail {
+							tx.Statement.SQL.Reset()
+							tx.Statement.SQL.WriteString("SELECT * FROM missing_jit_test_relation")
+							tx.Statement.Vars = nil
+						}
+					}); err != nil {
+						t.Fatal(err)
+					}
+					defer db.Callback().Row().Remove("test:jit-scope")
+					call := func(conn *gorm.DB) error {
+						_, _, _, err := repository.New(conn).MediaView.ListLibraryMetadataPage(t.Context(), "movies", "movie", "", 0, 1, repository.MediaQueryFilter{})
+						if (err != nil) != fail {
+							t.Errorf("fail=%t err=%v", fail, err)
+						}
+						var restored string
+						if err := conn.Raw("SHOW jit").Scan(&restored).Error; err != nil {
+							t.Fatal(err)
+						}
+						if restored != initial {
+							t.Errorf("restored jit=%s want=%s", restored, initial)
+						}
+						return nil
+					}
+					if nested {
+						if err := db.Transaction(call); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						_ = call(db)
+					}
+					if !seen {
+						t.Fatal("movie query not observed")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestLibraryMoviePageEnforcesUnknownMembershipVisibility(t *testing.T) {
+	e := newTestEmbyService(t)
+	db := e.repo.DB
+	for _, query := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('unknown-movie','movie','Movie','local')`,
+		`INSERT INTO media(id,metadata_id,library_id,path) VALUES ('unknown-file','unknown-movie','visible','/fixture/unknown')`,
+		`UPDATE metadata_items SET library_ids=NULL WHERE id='unknown-movie'`,
+	} {
+		if err := db.Exec(query).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, filter := range []repository.MediaQueryFilter{
+		{HiddenLibraryIDs: []string{"visible"}},
+		{AllowedLibraryIDs: []string{"other"}},
+	} {
+		_, rows, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "visible", "movie", "", 0, 50, filter)
+		if err != nil || total != 0 || len(rows) != 0 {
+			t.Fatalf("rows=%+v total=%d err=%v", rows, total, err)
+		}
 	}
 }
 

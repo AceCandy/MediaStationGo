@@ -171,9 +171,17 @@ supersedes older requirements for per-Episode extended responses and credits.
   Season metadata scans and retain the existing file-visit bound.
   Keep the existing multipart primary selection and
   preferred-version ordering. `libraryMoviePage` first qualifies work candidates
-  using persisted membership and the original visible-file scope. A lateral
-  first-version lookup supplies the original sort date; only selected works
-  count versions. Count/page share one candidate CTE, including empty pages;
+  using persisted membership and file eligibility. After Movie identity and
+  work filters are established, eligibility probes Media directly without
+  rereading Movie metadata or self-joining Media. Enforce target-library file
+  visibility even when persisted membership is unknown (`library_ids IS NULL`).
+  Part minima still use the original visible, filtered file scope, including an
+  explicit metadata ID when supplied; never restrict them to each candidate.
+  Sorting uses persisted global `latest_media_added_at`; only selected works
+  count versions. The Movie count/page statement runs with `SET LOCAL jit=off`
+  in a read-only transaction to avoid seconds of JIT compilation. Restore the
+  prior value on success, including inside an existing transaction; rollback
+  restores it on failure. Never change the session/global setting. Count/page share one candidate CTE, including empty pages;
   no file views are loaded for an empty result. Keep Part minima library-scoped,
   even when an existing Part group spans metadata identities.
 - `seriesMetadataPage` receives the visible Media/episode scope without the
@@ -209,6 +217,12 @@ supersedes older requirements for per-Episode extended responses and credits.
   EXPLAIN against a catalog larger than the playable set; Media probe loops must
   stay within file cardinality. Cover Yamby ordering, version collapse, empty
   pages, favorite/person/visibility filters and played-Series summaries.
+- `TestLibraryMoviePageKeepsVersionsWithWorkTimeOrder`: candidate metadata visits
+  must stay within the catalog cardinality, with no repeated eligibility joins.
+- `TestLibraryMoviePageScopesJIT`: query-local off, prior on/off restoration,
+  standalone/nested transaction success and actual SQL failure rollback.
+- `TestLibraryMoviePageEnforcesUnknownMembershipVisibility`: unknown membership
+  cannot bypass hidden/allowed library constraints.
 - Run PostgreSQL tests with `MEDIASTATION_TEST_POSTGRES_DSN`, Web lint/build and both Series check scripts; skipped database tests do not count as validation.
 
 ### 7. Wrong vs Correct
