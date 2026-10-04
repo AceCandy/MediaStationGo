@@ -501,3 +501,25 @@ PlaybackInfo 返回前记录白名单脱敏结构摘要，覆盖媒体源能力�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 185: 剧库作品列表筛选优化
+<!-- trellis-session: v=2 fp=3cceefc52c1cd47d -->
+
+**Date**: 2026-10-04
+**Task**: 剧库作品列表筛选优化
+**Branch**: `main`
+
+### Summary
+
+普通剧库按作品筛选，分页后补版本统计和代表文件；真实PostgreSQL回归、两个剧库八组新旧完整结果对照及独立复核通过。国产剧缺海报SQL由约5.1–5.7秒降至234毫秒，空筛选不读取文件。普通无筛选列表仍约2.3–2.5秒，保留原分集日期排序；未部署、未测HTTP或浏览器耗时。已提交归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `54d4623` | fix(repository): 剧库列表按作品筛选后补版本统计 |
+
+### Status
+
+[OK] **Completed**
