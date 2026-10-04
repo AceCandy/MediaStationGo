@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 179
-- **Last Active**: 2026-10-03
+- **Total Sessions**: 180
+- **Last Active**: 2026-10-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~353 | Active |
+| `journal-3.md` | ~389 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 180 | 2026-10-04 | 电影库版本合并查询性能修复 | `0c54f2e` | `main` |
 | 179 | 2026-10-03 | 红果弹幕优化与目录历史补录收尾 | `4421a47`, `d09dd0e` | `main` |
 | 178 | 2026-10-02 | Hills 播放信息响应诊断 | `943d32f` | `main` |
 | 177 | 2026-10-02 | 下一集轨道就绪后预缓存播放直链 | `5ef8a79` | `main` |
