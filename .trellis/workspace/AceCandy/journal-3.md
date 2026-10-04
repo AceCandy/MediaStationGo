@@ -479,3 +479,25 @@ PlaybackInfo 返回前记录白名单脱敏结构摘要，覆盖媒体源能力�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 184: 整剧 TMDB 信息刷新入口
+<!-- trellis-session: v=2 fp=9e12a48ea892ef65 -->
+
+**Date**: 2026-10-04
+**Task**: 整剧 TMDB 信息刷新入口
+**Branch**: `main`
+
+### Summary
+
+补齐整剧管理菜单的 TMDB 刷新入口，使用整剧元数据标识并重新加载标题与简介；提供处理中提示、重复提交保护和失败重试。更新剧集回归检查及前端规范。lint、生产构建、剧集详情/展示/加载检查及 diff 检查通过；未部署，未验证真实 TMDB 数据或浏览器视觉效果。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3a0c61b` | fix(web): 补齐整剧 TMDB 信息刷新入口 |
+
+### Status
+
+[OK] **Completed**
