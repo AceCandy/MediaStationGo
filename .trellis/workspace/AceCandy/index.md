@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 186
-- **Last Active**: 2026-10-04
+- **Total Sessions**: 187
+- **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~547 | Active |
+| `journal-3.md` | ~581 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 187 | 2026-10-05 | 下载空间查询优化与默认筛选 | `d819ed3` | `main` |
 | 186 | 2026-10-04 | 媒体库作品最新入库时间排序统一 | `a9b47a0` | `main` |
 | 185 | 2026-10-04 | 剧库作品列表筛选优化 | `54d4623` | `main` |
 | 184 | 2026-10-04 | 整剧 TMDB 信息刷新入口 | `3a0c61b` | `main` |
