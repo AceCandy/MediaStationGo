@@ -422,3 +422,38 @@ PlaybackInfo 返回前记录白名单脱敏结构摘要，覆盖媒体源能力�
 ### Next Steps
 
 - 尚未部署或验证线上HTTP整体耗时；数据库负载、缓存和网络仍影响耗时。
+
+
+## Session 182: Emby文件日期排序单次分页优化
+<!-- trellis-session: v=2 fp=7e6571fef9d41e1c -->
+
+**Date**: 2026-10-04
+**Task**: Emby文件日期排序单次分页优化
+**Branch**: `main`
+
+### Summary
+
+普通Movie/Series文件日期排序一次物化候选和资格，避免每批重算；保留原排序、权限、版本及准确总数/下界语义。
+
+### Main Changes
+
+- 复用单次作品分页并增加显式计数开关；同步查询契约和实际SQL监测。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4f685be` | fix(emby): 避免文件日期排序重复计算候选 |
+
+### Testing
+
+- [OK] 13项真实PostgreSQL定向回归通过，涵盖文件聚合对照、权限收藏人物、版本层级、四来源补批及HTTP计数缓存前瞻；独立复核无阻断。
+- [OK] 大小电影库和剧库同一只读快照完整ID顺序、总数与首页内容一致。外语库默认462～471ms、DateCreated457～472ms；实际计划无JIT。临时文件清理完毕，未启动服务。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未推送、部署或验证客户端HTTP耗时；必要的全候选日期与资格计算仍随库规模增长。
