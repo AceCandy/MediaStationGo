@@ -150,6 +150,9 @@ FROM generate_series(1,40) n CROSS JOIN generate_series(1,8) v`,
 		}
 		var check func(node)
 		check = func(n node) {
+			if n.Relation == "metadata_items" && strings.HasPrefix(n.Alias, "season") && n.Loops > 0 {
+				t.Errorf("movie page traverses unrelated season metadata: %+v", n)
+			}
 			if n.Relation == "media_probe_metadata" && n.Loops > 3*8 {
 				t.Errorf("representative versions evaluated before page: %+v", n)
 			}

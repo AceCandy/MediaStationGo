@@ -29,7 +29,8 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 		q = r.libraryFilteredSeriesScope(ctx, libraryID)
 	} else {
 		q = q.Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id")
-		if filtered && kind == model.MetadataKindMovie {
+		if kind == model.MetadataKindMovie {
+			// 电影直接关联作品，避免父级 CASE 阻止按元数据索引定位文件。
 			q = q.Joins("JOIN metadata_items AS work ON work.id = mi.id")
 		} else {
 			seasonTable := "metadata_items"

@@ -163,8 +163,13 @@ supersedes older requirements for per-Episode extended responses and credits.
   Preserve an aggregate total row through a LEFT JOIN when the page is empty.
   Explicit-Series reads retain their selective scope and Movie pages retain
   multipart/version preference rules; no file rows are truncated at the scope boundary.
-- Filtered Movie pages join Movie metadata directly, without Season/Series
-  hierarchy expansion. Keep the existing multipart primary selection and
+- All Movie pages, including unfiltered browsing, join Movie metadata directly
+  (`work.id = mi.id`), without Season/Series hierarchy expansion. A parent CASE
+  join can prevent the work ID from restricting Media through its metadata index,
+  causing a library file scan per candidate. The actual movie count/page plan in
+  `TestLibraryMoviePageKeepsVersionsWithWorkTimeOrder` must have no executed
+  Season metadata scans and retain the existing file-visit bound.
+  Keep the existing multipart primary selection and
   preferred-version ordering. `libraryMoviePage` first qualifies work candidates
   using persisted membership and the original visible-file scope. A lateral
   first-version lookup supplies the original sort date; only selected works
