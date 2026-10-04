@@ -531,7 +531,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("favorite-only page changed: %#v, %v", result, err)
 	}
 	favoriteQueries := append([]string(nil), reads.queries...)
-	if len(favoriteQueries) != 2 {
+	if len(favoriteQueries) != 1 {
 		t.Fatalf("favorite count/page queries = %d", len(favoriteQueries))
 	}
 	for _, query := range favoriteQueries {

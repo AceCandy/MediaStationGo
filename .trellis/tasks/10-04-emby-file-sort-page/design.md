@@ -1,0 +1,3 @@
+# 设计
+
+在metadataWorkPage/seriesWorkPage识别原排序含MAX(media.created_at)的分支，保留候选排序与资格SQL。在单条SELECT中物化work_batch和qualified，再用现有workCandidatePage对合格集合分页；计数可选且空页保留总数。这样无需临时表、缓存、新索引或规划器设置，文件日期只计算一次。保留其他分批资格路径、页后详情与原scope。workCandidatePage增加显式countTotal参数，现有红果调用保持true。改变点仅service分页与必要调用签名，测试和契约同步。回滚对应diff即可，无数据变更。

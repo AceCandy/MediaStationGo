@@ -84,7 +84,27 @@ candidates after selection. Refill and dates share the same read-only snapshot.
 
 当前实现边界：全局 Movie/Series、普通 Emby 计数页/混合电影库、Web 电影页已接入；无库 Latest 保留原默认 Movie/Episode 层级但不额外计数。Web 普通剧库的分集日期排序仍复用一次受限文件范围，页后才做展示统计。普通全局直接绑定整剧/季与分集的既有祖父分组保持兼容，不能在性能修改中合并而悄然改变总数。
 
-The 50-candidate refill loop applies to ordinary metadata/Series pagers and Latest,
+Ordinary `metadataWorkPage` / `seriesWorkPage` file-date sorts (default,
+PremiereDate and DateCreated when their original order contains
+`MAX(media.created_at)`) materialize candidates and exact eligibility once in
+one statement, then call `workCandidatePage(..., countTotal)` for page selection.
+Do not rerun the full file-date aggregate for every 50-candidate refill. Preserve
+original scoped file dates, title/release/year keys, directions, NULL ordering,
+ordinal ties, membership shortcuts, permission and favorite/person predicates.
+Only current-page representatives/versions or Series summaries are hydrated.
+Count-off uses a constant zero internally (the public wrapper owns lookahead
+and numeric lower bounds); count-on counts the same materialized qualified set,
+including out-of-range pages. The existing HongGuo caller keeps count-on.
+Name/recent/rating/random sorts without file dates retain bounded batch checks;
+missing-title fallback does not by itself opt into full qualification.
+`TestEmbyFileDateSortQualifiesOnce` compares full selected views/summaries with
+legacy file-group oracles across ascending/descending date sorts, sparse empty
+candidates, cross-library hidden files, favorites, offsets and count modes; it
+must observe exactly one candidate statement. Also verify actual materialized
+candidate/qualification plans, not only statement count.
+
+The 50-candidate refill loop applies to ordinary metadata/Series pagers without
+file-date sorting and Latest,
 state-filtered library NFO/HongGuo pages, global mixed-source browsing/Latest,
 Web recent works and file-filtered Web NFO pages. Unfiltered NFO/HongGuo library
 pages and queries that already compute exact eligibility in required sort inputs

@@ -46,7 +46,7 @@ func TestEmbyItemsOptionalTotal(t *testing.T) {
 	token := signedTestToken(t, "test-secret")
 	counts := 0
 	if err := db.Callback().Row().After("gorm:row").Register("test:optional-total", func(tx *gorm.DB) {
-		if strings.Contains(tx.Statement.SQL.String(), "SELECT COUNT(*) FROM (") {
+		if strings.Contains(tx.Statement.SQL.String(), "SELECT COUNT(*) FROM (") || strings.Contains(tx.Statement.SQL.String(), "SELECT COUNT(*) AS total FROM work_candidates") {
 			counts++
 		}
 	}); err != nil {

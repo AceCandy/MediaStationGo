@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -117,4 +118,96 @@ func (e *EmbyService) originalSeriesMetadataPageWithCount(ctx context.Context, q
 	summaryScope := e.applySeriesPageFilters(ctx, seriesScopeQuery(q.Session(&gorm.Session{})), p)
 	groups, err := e.seriesSummaries(ctx, summaryScope, seriesIDs)
 	return groups, total, err
+}
+
+func TestEmbyFileDateSortQualifiesOnce(t *testing.T) {
+	for _, series := range []bool{false, true} {
+		t.Run(fmt.Sprintf("series=%t", series), func(t *testing.T) {
+			e := newTestEmbyService(t)
+			db := e.repo.DB
+			for _, sql := range []string{
+				`INSERT INTO metadata_items(id,kind,title,source) SELECT 'sort-'||n,'movie','Title '||n,'local' FROM generate_series(1,160) n`,
+				`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'sort-file-'||n||'-'||v,'sort-'||n,'sort-lib','/fixture/sort/'||n||'/'||v,TIMESTAMP '2026-01-01'+n*INTERVAL '1 day'+v*INTERVAL '1 hour' FROM generate_series(151,160) n CROSS JOIN generate_series(1,2) v`,
+			} {
+				if err := db.Exec(sql).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if series {
+				for _, sql := range []string{
+					`UPDATE metadata_items SET kind='series'`,
+					`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) SELECT 'sort-season-'||n,'season','Season','local','sort-'||n,1 FROM generate_series(151,160) n`,
+					`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) SELECT 'sort-episode-'||n,'episode','Episode','local','sort-season-'||n,1 FROM generate_series(151,160) n`,
+					`UPDATE media SET metadata_id='sort-episode-'||split_part(id,'-',3),season_num=1,episode_num=1`,
+				} {
+					if err := db.Exec(sql).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			for _, sql := range []string{
+				`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'hidden-'||id,metadata_id,'sort-hidden','/fixture/hidden/'||id,'2030-01-01' FROM media`,
+				`INSERT INTO favorites(id,user_id,metadata_id,media_id) VALUES ('sort-favorite','sort-viewer','sort-155','sort-file-155-1')`,
+			} {
+				if err := db.Exec(sql).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "sort-viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{"sort-lib"}, HiddenLibraryIDs: []string{"sort-hidden"}}, expiresAt: time.Now().Add(time.Hour)}}
+			if err := db.Exec(`UPDATE metadata_items SET library_ids=NULL`).Error; err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			if err := db.Callback().Row().After("gorm:row").Register("test:sort-once", func(tx *gorm.DB) {
+				if strings.HasPrefix(tx.Statement.SQL.String(), "WITH work_batch") || strings.HasPrefix(tx.Statement.SQL.String(), "WITH work_candidates") {
+					calls++
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, favorite := range []bool{false, true} {
+				for _, order := range []string{"", "DateCreated", "PremiereDate"} {
+					for _, direction := range []string{"Ascending", "Descending"} {
+						for _, skip := range []bool{false, true} {
+							for _, offset := range []int{0, 3, 10, 500} {
+								p := ItemsParams{UserID: "sort-viewer", ParentID: "sort-lib", SortBy: order, SortOrder: direction, SkipTotalRecordCount: skip, StartIndex: offset, Limit: 3}
+								files := e.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}).Where("media.library_id=?", p.ParentID), p.UserID)
+								if favorite {
+									p.Filters = []string{"IsFavorite"}
+									if !series {
+										files = files.Joins("JOIN favorites f ON f.metadata_id=media.metadata_id AND f.user_id=? AND f.deleted_at IS NULL", p.UserID)
+									}
+								}
+								calls = 0
+								if series {
+									want, n, err := e.originalSeriesMetadataPageWithCount(t.Context(), files, p.UserID, p, offset, p.Limit, !skip)
+									if err != nil {
+										t.Fatal(err)
+									}
+									calls = 0
+									got, total, err := e.seriesWorkPage(t.Context(), files, p, offset, p.Limit)
+									if err != nil || total != n || !reflect.DeepEqual(got, want) {
+										t.Fatalf("params=%+v total=%d/%d err=%v", p, total, n, err)
+									}
+								} else {
+									want, n, err := e.metadataPageWithCount(t.Context(), files, p.UserID, metadataOrderSQL(p, false), offset, p.Limit, !skip)
+									if err != nil {
+										t.Fatal(err)
+									}
+									calls = 0
+									got, total, err := e.metadataWorkPage(t.Context(), files, p, false)
+									if err != nil || total != n || !reflect.DeepEqual(got, want) {
+										t.Fatalf("params=%+v total=%d/%d err=%v", p, total, n, err)
+									}
+								}
+								if calls != 1 {
+									t.Fatalf("file-date candidate calculation repeated: %d statements params=%+v", calls, p)
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	}
 }

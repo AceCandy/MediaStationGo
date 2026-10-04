@@ -190,7 +190,7 @@ func (e *EmbyService) hongGuoLibraryItems(ctx context.Context, p ItemsParams, co
 		eligible = db.Table("work_batch").Select("ordinal").Where("id IN (?)", eligible)
 		ids, total, err = e.filteredWorkBatchPage(ctx, candidates, eligible, p.StartIndex, p.Limit, count)
 	} else if count {
-		ids, total, err = e.workCandidatePage(ctx, candidates, p.StartIndex, p.Limit)
+		ids, total, err = e.workCandidatePage(ctx, candidates, p.StartIndex, p.Limit, true)
 	} else {
 		err = db.Table("(?) works", candidates).Order("ordinal").Offset(p.StartIndex).Limit(p.Limit).Pluck("id", &ids).Error
 	}

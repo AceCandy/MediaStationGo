@@ -74,7 +74,7 @@ func (e *EmbyService) workBatchFileEligibility(ctx context.Context, p ItemsParam
 }
 
 // workCandidatePage 的输入只包含 id 与稳定排序 ordinal；计数和分页共用资格结果。
-func (e *EmbyService) workCandidatePage(ctx context.Context, candidates *gorm.DB, start, limit int) ([]string, int64, error) {
+func (e *EmbyService) workCandidatePage(ctx context.Context, candidates *gorm.DB, start, limit int, countTotal bool) ([]string, int64, error) {
 	page := e.repo.DB.Table("work_candidates").Order("ordinal").Offset(start)
 	if limit > 0 {
 		page = page.Limit(limit)
@@ -83,8 +83,12 @@ func (e *EmbyService) workCandidatePage(ctx context.Context, candidates *gorm.DB
 		ID    string
 		Total int64
 	}
+	totals := "SELECT 0::bigint AS total"
+	if countTotal {
+		totals = "SELECT COUNT(*) AS total FROM work_candidates"
+	}
 	err := e.repo.DB.WithContext(ctx).Raw(`WITH work_candidates AS MATERIALIZED (?), page AS (?)
-SELECT COALESCE(page.id,'') AS id, totals.total FROM (SELECT COUNT(*) AS total FROM work_candidates) totals LEFT JOIN page ON TRUE ORDER BY page.ordinal`, candidates, page).Scan(&rows).Error
+SELECT COALESCE(page.id,'') AS id, totals.total FROM (`+totals+`) totals LEFT JOIN page ON TRUE ORDER BY page.ordinal`, candidates, page).Scan(&rows).Error
 	var total int64
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -102,6 +106,7 @@ func (e *EmbyService) metadataWorkPage(ctx context.Context, files *gorm.DB, p It
 	q := e.orderedWorkLibraryScope(ctx, db.Table("metadata_items recent"), "recent", p, nil)
 	scope := files.Session(&gorm.Session{}).Where("media.metadata_id=recent.id")
 	order := metadataOrderSQL(p, false)
+	fileDateSort := strings.Contains(order, "MAX(media.created_at)")
 	if strings.Contains(order, "MAX(media.created_at)") || strings.Contains(order, "media.scan_title") {
 		stats := scope.Session(&gorm.Session{}).Select("MAX(media.created_at) AS created_at, MIN(media.scan_title) AS title")
 		if strings.Contains(order, "media.scan_title") {
@@ -129,7 +134,17 @@ func (e *EmbyService) metadataWorkPage(ctx context.Context, files *gorm.DB, p It
 		eligible = db.Table("work_batch recent").Select("recent.ordinal").Where("EXISTS (?)",
 			e.workBatchFileEligibility(ctx, p, scope, "legacy", "metadata_id=media.metadata_id"))
 	}
-	ids, total, err := e.filteredWorkBatchPage(ctx, q, eligible, p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
+	var ids []string
+	var total int64
+	var err error
+	if fileDateSort {
+		// 文件日期排序已遍历候选；一次物化资格和分页，避免补批时重复计算日期。
+		qualified := db.Raw(`WITH work_batch AS MATERIALIZED (?), qualified AS MATERIALIZED (?)
+SELECT b.id, b.ordinal FROM work_batch b JOIN qualified q ON q.ordinal=b.ordinal`, q, eligible)
+		ids, total, err = e.workCandidatePage(ctx, qualified, p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
+	} else {
+		ids, total, err = e.filteredWorkBatchPage(ctx, q, eligible, p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
+	}
 	if err != nil {
 		return nil, 0, err
 	}
@@ -145,6 +160,7 @@ func (e *EmbyService) seriesWorkPage(ctx context.Context, files *gorm.DB, p Item
 	scope := files.Session(&gorm.Session{}).Where(`emby_metadata.parent_id IN (
 SELECT id FROM metadata_items WHERE parent_id=scope_series.id AND kind='season')`)
 	order := seriesOrderSQL(p)
+	fileDateSort := strings.Contains(order, "MAX(media.created_at)")
 	if strings.Contains(order, "MAX(media.created_at)") {
 		q = q.Joins("JOIN LATERAL (?) sort_values ON TRUE", scope.Session(&gorm.Session{}).Select("MAX(media.created_at) AS created_at"))
 	}
@@ -173,7 +189,16 @@ SELECT id FROM metadata_items WHERE parent_id=scope_series.id AND kind='season')
 	if embyRandomSort(p) {
 		countEligible = eligible
 	}
-	ids, total, err := e.filteredWorkBatchPage(ctx, q, eligible, start, limit, !p.SkipTotalRecordCount, countEligible)
+	var ids []string
+	var total int64
+	var err error
+	if fileDateSort {
+		qualified := db.Raw(`WITH work_batch AS MATERIALIZED (?), qualified AS MATERIALIZED (?)
+SELECT b.id, b.ordinal FROM work_batch b JOIN qualified q ON q.ordinal=b.ordinal`, q, eligible)
+		ids, total, err = e.workCandidatePage(ctx, qualified, start, limit, !p.SkipTotalRecordCount)
+	} else {
+		ids, total, err = e.filteredWorkBatchPage(ctx, q, eligible, start, limit, !p.SkipTotalRecordCount, countEligible)
+	}
 	if err != nil {
 		return nil, 0, err
 	}
