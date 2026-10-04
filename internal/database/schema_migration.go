@@ -555,6 +555,8 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 	}
 	if db.Migrator().HasTable(&model.HongGuoDownload{}) {
 		statements = append(statements,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_work_created_c ON hong_guo_downloads(source_id COLLATE "C", created_at)`,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_status_work_c ON hong_guo_downloads(status, source_id COLLATE "C")`,
 			`CREATE INDEX IF NOT EXISTS idx_hg_download_transfer_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND raw_size = 0 AND COALESCE(sha256, '') = ''`,
 			`CREATE INDEX IF NOT EXISTS idx_hg_download_verification_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND (raw_size > 0 OR COALESCE(sha256, '') <> '')`,
 		)

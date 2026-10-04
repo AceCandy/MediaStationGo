@@ -27,31 +27,59 @@ type HongGuoDownloadSummary struct {
 
 func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status string) ([]HongGuoDownloadSummary, int64, error) {
 	rows := []HongGuoDownloadSummary{}
-	var total int64
-	db := s.repo.DB.WithContext(ctx).Model(&model.HongGuoDownload{})
+	filter := ""
+	args := []any{}
 	if status != "" {
-		db = db.Where("status = ?", status)
+		condition := "d.status = ?"
+		switch status {
+		case "queued", "downloading", "waiting_verify", "verifying", "publishing", "completed", "failed", "cancelled":
+			// 仅固定白名单写入 SQL，使通用预编译计划也能区分常见、稀少和空状态。
+			condition = "d.status = '" + status + "'"
+		default:
+			args = append(args, status)
+		}
+		filter = `WHERE EXISTS (SELECT 1 FROM hong_guo_downloads d WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" AND ` + condition + `)`
 	}
-	if err := db.Session(&gorm.Session{}).Distinct("source_id").Count(&total).Error; err != nil {
+	args = append(args, (page-1)*50)
+	// 同一份候选同时用于计数和分页，避免重复探测每部作品；空位置由首任务查询排除。
+	// 排序仍取当前最早任务，分集清理后不能用位置创建时间替代。
+	// 来源 ID 以字节匹配对应索引，页面的来源 ID 排序保留数据库原排序规则。
+	query := `WITH download_candidates AS MATERIALIZED (
+	SELECT w.source_id, first_task.created_at FROM hong_guo_download_works w
+	JOIN LATERAL (SELECT created_at FROM hong_guo_downloads d
+	WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" ORDER BY created_at LIMIT 1) first_task ON TRUE ` + filter + `
+	), paged_sources AS (
+	SELECT source_id FROM download_candidates ORDER BY created_at DESC, source_id LIMIT 50 OFFSET ?
+	), summaries AS (
+	SELECT source_id, MAX(title) AS title, COUNT(*) AS total, MIN(created_at) AS first_task_at,
+	COUNT(*) FILTER (WHERE status = 'queued') AS queued,
+	COUNT(*) FILTER (WHERE status = 'downloading') AS downloading,
+	COUNT(*) FILTER (WHERE status = 'verifying') AS verifying,
+	COUNT(*) FILTER (WHERE status = 'waiting_verify') AS waiting_verify,
+	COUNT(*) FILTER (WHERE status = 'publishing') AS publishing,
+	COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+	COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+	COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled
+	FROM hong_guo_downloads WHERE source_id IN (SELECT source_id FROM paged_sources) GROUP BY source_id
+	), totals AS (SELECT COUNT(*) AS work_total FROM download_candidates)
+	SELECT summaries.*, totals.work_total FROM totals LEFT JOIN summaries ON TRUE
+	ORDER BY summaries.first_task_at DESC, summaries.source_id`
+	var result []struct {
+		HongGuoDownloadSummary
+		WorkTotal int64
+	}
+	if err := s.repo.DB.WithContext(ctx).Raw(query, args...).Scan(&result).Error; err != nil {
 		return nil, 0, err
 	}
-	// 先分页作品身份；状态筛选不影响后续对整部作品的分集统计。
-	works := s.repo.DB.WithContext(ctx).Model(&model.HongGuoDownload{}).Select("source_id").Group("source_id")
-	if status != "" {
-		works = works.Having("BOOL_OR(status = ?)", status)
+	var total int64
+	for _, item := range result {
+		total = item.WorkTotal
+		// 越界或空页仍由 LEFT JOIN 返回总数，空的来源 ID 不代表真实作品。
+		if item.SourceID != "" {
+			rows = append(rows, item.HongGuoDownloadSummary)
+		}
 	}
-	works = works.Order("MIN(created_at) DESC, source_id").Limit(50).Offset((page - 1) * 50)
-	err := s.repo.DB.WithContext(ctx).Model(&model.HongGuoDownload{}).Where("source_id IN (?)", works).
-		Select(`source_id, MAX(title) AS title, COUNT(*) AS total,
-	 COUNT(*) FILTER (WHERE status = 'queued') AS queued,
-	 COUNT(*) FILTER (WHERE status = 'downloading') AS downloading,
-	 COUNT(*) FILTER (WHERE status = 'verifying') AS verifying,
-	 COUNT(*) FILTER (WHERE status = 'waiting_verify') AS waiting_verify,
-	 COUNT(*) FILTER (WHERE status = 'publishing') AS publishing,
-	 COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-	 COUNT(*) FILTER (WHERE status = 'failed') AS failed,
-	 COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled`).Group("source_id").Order("MIN(created_at) DESC, source_id").Scan(&rows).Error
-	return rows, total, err
+	return rows, total, nil
 }
 
 func (s *HongGuoDownloadService) ListEpisodes(ctx context.Context, sourceID string, page int) ([]model.HongGuoDownload, int64, error) {

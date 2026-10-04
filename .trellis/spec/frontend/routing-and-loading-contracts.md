@@ -69,6 +69,7 @@ Viewer composition state is URL owned:
   this list carry the complete library URL as router state so “返回媒体库”
   restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
+- Download Space: absent `status` defaults to `downloading`; explicit `status=` selects all states. Keep the explicit empty value when selecting all so reload and pagination do not revert to the default. Existing named status links retain their selection.
 - Discover: `system=catalog|hongguo`, default `catalog`; mount only the selected
   catalog and rebuild it on user/profile changes. `/hongguo` is a guarded
   replace redirect to `/discover`, preserving query parameters and setting

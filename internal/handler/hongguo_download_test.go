@@ -76,10 +76,13 @@ func TestHongGuoDownloadWorksStatusFilterHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.HongGuoDownload{}); err != nil {
+	if err := db.AutoMigrate(&model.HongGuoDownloadWork{}, &model.HongGuoDownload{}); err != nil {
 		t.Fatal(err)
 	}
 	rows := []model.HongGuoDownload{{SourceID: "123", Episode: 1, Status: "failed"}, {SourceID: "123", Episode: 2, Status: "completed"}, {SourceID: "456", Episode: 1, Status: "cancelled"}}
+	if err := db.Create(&[]model.HongGuoDownloadWork{{SourceID: "123"}, {SourceID: "456"}}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatal(err)
 	}

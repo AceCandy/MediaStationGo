@@ -86,6 +86,9 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 		}
 	}
 	other := model.HongGuoDownload{SourceID: "999", Episode: 1, Title: "另一部", Status: "failed"}
+	if err := s.repo.DB.Create(&model.HongGuoDownloadWork{SourceID: other.SourceID}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := s.repo.DB.Create(&other).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +138,9 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 		}
 	}
 	for i := 1000; i < 1050; i++ {
+		if err := s.repo.DB.Create(&model.HongGuoDownloadWork{SourceID: strconv.Itoa(i)}).Error; err != nil {
+			t.Fatal(err)
+		}
 		if err := s.repo.DB.Create(&model.HongGuoDownload{SourceID: strconv.Itoa(i), Episode: 1, Status: "queued"}).Error; err != nil {
 			t.Fatal(err)
 		}

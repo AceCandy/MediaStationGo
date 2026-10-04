@@ -278,7 +278,7 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataCredit{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataCredit{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}, &model.HongGuoDownload{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`CREATE INDEX idx_metadata_credits_pending_translation ON metadata_credits(metadata_id, id)
@@ -314,6 +314,8 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		"idx_favorites_user_media_active",
 		"idx_playback_histories_user_media_active",
 		"idx_play_profiles_user_created_active",
+		"idx_hg_download_work_created_c",
+		"idx_hg_download_status_work_c",
 	} {
 		var count int
 		if err := db.Raw(`SELECT COUNT(1) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, name).Scan(&count).Error; err != nil {
@@ -321,6 +323,15 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		}
 		if count != 1 {
 			t.Fatalf("index %s count = %d, want 1", name, count)
+		}
+		if name == "idx_hg_download_work_created_c" || name == "idx_hg_download_status_work_c" {
+			var definition string
+			if err := db.Raw(`SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, name).Scan(&definition).Error; err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(definition, `COLLATE "C"`) {
+				t.Fatalf("index %s lacks bytewise ID matching: %s", name, definition)
+			}
 		}
 	}
 	if db.Migrator().HasIndex(&model.MetadataCredit{}, "idx_metadata_credits_pending_translation") {

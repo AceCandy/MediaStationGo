@@ -22,7 +22,7 @@ function DownloadSpaceContent() {
   const [params, setParams] = useSearchParams()
   const raw = Number(params.get('page') ?? 1)
   const page = Number.isInteger(raw) && raw >= 1 && raw <= 1000000 ? raw : 1
-  const rawStatus = params.get('status') ?? ''
+  const rawStatus = params.get('status') ?? 'downloading'
   const status = statuses.includes(rawStatus as HongGuoDownload['status']) ? rawStatus as HongGuoDownload['status'] : ''
   const [config, setConfig] = useState<DownloadConfig | null>(null)
   const [root, setRoot] = useState('')
@@ -44,8 +44,8 @@ function DownloadSpaceContent() {
   const active = useRef(true)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
   useEffect(() => {
-    if (raw === page && params.getAll('page').length <= 1 && rawStatus === status && (status ? params.getAll('status').length === 1 : !params.has('status'))) return
-    const next = new URLSearchParams(params); next.set('page', String(page)); if (status) next.set('status', status); else next.delete('status'); setParams(next, { replace: true })
+    if (raw === page && params.getAll('page').length <= 1 && rawStatus === status && params.getAll('status').length === 1) return
+    const next = new URLSearchParams(params); next.set('page', String(page)); next.set('status', status); setParams(next, { replace: true })
   }, [params, setParams, raw, page, rawStatus, status])
   useEffect(() => {
     const controller = new AbortController()
@@ -57,7 +57,11 @@ function DownloadSpaceContent() {
   useEffect(() => {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout>
+    let loading = false
     const load = async () => {
+      if (document.hidden || loading || controller.signal.aborted) return
+      clearTimeout(timer)
+      loading = true
       try {
         const value = await hongguoDownloadsAPI.works(page, status, controller.signal)
         if (!controller.signal.aborted) {
@@ -67,10 +71,13 @@ function DownloadSpaceContent() {
           setResult({ ...value, page, status }); setError('')
         }
       } catch (err) { if (!controller.signal.aborted) setError(message(err)) }
-      if (!controller.signal.aborted) timer = setTimeout(() => void load(), 5000)
+      loading = false
+      if (!controller.signal.aborted && !document.hidden) timer = setTimeout(() => void load(), 5000)
     }
+    const onVisibility = () => { clearTimeout(timer); if (!document.hidden) void load() }
+    document.addEventListener('visibilitychange', onVisibility)
     void load()
-    return () => { controller.abort(); clearTimeout(timer) }
+    return () => { controller.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
   }, [page, status, refresh, setParams])
   const perform = async (id: string, action: 'cancel' | 'retry' | 'work') => {
     if (busy) return
@@ -126,7 +133,7 @@ function DownloadSpaceContent() {
     </section></ModalShell>}
     <section className="space-y-3" aria-label="红果下载任务">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">作品任务</h2><Link className="btn-outline" to="/discover?system=hongguo">去红果发现下载</Link></div>
-      <div className="flex items-center gap-2 text-sm"><span>整剧状态</span><Select aria-label="整剧状态" className="input-field min-w-44" value={status} onChange={(value) => { const next = new URLSearchParams(params); if (value) next.set('status', value); else next.delete('status'); next.set('page', '1'); setParams(next) }}><option value="">全部状态</option>{statuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</Select></div>
+      <div className="flex items-center gap-2 text-sm"><span>整剧状态</span><Select aria-label="整剧状态" className="input-field min-w-44" value={status} onChange={(value) => { const next = new URLSearchParams(params); next.set('status', value); next.set('page', '1'); setParams(next) }}><option value="">全部状态</option>{statuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</Select></div>
       {error && <p role="alert">{error}</p>}
       {result?.page !== page || result.status !== status ? <p role="status">加载中…</p> : <>
         {result.items.length === 0 && <p className="text-ink-50">{status ? '暂无含所选状态分集的剧集。' : '暂无下载任务。从红果发现打开作品详情后发起下载。'}</p>}
@@ -146,15 +153,22 @@ function DownloadWork({ work, refresh, busy, perform }: { work: HongGuoDownloadW
     if (!open) return
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout>
+    let loading = false
     const load = async () => {
+      if (document.hidden || loading || controller.signal.aborted) return
+      clearTimeout(timer)
+      loading = true
       try {
         const value = await hongguoDownloadsAPI.episodes(work.source_id, page, controller.signal)
         if (!controller.signal.aborted) { setResult({ ...value, page }); setError('') }
       } catch (err) { if (!controller.signal.aborted) setError(message(err)) }
-      if (!controller.signal.aborted) timer = setTimeout(() => void load(), 5000)
+      loading = false
+      if (!controller.signal.aborted && !document.hidden) timer = setTimeout(() => void load(), 5000)
     }
+    const onVisibility = () => { clearTimeout(timer); if (!document.hidden) void load() }
+    document.addEventListener('visibilitychange', onVisibility)
     void load()
-    return () => { controller.abort(); clearTimeout(timer) }
+    return () => { controller.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
   }, [open, page, refresh, work.source_id])
   return <article className="card relative space-y-2 p-3 sm:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
