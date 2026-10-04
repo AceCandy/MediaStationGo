@@ -180,10 +180,17 @@ func (s *ScraperService) BackfillTMDbSnapshots(ctx context.Context, progress fun
 			if fetchErr == nil {
 				fetchErr = s.repo.Metadata.UpsertProviderSnapshot(ctx, candidate.MetadataID, "tmdb", payload, time.Now().UTC())
 			}
-			detail := fmt.Sprintf("✅ %s %s TMDb %d", candidate.EntityKind, candidate.MetadataID, candidate.TMDbID)
+			identity := fmt.Sprintf("%s 标题=%q 元数据ID=%s TMDb=%d", candidate.EntityKind, candidate.Title, candidate.MetadataID, candidate.TMDbID)
+			if candidate.EntityKind == model.MetadataKindSeason || candidate.EntityKind == model.MetadataKindEpisode {
+				identity += fmt.Sprintf(" 所属剧=%q 剧TMDb=%d S%02d", candidate.SeriesTitle, candidate.SeriesTMDbID, candidate.SeasonNum)
+				if candidate.EntityKind == model.MetadataKindEpisode {
+					identity += fmt.Sprintf("E%02d", candidate.EpisodeNum)
+				}
+			}
+			detail := "✅ " + identity
 			if fetchErr != nil {
 				result.Failed++
-				detail = fmt.Sprintf("❌ %s %s TMDb %d %s", candidate.EntityKind, candidate.MetadataID, candidate.TMDbID, sanitizeTaskLogError(fetchErr))
+				detail = fmt.Sprintf("❌ %s 原因=%s", identity, sanitizeTaskLogError(fetchErr))
 			} else {
 				result.Succeeded++
 			}

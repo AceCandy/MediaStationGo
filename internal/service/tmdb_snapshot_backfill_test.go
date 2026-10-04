@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -76,12 +78,33 @@ func TestTMDbSnapshotBackfillCoversAllKindsAndPersistsAutomaticCompletion(t *tes
 	cfg.Secrets.TMDbAPIProxy = upstream.URL
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, nil)
 
-	result, err := scraper.BackfillTMDbSnapshots(t.Context(), nil)
+	var details []string
+	result, err := scraper.BackfillTMDbSnapshots(t.Context(), func(_ TMDbSnapshotBackfillResult, detail string) {
+		if detail != "" {
+			details = append(details, detail)
+		}
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Processed != 5 || result.Total != 5 || result.Succeeded != 4 || result.Failed != 1 || result.Remaining != 0 {
 		t.Fatalf("backfill result = %#v", result)
+	}
+	if len(details) != 5 {
+		t.Fatalf("backfill details = %v", details)
+	}
+	for i, item := range []*model.MetadataItem{movie, series, season, episode, failed} {
+		if !strings.Contains(details[i], "标题="+strconv.Quote(item.Title)) || !strings.Contains(details[i], "元数据ID="+item.ID) {
+			t.Fatalf("detail does not identify metadata: %s", details[i])
+		}
+	}
+	for i, suffix := range map[int]string{2: "S01", 3: "S01E01"} {
+		if !strings.Contains(details[i], `所属剧="Series kept" 剧TMDb=20 `+suffix) {
+			t.Fatalf("detail does not identify season/episode: %s", details[i])
+		}
+	}
+	if !strings.Contains(details[4], "❌") || !strings.Contains(details[4], "TMDb=50") || !strings.Contains(details[4], "原因=tmdb endpoint /movie/50 returned status 502") {
+		t.Fatalf("failure detail lost identity or reason: %s", details[4])
 	}
 	for _, item := range []*model.MetadataItem{movie, series, season, episode} {
 		assertServiceTestTMDbSnapshot(t, repos, item.ID)

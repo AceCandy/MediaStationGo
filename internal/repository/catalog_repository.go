@@ -29,6 +29,7 @@ type CatalogArtworkCandidate struct {
 type TMDbSnapshotBackfillCandidate struct {
 	MetadataID   string
 	Title        string
+	SeriesTitle  string
 	EntityKind   string
 	TMDbID       int `gorm:"column:tmdb_id"`
 	SeriesTMDbID int `gorm:"column:series_tmdb_id"`
@@ -290,7 +291,7 @@ func (r *MetadataRepository) ListMissingTMDbSnapshotsAfter(ctx context.Context, 
 	limit = min(limit, 200)
 	var candidates []TMDbSnapshotBackfillCandidate
 	err := r.missingTMDbSnapshotQuery(ctx).
-		Select(`mi.id AS metadata_id, mi.title, mi.kind AS entity_kind,
+		Select(`mi.id AS metadata_id, mi.title, COALESCE(series.title, '') AS series_title, mi.kind AS entity_kind,
             own_tmdb.tmdb_id, COALESCE(series_tmdb.tmdb_id, 0) AS series_tmdb_id,
             CASE WHEN mi.kind = 'season' THEN mi.season_num WHEN mi.kind = 'episode' THEN season.season_num ELSE 0 END AS season_num,
             mi.episode_num`).
