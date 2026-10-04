@@ -478,7 +478,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'Filters', location: 'query', type: 'string', description: '逗号分隔的过滤条件；IsFavorite 仅支持 Movie 和 Series，IsResumable 对同一剧集只返回最近播放的未完成集。' },
       { name: 'Fields', location: 'query', type: 'string', description: '可选字段列表；指定后仅按需返回 People、ProviderIds 和 MediaSources，省略时保持完整兼容响应。Episode 的 People 使用所属季演职员，不复制集级关联。' },
       { name: 'Recursive', location: 'query', type: 'boolean', description: '是否递归查询。' },
-      { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。作品 Random 使用请求内固定随机顺序，每批 50 个候选筛选、不足补取；独立请求可重新随机，不保证跨请求随机分页顺序不变。NFO 的 DateCreated 按本地条目首次创建时间排序；DateLastContentAdded 按作品现存文件的最新入库时间排序，同一作品跨库共享时间，红果合集包含所有成员季。空时间排最后。' },
+      { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。普通电影、剧集及混合电影媒体库的作品列表默认按作品最新入库时间倒序；DateCreated 与 DateLastContentAdded 使用同一跨库作品时间，省略方向时倒序，显式 Ascending 仍生效。显式名称、评分、上映日期按对应排序；分集层级、全局查询和继续播放保持各自规则。作品 Random 使用请求内固定随机顺序，每批 50 个候选筛选、不足补取；独立请求可重新随机，不保证跨请求随机分页顺序不变。NFO 的 DateCreated 按本地条目首次创建时间排序；DateLastContentAdded 按作品现存文件的最新入库时间排序，同一作品跨库共享时间，红果合集包含所有成员季。空时间排最后。' },
       { name: 'Limit / StartIndex', location: 'query', type: 'number', description: '按顶层 Metadata 分页，Limit 默认 50，最大 500；非空搜索在最多 100 条候选内分页。' },
       { name: 'EnableTotalRecordCount', location: 'query', type: 'boolean', description: '默认 false：不额外统计列表总数，每页多取一个合格结果，TotalRecordCount 返回用于翻页的已知下界；不是准确总量，可能随翻页增长。显式传 true 返回准确总数。兼容 enableTotalRecordCount / enabletotalrecordcount。仅影响本入口，不改变 Views、Latest、Resume、NextUp 或 Shows 专用入口。' },
     ],

@@ -39,7 +39,7 @@ func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 文件时间兜底优先；相同发布日期按作品 ID 倒序；代表文件按 ID 正序打破平局。
+	// 普通列表的作品入库时间并列按 ID 倒序；代表文件按 ID 正序。指定剧仍保留原日期逻辑。
 	want := []repository.LibraryMetadataSummary{
 		{MetadataID: "page-c", MediaID: "file-show-c", Count: 1, VersionCount: 1},
 		{MetadataID: "page-b", MediaID: "file-show-b", Count: 1, VersionCount: 1},
@@ -691,4 +691,79 @@ func captureLibrarySeriesSQL(t *testing.T, db *gorm.DB) func() (string, []any) {
 		t.Fatal(err)
 	}
 	return func() (string, []any) { return query, vars }
+}
+
+func TestLibrarySeriesPageUsesGlobalWorkTime(t *testing.T) {
+	svc := newTestEmbyService(t)
+	db := svc.repo.DB
+	for _, q := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source,release_date) VALUES
+ ('latest-a','series','A','local','2040-01-01'),('latest-b','series','B','local','2000-01-01'),
+ ('latest-c','series','C','local','2000-01-01'),('latest-u','series','Unknown','local','2050-01-01'),('latest-empty','series','Empty','local',''),
+('latest-movie','movie','Movie','local','')`,
+		`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) VALUES ('latest-season','season','latest-b','Season','local',1)`,
+		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) VALUES ('latest-episode','episode','latest-season','Episode','local',1)`,
+		`INSERT INTO media(id,library_id,metadata_id,path,created_at) VALUES
+ ('latest-a-first','latest-visible','latest-a','/latest/a-first','2020-01-01'),
+ ('latest-a-new','latest-visible','latest-a','/latest/a-new','2024-01-01'),
+ ('latest-b-season','latest-visible','latest-season','/latest/b-season','2021-01-01'),
+ ('latest-b-episode','latest-visible','latest-episode','/latest/b-episode','2025-01-01'),
+ ('latest-c-file','latest-visible','latest-c','/latest/c','2023-01-01'),
+ ('latest-c-hidden','latest-hidden','latest-c','/latest/c-hidden','2028-01-01'),
+ ('latest-u-file','latest-visible','latest-u','/latest/u','2022-01-01'),
+('latest-movie-file','latest-visible','latest-movie','/latest/movie','2035-01-01')`,
+		`UPDATE metadata_items SET library_ids=NULL,latest_media_added_at=NULL WHERE id='latest-u'`,
+		`UPDATE metadata_items SET library_ids=NULL WHERE id='latest-movie'`,
+	} {
+		if err := db.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []repository.LibraryMetadataSummary{
+		{MetadataID: "latest-c", MediaID: "latest-c-file", Count: 1, VersionCount: 1},
+		{MetadataID: "latest-b", MediaID: "latest-b-season", Count: 2, VersionCount: 2},
+		{MetadataID: "latest-a", MediaID: "latest-a-first", Count: 1, VersionCount: 2},
+		{MetadataID: "latest-u", MediaID: "latest-u-file", Count: 1, VersionCount: 1},
+	}
+	for _, f := range []repository.MediaQueryFilter{{}, {MissingPoster: true}, {MissingChineseTitle: true}, {MissingPoster: true, MissingChineseTitle: true}} {
+		f.AllowedLibraryIDs = []string{"latest-visible"}
+		f.HiddenLibraryIDs = []string{"latest-hidden"}
+		for start := 0; start <= len(want); start++ {
+			_, got, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "latest-visible", "series", "", start, 2, f)
+			end := min(start+2, len(want))
+			if err != nil || total != 4 || len(got) != end-start || len(got) > 0 && !reflect.DeepEqual(got, want[start:end]) {
+				t.Fatalf("start=%d got=%+v total=%d err=%v", start, got, total, err)
+			}
+		}
+	}
+	for _, q := range []string{
+		`INSERT INTO media(id,library_id,metadata_id,path,created_at) VALUES ('latest-added-version','latest-visible','latest-a','/latest/a-added','2029-01-01')`,
+		`DELETE FROM media WHERE id='latest-added-version'`,
+		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) VALUES ('latest-added-episode','episode','latest-season','Episode 2','local',2)`,
+		`INSERT INTO media(id,library_id,metadata_id,path,created_at) VALUES ('latest-b-added','latest-visible','latest-added-episode','/latest/b-added','2030-01-01')`,
+	} {
+		if err := db.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+		_, got, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "latest-visible", "series", "", 0, 1, repository.MediaQueryFilter{})
+		first := "latest-c"
+		versions := 1
+		if strings.Contains(q, "latest-added-version") && !strings.HasPrefix(q, "DELETE") {
+			first = "latest-a"
+			versions = 3
+		}
+		if strings.Contains(q, "latest-b-added") {
+			first = "latest-b"
+			versions = 3
+		}
+		if err != nil || total != 4 || len(got) != 1 || got[0].MetadataID != first || got[0].VersionCount != versions {
+			t.Fatalf("mutation first=%s got=%+v total=%d err=%v", first, got, total, err)
+		}
+	}
+	for _, f := range []repository.MediaQueryFilter{{AllowedLibraryIDs: []string{"latest-hidden"}}, {HiddenLibraryIDs: []string{"latest-visible"}}} {
+		_, got, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "latest-visible", "series", "", 0, 50, f)
+		if err != nil || total != 0 || len(got) != 0 {
+			t.Fatalf("unknown visibility leaked: %+v total=%d err=%v", got, total, err)
+		}
+	}
 }

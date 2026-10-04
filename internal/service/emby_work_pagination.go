@@ -160,6 +160,14 @@ func (e *EmbyService) seriesWorkPage(ctx context.Context, files *gorm.DB, p Item
 	scope := files.Session(&gorm.Session{}).Where(`emby_metadata.parent_id IN (
 SELECT id FROM metadata_items WHERE parent_id=scope_series.id AND kind='season')`)
 	order := seriesOrderSQL(p)
+	if p.ParentID != "" && primarySupportedEmbySort(p.SortBy, false) == "communityrating" {
+		dir := "ASC"
+		if strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {
+			dir = "DESC"
+		}
+		order = "COALESCE(scope_series.rating,0) " + dir + ", scope_series.id " + dir
+	}
+
 	fileDateSort := strings.Contains(order, "MAX(media.created_at)")
 	if strings.Contains(order, "MAX(media.created_at)") {
 		q = q.Joins("JOIN LATERAL (?) sort_values ON TRUE", scope.Session(&gorm.Session{}).Select("MAX(media.created_at) AS created_at"))

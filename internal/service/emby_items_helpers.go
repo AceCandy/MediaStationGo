@@ -117,6 +117,18 @@ func primarySupportedEmbySort(sortBy string, resumeFilter bool) string {
 	return strings.ToLower(strings.TrimSpace(firstCSVValue(sortBy)))
 }
 
+// libraryWorkSortParams 将媒体库作品的默认和入库排序统一为全局作品时间。
+func libraryWorkSortParams(p ItemsParams) ItemsParams {
+	switch primarySupportedEmbySort(p.SortBy, false) {
+	case "", "datecreated", "datelastcontentadded":
+		p.SortBy = "DateLastContentAdded"
+		if strings.TrimSpace(p.SortOrder) == "" {
+			p.SortOrder = "Descending"
+		}
+	}
+	return p
+}
+
 func pageSlice[T any](items []T, start, limit int) []T {
 	if start < 0 {
 		start = 0

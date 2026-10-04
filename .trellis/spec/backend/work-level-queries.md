@@ -10,7 +10,7 @@
 
 - Emby `Items(ctx, ItemsParams)`：`ParentID`、`IncludeItemTypes`、`Filters`、`SortBy/SortOrder`、`StartIndex/Limit` 和 `Fields` 决定查询需求；内部 `SkipTotalRecordCount` 零值保留准确计数。HTTP `/Items` 默认跳过准确计数，但始终返回数字 `TotalRecordCount`：分页多取一个合格结果，有结果时返回 `StartIndex + 取得数量` 的已知下界，空页为 0；显式 `EnableTotalRecordCount=true` 保留原准确计数。
 - Emby `LatestItems(ctx, userID, parentID, limit, isPlayed, fields...)`：最近添加数组，不对外返回总数；内部也不应仅为复用计数列表而额外计算总数。
-- Web `ListLibraryMetadataPage` movies and `ListRecentLogicalWorks` use persisted global work time. Movie pages order by `latest_media_added_at DESC NULLS LAST, id DESC`; representative file and Part rules remain unchanged. Other library sorts retain their existing semantics.
+- Web `ListLibraryMetadataPage` ordinary movies/Series and `ListRecentLogicalWorks` use persisted global work time. Ordinary movie/Series pages order by `latest_media_added_at DESC NULLS LAST, id DESC`; representative file and Part rules remain unchanged. Other library sorts retain their existing semantics.
 - 复用已有 `latest_media_added_at`、`FilterWorkLibraries`、`PlaybackStates` 及各来源页内节点/版本加载器；不引入通用查询框架或新的持久计数。
 - `MediaViewRepository.WorkBatchPage(ctx, candidates, eligible, start, limit, count, countEligible...)` owns the shared batch loop. Candidates expose stable `id, ordinal`; eligibility returns `ordinal`, not `id`, because global legacy browsing can contain multiple origin groups for one ID. `FilterVisibleWorkLibraries` intersects parent, allowed and non-hidden memberships; NULL retains exact qualification.
 
@@ -82,10 +82,23 @@ the public ID-only `WorkBatchPage` contract stays unchanged. Preserve those
 dates and ranks through hydration instead of rerunning the full combined
 candidates after selection. Refill and dates share the same read-only snapshot.
 
-当前实现边界：全局 Movie/Series、普通 Emby 计数页/混合电影库、Web 电影页已接入；无库 Latest 保留原默认 Movie/Episode 层级但不额外计数。Web 普通剧库的分集日期排序仍复用一次受限文件范围，页后才做展示统计。普通全局直接绑定整剧/季与分集的既有祖父分组保持兼容，不能在性能修改中合并而悄然改变总数。
+当前实现边界：全局 Movie/Series、普通 Emby 计数页/混合电影库、Web 电影页已接入；无库 Latest 保留原默认 Movie/Episode 层级但不额外计数。Web 普通剧库按全局作品最新入库时间分页，已知归属不再计算全库分集日期，未知归属保留一次真实文件资格回退；页后才统计版本及代表。普通全局直接绑定整剧/季与分集的既有祖父分组保持兼容，不能在性能修改中合并而悄然改变总数。
 
-Ordinary `metadataWorkPage` / `seriesWorkPage` file-date sorts (default,
-PremiereDate and DateCreated when their original order contains
+Ordinary library work-list entrypoints normalize omitted SortBy, DateCreated and
+DateLastContentAdded to global persisted work time; omitted direction is descending,
+explicit Ascending remains valid. Apply this only at media-library Movie/Series
+list entrypoints, never globally in metadataOrderSQL/seriesOrderSQL: Episode
+hierarchy, global browse, Resume and external catalogs retain their contracts.
+Mixed movie libraries also read candidate work time for these sorts and use
+EXISTS for their original Movie/path-qualified Series eligibility, rather than
+aggregating release/file dates. Name, rating and production-year mixed sorts read
+work fields; explicit PremiereDate retains its release/year/file fallback.
+Current-page versions and summaries remain bounded; counted and count-off pages
+retain their existing total contracts. Ordinary library Series rating uses the
+Series field without changing global/hierarchy sort helpers.
+
+Ordinary `metadataWorkPage` / `seriesWorkPage` remaining file-date sorts (global
+default/DateCreated and explicit PremiereDate when their original order contains
 `MAX(media.created_at)`) materialize candidates and exact eligibility once in
 one statement, then call `workCandidatePage(..., countTotal)` for page selection.
 Do not rerun the full file-date aggregate for every 50-candidate refill. Preserve
@@ -112,11 +125,12 @@ page directly; do not add a second qualification loop just for uniform SQL shape
 Web movie pages use global work time and qualify first-Part versions before both
 count and page selection; probe-based representative choice and version statistics
 run only for that page. Later-Part-only metadata must not inflate the total.
-Ordinary Web Series lists filter visible works first and aggregate only their
-associated file times for episode release/year/file-date ordering. Unfiltered
-lists or unknown membership retain one target-library file scan; empty work filters read no
-files. Representatives and version counts are computed after work pagination. Mixed movie libraries use
-the required release-date aggregate's `HAVING COUNT(*) > 0`, not a duplicate EXISTS.
+Ordinary Web Series lists filter and count visible works, then page by persisted
+global latest-media time. Known membership requires no pre-page file traversal;
+unknown membership retains one guarded target-library qualification scan. Only
+page works expand Seasons/Episodes and read versions for counts/representatives.
+An empty work filter or absent unknown candidates executes no fallback file reads. Mixed movie libraries use
+the explicit release-date aggregate's `HAVING COUNT(*) > 0`, not a duplicate EXISTS.
 Search and special hierarchy routes retain their own semantics.
 They still reuse maintained memberships: normal ordinary Movie/HongGuo search
 skips file existence only with nonempty known membership and valid latest time;

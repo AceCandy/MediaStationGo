@@ -86,6 +86,12 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
   Shows handlers retain their prior defaults. Internal `SkipTotalRecordCount`
   zero value still counts. Never advertise a lower bound as the actual total or claim native player support
   without HillS/Yamby device tests. Page episode counts and bounded search ranking remain.
+- Ordinary media-library Movie/Series/mixed work lists default to global work
+  latest-media time. DateCreated aliases DateLastContentAdded for these work
+  lists; omitted direction is descending, explicit Ascending is honored. Name,
+  rating and explicit PremiereDate retain their corresponding sorts. This does
+  not change returned DateCreated fields, global browsing, Episode hierarchy,
+  Resume, NFO or HongGuo ordering. Keep the Items SortBy catalog description in sync.
 - Items Random uses one internal seed across refill batches and bypasses ordinary
   whole-page caching. Work candidates do not need file-date aggregation for this
   sort; file/state eligibility still applies. Independent requests can reshuffle,

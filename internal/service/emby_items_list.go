@@ -11,6 +11,9 @@ import (
 )
 
 func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	if p.ParentID != "" && (!p.Recursive || containsItemType(p.IncludeItemTypes, "Movie")) && !containsItemType(p.IncludeItemTypes, "Episode") && !containsEmbyFilter(p.Filters, "IsResumable") {
+		p = libraryWorkSortParams(p)
+	}
 	cacheKey := e.embyItemsCacheKey("items", p)
 	var cached embyItemsCacheValue
 	if e.cache != nil && !embyRandomSort(p) && e.cache.GetJSON(ctx, cacheKey, &cached) {
@@ -267,6 +270,9 @@ func (e *EmbyService) collapseMediaVersionViews(ctx context.Context, rows []mode
 }
 
 func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID string, p ItemsParams) (map[string]any, error) {
+	if libraryID != "" {
+		p = libraryWorkSortParams(p)
+	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.season_num > 0 OR media.episode_num > 0")
 	q = e.applyUserMediaVisibility(ctx, q, p.UserID)
 	if libraryID != "" {

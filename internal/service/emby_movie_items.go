@@ -28,10 +28,16 @@ func (e *EmbyService) movieLibraryHasEpisodicContent(ctx context.Context, librar
 }
 
 // movieLibraryItems 处理电影类型库的常规浏览,返回「真正的电影(Movie)」与
-// 「库内剧集结构内容聚成的 Series 卡片」的合并列表(按 DateCreated 倒序分页)。
+// 「库内剧集结构内容聚成的 Series 卡片」的合并列表(默认按作品最新入库时间倒序分页)。
 // 与 mediaItems 的区别: 后者会把剧集结构行当散装 Episode 漏出;这里改为聚合成
 // Series,从根本上消除「电影库里整部剧被拆成单集」的现象。
 func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	p = libraryWorkSortParams(p)
+	key := primarySupportedEmbySort(p.SortBy, false)
+	dir := "DESC"
+	if strings.EqualFold(firstCSVValue(p.SortOrder), "Ascending") || strings.TrimSpace(p.SortOrder) == "" && (key == "name" || key == "sortname" || key == "communityrating") {
+		dir = "ASC"
+	}
 	libIDs := e.mergedLibraryIDs(ctx, p.ParentID)
 	apply := func(q *gorm.DB) *gorm.DB {
 		q = e.applyUserMediaVisibility(ctx, q, p.UserID)
@@ -59,12 +65,26 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	} else {
 		epQ = epQ.Where("(media.season_num > 0 OR media.episode_num > 0) AND ("+clause+")", args...)
 	}
-	// 两种身份共用作品成员预筛；排序仍按原文件/分集上映日期降级规则。
+	// 两种身份共用作品成员预筛；作品时间不再现场聚合文件日期。
 	candidates := func(files *gorm.DB, identity, kind string) *gorm.DB {
 		scope := files.Session(&gorm.Session{}).Where(identity + "=candidate.id")
 		q := repository.FilterVisibleWorkLibraries(e.repo.DB, e.repo.DB.WithContext(ctx).Table("metadata_items candidate"), "candidate.library_ids", libIDs, e.mediaQueryFilter(ctx, p.UserID))
 		if embyRandomSort(p) {
 			return q.Select("? || candidate.id AS id, candidate.id AS work_id, ? AS kind", kind+":", kind)
+		}
+		expression := ""
+		switch key {
+		case "datelastcontentadded":
+			expression = "candidate.latest_media_added_at"
+		case "name", "sortname":
+			expression = "COALESCE(candidate.title,'')"
+		case "communityrating":
+			expression = "COALESCE(candidate.rating,0)"
+		case "productionyear":
+			expression = "COALESCE(candidate.year,0)"
+		}
+		if expression != "" {
+			return q.Where("EXISTS (? OFFSET 0)", scope.Select("1")).Select("candidate.id, ? AS kind, "+expression+" AS sort_at", kind)
 		}
 		// 日期本就必须读取合格文件；同一次聚合确认存在性，不再重复 EXISTS。
 		return q.Joins("JOIN LATERAL (?) dates ON TRUE", scope.Select(embyReleaseOrderSQL("emby_metadata")+" AS sort_at").Having("COUNT(*) > 0")).
@@ -99,14 +119,15 @@ THEN EXISTS (? OFFSET 0) ELSE EXISTS (? OFFSET 0) END`,
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
 		}
 	} else {
-		selected := e.repo.DB.Table("works").Order("sort_at DESC, kind DESC, id DESC").Offset(p.StartIndex).Limit(p.Limit)
+		order := "sort_at " + dir + " NULLS LAST, kind " + dir + ", id " + dir
+		selected := e.repo.DB.Table("works").Order(order).Offset(p.StartIndex).Limit(p.Limit)
 		totals := "SELECT COUNT(*) AS total FROM works"
 		if p.SkipTotalRecordCount {
 			totals = "SELECT 0::bigint AS total"
 		}
 		if err := e.repo.DB.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
 SELECT COALESCE(page.id,'') AS id, page.kind, totals.total FROM (`+totals+`) totals
-LEFT JOIN page ON TRUE ORDER BY page.sort_at DESC,page.kind DESC,page.id DESC`, combined, selected).Scan(&page).Error; err != nil {
+LEFT JOIN page ON TRUE ORDER BY `+strings.ReplaceAll(order, "sort_at", "page.sort_at"), combined, selected).Scan(&page).Error; err != nil {
 			return nil, err
 		}
 	}

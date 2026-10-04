@@ -146,28 +146,34 @@ supersedes older requirements for per-Episode extended responses and credits.
   Series candidates using persisted membership, then apply poster/title filters
   once per work. Poster presence still requires a linked artwork asset; Chinese
   title matching preserves the displayed Series title/original-name fallback.
-  Materialize candidate Seasons once. Filtered lists read the candidate
-  Series/Season/Episode file associations in the target visible library;
-  unfiltered lists reuse one library file scan without expanding all candidate
-  Episode IDs. Both project narrow ID/time fields.
-  An empty candidate set must execute no Media reads. If candidate membership is
-  unknown (`library_ids IS NULL`), retain one library-scoped file scan instead of
-  repeatedly expanding a potentially empty global catalog.
-  Aggregate file times by associated metadata ID before resolving the hierarchy;
-  retain release date, year-end and UTC file-time fallback ordering and ID ties.
-  Direct Series/Season files remain eligible. Totals and pages share the resulting
-  work set; representative sorting, distinct item counts and version counts run
-  only for selected works. An empty page retains its accurate aggregate total via
-  LEFT JOIN. No file rows are truncated, and file visibility applies even when
-  persisted membership is unknown.
-  `TestLibrarySeriesWorkFiltersBeforeFiles` checks work-bounded artwork lookups,
-  zero file reads for empty filters, complete versions and unknown-membership
-  visibility. `TestLibraryFilteredSeriesPageWithStaleStatistics` checks actual
-  file scan and metadata traversal bounds for all three filter modes after a new
-  library is populated without statistics refresh. A hash node alone is not
-  evidence of bounded work; do not require scrape completion or change global
-  planner settings. Explicit-Series reads retain their selective file scope;
-  Movie pages retain multipart/version preference rules.
+  Order by persisted global `latest_media_added_at DESC NULLS LAST, id DESC`,
+  not by Episode release dates, years or file update times. New files anywhere
+  under the work, including another library, update this order; file visibility
+  remains restricted to the requested library and permissions.
+  Maintained nonempty membership qualifies ordinary Series/Season/Episode file
+  associations for this list; do not repeat file-date aggregation or version
+  statistics before pagination. Unknown membership (`library_ids IS NULL`)
+  retains one library-scoped exact hierarchy/file qualification; no unknown
+  candidates means that fallback must execute no Media reads.
+  Totals and page selection share the same qualified work set. Only for the
+  selected page, materialize its Seasons and expand direct Series/Season and
+  Episode associations, then probe files by metadata ID inside an `OFFSET 0`
+  boundary before applying library visibility. This prevents stale library
+  statistics from choosing a library scan per page Episode. Preserve the
+  original representative ordering and complete distinct item/version counts.
+  An empty page retains its accurate aggregate total via LEFT JOIN.
+  `TestLibrarySeriesPageUsesGlobalWorkTime` covers conflicting release dates,
+  hidden-library global dates, new versions/episodes, deletion, NULL time and
+  unknown-membership permissions. `TestLibrarySeriesWorkFiltersBeforeFiles`
+  checks work-bounded artwork lookups, zero file reads for empty filters and
+  known-member count fallback, and page-bounded version reads with normal
+  statistics. `TestLibraryFilteredSeriesPageWithStaleStatistics` forces unknown
+  membership after populating a new library without statistics refresh and
+  checks the exact fallback's file scan and metadata traversal bounds. Page
+  version index probes are distinct from this whole-library fallback; do not
+  count bounded per-item probes as repeated whole-library scans.
+  Explicit-Series reads retain their selective file scope and original date
+  expressions; Movie pages retain multipart/version preference rules.
 - All Movie pages, including unfiltered browsing, join Movie metadata directly
   (`work.id = mi.id`), without Season/Series hierarchy expansion. A parent CASE
   join can prevent the work ID from restricting Media through its metadata index,

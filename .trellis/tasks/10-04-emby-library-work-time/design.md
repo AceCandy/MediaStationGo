@@ -1,0 +1,5 @@
+# 设计
+
+共享小型参数归一化仅用于媒体库作品列表：默认/DateCreated/DateLastContentAdded变为DateLastContentAdded，省略方向时Descending。mediaItems排除全局、Episode和Resume；seriesItemsForLibrary仅非空libraryID；混合movieLibraryItems明确库入口。共享metadataOrderSQL/seriesOrderSQL原语义不改变，减少全球/层级影响。
+
+混合候选：最新/名称/评分等读取metadata字段，EXISTS保留原电影/剧集结构文件资格；显式上映日期保留原降级日期聚合，随机继续原路径。统一页后加载版本/摘要。预计修改入口/helper、混合候选、真实PG测试、API catalog排序说明与契约。计数开关、收藏权限及缓存隔离保持。

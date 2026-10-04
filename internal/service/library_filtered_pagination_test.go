@@ -32,6 +32,7 @@ SELECT 'new-' || s || '-' || n,'new-library','episode-' || s || '-' || n,
 FROM generate_series(1,4) s CROSS JOIN generate_series(1,100) n`,
 		`INSERT INTO media (id,library_id,path,scrape_status,created_at,updated_at)
 SELECT 'pending-' || n,'new-library','/fixture/pending/' || n,'pending',NOW(),NOW() FROM generate_series(1,400) n`,
+		`UPDATE metadata_items SET library_ids=NULL WHERE id IN ('series-1','series-2','series-3','series-4')`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
 			t.Fatal(err)
@@ -59,6 +60,7 @@ SELECT 'pending-' || n,'new-library','/fixture/pending/' || n,'pending',NOW(),NO
 		}
 		type planNode struct {
 			Relation string     `json:"Relation Name"`
+			Subplan  string     `json:"Subplan Name"`
 			Rows     float64    `json:"Actual Rows"`
 			Loops    float64    `json:"Actual Loops"`
 			Estimate float64    `json:"Plan Rows"`
@@ -69,9 +71,10 @@ SELECT 'pending-' || n,'new-library','/fixture/pending/' || n,'pending',NOW(),NO
 			t.Fatalf("invalid plan: %v", err)
 		}
 		underestimated := false
-		var check func(planNode)
-		check = func(node planNode) {
-			if node.Relation == "media" {
+		var check func(planNode, bool)
+		check = func(node planNode, fallback bool) {
+			fallback = fallback || node.Subplan == "CTE unknown_files"
+			if fallback && node.Relation == "media" {
 				underestimated = underestimated || node.Estimate < node.Rows
 				if node.Loops > 1 {
 					t.Errorf("new library files repeatedly scanned: %.0f loops", node.Loops)
@@ -81,10 +84,10 @@ SELECT 'pending-' || n,'new-library','/fixture/pending/' || n,'pending',NOW(),NO
 				t.Errorf("metadata traversal exceeds linked files: %.0f rows x %.0f loops", node.Rows, node.Loops)
 			}
 			for _, child := range node.Plans {
-				check(child)
+				check(child, fallback)
 			}
 		}
-		check(plans[0].Plan)
+		check(plans[0].Plan, false)
 		if !underestimated {
 			t.Fatal("fixture did not reproduce stale library statistics")
 		}
@@ -151,6 +154,59 @@ func TestLibrarySeriesWorkFiltersBeforeFiles(t *testing.T) {
 		if !seen {
 			t.Fatal("poster plan was not inspected")
 		}
+	}
+	// 常规统计下，已知归属的普通页只读取选中作品的版本；统计滞后回退由上面的独立测试覆盖。
+	for _, q := range []string{"ANALYZE media", "ANALYZE metadata_items"} {
+		if err := db.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Exec(`UPDATE metadata_items SET library_ids='["work-library"]'::jsonb WHERE id='work-first-2'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, cards, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "work-library", "series", "", 0, 1, repository.MediaQueryFilter{})
+	if err != nil || total != 4 || len(cards) != 1 || cards[0].Count != 100 || cards[0].VersionCount != 300 {
+		t.Fatalf("ordinary page cards=%+v total=%d err=%v", cards, total, err)
+	}
+	query, vars := captured()
+	var raw []byte
+	if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE,FORMAT JSON,TIMING OFF) "+query, vars...).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	type versionNode struct {
+		Relation string        `json:"Relation Name"`
+		Subplan  string        `json:"Subplan Name"`
+		Rows     float64       `json:"Actual Rows"`
+		Filtered float64       `json:"Rows Removed by Filter"`
+		Loops    float64       `json:"Actual Loops"`
+		Plans    []versionNode `json:"Plans"`
+	}
+	var plans []struct{ Plan versionNode }
+	if err := json.Unmarshal(raw, &plans); err != nil {
+		t.Fatal(err)
+	}
+	visits := 0.0
+	seenFallback := false
+	var checkVersions func(versionNode, bool)
+	checkVersions = func(n versionNode, fallback bool) {
+		fallback = fallback || n.Subplan == "CTE unknown_files"
+		seenFallback = seenFallback || fallback
+		if n.Relation == "media" {
+			if fallback && n.Loops != 0 {
+				t.Errorf("known membership still scans library for count: %.0f loops", n.Loops)
+			}
+			visits += (n.Rows + n.Filtered) * n.Loops
+		}
+		for _, c := range n.Plans {
+			checkVersions(c, fallback)
+		}
+	}
+	checkVersions(plans[0].Plan, false)
+	if !seenFallback || visits == 0 || visits > 450 {
+		t.Fatalf("page version reads=%.0f fallback inspected=%v", visits, seenFallback)
+	}
+	if err := db.Exec("UPDATE metadata_items SET library_ids=NULL WHERE id='work-first-2'").Error; err != nil {
+		t.Fatal(err)
 	}
 	for _, filter := range []repository.MediaQueryFilter{{AllowedLibraryIDs: []string{"other"}}, {HiddenLibraryIDs: []string{"work-library"}}} {
 		_, cards, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "work-library", "series", "", 0, 50, filter)
