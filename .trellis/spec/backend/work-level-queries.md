@@ -20,7 +20,7 @@
 2. Latest file time serves only its matching sort. NFO DateCreated uses the item's first `created_at`; other sources retain existing DateCreated/release/playback ordering. Web movie library cards explicitly use work latest time, not the representative-version date. A non-null latest time alone does not prove visibility.
 3. Maintained library membership may replace redundant file existence checks. Ordinary unfiltered leaf works and HongGuo intersect membership with parent/allowed minus hidden libraries; NULL retains exact fallback. NFO library candidates use their own library_id and non-null latest time: normal ingestion transactionally creates same-library items and bindings. Missing-field predicates and effective state still read necessary files. Ordinary episode hierarchy/path qualification runs after the candidate batch, not while enumerating it. Global album time/title never shrink to visible members.
 4. User/library permissions, file predicates and effective played filters precede the final page, not necessarily the raw candidate batch LIMIT. Adult restrictions are library-only; item/metadata/binding NSFW fields and predicates no longer exist. Preserve ordinary pre-group episode filtering and never treat partially scoped ancestors as complete container state.
-5. 启用计数时，筛选后只统计逻辑候选，并保留越界页准确总数。不需要总数的请求不计数。状态/特殊资格取页先按作品字段取 50 个逻辑候选，再筛选，不足继续补取，StartIndex 只跳过合格结果；红果先归并卡片。`WorkBatchPage` 用只读可重复读快照处理计数和补取；精确计数可能处理全体资格，但不能加载全库展示数据。普通剧集计数对非空入库时间候选复用原文件 EXISTS，找到首个合格分集即停；空时间候选保留一次受限文件扫描，避免逐个探测空目录。两支互斥，时间只选执行策略，不能代替层级、文件或状态资格。
+5. 启用计数时，筛选后只统计逻辑候选，并保留越界页准确总数。不需要总数的请求不计数。状态/特殊资格取页先按作品字段取 max(50, limit) 个逻辑候选，再筛选，不足继续补取，StartIndex 只跳过合格结果；红果先归并卡片。`WorkBatchPage` 用只读可重复读快照处理计数和补取；精确计数可能处理全体资格，但不能加载全库展示数据。普通剧集计数对非空入库时间候选复用原文件 EXISTS，找到首个合格分集即停；空时间候选保留一次受限文件扫描，避免逐个探测空目录。两支互斥，时间只选执行策略，不能代替层级、文件或状态资格。
 6. 分页后才批量读取海报、简介、展示用已看/未看集数、文件版本及其他详情。父子混合身份须去重文件；限定内层绑定范围，不能仅依赖最外层 `id IN (...)`。
 7. Season/Episode、断点续播、文件属性筛选和文件依赖排序按真实语义处理；只为必要的资格/排序读取相关文件，不一律改成作品最近添加。已验证的索引搜索不退回数据库全库枚举。
 8. 作品优先是查询职责边界，不是强制数据库逐作品相关探测。空目录、统计滞后或稀疏命中可能使该计划更慢；保留行为正确且有执行计划证据的实现，禁止盲加 OFFSET、物化或强制规划器配置。
@@ -53,7 +53,7 @@ Ordinary random pages bypass whole-page cache; do not add a high-cardinality
 seed cache key. Separate HTTP requests may reorder, so cross-request random
 pagination is not a stable snapshot. Hash sorting can still scan work candidates;
 NULL membership retains exact file fallback and sparse states can require many
-50-candidate batches. These are not guarantees of constant-time sampling.
+page-sized candidate batches (at least 50). These are not guarantees of constant-time sampling.
 
 For bounded container hydration, do not join the unrestricted completed-state
 UNION: an outer page-source filter can still scan all user history, observed with
@@ -101,13 +101,22 @@ Ordinary `metadataWorkPage` / `seriesWorkPage` remaining file-date sorts (global
 default/DateCreated and explicit PremiereDate when their original order contains
 `MAX(media.created_at)`) materialize candidates and exact eligibility once in
 one statement, then call `workCandidatePage(..., countTotal)` for page selection.
-Do not rerun the full file-date aggregate for every 50-candidate refill. Preserve
+Do not rerun the full file-date aggregate for every candidate refill. Preserve
 original scoped file dates, title/release/year keys, directions, NULL ordering,
 ordinal ties, membership shortcuts, permission and favorite/person predicates.
 Only current-page representatives/versions or Series summaries are hydrated.
 Count-off uses a constant zero internally (the public wrapper owns lookahead
 and numeric lower bounds); count-on counts the same materialized qualified set,
 including out-of-range pages. The existing HongGuo caller keeps count-on.
+Explicit PremiereDate counts candidates sharing both COALESCE(release_date,'')
+and COALESCE(year,0) within the work scope. Only tied candidates aggregate their
+original scoped file dates: unique primary/secondary keys cannot be ordered by
+file time. Ineligible candidates may cause extra tie work but never omit a
+necessary tie. Preserve the scoped file-time and ID order for ties, including
+missing dates/years; global defaults and DateCreated retain their original plans.
+`TestEmbyLibrarySortPlans` captures real 120-item movie/Series queries over 4,000
+works/80,000 files: name ordering takes one batch; distinct release/year candidates
+must avoid all-file date aggregation. Compare plans and service timings separately.
 Name/recent/rating/random sorts without file dates retain bounded batch checks;
 missing-title fallback does not by itself opt into full qualification.
 `TestEmbyFileDateSortQualifiesOnce` compares full selected views/summaries with
@@ -116,7 +125,7 @@ candidates, cross-library hidden files, favorites, offsets and count modes; it
 must observe exactly one candidate statement. Also verify actual materialized
 candidate/qualification plans, not only statement count.
 
-The 50-candidate refill loop applies to ordinary metadata/Series pagers without
+The max(50, limit)-candidate refill loop applies to ordinary metadata/Series pagers without
 file-date sorting and Latest,
 state-filtered library NFO/HongGuo pages, global mixed-source browsing/Latest,
 Web recent works and file-filtered Web NFO pages. Unfiltered NFO/HongGuo library
@@ -141,7 +150,7 @@ fields or uninitialized time. Preserve index recall limits and ranking.
 Continuation candidates use item/source membership before the unchanged concrete
 file permissions, effective state and successor selection; never order by import
 time instead of watched time. Ordinary season lists page lightweight seasons via
-50-candidate refill and compute episode summaries only for the final page.
+page-sized candidate refill and compute episode summaries only for the final page.
 NFO child membership predicates belong inside each native identity/parent lookup
 in `nfoWorkFileItems`, not in an outer item-table join that can scan the catalog.
 Materialize `qualified` before joining it back to `work_batch`: inlining correlated
@@ -240,7 +249,7 @@ change those tie windows or convert directly bound ordinary Series media to fold
 
 Wrong：`全库文件 × 层级/展示关联 → 去重作品 → count/page → 再查全库详情`。
 
-Correct：`作品候选及所需排序值 → 每批 50 条检查原资格，不足续取 → 合格结果分页 → 当前页详情`；需要准确总数时另对同一快照的合格集合计数。
+Correct：`作品候选及所需排序值 → 每批至少 50 条、容纳一页并检查原资格，不足续取 → 合格结果分页 → 当前页详情`；需要准确总数时另对同一快照的合格集合计数。
 
 Wrong: `count=false → total=0 → return empty page / TotalRecordCount: 0`.
 

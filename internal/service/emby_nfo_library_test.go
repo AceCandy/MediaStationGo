@@ -506,3 +506,39 @@ SELECT 'viewer',id,'file-'||id||'-1',TRUE FROM nfo_items WHERE kind='episode' AN
 		}
 	}
 }
+
+func TestNFOLibraryMetadataSorts(t *testing.T) {
+	e := nfoBrowseFixture(t, 3, 1)
+	if err := e.repo.DB.Exec(`UPDATE nfo_items SET
+ year=CASE id WHEN 'show-1' THEN 2000 WHEN 'show-2' THEN 2030 ELSE 2020 END,
+ rating=CASE id WHEN 'show-1' THEN 9 WHEN 'show-2' THEN 7 ELSE 8 END,
+ release_date=CASE id WHEN 'show-1' THEN '2020-01-01' WHEN 'show-2' THEN '2010-01-01' ELSE '2030-01-01' END
+ WHERE kind='series'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		sort string
+		ids  []string
+	}{
+		{"ProductionYear", []string{"nfo-show-2", "nfo-show-3", "nfo-show-1"}},
+		{"PremiereDate", []string{"nfo-show-3", "nfo-show-1", "nfo-show-2"}},
+		{"CommunityRating", []string{"nfo-show-1", "nfo-show-3", "nfo-show-2"}},
+	} {
+		for _, order := range []string{"Descending", "Ascending"} {
+			for offset := 0; offset < 3; offset++ {
+				result, err := e.Items(t.Context(), ItemsParams{UserID: "viewer", ParentID: "library-nfo", SortBy: tc.sort, SortOrder: order, StartIndex: offset, Limit: 1})
+				if err != nil {
+					t.Fatal(err)
+				}
+				index := offset
+				if order == "Ascending" {
+					index = 2 - offset
+				}
+				items := result["Items"].([]map[string]any)
+				if len(items) != 1 || items[0]["Id"] != tc.ids[index] || result["TotalRecordCount"] != int64(3) {
+					t.Fatalf("sort=%s order=%s offset=%d got=%+v want=%s", tc.sort, order, offset, result, tc.ids[index])
+				}
+			}
+		}
+	}
+}

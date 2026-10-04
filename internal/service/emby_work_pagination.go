@@ -50,7 +50,7 @@ func (e *EmbyService) orderedWorkLibraryScope(ctx context.Context, q *gorm.DB, a
 }
 
 // filteredWorkBatchPage 的候选含稳定 ordinal；资格 SQL 只读取 work_batch。
-// 每批先取 50 个作品再筛选，offset 只跳过合格作品；计数与补取共用只读快照。
+// 每批先取至少 50 个、可容纳一页的作品再筛选，offset 只跳过合格作品；计数与补取共用只读快照。
 // countEligible 仅用于同资格的批量计数计划；不得改变其文件/状态谓词。
 func (e *EmbyService) filteredWorkBatchPage(ctx context.Context, candidates, eligible *gorm.DB, start, limit int, count bool, countEligible ...*gorm.DB) (ids []string, total int64, err error) {
 	return e.repo.MediaView.WorkBatchPage(ctx, candidates, eligible, start, limit, count, countEligible...)
@@ -107,10 +107,17 @@ func (e *EmbyService) metadataWorkPage(ctx context.Context, files *gorm.DB, p It
 	scope := files.Session(&gorm.Session{}).Where("media.metadata_id=recent.id")
 	order := metadataOrderSQL(p, false)
 	fileDateSort := strings.Contains(order, "MAX(media.created_at)")
-	if strings.Contains(order, "MAX(media.created_at)") || strings.Contains(order, "media.scan_title") {
-		stats := scope.Session(&gorm.Session{}).Select("MAX(media.created_at) AS created_at, MIN(media.scan_title) AS title")
-		if strings.Contains(order, "media.scan_title") {
-			stats = stats.Where("recent.title IS NULL")
+	if fileDateSort || strings.Contains(order, "media.scan_title") {
+		stats := scope.Session(&gorm.Session{})
+		if fileDateSort {
+			stats = stats.Select("MAX(media.created_at) AS created_at")
+			if primarySupportedEmbySort(p.SortBy, false) == "premieredate" {
+				// 文件日期只影响上映日期和年份均并列的作品；仍按原可见文件范围取值。
+				q = db.Table("(?) recent", q.Select("recent.*, COUNT(*) OVER (PARTITION BY COALESCE(recent.release_date,''), COALESCE(recent.year,0)) AS release_ties"))
+				stats = stats.Where("recent.release_ties > 1")
+			}
+		} else {
+			stats = stats.Select("MIN(media.scan_title) AS title").Where("recent.title IS NULL")
 		}
 		q = q.Joins("LEFT JOIN LATERAL (?) sort_values ON TRUE", stats)
 	}
@@ -169,8 +176,13 @@ SELECT id FROM metadata_items WHERE parent_id=scope_series.id AND kind='season')
 	}
 
 	fileDateSort := strings.Contains(order, "MAX(media.created_at)")
-	if strings.Contains(order, "MAX(media.created_at)") {
-		q = q.Joins("JOIN LATERAL (?) sort_values ON TRUE", scope.Session(&gorm.Session{}).Select("MAX(media.created_at) AS created_at"))
+	if fileDateSort {
+		stats := scope.Session(&gorm.Session{}).Select("MAX(media.created_at) AS created_at")
+		if primarySupportedEmbySort(p.SortBy, false) == "premieredate" {
+			q = db.Table("(?) scope_series", q.Select("scope_series.*, COUNT(*) OVER (PARTITION BY COALESCE(scope_series.release_date,''), COALESCE(scope_series.year,0)) AS release_ties"))
+			stats = stats.Where("scope_series.release_ties > 1")
+		}
+		q = q.Joins("JOIN LATERAL (?) sort_values ON TRUE", stats)
 	}
 	order = strings.NewReplacer(
 		"MIN(COALESCE(scope_series.title, ''))", "COALESCE(scope_series.title, '')",

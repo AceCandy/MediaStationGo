@@ -159,7 +159,7 @@ func TestEmbyWorkBatchContinuesAndCounts(t *testing.T) {
 			if source == "movie" {
 				p.IncludeItemTypes = []string{"Movie"}
 			}
-			p.StartIndex, p.Limit = 0, 500
+			p.StartIndex, p.Limit = 0, 50
 			page, err := e.Items(ctx, p)
 			if err != nil {
 				t.Fatal(err)

@@ -186,3 +186,6 @@ This advertises an unregistered path and treats one optional token carrier as ma
   }],
 }
 ```
+
+- Ordinary metadata and Series ProductionYear ordering uses the work year as its primary key, then stable ID, honoring Ascending/Descending. It must not fall back to release-date/file-date aggregation. Test with conflicting premiere dates and years in movie/TV/mixed libraries, both first and tail pages.
+- NFO library PremiereDate/ProductionYear/CommunityRating sorts use the existing root candidate release_date/year/rating projection; select only the needed scalar. Preserve hierarchy prefixes, permissions, state qualification, stable ID and page-only hydration. HongGuo has no year/release metadata; do not invent those values or claim useful ordering.

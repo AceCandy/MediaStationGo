@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// WorkBatchPage 按稳定 ordinal 每批取 50 个候选；资格查询返回 work_batch 的 ordinal。
+// WorkBatchPage 按稳定 ordinal 每批取至少 50 个、可容纳一页的候选；资格查询返回 work_batch 的 ordinal。
 // 以行序号而非作品 ID 关联，保留同一作品在不同分组中的独立资格和计数。
 // 计数与补取共享只读快照；countEligible 只允许改变执行计划，不得改变资格。
 func (r *MediaViewRepository) WorkBatchPage(ctx context.Context, candidates, eligible *gorm.DB, start, limit int, count bool, countEligible ...*gorm.DB) (ids []string, total int64, err error) {
@@ -44,9 +44,10 @@ func (r *MediaViewRepository) workBatchPage(ctx context.Context, candidates, eli
 				return nil
 			}
 		}
+		batchSize := max(50, limit)
 		// ponytail: 多种排序复用 OFFSET；极大稀疏偏移成为瓶颈时再按排序键改为游标。
-		for offset := 0; ; offset += 50 {
-			batch := candidates.Session(&gorm.Session{}).Limit(50).Offset(offset)
+		for offset := 0; ; offset += batchSize {
+			batch := candidates.Session(&gorm.Session{}).Limit(batchSize).Offset(offset)
 			var rows []workBatchRow
 			if err := tx.Raw(`WITH work_batch AS MATERIALIZED (?), qualified AS MATERIALIZED (?)
 SELECT `+columns+`, q.ordinal IS NOT NULL AS eligible FROM work_batch b
@@ -66,7 +67,7 @@ LEFT JOIN qualified q ON q.ordinal=b.ordinal ORDER BY b.ordinal`, batch, eligibl
 					return nil
 				}
 			}
-			if len(rows) < 50 {
+			if len(rows) < batchSize {
 				return nil
 			}
 		}

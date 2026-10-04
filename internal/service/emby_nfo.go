@@ -18,6 +18,19 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 	unplayed := containsEmbyFilter(p.Filters, "IsUnplayed")
 	q := db.Table("(?) AS candidates", e.repo.MediaView.NFOWorkCandidates(ctx, p.UserID, p.ParentID, filter, false))
 	columns := "id, kind, title, season_number, episode_number, latest_at"
+	key := primarySupportedEmbySort(p.SortBy, false)
+	metadataSort := ""
+	switch key {
+	case "premieredate":
+		metadataSort = "release_date"
+	case "productionyear":
+		metadataSort = "year"
+	case "communityrating":
+		metadataSort = "rating"
+	}
+	if metadataSort != "" {
+		columns += ", " + metadataSort
+	}
 	if dateSort {
 		columns += ", created_at"
 	}
@@ -32,6 +45,8 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 	order := "title"
 	if embyRandomSort(p) {
 		order = "random_order"
+	} else if metadataSort != "" {
+		order = metadataSort
 	} else if dateSort {
 		order = "created_at"
 	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {

@@ -225,6 +225,11 @@ func seriesOrderSQL(p ItemsParams) string {
 	case "random":
 		return embyRandomOrder(p, "scope_series.id") + ", scope_series.id"
 	case "sortname", "name":
+	case "productionyear":
+		if !strings.EqualFold(firstCSVValue(p.SortOrder), "Ascending") {
+			dir = "DESC"
+		}
+		expression = "MAX(COALESCE(scope_series.year, 0))"
 	case "datecreated":
 		expression = "MAX(media.created_at)"
 	case "datelastcontentadded":
@@ -273,6 +278,12 @@ func metadataOrderSQL(p ItemsParams, resumeFilter bool) string {
 			dir = "ASC"
 		}
 		return fmt.Sprintf("MAX(emby_metadata.latest_media_added_at) %s NULLS LAST, media.metadata_id %s", dir, dir)
+	case "productionyear":
+		if strings.EqualFold(firstCSVValue(p.SortOrder), "Ascending") {
+			dir = "ASC"
+		}
+		expression = "MAX(COALESCE(emby_metadata.year, 0))"
+		secondary = ""
 	case "communityrating":
 		dir = "ASC"
 		if strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {

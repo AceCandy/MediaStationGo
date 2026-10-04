@@ -31,11 +31,11 @@ func TestEmbyLibraryWorkTimeSort(t *testing.T) {
 				if mode == "tv" || mode == "mixed" && id == "b" {
 					kind = "series"
 				}
-				title, release, rating := "Zed", "2040-01-01", 3
+				title, release, rating, year := "Zed", "2040-01-01", 3, 1990
 				if id == "b" {
-					title, release, rating = "Alpha", "2000-01-01", 9
+					title, release, rating, year = "Alpha", "2000-01-01", 9, 2030
 				}
-				if err := db.Exec(`INSERT INTO metadata_items(id,kind,title,source,release_date,rating) VALUES (?,?,?,'local',?,?)`, id, kind, title, release, rating).Error; err != nil {
+				if err := db.Exec(`INSERT INTO metadata_items(id,kind,title,source,release_date,rating,year) VALUES (?,?,?,'local',?,?,?)`, id, kind, title, release, rating, year).Error; err != nil {
 					t.Fatal(err)
 				}
 				itemID := id
@@ -131,7 +131,9 @@ func TestEmbyLibraryWorkTimeSort(t *testing.T) {
 					t.Fatalf("recursive leaf listing changed: %+v", items)
 				}
 			}
-			for _, tc := range []struct{ sort, order, want string }{{"PremiereDate", "Descending", "a"}, {"Name", "Ascending", "b"}, {"Name", "Descending", "a"}, {"CommunityRating", "Descending", "b"}} {
+			for _, tc := range []struct{ sort, order, want string }{{"PremiereDate", "Descending", "a"}, {"Name", "Ascending", "b"}, {"Name", "Descending", "a"}, {"CommunityRating", "Descending", "b"}, {"ProductionYear", "Descending", "b"}, {"ProductionYear", "Ascending", "a"}} {
+				queries = nil
+				bindings = nil
 				out, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, SortBy: tc.sort, SortOrder: tc.order, Limit: 1})
 				if err != nil {
 					t.Fatal(err)
@@ -139,6 +141,32 @@ func TestEmbyLibraryWorkTimeSort(t *testing.T) {
 				items := out["Items"].([]map[string]any)
 				if len(items) != 1 || items[0]["Id"] != tc.want {
 					t.Fatalf("explicit sort=%s items=%+v", tc.sort, items)
+				}
+				if tc.sort == "ProductionYear" {
+					for n, q := range queries {
+						var raw []byte
+						if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE,FORMAT JSON,TIMING OFF) "+q, bindings[n]...).Scan(&raw); err != nil {
+							t.Fatal(err)
+						}
+						var plan []struct {
+							ExecutionTime float64 `json:"Execution Time"`
+						}
+						if err := json.Unmarshal(raw, &plan); err != nil || len(plan) != 1 {
+							t.Fatalf("year plan invalid: %v", err)
+						}
+						t.Logf("year order=%s execution_ms=%.3f", tc.order, plan[0].ExecutionTime)
+						if strings.Contains(q, "sort_values") {
+							t.Fatalf("year sort should not aggregate file dates: %s", q)
+						}
+					}
+					out, err = svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, SortBy: tc.sort, SortOrder: tc.order, StartIndex: 1, Limit: 1})
+					if err != nil {
+						t.Fatal(err)
+					}
+					tail := out["Items"].([]map[string]any)
+					if len(tail) != 1 || tail[0]["Id"] == tc.want || fmt.Sprint(out["TotalRecordCount"]) != "2" {
+						t.Fatalf("year tail=%+v", out)
+					}
 				}
 			}
 		})

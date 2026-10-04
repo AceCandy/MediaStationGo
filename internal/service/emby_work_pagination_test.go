@@ -16,10 +16,13 @@ func TestEmbyMetadataWorkPageMatchesFileGrouping(t *testing.T) {
 	e := newTestEmbyService(t)
 	db := e.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source,release_date,year,rating) SELECT 'movie-'||n,'movie','Title '||n,'local',CASE WHEN n%2=0 THEN '2020-01-01' ELSE '' END,2000+n,n FROM generate_series(1,5) n`,
-		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||n||'-'||v,'movie-'||n,CASE WHEN v=3 THEN 'other' ELSE 'movies' END,'/movies/'||n||'/'||v,TIMESTAMP '2026-01-01'+n*INTERVAL '1 day'+v*INTERVAL '1 hour' FROM generate_series(1,4) n CROSS JOIN generate_series(1,3) v`,
+		`INSERT INTO metadata_items(id,kind,title,source,release_date,year,rating) SELECT 'movie-'||n,'movie','Title '||n,'local',CASE WHEN n%2=0 THEN '2020-01-01' ELSE '' END,2020,n FROM generate_series(1,5) n`,
+		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||n||'-'||v,'movie-'||n,CASE WHEN v=3 THEN 'other' ELSE 'movies' END,'/movies/'||n||'/'||v,TIMESTAMP '2026-01-01'+(10-n)*INTERVAL '1 day'+v*INTERVAL '1 hour' FROM generate_series(1,4) n CROSS JOIN generate_series(1,3) v`,
 		`INSERT INTO favorites(id,user_id,metadata_id,media_id) VALUES ('favorite','viewer','movie-1','file-1-1')`,
 		`UPDATE metadata_items SET library_ids=NULL WHERE id='movie-2'`,
+		`ALTER TABLE metadata_items ALTER COLUMN title DROP NOT NULL`,
+		`UPDATE metadata_items SET title=NULL WHERE id='movie-1'`,
+		`UPDATE media SET scan_title='Fallback '||id WHERE metadata_id='movie-1'`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
 			t.Fatal(err)
@@ -127,7 +130,8 @@ func TestEmbyFileDateSortQualifiesOnce(t *testing.T) {
 			db := e.repo.DB
 			for _, sql := range []string{
 				`INSERT INTO metadata_items(id,kind,title,source) SELECT 'sort-'||n,'movie','Title '||n,'local' FROM generate_series(1,160) n`,
-				`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'sort-file-'||n||'-'||v,'sort-'||n,'sort-lib','/fixture/sort/'||n||'/'||v,TIMESTAMP '2026-01-01'+n*INTERVAL '1 day'+v*INTERVAL '1 hour' FROM generate_series(151,160) n CROSS JOIN generate_series(1,2) v`,
+				`UPDATE metadata_items SET release_date=CASE WHEN id IN ('sort-151','sort-152','sort-160') THEN '2020-01-01' ELSE '2021-01-01' END, year=2020 WHERE id IN ('sort-151','sort-152','sort-153','sort-160')`,
+				`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'sort-file-'||n||'-'||v,'sort-'||n,'sort-lib','/fixture/sort/'||n||'/'||v,TIMESTAMP '2026-01-01'+(170-n)*INTERVAL '1 day'+v*INTERVAL '1 hour' FROM generate_series(151,160) n CROSS JOIN generate_series(1,2) v`,
 			} {
 				if err := db.Exec(sql).Error; err != nil {
 					t.Fatal(err)
