@@ -23,6 +23,7 @@ Original storage/import and authentication are not transformation concerns.
 - GIF, animated WebP and APNG are passed through without flattening. Failed processing returns original bytes with `no-store`; Emby missing-image placeholders are HTTP 200 PNG with `no-store`, including HEAD headers. Successful image caching is unchanged.
 - One shared instance per service container; two concurrent encodes and same-key generation coalescing. Waiting observes request cancellation; an already-running codec finishes before cancellation is checked again.
 - Variants mirror DataDir image paths under `<cache.cache_dir>/image-variants`; remote and external local images use `remote/<source-hash>` and `local/<path-hash>`. Each source version owns its specification files. Existing atomic file writes remain; there is no automatic cleanup or pre-generation.
+- Native WebP with `gen2brain/webp v0.6.4` requires a dynamic Linux ELF and resolvable `libwebp.so` plus `libwebpdemux.so`; versioned runtime libraries alone do not satisfy its loader. Docker builds use the target-platform C toolchain and runtime `libwebp-dev`; `dev.sh` supplies project-local aliases for installed `.so.7`/`.so.2` libraries and forces CGO/external linking on Linux when a C compiler exists. Keep the pure Go fallback for other environments, and report `webp_backend` at image service construction.
 - Keys include algorithm version, source path/size/nanosecond mtime and normalized options. Downloaded bytes use a content hash if original storage failed. Source updates create a new variant; old variants remain.
 - Web defaults to maxWidth=640; large backgrounds use 1920. `original:true` removes processing parameters. URL version replacement must not create duplicate query keys; tokens must not enter image URLs.
 - Same-origin `/api/` images rely on the existing HttpOnly Cookie, not a token-bearing URL. Playback URLs retain their existing token behavior. Non-critical list, search and administration images use native lazy loading and asynchronous decoding.
@@ -50,6 +51,7 @@ Original storage/import and authentication are not transformation concerns.
 - `go test ./internal/service ./internal/handler ./internal/middleware -run 'Image|Artwork|Cover|FFmpeg|FFprobe|Cookie'`
 - `go test -race ./internal/service -run TestImageVariant`
 - `CGO_ENABLED=0 go test -tags nodynamic ./internal/service -run TestImageVariant`
+- With native libraries available: `MEDIASTATION_TEST_NATIVE_WEBP=1 CGO_ENABLED=1 go test -ldflags=-linkmode=external ./internal/service -run TestImageVariant`. This gate must fail instead of silently using the fallback; for the local alias setup also set `LD_LIBRARY_PATH="$PWD/.dev-cache/native-webp"`.
 - Cover actual formats, transparency, aspect ratios, no upscale, EXIF, original pass-through, cold/hot remote responses, write failure, concurrent reuse, invalid parameters, HEAD/304 and source invalidation.
 - `cd web && node scripts/check-image-url.mjs && npm run lint && npm run build`
 - Database-dependent tests require `MEDIASTATION_TEST_POSTGRES_DSN`; a skip is not database verification. Browser/real-player latency is deployment verification, not a unit-test result.

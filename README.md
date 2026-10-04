@@ -319,6 +319,10 @@ MediaStationGo 支持 Telegram Bot 绑定、用户菜单、群组管理菜单和
 
 本地开发需要 Go、Node.js 和 npm。
 
+Linux 图片编码优先使用系统原生 WebP 库。Debian/Ubuntu 可安装 `build-essential libwebp-dev`，Alpine 可安装 `build-base libwebp-dev`，然后使用 `./dev.sh` 启动。脚本也支持系统已有 `libwebp.so.7` 和 `libwebpdemux.so.2` 的情况，无需 root，会在 `.dev-cache/native-webp` 创建库名映射。启动日志中的 `webp_backend=native` 表示加速已启用；缺少库时仍使用纯 Go 后备实现。
+
+手动运行 Linux 后端需启用 CGO，并使用 `go run -ldflags=-linkmode=external ./cmd/server`；正式镜像已包含原生库及动态构建。多架构镜像构建需要目标平台执行环境（本机节点或 QEMU）。
+
 ```bash
 # 后端测试
 go test ./...
@@ -327,8 +331,8 @@ go test ./...
 npm --prefix web install
 npm --prefix web run build
 
-# 本地运行后端
-go run ./cmd/server
+# 本地运行后端（Linux 已安装上述开发包）
+CGO_ENABLED=1 go run -ldflags=-linkmode=external ./cmd/server
 
 # 本地运行前端开发服务器
 npm --prefix web run dev

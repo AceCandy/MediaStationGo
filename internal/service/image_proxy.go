@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gen2brain/webp"
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
@@ -53,6 +54,11 @@ const (
 
 // NewImageProxy is the constructor.
 func NewImageProxy(cfg *config.Config, log *zap.Logger) *ImageProxy {
+	if err := webp.Dynamic(); err != nil {
+		log.Warn("image codec backend", zap.String("webp_backend", "pure_go"), zap.Error(err))
+	} else {
+		log.Info("image codec backend", zap.String("webp_backend", "native"))
+	}
 	// Honor HTTP(S)_PROXY env vars so deployments behind GFW can pull
 	// from image.tmdb.org via their HTTP proxy without extra config. On
 	// Windows we also honor the current user's system proxy settings.

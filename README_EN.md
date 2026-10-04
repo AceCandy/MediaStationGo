@@ -433,8 +433,10 @@ or btrfs subvolumes, use copy or symlink instead.
 
 Regular users should use Docker. Developers can run:
 
+On Linux, install `build-essential libwebp-dev` (Debian/Ubuntu) or `build-base libwebp-dev` (Alpine) and use `./dev.sh` to enable native WebP encoding. The script also maps existing `libwebp.so.7` and `libwebpdemux.so.2` libraries under `.dev-cache/native-webp` without root access. The startup log reports `webp_backend=native` or the pure Go fallback. Manual Linux builds require the development packages above, CGO and `-ldflags=-linkmode=external`. Docker includes the native libraries; multi-platform builds require native nodes or QEMU.
+
 ```bash
-go run ./cmd/server
+CGO_ENABLED=1 go run -ldflags=-linkmode=external ./cmd/server
 ```
 
 Frontend:

@@ -3,7 +3,7 @@
 # Multi-architecture build for MediaStationGo.
 #
 # Stage 1 (frontend) :  Node 22  -> static SPA bundle
-# Stage 2 (backend)  :  Go 1.25  -> single static binary (CGO_ENABLED=0)
+# Stage 2 (backend)  :  Go 1.25  -> dynamic binary for native WebP
 # Stage 3 (runtime)  :  Alpine 3.23 -> ffprobe + tzdata + non-root user
 #
 # Build:
@@ -22,22 +22,23 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY web/ .
 RUN npm run build
 
-# ---- Stage 2: backend (cross-compiled to TARGETPLATFORM) -------------------
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend
+# ---- Stage 2: backend (native compiler for TARGETPLATFORM) ----------------
+FROM golang:1.25-alpine3.23 AS backend
 ARG TARGETOS
 ARG TARGETARCH
 ARG GOPROXY=https://proxy.golang.org,direct
 ARG VERSION=dev
 ENV GOPROXY=${GOPROXY}
 WORKDIR /app
+RUN apk add --no-cache build-base
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY . .
 COPY --from=frontend /app/web/dist ./web/dist
 RUN --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o mediastation-go ./cmd/server
+    CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-linkmode=external -s -w -X main.version=${VERSION}" -o mediastation-go ./cmd/server
 
 # ---- Stage 3: runtime ------------------------------------------------------
 FROM alpine:3.23
@@ -45,6 +46,7 @@ FROM alpine:3.23
 # for media inspection and does not start ffmpeg.
 RUN apk add --no-cache \
         ffmpeg \
+        libwebp-dev \
         docker-cli \
         tzdata \
         ca-certificates \

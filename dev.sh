@@ -32,7 +32,25 @@ echo " 前端  http://127.0.0.1:6200"
 echo " Ctrl+C 退出"
 echo "------------------------------------------------------------"
 
-go run ./cmd/server &
+# WebP 依赖按无版本库名加载；运行库已有但未装开发包时，在项目缓存提供映射。
+BACKEND_GO_FLAGS=()
+BACKEND_CGO_ENABLED="${CGO_ENABLED:-$(go env CGO_ENABLED)}"
+BACKEND_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+if [[ "$(uname -s)" == Linux ]] && command -v cc >/dev/null; then
+  BACKEND_CGO_ENABLED=1
+  BACKEND_GO_FLAGS=(-ldflags=-linkmode=external)
+  NATIVE_WEBP_DIR="$PWD/.dev-cache/native-webp"
+  mkdir -p "$NATIVE_WEBP_DIR"
+  for spec in libwebp.so:libwebp.so.7 libwebpdemux.so:libwebpdemux.so.2; do
+    library=$(cc -print-file-name="${spec#*:}")
+    if [[ -f "$library" ]]; then
+      ln -sfn "$(realpath "$library")" "$NATIVE_WEBP_DIR/${spec%%:*}"
+    fi
+  done
+  BACKEND_LIBRARY_PATH="$NATIVE_WEBP_DIR${BACKEND_LIBRARY_PATH:+:$BACKEND_LIBRARY_PATH}"
+fi
+
+CGO_ENABLED="$BACKEND_CGO_ENABLED" LD_LIBRARY_PATH="$BACKEND_LIBRARY_PATH" go run "${BACKEND_GO_FLAGS[@]}" ./cmd/server &
 BACK_PID=$!
 
 # 前端端口/局域网访问固化在 web/vite.config.ts（port 6200，strictPort，host: true）。

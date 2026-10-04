@@ -23,8 +23,28 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/gen2brain/webp"
 	"go.uber.org/zap"
 )
+
+func TestImageVariantNativeBackend(t *testing.T) {
+	if os.Getenv("MEDIASTATION_TEST_NATIVE_WEBP") != "1" {
+		t.Skip("native WebP deployment check is opt-in")
+	}
+	if err := webp.Dynamic(); err != nil {
+		t.Fatalf("native WebP unavailable: %v", err)
+	}
+	data, err := encodeImageVariant(variantPNG(t, 120, 60), imageVariantOptions{
+		MaxHeight: 30, Quality: 90, Format: "webp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || format != "webp" || cfg.Width != 60 || cfg.Height != 30 {
+		t.Fatalf("native output: %v %s %v", cfg, format, err)
+	}
+}
 
 func variantPNG(t *testing.T, width, height int) []byte {
 	t.Helper()
