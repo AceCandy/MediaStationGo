@@ -112,8 +112,10 @@ page directly; do not add a second qualification loop just for uniform SQL shape
 Web movie pages use global work time and qualify first-Part versions before both
 count and page selection; probe-based representative choice and version statistics
 run only for that page. Later-Part-only metadata must not inflate the total.
-Web Series retains one scoped
-file aggregation for episode release/year/file dates. Mixed movie libraries use
+Ordinary Web Series lists filter visible works first and aggregate only their
+associated file times for episode release/year/file-date ordering. Unfiltered
+lists or unknown membership retain one target-library file scan; empty work filters read no
+files. Representatives and version counts are computed after work pagination. Mixed movie libraries use
 the required release-date aggregate's `HAVING COUNT(*) > 0`, not a duplicate EXISTS.
 Search and special hierarchy routes retain their own semantics.
 They still reuse maintained memberships: normal ordinary Movie/HongGuo search

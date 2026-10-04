@@ -28,9 +28,9 @@ func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
 ('page-episode','episode','page-season','Episode','local',1,2023)`,
 		`INSERT INTO media (id,library_id,metadata_id,path,created_at,updated_at) VALUES
 ('file-b','page-library','page-a','/fixture/page/b','2020-01-01','2020-01-01'),
-('file-a','page-library','page-a','/fixture/page/a','2020-01-01','2020-01-01'),
+('file-a','page-library','page-a','/fixture/page/a','2020-01-01','2027-01-01'),
 ('file-season','page-library','page-season','/fixture/page/season','2020-01-01','2020-01-01'),
-('file-episode','page-library','page-episode','/fixture/page/episode','2020-01-01','2020-01-01'),
+('file-episode','page-library','page-episode','/fixture/page/episode','2020-01-01','2030-01-01'),
 ('file-other','page-other','page-episode','/fixture/page/other','2020-01-01','2025-01-01'),
 ('file-show-b','page-library','page-b','/fixture/page/show-b','2020-01-01','2020-01-01'),
 ('file-show-c','page-library','page-c','/fixture/page/show-c','2020-01-01','2025-01-01')`,
@@ -327,14 +327,14 @@ func TestLibrarySeriesPageReadsSeasonSetOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	reads := &paginationReadLog{Interface: db.Logger}
-	db.Logger = reads
+	captured := captureLibrarySeriesSQL(t, db)
 	_, cards, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "set-library", "series", "", 0, 1, repository.MediaQueryFilter{})
 	if err != nil || total != 1 || len(cards) != 1 || cards[0].Count != 2000 || cards[0].VersionCount != 2000 {
 		t.Fatalf("cards=%+v total=%d err=%v", cards, total, err)
 	}
+	query, vars := captured()
 	var raw string
-	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + reads.seriesSQL).Scan(&raw).Error; err != nil {
+	if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+query, vars...).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	type node struct {
@@ -350,7 +350,7 @@ func TestLibrarySeriesPageReadsSeasonSetOnce(t *testing.T) {
 	found := false
 	var check func(node)
 	check = func(n node) {
-		if n.Relation == "metadata_items" && n.Alias == "metadata_items" {
+		if n.Relation == "metadata_items" && n.Alias == "lookup_season" {
 			found = true
 			if n.Loops > 1 {
 				t.Fatalf("season set repeatedly read: %s", raw)
@@ -675,4 +675,20 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 			t.Fatalf("hidden filtered series=%+v total=%d err=%v", cards, total, err)
 		}
 	}
+}
+
+// captureLibrarySeriesSQL 保留原始绑定参数，执行计划不能重放日志插值后的数组。
+func captureLibrarySeriesSQL(t *testing.T, db *gorm.DB) func() (string, []any) {
+	t.Helper()
+	var query string
+	var vars []any
+	if err := db.Callback().Row().After("gorm:row").Register("test:library-series-bindings", func(tx *gorm.DB) {
+		if strings.HasPrefix(tx.Statement.SQL.String(), "WITH scoped AS MATERIALIZED") {
+			query = tx.Statement.SQL.String()
+			vars = append([]any(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return func() (string, []any) { return query, vars }
 }

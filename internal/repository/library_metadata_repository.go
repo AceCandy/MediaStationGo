@@ -91,7 +91,9 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	var total int64
 	var summaries []LibraryMetadataSummary
 	var err error
-	if kind == model.MetadataKindSeries {
+	if kind == model.MetadataKindSeries && metadataID == "" {
+		summaries, total, err = r.librarySeriesWorkPage(ctx, libraryID, offset, limit, filter)
+	} else if kind == model.MetadataKindSeries {
 		summaries, total, err = r.librarySeriesPage(ctx, query(), libraryID, metadataID, offset, limit, filter.MissingPoster || filter.MissingChineseTitle)
 	} else {
 		summaries, total, err = r.libraryMoviePage(ctx, query(), libraryID, metadataID, offset, limit, filter)
@@ -170,6 +172,70 @@ ORDER BY page.latest_media_added_at DESC NULLS LAST, page.metadata_id DESC`, can
 	}, &sql.TxOptions{ReadOnly: true})
 	var total int64
 	summaries := make([]LibraryMetadataSummary, 0, len(rows))
+	for _, row := range rows {
+		total = row.Total
+		if row.MetadataID != "" {
+			summaries = append(summaries, row.LibraryMetadataSummary)
+		}
+	}
+	return summaries, total, err
+}
+
+// librarySeriesWorkPage 先筛选整剧，文件仅提供必要排序值，当前页再补版本和代表文件。
+func (r *MediaViewRepository) librarySeriesWorkPage(ctx context.Context, libraryID string, offset, limit int, filter MediaQueryFilter) ([]LibraryMetadataSummary, int64, error) {
+	db := r.db.WithContext(ctx)
+	candidates := FilterVisibleWorkLibraries(db, db.Table("metadata_items work"), "work.library_ids", []string{libraryID}, filter).Where("work.kind='series'")
+	candidates = applyLibraryMetadataFilters(candidates, filter).Select("work.id,work.library_ids")
+	files := db.Table("media m").Select("m.id, m.metadata_id, m.created_at, m.updated_at").
+		Where("m.library_id=? AND m.metadata_id IS NOT NULL", libraryID).
+		Where("EXISTS (SELECT 1 FROM scoped)")
+	if filter.MissingPoster || filter.MissingChineseTitle {
+		// 未初始化归属可能包含无文件目录，此时保留一次库内扫描，避免展开全局空目录的分集。
+		files = files.Where(`CASE WHEN EXISTS (SELECT 1 FROM scoped WHERE library_ids IS NULL) THEN TRUE
+ ELSE m.metadata_id IN (
+ SELECT id FROM scoped UNION ALL SELECT id FROM seasons UNION ALL
+ SELECT episode.id FROM seasons JOIN LATERAL (
+ SELECT id FROM metadata_items WHERE parent_id=seasons.id AND kind='episode' OFFSET 0
+ ) episode ON TRUE) END`)
+	}
+	if len(filter.AllowedLibraryIDs) > 0 {
+		files = files.Where("m.library_id=ANY(?)", &filter.AllowedLibraryIDs)
+	}
+	if len(filter.HiddenLibraryIDs) > 0 {
+		files = files.Where("m.library_id<>ALL(?)", &filter.HiddenLibraryIDs)
+	}
+	seasons := db.Table("metadata_items lookup_season").Select("lookup_season.id,lookup_season.parent_id,lookup_season.season_num").
+		Joins("JOIN scoped work ON work.id=lookup_season.parent_id").Where("lookup_season.kind='season'").Where("EXISTS (SELECT 1 FROM scoped)")
+	// 每个关联元数据只解析一次，季集合按候选作品限定并复用。
+	items := db.Table("file_items m").
+		Joins("JOIN LATERAL (SELECT id,kind,parent_id,season_num,episode_num,release_date,year FROM metadata_items lookup_item WHERE id=m.metadata_id OFFSET 0) mi ON TRUE").
+		Joins("LEFT JOIN seasons season ON season.id=mi.parent_id AND mi.kind='episode'").
+		Joins("JOIN scoped work ON work.id=CASE WHEN mi.kind='episode' THEN season.parent_id WHEN mi.kind='season' THEN mi.parent_id ELSE mi.id END").
+		Select(`work.id AS metadata_id, mi.id AS item_id,
+COALESCE(season.season_num,mi.season_num,0) AS season_num,COALESCE(mi.episode_num,0) AS episode_num,
+CASE WHEN COALESCE(mi.release_date,'')<>'' THEN mi.release_date
+WHEN COALESCE(mi.year,0)>0 THEN LPAD(mi.year::text,4,'0')||'-12-31'
+ELSE to_char(m.file_date AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') END AS sort_date`)
+	page := db.Table("works").Order("sort_date DESC, metadata_id DESC").Offset(offset).Limit(limit)
+	var rows []struct {
+		LibraryMetadataSummary
+		Total int64
+	}
+	err := db.Raw(`WITH scoped AS MATERIALIZED (?), seasons AS MATERIALIZED (?), library_files AS MATERIALIZED (?), file_items AS (
+SELECT metadata_id,MAX(GREATEST(updated_at,created_at)) AS file_date FROM library_files GROUP BY metadata_id
+), items AS MATERIALIZED (?), works AS MATERIALIZED (
+SELECT metadata_id,MAX(sort_date) AS sort_date FROM items GROUP BY metadata_id
+), page AS MATERIALIZED (?), cards AS (
+SELECT page.metadata_id,page.sort_date,
+(ARRAY_AGG(files.id ORDER BY items.season_num,items.episode_num,files.created_at,files.id))[1] AS media_id,
+COUNT(DISTINCT items.item_id) AS count,COUNT(*) AS version_count
+FROM page JOIN items USING(metadata_id) JOIN library_files files ON files.metadata_id=items.item_id
+GROUP BY page.metadata_id,page.sort_date
+)
+SELECT cards.*,totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
+LEFT JOIN cards ON TRUE ORDER BY cards.sort_date DESC,cards.metadata_id DESC`, candidates, seasons, files, items, page).Scan(&rows).Error
+	summaries := make([]LibraryMetadataSummary, 0, len(rows))
+	var total int64
 	for _, row := range rows {
 		total = row.Total
 		if row.MetadataID != "" {

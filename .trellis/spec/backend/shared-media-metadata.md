@@ -142,27 +142,32 @@ supersedes older requirements for per-Episode extended responses and credits.
   can project the whole library before filtering a small series. Keep the single
   statement, visibility scope, complete versions and ordering; verify identifier
   lookup loops with `TestLibrarySeriesEpisodesScopesProjectionBeforeJoins`.
-- Web Series page aggregation without filters or an explicit metadata ID uses a
-  library-scoped Media derived table with `OFFSET 0`, preventing catalog-sized
-  parameterized Media probes. Missing-poster/title filters start from current
-  library Media with non-null metadata IDs, then resolve its own metadata,
-  optional Season and displayed Series through correlated primary-key LATERAL
-  lookups with `OFFSET 0` at every level. Preserve direct Series/Season files,
-  artwork asset existence and title fallback semantics on the displayed Series.
-  Do not expand global Series candidates: a newly populated library can be
-  estimated as one file until statistics refresh, repeating the entire candidate
-  hierarchy for every real file even when a membership subplan is hashed.
-  `TestLibraryFilteredSeriesPageWithStaleStatistics` analyzes the old library
-  before inserting the new one, includes unlinked pending files, and checks
-  actual file scan and metadata traversal bounds for all three filter modes.
-  A plan containing a hash is not sufficient evidence of bounded work; do not
-  require scrape completion or change global planner settings. Preserve visibility and
-  representative ordering. Web Series totals and pages share one materialized
-  association scope; group only the latest sort date before page selection,
-  then sort representative files and count versions for selected works only.
-  Preserve an aggregate total row through a LEFT JOIN when the page is empty.
-  Explicit-Series reads retain their selective scope and Movie pages retain
-  multipart/version preference rules; no file rows are truncated at the scope boundary.
+- Ordinary Web Series lists without an explicit metadata ID start from visible
+  Series candidates using persisted membership, then apply poster/title filters
+  once per work. Poster presence still requires a linked artwork asset; Chinese
+  title matching preserves the displayed Series title/original-name fallback.
+  Materialize candidate Seasons once. Filtered lists read the candidate
+  Series/Season/Episode file associations in the target visible library;
+  unfiltered lists reuse one library file scan without expanding all candidate
+  Episode IDs. Both project narrow ID/time fields.
+  An empty candidate set must execute no Media reads. If candidate membership is
+  unknown (`library_ids IS NULL`), retain one library-scoped file scan instead of
+  repeatedly expanding a potentially empty global catalog.
+  Aggregate file times by associated metadata ID before resolving the hierarchy;
+  retain release date, year-end and UTC file-time fallback ordering and ID ties.
+  Direct Series/Season files remain eligible. Totals and pages share the resulting
+  work set; representative sorting, distinct item counts and version counts run
+  only for selected works. An empty page retains its accurate aggregate total via
+  LEFT JOIN. No file rows are truncated, and file visibility applies even when
+  persisted membership is unknown.
+  `TestLibrarySeriesWorkFiltersBeforeFiles` checks work-bounded artwork lookups,
+  zero file reads for empty filters, complete versions and unknown-membership
+  visibility. `TestLibraryFilteredSeriesPageWithStaleStatistics` checks actual
+  file scan and metadata traversal bounds for all three filter modes after a new
+  library is populated without statistics refresh. A hash node alone is not
+  evidence of bounded work; do not require scrape completion or change global
+  planner settings. Explicit-Series reads retain their selective file scope;
+  Movie pages retain multipart/version preference rules.
 - All Movie pages, including unfiltered browsing, join Movie metadata directly
   (`work.id = mi.id`), without Season/Series hierarchy expansion. A parent CASE
   join can prevent the work ID from restricting Media through its metadata index,
