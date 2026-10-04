@@ -523,3 +523,25 @@ PlaybackInfo 返回前记录白名单脱敏结构摘要，覆盖媒体源能力�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 186: 媒体库作品最新入库时间排序统一
+<!-- trellis-session: v=2 fp=2a3ba34e14b6db00 -->
+
+**Date**: 2026-10-04
+**Task**: 媒体库作品最新入库时间排序统一
+**Branch**: `main`
+
+### Summary
+
+Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最新入库时间排序分页，再补页内版本；保留显式排序及全局、分集、继续播放等边界。真实PostgreSQL回归、执行计划、独立复核、go vet和前端检查通过。真实Web国产剧仓储75–135ms；Emby免精确计数约140ms、精确计数约390ms，剩余计数含JIT开销。临时产物和调试服务已清理。未部署、未推送，未验证线上HTTP及真实播放器。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a9b47a0` | fix: 统一媒体库作品最新入库时间排序 |
+
+### Status
+
+[OK] **Completed**
