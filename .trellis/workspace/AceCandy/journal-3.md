@@ -457,3 +457,25 @@ PlaybackInfo 返回前记录白名单脱敏结构摘要，覆盖媒体源能力�
 ### Next Steps
 
 - 尚未推送、部署或验证客户端HTTP耗时；必要的全候选日期与资格计算仍随库规模增长。
+
+
+## Session 183: 原生 WebP 编码加速
+<!-- trellis-session: v=2 fp=ce9a56786f4952e8 -->
+
+**Date**: 2026-10-04
+**Task**: 原生 WebP 编码加速
+**Branch**: `main`
+
+### Summary
+
+修复本地库名映射及动态构建、正式镜像原生库加载，启动日志记录编码后端。原生图片回归、后备、race、vet、启动脚本和amd64镜像门禁通过；代表样本首次生成约104/122/265ms。arm64未实测，当前运行服务未重启，镜像未发布。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `58cda9e` | perf(image): 启用原生 WebP 编码加速 |
+
+### Status
+
+[OK] **Completed**
