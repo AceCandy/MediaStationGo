@@ -677,3 +677,25 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Next Steps
 
 - 服务运行新版本后防复发代码生效；尚未重启或部署
+
+
+## Session 191: 收藏媒体库归属接口
+<!-- trellis-session: v=2 fp=6ddaa64a1dd8caef -->
+
+**Date**: 2026-10-05
+**Task**: 收藏媒体库归属接口
+**Branch**: `main`
+
+### Summary
+
+收藏 Movie/Series 返回当前用户可见的 LibraryIds，Views 返回 LibraryType，保留条目身份和分页。隔离 PostgreSQL 四项顶层回归、Web lint/build 及隐私检查通过；尚未部署及进行线上联调。保留另一任务的红果浏览优化工作树改动。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5b4f94d` | feat(emby): 收藏返回媒体库归属并暴露库类型 |
+
+### Status
+
+[OK] **Completed**
