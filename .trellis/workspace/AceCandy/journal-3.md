@@ -647,3 +647,33 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Next Steps
 
 - 部署及线上 HTTP 耗时待验证；作品级 Latest 展示待另行确认
+
+
+## Session 190: 修复并发作品重复入库
+<!-- trellis-session: v=2 fp=18ab3cd1651e0e00 -->
+
+**Date**: 2026-10-05
+**Task**: 修复并发作品重复入库
+**Branch**: `main`
+
+### Summary
+
+修复 canonical 身份并发与版本季目录识别，已归并重复纪录片，验证1作品7集14版本。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8dddfa1` | fix(metadata): prevent duplicate works during concurrent ingestion |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 并发/合并/入库回归、go vet、git diff --check通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 服务运行新版本后防复发代码生效；尚未重启或部署
