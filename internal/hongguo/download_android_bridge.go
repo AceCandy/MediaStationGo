@@ -46,13 +46,17 @@ func validAndroidAddress(address string) bool {
 
 // 每次请求使用独立 ADB socket、密钥目录和远端脚本；清理完成后才允许下一目标调用 App。
 func (a *androidDownload) resolve(parent context.Context, _, videoID string) (DownloadMedia, error) {
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
-	defer cancel()
 	select {
 	case a.gate <- struct{}{}:
 		defer func() { <-a.gate }()
-	case <-ctx.Done():
-		return DownloadMedia{}, ctx.Err()
+	case <-parent.Done():
+		return DownloadMedia{}, parent.Err()
+	}
+	// 排队受任务取消与总期限控制；取得独占名额后才计取模型的执行预算。
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return DownloadMedia{}, err
 	}
 	if !validAndroidAddress(a.address) {
 		return DownloadMedia{}, errors.New("Android ADB 地址无效")
@@ -97,12 +101,27 @@ func (a *androidDownload) resolve(parent context.Context, _, videoID string) (Do
 		return DownloadMedia{}, err
 	}
 	device := func(args ...string) ([]byte, error) { return run(ctx, append([]string{"-s", a.address}, args...)...) }
-	version, err := device("shell", "dumpsys package "+androidPackage)
-	if err != nil {
+	if _, err = device("wait-for-device"); err != nil {
 		return DownloadMedia{}, err
 	}
-	if !strings.Contains(string(version), "versionCode=73932 ") {
-		return DownloadMedia{}, errors.New("Android 需要已初始化的官方红果 App 7.3.9.32，请按部署文档安装")
+	for {
+		version, err := device("shell", "dumpsys package "+androidPackage)
+		if err != nil {
+			return DownloadMedia{}, err
+		}
+		err = androidAppVersion(string(version))
+		if !errors.Is(err, errAndroidSystemNotReady) {
+			if err != nil {
+				return DownloadMedia{}, err
+			}
+			break
+		}
+		if err := androidPause(ctx, time.Second); err != nil {
+			if parent.Err() != nil {
+				return DownloadMedia{}, parent.Err()
+			}
+			return DownloadMedia{}, errAndroidSystemNotReady
+		}
 	}
 	if _, err = device("shell", "mkdir -p "+remote); err != nil {
 		return DownloadMedia{}, err
@@ -190,6 +209,26 @@ func (a *androidDownload) resolve(parent context.Context, _, videoID string) (Do
 		return DownloadMedia{}, err
 	}
 	return event.Media, nil
+}
+
+var errAndroidSystemNotReady = errors.New("Android 系统包管理服务未就绪，请检查模拟器状态")
+
+// 系统服务缺失或返回诊断文本时，不能误报为 App 未安装或未初始化。
+func androidAppVersion(output string) error {
+	for _, field := range strings.Fields(output) {
+		if version, found := strings.CutPrefix(field, "versionCode="); found {
+			if version == "73932" {
+				return nil
+			}
+			if _, err := strconv.Atoi(version); err == nil {
+				return errors.New("Android 红果 App 版本不匹配，需要 7.3.9.32")
+			}
+		}
+	}
+	if strings.Contains(output, "Unable to find package: "+androidPackage) {
+		return errors.New("Android 未安装官方红果 App，请按部署文档安装 7.3.9.32")
+	}
+	return errAndroidSystemNotReady
 }
 
 // App 会 fork 同名子进程；只连接父进程，不能直接把 pidof 的多 PID 输出当成一个 PID。

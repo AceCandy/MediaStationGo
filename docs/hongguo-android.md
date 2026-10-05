@@ -2,7 +2,7 @@
 
 这是可选功能：现有 App、备用接口、官方网页各尝试一次，共三次失败后，增加一次 Android 离线来源。Go 获取官方 App 的目标分集模型，仍由原下载队列传输、校验和发布文件。来源显示为“Android 离线”；不是首选来源选项。
 
-启用期间 Android 容器需常驻。`restart: unless-stopped` 自动恢复，命名数据卷保留 App 初始化状态。当前验证环境为 Linux amd64、redroid Android14、官方红果7.3.9.32，至少预留4CPU和4GiB内存额度以及 Android 镜像/数据磁盘空间。宿主内核需支持 binder；容器使用 privileged，应作为专用 Android 环境，不安装账户或其它业务 App。项目 Compose 模式的 ADB 仅在容器网络中提供；独立模拟器模式默认仅映射到宿主回环地址。一个 Android 容器只配一个项目实例，模型获取串行，含排队最多两分钟。
+启用期间 Android 容器需常驻。`restart: unless-stopped` 自动恢复，命名数据卷保留 App 初始化状态。当前验证环境为 Linux amd64、redroid Android14、官方红果7.3.9.32，至少预留4CPU和4GiB内存额度以及 Android 镜像/数据磁盘空间。宿主内核需支持 binder；容器使用 privileged，应作为专用 Android 环境，不安装账户或其它业务 App。项目 Compose 模式的 ADB 仅在容器网络中提供；独立模拟器模式默认仅映射到宿主回环地址。一个 Android 容器只配一个项目实例，模型获取串行，取得名额后最多执行两分钟；排队仍受下载任务的总超时与取消控制。
 
 ## 部署
 
@@ -100,7 +100,7 @@ docker compose -f docker-compose.yml -f docker-compose.hongguo-android.yml exec 
 
 下载时启动 App 后立即退到 Android 首页保持后台，在 App 内调用其原有离线批量 RPC 获取指定数字分集 ID 的模型，不播放视频或在 App 中下载整集。媒体地址/密钥只在内存，按返回 Map 的数字分集 ID 绑定；取消/超时清理取模型进程、脚本及专用 ADB 服务器。模型返回最高兼容质量；已验证《凡人百世书第三季》第81集是720P H.264、第82集是1080P HEVC，不能承诺所有集数均有1080P或所有作品可用。
 
-容器/网络/App异常只消耗这一次兜底，记录固定错误类别；不会无限重启 Android。重试依然从现有首选来源开始。重启 Android 可保留数据卷；不要删除卷，除非明确要重新初始化。常驻资源占用、App UI变化及长期稳定性需要部署后持续观察。
+容器/网络/App异常只消耗这一次兜底，记录固定错误类别；不会无限重启 Android。健康检查每十秒检查当前 `lmkd` 进程的近期错误；发现已确认的 `epoll_wait failed (errno=22)` 时，仅重启该内存管理服务并重新检查，不删除 App 数据、不关闭内存保护。容器显示 healthy 不代表每个模型都可获取。重试依然从现有首选来源开始。重启 Android 可保留数据卷；不要删除卷，除非明确要重新初始化。常驻资源占用、App UI变化及长期稳定性需要部署后持续观察。
 
 关闭功能时先停止 Android，再仅用原 Compose 文件重建项目服务为默认镜像，去掉环境变量。保留数据卷可日后恢复，已完成文件不受影响：
 
@@ -108,6 +108,8 @@ docker compose -f docker-compose.yml -f docker-compose.hongguo-android.yml exec 
 docker compose -f docker-compose.yml -f docker-compose.hongguo-android.yml stop hongguo-android
 docker compose -f docker-compose.yml up -d --force-recreate mediastation-go
 ```
+
+更新独立 Compose 后，执行 `docker compose -f docker-compose.hongguo-android-standalone.yml up -d --wait` 应用健康检查；可能重建模拟器容器，保留原命名卷。后端代码更新后重启 `./dev.sh`，使排队计时修复生效。
 
 ## 显式验证
 

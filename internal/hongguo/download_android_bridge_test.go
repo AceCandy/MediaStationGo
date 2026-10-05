@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -48,6 +49,67 @@ func TestAndroidWaitingCancellation(t *testing.T) {
 	}
 	if len(c.android.gate) != 1 {
 		t.Fatal("cancelled waiter released another request's slot")
+	}
+}
+
+func TestAndroidQueueDoesNotConsumeExecutionTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a := &androidDownload{address: "invalid", gate: make(chan struct{}, 1)}
+		a.gate <- struct{}{}
+		finished := make(chan error, 1)
+		go func() {
+			_, err := a.resolve(context.Background(), "123", "456")
+			finished <- err
+		}()
+		synctest.Wait()
+		time.Sleep(3 * time.Minute)
+		select {
+		case <-finished:
+			t.Fatal("waiter consumed the execution timeout before acquiring the gate")
+		default:
+		}
+		<-a.gate
+		if err := <-finished; err == nil || err.Error() != "Android ADB 地址无效" {
+			t.Fatalf("waiter did not reach execution: %v", err)
+		}
+		if len(a.gate) != 0 {
+			t.Fatal("execution did not release its gate slot")
+		}
+	})
+}
+
+func TestAndroidAppVersionDiagnostics(t *testing.T) {
+	for _, output := range []string{"versionCode=73932 minSdk=21", "versionCode=73932\n", "  versionCode=73932"} {
+		if err := androidAppVersion(output); err != nil {
+			t.Fatalf("valid version rejected: %v", err)
+		}
+	}
+	for _, output := range []string{"", "Can't find service: package", "versionCode=invalid"} {
+		if err := androidAppVersion(output); !errors.Is(err, errAndroidSystemNotReady) {
+			t.Fatalf("system diagnostic misclassified: %v", err)
+		}
+	}
+	for _, output := range []string{"versionCode=73933 minSdk=21", "Unable to find package: com.phoenix.read"} {
+		if err := androidAppVersion(output); err == nil || errors.Is(err, errAndroidSystemNotReady) {
+			t.Fatalf("missing or wrong App accepted: %v", err)
+		}
+	}
+}
+
+func TestAndroidWaitsForPackageService(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	marker := filepath.Join(bin, "checked")
+	script := "#!/bin/sh\ncase \"$*\" in\n*'dumpsys package'*)\nif test -f '" + marker + "'; then echo 'versionCode=73933'; else touch '" + marker + "'; echo \"Can't find service: package\"; fi ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "adb"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	a := &androidDownload{address: "127.0.0.1:5555", gate: make(chan struct{}, 1)}
+	ctx, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	_, err := a.resolve(ctx, "123", "456")
+	if err == nil || err.Error() != "Android 红果 App 版本不匹配，需要 7.3.9.32" {
+		t.Fatalf("did not wait for the package service to return a version: %v", err)
 	}
 }
 

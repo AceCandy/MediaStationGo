@@ -31,7 +31,19 @@ services:
       - androidboot.redroid_gpu_mode=guest
       - androidboot.use_memfd=true
     healthcheck:
-      test: ["CMD", "/system/bin/sh", "-c", "test \"$(/system/bin/getprop sys.boot_completed)\" = 1"]
+      # 已确认的 lmkd 事件计数异常会阻塞系统；只恢复该服务，不重启 Android 或删除数据。
+      test:
+        - CMD
+        - /system/bin/sh
+        - -c
+        - |
+          test "$$(getprop sys.boot_completed)" = 1 || exit 1
+          pid="$$(getprop init.svc_debug_pid.lmkd)"
+          case "$$pid" in ''|*[!0-9]*) exit 1 ;; esac
+          errors="$$(logcat -b main -d -t 100 --pid="$$pid" -s lowmemorykiller:E 2>/dev/null)" || exit 1
+          case "$$errors" in
+            *'epoll_wait failed (errno=22)'*) setprop ctl.restart lmkd; exit 1 ;;
+          esac
       interval: 10s
       timeout: 5s
       start_period: 60s
