@@ -47,7 +47,7 @@ func TestEmbyGlobalPayloadsParallel(t *testing.T) {
 						source = "legacy"
 					case strings.Contains(sql, "AS nodes") && strings.Contains(sql, "nfo_media_bindings"):
 						source = "nfo"
-					case strings.Contains(sql, "AS nodes") && strings.Contains(sql, "hongguo_media_bindings"):
+					case strings.HasPrefix(sql, "WITH page_works AS MATERIALIZED") || strings.Contains(sql, "AS nodes") && strings.Contains(sql, "hongguo_media_bindings"):
 						source = "hongguo"
 					}
 					mu.Lock()

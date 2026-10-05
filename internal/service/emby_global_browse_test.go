@@ -156,7 +156,7 @@ func assertGlobalFavoriteBrowsePlan(t *testing.T, e *EmbyService) {
 	}
 	var queries []statement
 	if err := db.Callback().Row().After("gorm:row").Register("test:global-favorite-plan", func(tx *gorm.DB) {
-		if strings.HasPrefix(tx.Statement.SQL.String(), "WITH work_batch AS MATERIALIZED") {
+		if strings.HasPrefix(tx.Statement.SQL.String(), "WITH work_batch AS MATERIALIZED") || strings.HasPrefix(tx.Statement.SQL.String(), "WITH page_works AS MATERIALIZED") {
 			queries = append(queries, statement{tx.Statement.SQL.String(), append([]any(nil), tx.Statement.Vars...)})
 		}
 	}); err != nil {
@@ -172,7 +172,7 @@ func assertGlobalFavoriteBrowsePlan(t *testing.T, e *EmbyService) {
 			t.Fatal(err)
 		}
 		items := result["Items"].([]map[string]any)
-		if result["TotalRecordCount"] != int64(1) || len(items) != 1 || items[0]["Id"] != "hg-group-2000" || len(queries) != 2 {
+		if result["TotalRecordCount"] != int64(1) || len(items) != 1 || items[0]["Id"] != "hg-group-2000" || len(queries) != 3 {
 			t.Fatalf("favorite sort=%s total=%v items=%v queries=%d", sortBy, result["TotalRecordCount"], items, len(queries))
 		}
 		for phase, query := range append([]statement(nil), queries...) {
@@ -222,6 +222,8 @@ func assertGlobalBrowseMatchesHierarchy(t *testing.T, e *EmbyService, user strin
 		types                           []string
 	}{
 		{"", "", "IsUnplayed", "", nil},
+		{"DateLastContentAdded", "Descending", "IsUnplayed", "", nil},
+		{"DateLastContentAdded", "Ascending", "IsPlayed", "", nil},
 		{"SortName", "Ascending", "", "", []string{"Movie", "Series"}},
 		{"Random", "", "IsUnplayed", "", []string{"Movie", "Series"}},
 		{"DateCreated", "Ascending", "", "", []string{"Movie", "Series"}},

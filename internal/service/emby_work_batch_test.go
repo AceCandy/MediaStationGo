@@ -197,19 +197,36 @@ func TestEmbyWorkBatchContinuesAndCounts(t *testing.T) {
 func TestEmbyWorkBatchError(t *testing.T) {
 	e := newTestEmbyService(t)
 	db := e.repo.DB
+	var initialJIT string
+	if err := db.Raw("SHOW jit").Scan(&initialJIT).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("SET jit = on").Error; err != nil {
+		t.Fatal(err)
+	}
+	defer db.Exec("SELECT set_config('jit',?,false)", initialJIT)
+	assertJITRestored := func() {
+		t.Helper()
+		var value string
+		if err := db.Raw("SHOW jit").Scan(&value).Error; err != nil || value != "on" {
+			t.Fatalf("batch transaction leaked jit=%s err=%v", value, err)
+		}
+	}
 	candidates := db.Table("generate_series(1,155) n").Select("n::text AS id,n AS ordinal").Order("n")
 	eligible := db.Table("work_batch").Select("ordinal").Where("1 / (CASE WHEN ordinal>50 THEN 0 ELSE 1 END) > 0 AND ordinal>50")
 	if _, _, err := e.filteredWorkBatchPage(t.Context(), candidates, eligible, 0, 2, false); err == nil {
 		t.Fatal("batch query error was swallowed")
 	}
+	assertJITRestored()
 	for _, start := range []int{0, 1, 4} {
 		eligible = db.Table("work_batch").Select("ordinal").Where("ordinal IN (51,103,155)").
-			Where("current_setting('transaction_isolation')='repeatable read' AND current_setting('transaction_read_only')='on'")
+			Where("current_setting('transaction_isolation')='repeatable read' AND current_setting('transaction_read_only')='on' AND current_setting('jit')='off'")
 		ids, total, err := e.filteredWorkBatchPage(t.Context(), candidates, eligible, start, 2, true)
 		want := []string{"51", "103", "155"}[min(start, 3):min(start+2, 3)]
 		if err != nil || total != 3 || fmt.Sprint(ids) != fmt.Sprint(want) {
 			t.Fatalf("ids=%v total=%d err=%v", ids, total, err)
 		}
+		assertJITRestored()
 	}
 }
 

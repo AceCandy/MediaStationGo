@@ -32,6 +32,11 @@ func (r *MediaViewRepository) workBatchPage(ctx context.Context, candidates, eli
 		columns += ", b.latest"
 	}
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 动态候选补取无法复用 JIT 编译；编译开销会远超过页内资格检查。
+		// 只在本次只读分页事务关闭，结束后恢复连接原设置。
+		if err := tx.Exec("SET LOCAL jit = off").Error; err != nil {
+			return err
+		}
 		if count {
 			qualified := eligible
 			if len(countEligible) > 0 {

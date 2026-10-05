@@ -260,3 +260,26 @@ must not be removed merely because its accurate computation was skipped.
 Wrong：看到 SQL 中有 Media 就全部替换，或把所有日期排序改为最新入库时间。
 
 Correct：先区分文件是否用于必要资格/排序、当前页展示还是冗余候选枚举；保持协议结果，用执行计划确认改动收益。
+
+Global HongGuo payload hydration resolves only requested work/album members and
+reuses `hongGuoLibraryNodes` for root cards; Season/Episode keep the original
+identity-scoped hierarchy query. Preserve single-work membership exceptions,
+requested identity filtering, preferred media, payload Fields and ID order.
+`TestHongGuoPageNodesPreservePayloadsAndBoundWorkReads` compares full public
+payloads with the unchanged hierarchy oracle and checks real page hydration.
+For global Movie/Episode Latest candidates, preserve visible-file MAX dates
+(`DISTINCT ON` with DESC NULLS LAST is equivalent), separate root/episode
+identities and project constant kinds before outer type filters. Keep exact
+episode/work ownership checks; correlated key selectivity and computed kind
+filters can underestimate a million episodes and cause repeated index probes.
+Check actual plans as well as query count. Other type/sort paths remain unchanged.
+
+`workBatchPage` disables JIT with SET LOCAL only inside its read-only repeatable
+read transaction. Dynamic batch SQL compilation can exceed query execution;
+never change session/database defaults. `TestEmbyWorkBatchError` verifies the
+setting inside qualification and restoration after both commit and rollback on
+the same connection; preserve count, ordinal ties and sparse refill semantics.
+
+Global batch candidates carry only id/kind/source/origin_id/work_ids and ordinal
+into qualification. Keep the original predicates and window/order expressions;
+unused display/date/state fields inflate full-catalog window sort tuples.

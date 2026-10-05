@@ -55,6 +55,11 @@ func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, c
 // hongGuoGlobalCandidates 仅投影筛选、排序所需字段；合集资料不按文件重复计算。
 func (e *EmbyService) hongGuoGlobalCandidates(ctx context.Context, p ItemsParams) *gorm.DB {
 	db := e.repo.DB.WithContext(ctx)
+	kinds := globalItemKinds(p)
+	if len(kinds) == 2 && containsEmbyFilter(kinds, "movie") && containsEmbyFilter(kinds, "episode") &&
+		strings.HasPrefix(globalItemsOrder(p), "latest_at ") && !containsEmbyFilter(p.Filters, "IsPlayed") && !containsEmbyFilter(p.Filters, "IsUnplayed") {
+		return e.hongGuoLatestCandidates(ctx, p)
+	}
 	// 作品列表先压缩每个源作品的文件；季集请求才保留分集身份。
 	group, episode := "b.work_id,b.episode_id", "b.episode_id"
 	if containsOnlyFavoriteItemTypes(p.IncludeItemTypes) || len(p.IncludeItemTypes) == 0 && (strings.TrimSpace(p.SearchTerm) != "" || containsEmbyFilter(p.Filters, "IsFavorite")) {
@@ -96,6 +101,34 @@ CROSS JOIN LATERAL (VALUES
 ) n(id,kind,title)
 WHERE n.id IS NOT NULL GROUP BY n.id,resume_key,n.kind,n.title`,
 		files, p.UserID))
+}
+
+// hongGuoLatestCandidates 直接生成电影/分集身份，避免为 Latest 再展开并聚合三层节点。
+// 状态仍由当前候选批的文件资格查询检查；多版本时间保持可见文件的 MAX。
+func (e *EmbyService) hongGuoLatestCandidates(ctx context.Context, p ItemsParams) *gorm.DB {
+	db := e.repo.DB.WithContext(ctx)
+	episode := "CASE WHEN w.kind='movie' THEN NULL ELSE b.episode_id END"
+	files := e.hongGuoVisibleFiles(ctx, p.UserID, "").
+		Joins("JOIN hongguo_media_bindings b ON b.media_id=m.id").
+		Joins("JOIN hongguo_works w ON w.id=b.work_id").
+		Select("DISTINCT ON (b.work_id," + episode + ") b.work_id," + episode + " AS episode_id,m.created_at").
+		Order("b.work_id," + episode + ",m.created_at DESC NULLS LAST")
+	projection := `CASE WHEN w.kind='movie' THEN 'hg-work-'||w.id ELSE 'hg-episode-'||ep.id END AS id,
+CASE WHEN w.kind='series' AND w.related_album_id<>'' AND w.season_index>0 THEN 'hongguo:group:'||w.related_album_id
+ ELSE 'hongguo:work:'||w.source_id END AS resume_key,
+CASE WHEN w.kind='movie' THEN w.title ELSE '第'||ep.number||'集' END AS title,
+m.created_at,CASE WHEN w.kind='movie' THEN w.latest_media_added_at ELSE m.created_at END AS latest_at,
+m.created_at AS played_at,FALSE AS played,COALESCE(f.favorite,FALSE) AS favorite,
+0::bigint AS position_ms,w.rating,'' AS release_date,0 AS year,ARRAY[w.id::text] AS work_ids`
+	base := db.Table("file_stats m").Joins("JOIN hongguo_works w ON w.id=m.work_id").
+		Joins("LEFT JOIN hongguo_favorites f ON f.user_id=? AND f.item_id="+repository.HongGuoFavoriteIdentitySQL, p.UserID)
+	// 分集 ID 已决定其作品；归属单独用 CASE 校验，避免两个关联等式被当作独立选择率。
+	// kind 投影常量，避免外层类型筛选低估百万分集；电影分支不读取分集。
+	episodes := base.Session(&gorm.Session{}).Joins("JOIN hongguo_episodes ep ON ep.id=m.episode_id").
+		Where("CASE WHEN w.kind='series' AND ep.work_id=w.id THEN TRUE ELSE FALSE END").
+		Select(projection + ",'episode' AS kind")
+	movies := base.Session(&gorm.Session{}).Joins("LEFT JOIN hongguo_episodes ep ON FALSE").Where("w.kind='movie'").Select(projection + ",'movie' AS kind")
+	return db.Table("(?) candidates", db.Raw("WITH file_stats AS MATERIALIZED (?) ? UNION ALL ?", files, episodes, movies))
 }
 
 func globalItemKinds(p ItemsParams) []string {
@@ -187,8 +220,8 @@ func (e *EmbyService) loadGlobalItemPayloads(ctx context.Context, ids []string, 
 	var sourceItems, localItems, legacyItems []map[string]any
 	if len(sourceIDs) > 0 {
 		pending.Go(func() {
-			var nodes []hongGuoNode
-			if err := e.hongGuoItemNodes(loadCtx, p.UserID, sourceIDs...).Where("id IN ?", sourceIDs).Scan(&nodes).Error; err != nil {
+			nodes, err := e.hongGuoPageNodes(loadCtx, p.UserID, sourceIDs)
+			if err != nil {
 				cancel(err)
 				return
 			}
@@ -197,7 +230,6 @@ func (e *EmbyService) loadGlobalItemPayloads(ctx context.Context, ids []string, 
 					nodes[i].MediaID = mediaID
 				}
 			}
-			var err error
 			sourceItems, err = e.hongGuoNodePayloads(loadCtx, nodes, p.UserID, p.Fields)
 			if err != nil {
 				cancel(err)
@@ -250,6 +282,61 @@ func (e *EmbyService) loadGlobalItemPayloads(ctx context.Context, ids []string, 
 		}
 	}
 	return items, nil
+}
+
+// hongGuoPageNodes 让收藏与全局 Latest 的作品卡片共用库内投影，季集保留原身份范围。
+func (e *EmbyService) hongGuoPageNodes(ctx context.Context, userID string, ids []string) ([]hongGuoNode, error) {
+	var workIDs, hierarchyIDs []string
+	for _, id := range ids {
+		if strings.HasPrefix(id, "hg-group-") || strings.HasPrefix(id, "hg-work-") {
+			workIDs = append(workIDs, id)
+		} else {
+			hierarchyIDs = append(hierarchyIDs, id)
+		}
+	}
+	var nodes []hongGuoNode
+	if len(workIDs) > 0 {
+		var members []struct{ ID, Kind string }
+		q := repository.FilterHongGuoWorkIDs(e.repo.DB.WithContext(ctx).Table("hongguo_works w"), workIDs)
+		if len(ids) != 1 || !strings.HasPrefix(ids[0], "hg-work-") {
+			q = e.workLibraryScope(ctx, q, "w.library_ids", ItemsParams{UserID: userID})
+		}
+		if err := q.Select("w.id,w.kind").Scan(&members).Error; err != nil {
+			return nil, err
+		}
+		if len(members) > 0 {
+			memberIDs := make([]string, 0, len(members))
+			seriesOnly := true
+			for _, member := range members {
+				memberIDs = append(memberIDs, member.ID)
+				seriesOnly = seriesOnly && member.Kind == "series"
+			}
+			var err error
+			nodes, err = e.hongGuoLibraryNodes(ctx, ItemsParams{UserID: userID}, memberIDs, seriesOnly)
+			if err != nil {
+				return nil, err
+			}
+			requested := make(map[string]bool, len(workIDs))
+			for _, id := range workIDs {
+				requested[id] = true
+			}
+			selected := nodes[:0]
+			for _, node := range nodes {
+				if requested[node.ID] {
+					selected = append(selected, node)
+				}
+			}
+			nodes = selected
+		}
+	}
+	if len(hierarchyIDs) > 0 {
+		var hierarchy []hongGuoNode
+		if err := e.hongGuoItemNodes(ctx, userID, hierarchyIDs...).Where("id IN ?", hierarchyIDs).Scan(&hierarchy).Error; err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, hierarchy...)
+	}
+	return nodes, nil
 }
 
 // 混合页中的旧资料仍使用原有批量投影与 Fields 规则，不逐项调用完整详情。

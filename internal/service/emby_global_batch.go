@@ -65,7 +65,8 @@ NULL::text AS origin_id,NULL::text[] AS work_ids,'nfo' AS source`)
 	}
 	q := filterGlobalItems(db.Table("(?) combined", combined), base)
 	order := globalItemsOrder(p) + ", source, origin_id NULLS FIRST"
-	return q.Select("*,ROW_NUMBER() OVER (ORDER BY " + order + ") AS ordinal").Order(order)
+	// work_batch 只携带资格所需身份；筛选和排序仍使用原字段，避免排序全部展示资料。
+	return q.Select("id,kind,source,origin_id,work_ids,ROW_NUMBER() OVER (ORDER BY " + order + ") AS ordinal").Order(order)
 }
 
 // legacyGlobalBatchCandidates 从资料关系生成旧分组，仅为文件依赖排序读取文件。
@@ -73,8 +74,10 @@ func (e *EmbyService) legacyGlobalBatchCandidates(ctx context.Context, p ItemsPa
 	db := e.repo.DB.WithContext(ctx)
 	q := e.workLibraryScope(ctx, db.Table("metadata_items item"), "item.library_ids", p).
 		Where("item.kind IN ?", globalItemKinds(p)).
+		Joins("LEFT JOIN metadata_items origin_parent ON origin_parent.id=item.parent_id").
+		Joins("LEFT JOIN metadata_items origin_grandparent ON origin_grandparent.id=origin_parent.parent_id").
 		Joins(`CROSS JOIN LATERAL (
-SELECT (SELECT g.id FROM metadata_items p JOIN metadata_items g ON g.id=p.parent_id WHERE p.id=item.parent_id) AS id
+SELECT origin_grandparent.id AS id
 UNION SELECT item.parent_id WHERE EXISTS (SELECT 1 FROM metadata_items WHERE parent_id=item.id)
 UNION SELECT item.id WHERE EXISTS (SELECT 1 FROM metadata_items p JOIN metadata_items leaf ON leaf.parent_id=p.id WHERE p.parent_id=item.id)
 ) origin`)
