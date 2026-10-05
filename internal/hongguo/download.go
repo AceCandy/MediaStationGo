@@ -28,6 +28,7 @@ type DownloadMedia struct {
 const DownloadApp = "app"
 const DownloadOfficial = "official"
 const DownloadFallback = "fallback"
+const DownloadAndroid = "android"
 
 // DownloadSources 保留已配置的首选来源，其余按 App、备用、网页顺序兜底。
 func DownloadSources(priority string) []string {
@@ -41,7 +42,7 @@ func DownloadSources(priority string) []string {
 }
 
 func DownloadSourceName(source string) string {
-	return map[string]string{DownloadApp: "App 接口", DownloadFallback: "备用接口", DownloadOfficial: "官方网页"}[source]
+	return map[string]string{DownloadApp: "App 接口", DownloadFallback: "备用接口", DownloadOfficial: "官方网页", DownloadAndroid: "Android 离线"}[source]
 }
 
 // DownloadHTTPClient 在实际连接时校验每个 IP，避免媒体 URL 和重定向访问本机或内网。
@@ -114,6 +115,12 @@ func (c *Client) ResolveDownloadSource(ctx context.Context, sourceID, videoID, s
 	}
 	if source == DownloadApp {
 		return c.resolveDownloadApp(ctx, videoID)
+	}
+	if source == DownloadAndroid {
+		if c.android == nil {
+			return DownloadMedia{}, errors.New("Android 离线来源未启用")
+		}
+		return c.android.resolve(ctx, sourceID, videoID)
 	}
 	if source != DownloadOfficial {
 		return DownloadMedia{}, errors.New("下载来源无效")

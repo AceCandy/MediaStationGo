@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/session-and-transfer-safety.md", "reason": "取消、恢复和关闭生命周期"}
+{"file": ".trellis/spec/backend/hongguo-android.md", "reason": "第十次来源、App RPC、私有ADB生命周期与实际验收契约"}
+{"file": ".trellis/tasks/10-05-hongguo-android-offline/check.md", "reason": "真实下载、重启、非root、队列回归及已知性能测试问题的脱敏验收记录"}

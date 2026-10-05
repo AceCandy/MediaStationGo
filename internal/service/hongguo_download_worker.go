@@ -24,7 +24,21 @@ import (
 var errHongGuoDownloadSource = errors.New("下载来源不可用")
 var errHongGuoAwaitVerification = errors.New("等待校验")
 
-const maxHongGuoSourceTries = 9 // 三个来源各最多尝试三轮，跨校验阶段共用预算。
+const maxHongGuoSourceTries = 3 // 三个来源各尝试一次，跨校验阶段共用预算。
+
+func (s *HongGuoDownloadService) sourceTryLimit() int {
+	if s.client.AndroidDownloadEnabled() {
+		return maxHongGuoSourceTries + 1
+	}
+	return maxHongGuoSourceTries
+}
+
+func (s *HongGuoDownloadService) nextDownloadSource(priority, previous string, tries int) string {
+	if s.client.AndroidDownloadEnabled() && tries >= maxHongGuoSourceTries {
+		return hongguo.DownloadAndroid
+	}
+	return nextHongGuoDownloadSource(priority, previous, tries)
+}
 
 func nextHongGuoDownloadSource(priority, previous string, tries int) string {
 	sources := hongguo.DownloadSources(priority)
@@ -90,13 +104,13 @@ func (s *HongGuoDownloadService) run(parent context.Context, row model.HongGuoDo
 		err = errors.New("下载执行记录创建失败")
 	} else {
 		err = fmt.Errorf("%w: 已达到来源重试上限", errHongGuoDownloadSource)
-		for row.SourceTries < maxHongGuoSourceTries || row.RawSize > 0 || row.SHA256 != "" {
+		for row.SourceTries < s.sourceTryLimit() || row.RawSize > 0 || row.SHA256 != "" {
 			cfg, configErr := s.Config(ctx)
 			if configErr != nil {
 				err = configErr
 				break
 			}
-			source := nextHongGuoDownloadSource(cfg.Priority, row.Source, row.SourceTries)
+			source := s.nextDownloadSource(cfg.Priority, row.Source, row.SourceTries)
 			verification := row.RawSize > 0 || row.SHA256 != ""
 			err = s.executeDownload(ctx, &row, &downloaded, &total, task, source)
 			if ctx.Err() == nil && errors.Is(err, errHongGuoDownloadSource) {
@@ -116,7 +130,7 @@ func (s *HongGuoDownloadService) run(parent context.Context, row model.HongGuoDo
 			if verification {
 				break
 			} // 需要重下时交还调度器，重新取得传输名额。
-			if row.SourceTries < maxHongGuoSourceTries {
+			if row.SourceTries < s.sourceTryLimit() {
 				task.Update(TaskUpdate{Message: "下载失败，准备重试", Details: []string{sanitizeTaskLogError(err).Error()}})
 				select {
 				case <-ctx.Done():
@@ -146,7 +160,7 @@ func (s *HongGuoDownloadService) run(parent context.Context, row model.HongGuoDo
 	if err != nil {
 		state := "failed"
 		message := sanitizeTaskLogError(err).Error()
-		if errors.Is(err, errHongGuoDownloadSource) && row.SourceTries < maxHongGuoSourceTries {
+		if errors.Is(err, errHongGuoDownloadSource) && row.SourceTries < s.sourceTryLimit() {
 			state = "queued"
 			message = "来源校验失败，等待换源重下"
 		}

@@ -285,6 +285,74 @@ func TestHongGuoDownloadThreeSourceOrder(t *testing.T) {
 	}
 }
 
+func TestHongGuoDownloadEachSourceOnce(t *testing.T) {
+	for _, priority := range []string{hongguo.DownloadApp, hongguo.DownloadFallback, hongguo.DownloadOfficial} {
+		t.Run(priority, func(t *testing.T) {
+			s := newDownloadTestService(t)
+			seed := seedDownload(t, s)
+			if err := s.repo.Setting.Set(t.Context(), hongGuoDownloadPriorityKey, priority); err != nil {
+				t.Fatal(err)
+			}
+			var visits []string
+			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+				if response := downloadDetailTestResponse(r); response != nil {
+					return response, nil
+				}
+				source := hongguo.DownloadOfficial
+				if r.URL.Path == "/api/hongguo/play" {
+					source = hongguo.DownloadFallback
+				} else if r.URL.Path == "/novel/player/video_model/v1/" {
+					source = hongguo.DownloadApp
+				}
+				visits = append(visits, source)
+				return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header), Request: r}, nil
+			})})
+			row, err := s.repo.HongGuo.ClaimHongGuoDownload(t.Context())
+			if err != nil || row == nil {
+				t.Fatal("claim failed")
+			}
+			s.run(t.Context(), *row)
+			if err := s.repo.DB.First(&seed, "id = ?", seed.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if seed.Status != "failed" || seed.SourceTries != 3 || strings.Join(visits, ",") != strings.Join(hongguo.DownloadSources(priority), ",") {
+				t.Fatalf("status=%s tries=%d sources=%v", seed.Status, seed.SourceTries, visits)
+			}
+		})
+	}
+}
+
+func TestHongGuoDownloadAndroidLastAttempt(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		client := hongguo.NewClient(nil)
+		if enabled {
+			client.EnableAndroidDownload("hongguo-android:5555", "/opt/hongguo")
+		}
+		s := &HongGuoDownloadService{client: client}
+		wantLimit := 3
+		if enabled {
+			wantLimit = 4
+		}
+		if s.sourceTryLimit() != wantLimit {
+			t.Fatal("source budget changed")
+		}
+		for _, priority := range []string{hongguo.DownloadApp, hongguo.DownloadFallback, hongguo.DownloadOfficial} {
+			previous := ""
+			for tries := 0; tries < wantLimit; tries++ {
+				want := hongguo.DownloadSources(priority)[tries%3]
+				if tries == 3 {
+					want = hongguo.DownloadAndroid
+				}
+				got := s.nextDownloadSource(priority, previous, tries)
+				if got != want {
+					t.Fatalf("enabled=%v attempt=%d source=%s", enabled, tries+1, got)
+				}
+				previous = got
+			}
+		}
+	}
+}
+
 func TestHongGuoDownloadDiagnosticsAndRetry(t *testing.T) {
 	s := newDownloadTestService(t)
 	row := seedDownload(t, s)

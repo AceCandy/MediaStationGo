@@ -29,6 +29,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Playback History and Statistics Contracts](./playback-contracts.md) | Shared progress, UserData isolation, events, and statistics contract | Active |
 | [HongGuoDB Catalog Isolation](./hongguo-catalog.md) | Independent catalog, binding, tasks, user state and Web/Emby projections | Active |
 | [HongGuo On-Demand Danmu](./hongguo-danmu.md) | Optional encrypted App parameters, current-episode XML and append-only comments | Active |
+| [HongGuo Android Offline Fallback](./hongguo-android.md) | Optional fourth-source App RPC, deployment and cancellation contracts | Active |
 | [Local NFO Catalog Boundaries](./nfo-catalog.md) | Independent local ingestion, state, Web/Emby projections and tasks | Active |
 | [Player Request Logging and Redirect Cache](./player-request-logging.md) | Playback redirect cache identity, failed-response logging, and cancellation status | Active |
 | [Douban Configuration and Artwork](./douban-cookie-config.md) | Database-owned Cookie, explicit proxy pool, configurable image origin, and managed poster repair | Active |
@@ -41,6 +42,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 - [ ] If changing Web/Emby library lists, recent items, work favorites or person-linked works, read [Work-Level Query Contracts](./work-level-queries.md) and inventory every equivalent consumer before editing.
 - [ ] If changing HongGuo or adding another catalog, read [HongGuoDB Catalog Isolation](./hongguo-catalog.md) before touching shared files or old metadata writers.
 - [ ] If changing HongGuo danmu or App parameters, read [HongGuo On-Demand Danmu](./hongguo-danmu.md).
+- [ ] If changing Android download fallback or its deployment, read [HongGuo Android Offline Fallback](./hongguo-android.md).
 - [ ] If changing a player-visible Emby route, authentication rule, parameter, response, stream behavior, or support level, read the [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) contract before editing.
 - [ ] If changing playback progress, resume, UserData, or playback statistics, read the [Playback History and Statistics Contracts](./playback-contracts.md).
 - [ ] If changing playback redirects or player request persistence, read [Player Request Logging and Redirect Cache](./player-request-logging.md).

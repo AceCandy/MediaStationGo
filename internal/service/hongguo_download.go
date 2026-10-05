@@ -66,7 +66,13 @@ type HongGuoDownloadConfigPatch struct {
 
 func NewHongGuoDownloadService(repo *repository.Container, catalog *HongGuoService, tasks *TaskTrackerService) *HongGuoDownloadService {
 	client := hongguo.DownloadHTTPClient()
-	return &HongGuoDownloadService{repo: repo, catalog: catalog, tasks: tasks, client: hongguo.NewClient(client), http: client, wake: make(chan struct{}, 1)}
+	resolver := hongguo.NewClient(client)
+	tools := os.Getenv("MEDIASTATION_HONGGUO_ANDROID_TOOLS")
+	if tools == "" {
+		tools = "/opt/hongguo"
+	}
+	resolver.EnableAndroidDownload(os.Getenv("MEDIASTATION_HONGGUO_ANDROID_ADB"), tools)
+	return &HongGuoDownloadService{repo: repo, catalog: catalog, tasks: tasks, client: resolver, http: client, wake: make(chan struct{}, 1)}
 }
 
 func (s *HongGuoDownloadService) Config(ctx context.Context) (HongGuoDownloadConfig, error) {

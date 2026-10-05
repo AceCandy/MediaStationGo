@@ -41,7 +41,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags="-linkmode=external -s -w -X main.version=${VERSION}" -o mediastation-go ./cmd/server
 
 # ---- Stage 3: runtime ------------------------------------------------------
-FROM alpine:3.23
+FROM alpine:3.23 AS runtime-base
 # Alpine ships ffprobe in the ffmpeg package; the application invokes ffprobe
 # for media inspection and does not start ffmpeg.
 RUN apk add --no-cache \
@@ -82,3 +82,20 @@ COPY docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]
+
+# Optional HongGuo Android controller; default images do not include these tools.
+FROM runtime-base AS runtime-android
+RUN test "$(uname -m)" = x86_64 \
+    && apk add --no-cache android-tools curl xz \
+    && mkdir -p /opt/hongguo \
+    && curl -fsSL --retry 3 https://github.com/frida/frida/releases/download/16.7.19/frida-inject-16.7.19-android-x86_64.xz -o /tmp/inject.xz \
+    && echo '5067656da28620d7016ff63b9149c75e9f08ffcc1fcf393d5adce9b4adf52026  /tmp/inject.xz' | sha256sum -c - \
+    && xz -dc /tmp/inject.xz > /opt/hongguo/frida-inject-android \
+    && curl -fsSL --retry 3 https://lf9-apk.ugapk.cn/package/apk/novelread/12267_73932/novelread_seo_laxin_pc_android_v12267_73932_d587_1790246416.apk -o /opt/hongguo/hongguo.apk \
+    && echo '1d668fcbd3f9547f173287a03b06dda0e34faad8228639b66b37faab4c5ec516  /opt/hongguo/hongguo.apk' | sha256sum -c - \
+    && chmod 755 /opt/hongguo/frida-inject-android \
+    && rm /tmp/inject.xz \
+    && apk del curl xz
+
+# Keep the normal multi-architecture image as the default build target.
+FROM runtime-base AS runtime

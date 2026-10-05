@@ -102,7 +102,10 @@ type Person struct {
 }
 
 // Client 使用固定来源与有界响应；注入 HTTP 客户端用于测试和网络策略。
-type Client struct{ http *http.Client }
+type Client struct {
+	http    *http.Client
+	android *androidDownload
+}
 
 func NewClient(client *http.Client) *Client {
 	if client == nil {
