@@ -153,9 +153,9 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 			t.Fatalf("latest NFO=%v: %v %v", withNFO, items, err)
 		}
 		assertEmbyUnplayedCount(t, items[0], 3)
-		// 全局 Latest 默认 Movie/Episode，与库内 Series 层级不同；有无 NFO 均保留旧顺序。
+		// 全局 Latest 与库内一致按电影/剧集展示；有无 NFO 都只补全作品卡片。
 		var old []hongGuoNode
-		if err := e.hongGuoNodes(ctx, "viewer", "").Where("kind IN ('Movie','Episode') AND NOT played").Order("latest_at DESC,id").Limit(2).Scan(&old).Error; err != nil {
+		if err := e.hongGuoNodes(ctx, "viewer", "").Where("kind IN ('Movie','Series') AND NOT played").Order("latest_at DESC,id DESC").Limit(2).Scan(&old).Error; err != nil {
 			t.Fatal(err)
 		}
 		want, err := e.hongGuoNodePayloads(ctx, old, "viewer", []string{"BasicSyncInfo"})

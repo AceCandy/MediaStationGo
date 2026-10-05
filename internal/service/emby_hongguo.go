@@ -148,6 +148,20 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	if parentID == "" {
+		filter := "IsUnplayed"
+		if isPlayed {
+			filter = "IsPlayed"
+		}
+		p := ItemsParams{UserID: userID, Recursive: true, IncludeItemTypes: []string{"Movie", "Series"}, Limit: limit,
+			Fields: fields, Filters: []string{filter}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
+		result, _, err := e.globalItemsWithCount(ctx, p, false, true)
+		if err != nil {
+			return nil, err
+		}
+		items, _ := result["Items"].([]map[string]any)
+		return items, nil
+	}
 	if parentID != "" && !strings.HasPrefix(parentID, "hg-") && !strings.HasPrefix(parentID, "nfo-") {
 		library, err := FindLibraryBasic(ctx, e.repo, e.cache, parentID)
 		if err != nil {
@@ -178,15 +192,6 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 			filter = "IsPlayed"
 		}
 		params := ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
-		if parentID == "" {
-			params.Recursive = true
-			result, _, err := e.globalItemsWithCount(ctx, params, false)
-			if err != nil {
-				return nil, err
-			}
-			items, _ := result["Items"].([]map[string]any)
-			return items, nil
-		}
 		if result, handled, err := e.hongGuoHierarchyItems(ctx, params); handled {
 			if err != nil {
 				return nil, err
@@ -210,9 +215,6 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	}
 	if !hasSource {
 		return e.legacyLatestItems(ctx, userID, parentID, limit, isPlayed, fields...)
-	}
-	if parentID == "" {
-		return e.mixedLatestItems(ctx, userID, limit, isPlayed, fields)
 	}
 	p := ItemsParams{UserID: userID, ParentID: parentID, Fields: fields}
 	if isPlayed {

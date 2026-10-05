@@ -2,7 +2,6 @@ package service
 
 import (
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 
@@ -71,12 +70,12 @@ func TestEmbyGlobalBatchMixedSourcesRefill(t *testing.T) {
 	if err != nil || len(latest) != 2 || latest[0]["Id"] != expected[0] || latest[1]["Id"] != expected[1] {
 		t.Fatalf("latest=%v err=%v", latest, err)
 	}
-	// 无 NFO 的旧分支最终按 ID 升序；普通来源自己的并列截断保持不变。
+	// 无 NFO 时也按同一个全局作品排序合并。
 	if err := db.Exec("DELETE FROM media WHERE catalog_source='nfo'").Error; err != nil {
 		t.Fatal(err)
 	}
 	latest, err = e.LatestItems(ctx, p.UserID, "", 2, false, p.Fields...)
-	if err != nil || len(latest) != 2 || latest[0]["Id"] != "hg-work-source-51" || latest[1]["Id"] != "ordinary-51" {
+	if err != nil || len(latest) != 2 || latest[0]["Id"] != "ordinary-51" || latest[1]["Id"] != "hg-work-source-51" {
 		t.Fatalf("mixed latest=%v err=%v", latest, err)
 	}
 }
@@ -115,7 +114,7 @@ func TestWebNFOFilteredBatchRefill(t *testing.T) {
 	}
 }
 
-func TestMixedLatestKeepsLegacyTieWindowAndIdentity(t *testing.T) {
+func TestGlobalLatestUsesWorkTieOrderWithoutNFO(t *testing.T) {
 	e := nfoBrowseFixture(t, 0, 0)
 	for _, query := range []string{
 		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('a','movie','A','local'),('b','movie','B','local'),('c','movie','C','local'),('z-series','series','Direct series','local')`,
@@ -128,14 +127,9 @@ func TestMixedLatestKeepsLegacyTieWindowAndIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 普通来源先按 ID 倒序截取，再由旧混合排序按 ID 升序；不能从普通全表重选 a/b。
-	want, err := e.legacyLatestItems(t.Context(), "viewer", "", 2, false, "BasicSyncInfo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sort.Slice(want, func(i, j int) bool { return want[i]["Id"].(string) < want[j]["Id"].(string) })
+	// 无分集的直接绑定 Series 没有作品卡片资格；全局并列统一按 ID 倒序。
 	got, err := e.LatestItems(t.Context(), "viewer", "", 2, false, "BasicSyncInfo")
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("mixed latest changed tie window/direct identity: got=%v want=%v err=%v", got, want, err)
+	if err != nil || len(got) != 2 || got[0]["Id"] != "c" || got[1]["Id"] != "b" {
+		t.Fatalf("work latest tie order differs: items=%v err=%v", got, err)
 	}
 }

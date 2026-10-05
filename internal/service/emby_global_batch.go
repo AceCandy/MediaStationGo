@@ -11,7 +11,7 @@ import (
 
 // globalBatchCandidates 先合并轻量身份和原排序字段，状态只在 work_batch 内检查。
 // origin_id 保留普通资料旧祖父分组；相同 ID 的多行不可按 ID 去重。
-func (e *EmbyService) globalBatchCandidates(ctx context.Context, p ItemsParams, hasNFO bool) *gorm.DB {
+func (e *EmbyService) globalBatchCandidates(ctx context.Context, p ItemsParams, hasNFO, workLatest bool) *gorm.DB {
 	db := e.repo.DB.WithContext(ctx)
 	base := p
 	base.Filters = nil
@@ -21,6 +21,13 @@ func (e *EmbyService) globalBatchCandidates(ctx context.Context, p ItemsParams, 
 		}
 	}
 	legacy := e.legacyGlobalBatchCandidates(ctx, base)
+	if workLatest {
+		// Latest 按作品唯一身份展示，不沿用全局浏览的祖父分组多行。
+		legacy = e.workLibraryScope(ctx, db.Table("metadata_items item"), "item.library_ids", base).
+			Where("item.kind IN ?", globalItemKinds(base)).Select(`item.id,item.kind,item.title,item.created_at,
+item.latest_media_added_at AS latest_at,NULL::timestamp AS played_at,FALSE AS favorite,item.rating,
+COALESCE(item.release_date,'') AS release_date,item.year,NULL::text AS origin_id,NULL::text[] AS work_ids,'legacy-work' AS source`)
+	}
 	var source *gorm.DB
 	if containsOnlyFavoriteItemTypes(globalItemKinds(p)) && !strings.HasPrefix(globalItemsOrder(p), "played_at ") {
 		scoped, albums, _ := e.hongGuoWorkScope(ctx, base, globalWorkDateAggregate(p))
@@ -117,6 +124,9 @@ func (e *EmbyService) globalBatchEligibility(ctx context.Context, p ItemsParams)
 	db := e.repo.DB.WithContext(ctx)
 	filter := e.mediaQueryFilter(ctx, p.UserID)
 	legacy := e.globalLegacyFiles(ctx, p, "item.origin_id")
+	works := metadataWorkFiles(db, e.applyUserMediaVisibility(ctx, db.Model(&model.Media{}), p.UserID)).
+		Where(`(item.kind='movie' AND emby_metadata.id=item.id) OR (item.kind='series' AND emby_metadata.parent_id IN (
+SELECT id FROM metadata_items WHERE parent_id=item.id AND kind='season'))`)
 	localID := "SUBSTRING(item.id FROM 5)"
 	local := e.repo.MediaView.NFOCandidateFiles(ctx, filter, localID).
 		Where("ni.id=" + localID + " OR ns.id=" + localID + " OR nw.id=" + localID)
@@ -128,8 +138,10 @@ func (e *EmbyService) globalBatchEligibility(ctx context.Context, p ItemsParams)
 		Where("b.work_id = ANY(item.work_ids)").
 		Where("item.kind<>'episode' OR b.episode_id=SUBSTRING(item.id FROM 12)")
 	return db.Table("work_batch item").Select("item.ordinal").Where(`CASE WHEN item.source='legacy' THEN EXISTS (?)
+WHEN item.source='legacy-work' THEN EXISTS (?)
 WHEN item.source='nfo' THEN EXISTS (?) ELSE EXISTS (?) END`,
 		e.workBatchFileEligibility(ctx, p, legacy, "legacy", "metadata_id=media.metadata_id"),
+		e.workBatchFileEligibility(ctx, p, works, "legacy", "metadata_id=media.metadata_id"),
 		e.workBatchFileEligibility(ctx, p, local, "nfo", "item_id=b.item_id"),
 		e.workBatchFileEligibility(ctx, p, source, "hongguo", "source_id=w.source_id AND episode_number=COALESCE(ep.number,1)"))
 }

@@ -17,7 +17,7 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 }
 
 // globalItemsWithCount 让数组型 Latest 复用全局资格与分页，不额外计算作品总数。
-func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, count bool) (map[string]any, bool, error) {
+func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, count bool, latestWorks ...bool) (map[string]any, bool, error) {
 	if p.ParentID != "" || containsOnlyFolderItemTypes(p.IncludeItemTypes) || (strings.TrimSpace(p.SearchTerm) == "" && !p.Recursive && len(p.IncludeItemTypes) == 0 && len(p.Filters) == 0) {
 		return nil, false, nil
 	}
@@ -25,7 +25,8 @@ func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, c
 	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source IN ('hongguo','nfo'))").Scan(&hasSource).Error; err != nil {
 		return nil, true, err
 	}
-	if !hasSource && !(embyRandomSort(p) && containsOnlyFavoriteItemTypes(globalItemKinds(p))) {
+	workLatest := len(latestWorks) > 0 && latestWorks[0]
+	if !hasSource && !workLatest && !(embyRandomSort(p) && containsOnlyFavoriteItemTypes(globalItemKinds(p))) {
 		return nil, false, nil
 	}
 	v := e.mediaVisibility(ctx, p.UserID)
@@ -40,7 +41,7 @@ func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, c
 	if err != nil {
 		return nil, true, err
 	}
-	ids, total, err := e.filteredWorkBatchPage(ctx, e.globalBatchCandidates(ctx, p, hasNFO),
+	ids, total, err := e.filteredWorkBatchPage(ctx, e.globalBatchCandidates(ctx, p, hasNFO, workLatest),
 		e.globalBatchEligibility(ctx, p), p.StartIndex, p.Limit, count)
 	if err != nil {
 		return nil, true, err

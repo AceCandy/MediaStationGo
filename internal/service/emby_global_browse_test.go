@@ -306,7 +306,7 @@ func TestEmbyGlobalLatestDoesNotCount(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	p := ItemsParams{UserID: "viewer", Recursive: true, Limit: 3, Filters: []string{"IsUnplayed"}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
+	p := ItemsParams{UserID: "viewer", Recursive: true, IncludeItemTypes: []string{"Movie", "Series"}, Limit: 3, Filters: []string{"IsUnplayed"}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
 	var expected []string
 	if err := originalGlobalBrowseCandidates(t, e, p).Order(globalItemsOrder(p)).Limit(p.Limit).Pluck("id", &expected).Error; err != nil {
 		t.Fatal(err)

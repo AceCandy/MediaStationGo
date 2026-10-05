@@ -585,7 +585,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'items-latest',
     category: '媒体项',
     name: '最近入库',
-    description: '按现存文件的最新入库时间返回可见媒体项，默认隐藏已播放完成项。普通、NFO 作品及红果源作品维护最新时间；同一作品跨库共享时间，红果合集取所有成员季的最大值，删最新文件后回退。指定剧集库按 Series 展示，红果库按官方合集展示；全局仍返回 Movie/Episode。NFO 的 DateCreated 返回本地条目首次创建时间，其他来源不变。成人限制按媒体库应用，不存在媒体级 NSFW 标记。',
+    description: '按现存文件的最新入库时间返回可见媒体项，默认隐藏已播放完成项。普通、NFO 作品及红果源作品维护最新时间；同一作品跨库共享时间，红果合集取所有成员季的最大值，删最新文件后回退。指定剧集库按 Series 展示，红果库按官方合集展示；未指定 ParentId 的全局查询按 Movie/Series 作品展示，普通剧集只返回一张卡片，红果按官方合集合并；不额外计算总数。NFO 的 DateCreated 返回本地条目首次创建时间，其他来源不变。成人限制按媒体库应用，不存在媒体级 NSFW 标记。',
     methods: ['GET'],
     path: '/Items/Latest',
     aliases: ['/Users/:userId/Items/Latest', '/items/latest'],
@@ -598,7 +598,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'IsPlayed', location: 'query', type: 'boolean', description: '默认 false；true 只返回已播放完成作品，false 只返回未播放完成作品。' },
       { name: 'Fields', location: 'query', type: 'string', description: '逗号分隔的附加字段；指定时按需加载 People、ProviderIds、MediaSources（或 MediaStreams）。未指定时保留默认完整字段。Episode 的 People 使用所属季演职员。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: '媒体项数组，不使用分页 envelope。', fields: itemFields, example: `[{ "Id": "media-42", "Name": "示例影片", "Type": "Movie" }]` }, canceledResponse],
+    responses: [{ status: '200', contentType: 'application/json', description: '媒体项数组，不使用分页 envelope；全局为 Movie/Series 作品卡片，指定父级保留原层级类型。', fields: itemFields, example: `[{ "Id": "media-42", "Name": "示例影片", "Type": "Movie" }]` }, canceledResponse],
   },
   {
     id: 'items-resume',

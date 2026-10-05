@@ -283,3 +283,15 @@ the same connection; preserve count, ordinal ties and sparse refill semantics.
 Global batch candidates carry only id/kind/source/origin_id/work_ids and ordinal
 into qualification. Keep the original predicates and window/order expressions;
 unused display/date/state fields inflate full-catalog window sort tuples.
+
+Global Emby Latest (empty ParentId) explicitly returns Movie/Series work cards
+across ordinary/HongGuo/NFO sources, including ordinary-only catalogs. Use
+unique ordinary root candidates and their movie/direct or Series/season-child
+file qualification; do not reuse ordinary browse's multiple origin rows.
+Qualification must match Series payload summaries so empty/direct-only Series
+do not consume a page slot. Played requires every visible episode completed;
+Unplayed requires a visible incomplete episode. Preserve permission scopes,
+Fields, count-off and unified latest DESC NULLS LAST / id DESC ordering.
+Library/hierarchy Latest and general Items keep their existing type/origin
+contracts. `TestGlobalLatestWorksAcrossSourcesAndPlayback` covers identity,
+visibility, versions, mixed/ordinary-only catalogs and state transitions.
