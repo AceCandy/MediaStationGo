@@ -27,13 +27,23 @@ const downloadAppUserAgent = "com.phoenix.read/73532 (Linux; U; Android 16; zh_C
 // ErrVideoTakenDown 仅表示当前视频下架，不能据此判定整部作品下架。
 var ErrVideoTakenDown = errors.New("App 接口：当前视频已下架（101002）")
 
+var errDownloadAppUnsupported = errors.New("App 接口未返回可用的兼容媒体（已排除不支持的编码）")
+
 // resolveDownloadApp 只读取指定分集的播放信息，不登录、注册设备或持久化取流凭据。
 func (c *Client) resolveDownloadApp(ctx context.Context, videoID string) (DownloadMedia, error) {
 	data, err := c.appRequest(ctx, downloadAppURL, map[string]any{"video_id": videoID, "content_type": 1, "biz_param": map[string]any{"need_all_video_definition": true, "video_platform": 3}})
 	if err != nil {
 		return DownloadMedia{}, err
 	}
-	return parseDownloadApp(data)
+	model, err := parseDownloadAppModel(data)
+	if err != nil {
+		return DownloadMedia{}, err
+	}
+	media, err := parseDownloadAppMedia(model)
+	if !errors.Is(err, errDownloadAppUnsupported) {
+		return media, err
+	}
+	return c.resolveDownloadAppCompatible(ctx, model)
 }
 
 // appRequest 只接收内部固定接口地址，签名和设备参数不持久化。
@@ -125,21 +135,29 @@ func signDownloadAppRequest(req *http.Request, body []byte, now time.Time) {
 }
 
 func parseDownloadApp(body []byte) (DownloadMedia, error) {
+	model, err := parseDownloadAppModel(body)
+	if err != nil {
+		return DownloadMedia{}, err
+	}
+	return parseDownloadAppMedia(model)
+}
+
+func parseDownloadAppModel(body []byte) (map[string]any, error) {
 	var result map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if decoder.Decode(&result) != nil || result == nil {
-		return DownloadMedia{}, errors.New("App 播放信息格式无效")
+		return nil, errors.New("App 播放信息格式无效")
 	}
 	for _, code := range []string{scalar(result["code"]), scalar(result["status_code"]), scalar(object(result["BaseResp"])["StatusCode"])} {
 		if code == "101002" {
-			return DownloadMedia{}, ErrVideoTakenDown
+			return nil, ErrVideoTakenDown
 		}
 		if code != "" && code != "0" {
 			if _, err := strconv.ParseInt(code, 10, 32); err == nil {
-				return DownloadMedia{}, fmt.Errorf("App 接口业务错误（%s）", code)
+				return nil, fmt.Errorf("App 接口业务错误（%s）", code)
 			}
-			return DownloadMedia{}, errors.New("App 接口返回异常状态")
+			return nil, errors.New("App 接口返回异常状态")
 		}
 	}
 	model := object(object(result["data"])["video_model"])
@@ -147,9 +165,13 @@ func parseDownloadApp(body []byte) (DownloadMedia, error) {
 		decoder := json.NewDecoder(strings.NewReader(text))
 		decoder.UseNumber()
 		if decoder.Decode(&model) != nil {
-			return DownloadMedia{}, errors.New("App 视频信息格式无效")
+			return nil, errors.New("App 视频信息格式无效")
 		}
 	}
+	return model, nil
+}
+
+func parseDownloadAppMedia(model map[string]any) (DownloadMedia, error) {
 	rows, _ := model["video_list"].([]any)
 	if indexed, ok := model["video_list"].(map[string]any); ok {
 		keys := make([]string, 0, len(indexed))
@@ -164,11 +186,16 @@ func parseDownloadApp(body []byte) (DownloadMedia, error) {
 	var selected DownloadMedia
 	var keyErr error
 	best := -1
+	unsupported := 0
 	for _, entry := range rows {
 		row := object(entry)
 		meta, encryption := object(row["video_meta"]), object(row["encrypt_info"])
 		codec := strings.ToLower(scalar(meta["codec_type"]))
-		if codec == "bytevc2" || strings.Contains(strings.ToLower(scalar(row["gear_des_key"])), "bytevc2") || !ValidDownloadURL(scalar(row["main_url"])) {
+		if codec == "bytevc2" || strings.Contains(strings.ToLower(scalar(row["gear_des_key"])), "bytevc2") {
+			unsupported++
+			continue
+		}
+		if !ValidDownloadURL(scalar(row["main_url"])) {
 			continue
 		}
 		media := DownloadMedia{URL: scalar(row["main_url"]), Referer: "https://novel.snssdk.com/"}
@@ -222,6 +249,9 @@ func parseDownloadApp(body []byte) (DownloadMedia, error) {
 	}
 	if keyErr != nil {
 		return DownloadMedia{}, keyErr
+	}
+	if unsupported > 0 && unsupported == len(rows) {
+		return DownloadMedia{}, errDownloadAppUnsupported
 	}
 	return DownloadMedia{}, errors.New("App 接口未返回可用的兼容媒体（已排除不支持的编码）")
 }

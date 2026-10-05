@@ -1,0 +1,32 @@
+{
+  "id": "hongguo-app-compatible",
+  "name": "hongguo-app-compatible",
+  "title": "红果 App ByteVC2 官方兼容取流",
+  "description": "在 App 仅返回 ByteVC2 时读取官方 fplay 的最高兼容媒体，解析加密地址，复用现有下载和恢复流水线。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-05",
+  "completedAt": "2026-10-05",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/hongguo/download_app.go",
+    "internal/hongguo/download_app_compatible.go",
+    "internal/hongguo/download_app_compatible_test.go",
+    "internal/service/hongguo_download_app_compatible_test.go",
+    ".trellis/spec/backend/hongguo-catalog.md"
+  ],
+  "notes": "Implementation and independent review completed; regression/race/vet and isolated episode-138 full pipeline validated. No deployment or production queue retries.",
+  "meta": {}
+}
