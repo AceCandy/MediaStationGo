@@ -699,3 +699,25 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 192: 全局 Latest 作品展示与性能优化
+<!-- trellis-session: v=2 fp=5ec55bfc6516662a -->
+
+**Date**: 2026-10-05
+**Task**: 全局 Latest 作品展示与性能优化
+**Branch**: `main`
+
+### Summary
+
+全局 Latest 统一返回电影和剧集作品卡片，使用唯一普通根候选与现有资格分页，删除旧分集合并入口。定向 PostgreSQL 回归、Web lint/build、接口目录浏览器检查和独立复核通过。真实数据只读服务调用 20 张卡片约 1.316 秒和 532.5 毫秒。任务已归档，未部署或重启现有服务，真实 HTTP 与播放器尚未验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `01f314a` | perf(emby): 全局 Latest 按电影和剧集作品分页 |
+
+### Status
+
+[OK] **Completed**
