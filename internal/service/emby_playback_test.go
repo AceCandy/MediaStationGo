@@ -195,6 +195,9 @@ func TestEmbyItemsFiltersFavorites(t *testing.T) {
 		t.Fatalf("favorite filter returned wrong items: %#v", items)
 	}
 	userData := items[0]["UserData"].(map[string]any)
+	if ids, ok := items[0]["LibraryIds"].([]string); !ok || len(ids) != 1 || ids[0] != lib.ID {
+		t.Fatalf("favorite library membership = %#v", items[0]["LibraryIds"])
+	}
 	if userData["IsFavorite"] != true {
 		t.Fatalf("favorite payload should carry IsFavorite=true: %#v", userData)
 	}

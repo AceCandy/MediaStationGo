@@ -86,6 +86,8 @@ const itemFields: readonly EmbyApiField[] = [
 
 const itemsEnvelopeFields: readonly EmbyApiField[] = [
   { name: 'Items', type: 'array', description: '媒体项数组；Movie 不返回季/集层级字段，Episode 保留（含特别篇零季号），规则与媒体项详情一致。' },
+  { name: 'Items[].LibraryIds', type: 'string[]', description: 'IsFavorite 查询的 Movie/Series 附带当前用户可见的所属媒体库 ID，跨库作品和红果合集取去重并集，未知或无可见归属返回 []；不改变 ParentId。旧服务端可能省略此扩展，客户端应保持原类型显示。' },
+  { name: 'Items[].LibraryType', type: 'string', description: 'CollectionFolder 视图附带的实际媒体库类型，hongguo 表示红果短剧库；原 CollectionType 仍为 tvshows。客户端可将库 Id 与收藏 LibraryIds 匹配，字段缺失时不按库名或作品 ID 猜测。' },
   { ...unplayedItemCountField, name: 'Items[].UserData.UnplayedItemCount' },
   { name: 'TotalRecordCount', type: 'number', description: '匹配总数。' },
   { name: 'StartIndex', type: 'number', description: '本次结果的起始位置，部分兼容响应会省略。' },
@@ -371,7 +373,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'user-views',
     category: '用户与媒体库',
     name: '用户媒体视图',
-    description: '返回当前用户可访问的媒体库视图，按管理员设置排序并隐藏关闭展示的入口；红果短剧库的 CollectionType 为 tvshows，不改变搜索与播放权限。',
+    description: '返回当前用户可访问的媒体库视图，按管理员设置排序并隐藏关闭展示的入口；LibraryType 返回实际库类型，红果短剧库为 hongguo，CollectionType 仍为 tvshows，不改变搜索与播放权限。',
     methods: ['GET'],
     path: '/Users/:userId/Views',
     aliases: ['/users/:userId/views'],

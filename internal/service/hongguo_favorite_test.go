@@ -67,6 +67,12 @@ func TestHongGuoAlbumFavoriteIdentity(t *testing.T) {
 			if err != nil || (page["TotalRecordCount"] == int64(1)) != want || (len(page["Items"].([]map[string]any)) == 1) != want {
 				t.Fatalf("global favorite page=%v want=%v err=%v", page, want, err)
 			}
+			if want {
+				item := page["Items"].([]map[string]any)[0]
+				if ids, ok := item["LibraryIds"].([]string); !ok || len(ids) != 1 || ids[0] != lib.ID {
+					t.Fatalf("album library membership = %#v", item["LibraryIds"])
+				}
+			}
 		}
 	}
 	assertFavorite("viewer", true)

@@ -143,19 +143,25 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		p.Limit++
 	}
 	out, err := e.items(ctx, p)
-	if err != nil || !lookahead {
+	if err != nil {
 		return out, err
 	}
 	items := out["Items"].([]map[string]any)
-	var total int64
-	if len(items) > 0 {
-		total = int64(p.StartIndex) + int64(len(items))
+	if lookahead {
+		var total int64
+		if len(items) > 0 {
+			total = int64(p.StartIndex) + int64(len(items))
+		}
+		if len(items) > limit {
+			items = items[:limit]
+			out["Items"] = items
+		}
+		out["TotalRecordCount"] = total
 	}
-	if len(items) > limit {
-		out["Items"] = items[:limit]
+	if containsEmbyFilter(p.Filters, "IsFavorite") {
+		out["Items"], err = e.favoriteLibraryMembership(ctx, p.UserID, items)
 	}
-	out["TotalRecordCount"] = total
-	return out, nil
+	return out, err
 }
 
 // items 分发已归一化的查询；内部 Limit 可包含一个分页前瞻项。

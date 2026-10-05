@@ -163,6 +163,7 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 		"Id":                       l.ID,
 		"Name":                     l.Name,
 		"CollectionType":           collectionType,
+		"LibraryType":              l.Type,
 		"ServerId":                 embyServerID,
 		"Type":                     "CollectionFolder",
 		"IsFolder":                 true,

@@ -189,3 +189,32 @@ This advertises an unregistered path and treats one optional token carrier as ma
 
 - Ordinary metadata and Series ProductionYear ordering uses the work year as its primary key, then stable ID, honoring Ascending/Descending. It must not fall back to release-date/file-date aggregation. Test with conflicting premiere dates and years in movie/TV/mixed libraries, both first and tail pages.
 - NFO library PremiereDate/ProductionYear/CommunityRating sorts use the existing root candidate release_date/year/rating projection; select only the needed scalar. Preserve hierarchy prefixes, permissions, state qualification, stable ID and page-only hydration. HongGuo has no year/release metadata; do not invent those values or claim useful ordering.
+
+## Optional favorite library membership
+
+1. **Scope:** `GET /Items` and user/case aliases with `Filters=IsFavorite`, plus
+   the existing library Views projection. No schema, favorite-write or parent
+   hierarchy changes.
+2. **Signatures:** `Items[].LibraryIds: string[]` on favorite Movie/Series;
+   `Views.Items[].LibraryType: string` (`hongguo` identifies a short-drama library).
+3. **Contract:** enrich only the final returned page. Ordinary metadata and
+   HongGuo use maintained membership; NULL alone falls back to page-work file
+   bindings. Albums union member libraries; NFO retains its library ownership.
+   Deduplicate/sort IDs, exclude hidden/disallowed libraries, return `[]` for
+   no known visible membership. Preserve IDs, order, counts, ParentId and
+   CollectionType. Clone item maps before enrichment to protect cached payloads.
+4. **Boundaries:** a lookup error fails the request; no fabricated empty success.
+   Empty pages do not query memberships. Old clients may ignore both fields;
+   new clients must retain ordinary presentation if either is absent/unknown.
+5. **Cases:** multi-library album returns the visible union; legacy server
+   omits the fields; a hidden-library ID must never appear in the union.
+6. **Tests:** `TestFavoriteLibraryMembershipSourcesAndVisibility` covers all
+   sources, duplicates, NULL fallback, known empty, permission intersections
+   and input immutability on PostgreSQL. Existing Movie/album favorite tests
+   assert the field on real Items responses. Views type regression protects
+   `CollectionType=tvshows`. The catalog documents both optional extensions.
+7. **Wrong vs correct:** do not use a representative file's single library or
+   treat ParentId as root ownership. Use current page identities and the
+   complete visible membership set. When reviewing dispatch, evaluate the
+   outer library-ID branch before its recursive-parent `else if`; do not infer
+   library behavior from a child-container branch.
