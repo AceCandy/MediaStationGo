@@ -743,3 +743,40 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 194: 红果安卓排队与系统异常恢复
+<!-- trellis-session: v=2 fp=028d44842be3c029 -->
+
+**Date**: 2026-10-05
+**Task**: 红果安卓排队与系统异常恢复
+**Branch**: `main`
+
+### Summary
+
+修复取模型排队预算和版本误报，部署lmkd定向恢复，11条非分集变化失败任务全部恢复并完整解码；5条分集保护记录保持不变。
+
+### Main Changes
+
+- 取模型两分钟预算在取得串行名额后开始，父任务取消和清理边界保持原约束
+- 区分包管理服务未就绪、App缺失及版本不匹配；Compose仅在当前lmkd精确errno22异常时恢复该服务
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ff3084e` | fix(hongguo): 修复安卓排队超时与系统异常恢复 |
+
+### Testing
+
+- [OK] hongguo全包race、相关Go vet、RPC mock及四Compose组合解析通过
+- [OK] 隔离Postgres16下载管线race及真实Android队列第81集完整传输、解码、发布通过
+- [OK] 生产11/11任务恢复完成，逐个散列/大小核对与完整音视频解码通过；5条排除记录结构比对未变
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 若尚未重启dev.sh，重启后加载新的排队逻辑；继续观察模拟器长期稳定性
