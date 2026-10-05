@@ -614,3 +614,36 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Next Steps
 
 - 在测试 PostgreSQL 环境运行相关回归及性能用例；稀疏资格且 limit 大于 50 的分页边界仍存在测试覆盖缺口。
+
+
+## Session 189: 红果兼容取流与 Emby 查询优化收尾
+<!-- trellis-session: v=2 fp=86fbf7a6f21466f4 -->
+
+**Date**: 2026-10-05
+**Task**: 红果兼容取流与 Emby 查询优化收尾
+**Branch**: `main`
+
+### Summary
+
+提交并归档红果全 ByteVC2 官方兼容取流及 Emby 收藏、全局 Latest 查询优化。第138集1080p HEVC正式流水线验收通过；相关隔离数据库回归、竞态检测、静态检查及独立复核通过。全局 Latest 保持 Movie/Episode 返回，完整调用仍约19秒；未部署或重启服务，未改变生产下载队列。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a7a6dfd` | fix(hongguo): resolve compatible media for ByteVC2-only App episodes |
+| `f998165` | perf(emby): optimize HongGuo work payloads and global latest queries |
+
+### Testing
+
+- [OK] 红果包回归及竞态检查；第138集独立密钥恢复、完整解码和发布验收通过
+- [OK] Emby 页内投影、全局浏览和批处理数据库回归在竞态检测下通过（129.365秒）
+- [OK] go vet、gofmt、git diff --check 与任务上下文校验通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署及线上 HTTP 耗时待验证；作品级 Latest 展示待另行确认

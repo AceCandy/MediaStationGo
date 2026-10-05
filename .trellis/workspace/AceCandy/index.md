@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 188
+- **Total Sessions**: 189
 - **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~616 | Active |
+| `journal-3.md` | ~649 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 189 | 2026-10-05 | 红果兼容取流与 Emby 查询优化收尾 | `a7a6dfd`, `f998165` | `main` |
 | 188 | 2026-10-05 | Emby 作品排序与分页优化提交收尾 | `b05ad0f` | `main` |
 | 187 | 2026-10-05 | 下载空间查询优化与默认筛选 | `d819ed3` | `main` |
 | 186 | 2026-10-04 | 媒体库作品最新入库时间排序统一 | `a9b47a0` | `main` |
