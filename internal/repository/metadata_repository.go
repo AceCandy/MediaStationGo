@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -139,6 +140,9 @@ func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.Me
 		oldTopIDs []string
 	)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockMetadataIdentifiers(tx, identifiers); err != nil {
+			return err
+		}
 		if err := validateMetadataParent(tx, item); err != nil {
 			return err
 		}
@@ -190,13 +194,18 @@ func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.Me
 			identifiers[i].MetadataID = metadataID
 		}
 		if len(identifiers) > 0 {
-			if err := tx.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "provider"}, {Name: "entity_kind"}, {Name: "external_id"}},
-				DoUpdates: clause.Assignments(map[string]any{
-					"metadata_id": metadataID, "updated_at": time.Now(),
-				}),
-			}).CreateInBatches(&identifiers, 500).Error; err != nil {
-				return err
+			result := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "provider"}, {Name: "entity_kind"}, {Name: "external_id"}},
+				DoUpdates: clause.Assignments(map[string]any{"updated_at": time.Now()}),
+				Where: clause.Where{Exprs: []clause.Expression{
+					clause.Expr{SQL: "metadata_identifiers.metadata_id = EXCLUDED.metadata_id"},
+				}},
+			}).CreateInBatches(&identifiers, 500)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != int64(len(identifiers)) {
+				return errors.New("metadata identifier ownership changed during upsert")
 			}
 		}
 		return tx.First(&saved, "id = ?", metadataID).Error
@@ -224,6 +233,9 @@ func (r *MetadataRepository) UpsertCanonicalWithMerge(ctx context.Context, item 
 		oldTopIDs []string
 	)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockMetadataIdentifiers(tx, identifiers); err != nil {
+			return err
+		}
 		targetID := preferredID
 		resolved := map[string]struct{}{}
 		if preferredID != "" {
@@ -288,6 +300,21 @@ func (r *MetadataRepository) UpsertCanonicalWithMerge(ctx context.Context, item 
 		r.view.RefreshMetadataIDs(ctx, append(oldTopIDs, saved.ID)...)
 	}
 	return saved, nil
+}
+
+// lockMetadataIdentifiers 在查询前按固定顺序锁定外部身份，防止并发首次入库创建重复作品。
+func lockMetadataIdentifiers(tx *gorm.DB, identifiers []model.MetadataIdentifier) error {
+	keys := make([]string, 0, len(identifiers))
+	for _, id := range identifiers {
+		keys = append(keys, "metadata-identifier:"+id.Provider+":"+id.EntityKind+":"+id.ExternalID)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Merge 将 source 的全部引用迁移到 target，并物理删除无引用的 source。

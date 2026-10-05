@@ -556,6 +556,13 @@ db.Model(&credit).
   PostgreSQL regressions must use a real `localSeriesIdentity` hint, no automatic
   metadata fixtures, and verify canonical episode visibility plus idempotent
   rescraping of direct Series, Season, and Episode attachments.
+- `showDirFromEpisodePath` accepts explicit `(DoVi)` and `(HDR10)` season-folder
+  suffixes case-insensitively, so version folders share the show directory and
+  local identity. Do not strip arbitrary parenthesized suffixes such as a year
+  or `(Interview)`. Keep Windows separators and filename-ID isolation covered
+  by `TestShowDirFromEpisodePath` and the path-hint tests. A path/lookup provider
+  ID is not proof of a canonical `MetadataIdentifier` association; inspect both
+  when diagnosing duplicate works.
 - `TMDbProvider.GetMovieMatch` and `GetTVMatch` mark their `Match` as containing
   complete TMDb details. Persistence saves languages, countries, and genres
   from that match without issuing a duplicate `GetDetails` request. Search-only

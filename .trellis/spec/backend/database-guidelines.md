@@ -65,6 +65,29 @@ Correct: use Responses for People translation without tools; reserve `web_search
 
 ## Query Patterns
 
+### Concurrent Canonical Metadata Reuse
+
+`UpsertCanonical` and `UpsertCanonicalWithMerge` lock normalized
+`provider/entity_kind/external_id` identities inside their transaction, before
+any identifier lookup. Acquire the namespaced advisory locks in sorted order;
+the merge wrapper and its nested upsert reuse the same transaction locks.
+Directory grouping alone cannot serialize the same work across versions or roots.
+
+Identifier upsert may refresh `updated_at` only when the stored and incoming
+`metadata_id` agree. Check affected rows; an unexpected owner rolls back the
+whole transaction. Never use `ON CONFLICT` to silently replace `metadata_id`:
+that leaves the previous work and its files orphaned from the external identity.
+Explicit graph merges remain responsible for moving hierarchy and references.
+Other identity writers may fail on conflicts; they must never steal ownership.
+
+`TestCanonicalConcurrentIdentityReuse` uses independent schema-pinned PostgreSQL
+connections, pauses only the first creator and observes the second connection's
+lock wait before release. Cover ordinary, explicit-merge and mixed callers with
+reversed, normalized identifier inputs; both results must share one work and
+all identifiers. A two-creator insert barrier would deadlock after this fix.
+`TestCanonicalRejectsLateIdentifierConflict` injects a conflict after lookup and
+verifies rejection plus rollback, including writers outside the advisory protocol.
+
 ### Concurrent Media Path Reuse
 
 `MediaRepository.findOrCreateMediaByPath` retains the ordinary existing-row
