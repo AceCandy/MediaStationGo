@@ -184,6 +184,8 @@ type HuangGuoAIDownload struct {
 	SHA256       string     `gorm:"size:64" json:"-"`
 	VerifiedSize int64      `json:"-"`
 	Duration     float64    `json:"-"`
+	// HLS 的清单时长与视频轨道核对，独立校验和重启恢复必须保留该策略。
+	HLS bool `gorm:"not null;default:false" json:"-"`
 }
 
 func (HuangGuoAIDownload) TableName() string { return "huangguoai_downloads" }

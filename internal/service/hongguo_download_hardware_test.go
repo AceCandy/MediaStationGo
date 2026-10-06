@@ -70,7 +70,7 @@ esac
 				ctx, cancel = context.WithTimeout(ctx, 300*time.Millisecond)
 				defer cancel()
 			}
-			err := decodeHongGuoDownload(ctx, "sample.mp4", tt.hardware, nil)
+			err := decodeHongGuoDownload(ctx, "sample.mp4", tt.hardware, nil, false)
 			if (err != nil) != tt.fail {
 				t.Fatalf("error=%v", err)
 			}

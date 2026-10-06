@@ -138,7 +138,7 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 			return errors.New("待校验文件缺失或长度不符")
 		}
 		task.Update(TaskUpdate{Stage: "verifying", Message: "正在完整解码并核对时长"})
-		if err = verifyHongGuoDownload(ctx, filepath.Join(row.Root, row.StagingPath), row.Duration, true, false, task, nil); err != nil {
+		if err = verifyDownloadMedia(ctx, filepath.Join(row.Root, row.StagingPath), row.Duration, true, false, task, nil, row.HLS); err != nil {
 			if ctx.Err() == nil {
 				_ = root.Remove(row.StagingPath)
 				_ = root.Remove(filepath.Dir(row.StagingPath))
@@ -228,11 +228,12 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 	row.StagingPath = ready
 	row.RawSize = info.Size()
 	row.Duration = media.ExpectedDuration
+	row.HLS = duration > 0
 	if duration > 0 {
-		// HLS 按完整媒体清单核对最终文件，直连 MP4 继续使用网页时长。
+		// HLS 按完整媒体清单核对视频轨道，保留前置音频；直连 MP4 继续核对总时长。
 		row.Duration = duration
 	}
-	if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "waiting_verify", "raw_size": row.RawSize, "duration": row.Duration, "staging_path": ready, "lease_token": "", "lease_until": nil, "bytes": row.RawSize, "total_bytes": row.RawSize}); err != nil {
+	if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "waiting_verify", "raw_size": row.RawSize, "duration": row.Duration, "hls": row.HLS, "staging_path": ready, "lease_token": "", "lease_until": nil, "bytes": row.RawSize, "total_bytes": row.RawSize}); err != nil {
 		row.RawSize = 0
 		row.StagingPath = ""
 		return err

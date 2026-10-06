@@ -431,7 +431,12 @@ func (r *downloadCountingReader) Read(p []byte) (int, error) {
 }
 
 func verifyHongGuoDownload(ctx context.Context, path string, expected float64, full, hardware bool, task *TaskHandle, media *hongguo.DownloadMedia) error {
-	data, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height", "-of", "json", path).Output()
+	return verifyDownloadMedia(ctx, path, expected, full, hardware, task, media, false)
+}
+
+// 只有黄果 AI HLS 按首条视频轨道时长校验；其他来源和直连媒体继续核对总时长。
+func verifyDownloadMedia(ctx context.Context, path string, expected float64, full, hardware bool, task *TaskHandle, media *hongguo.DownloadMedia, videoDuration bool) error {
+	data, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height,duration", "-of", "json", path).Output()
 	if err != nil {
 		return downloadMediaCommandError(err, "视频探测失败，请确认 FFprobe 已安装且文件有效")
 	}
@@ -440,10 +445,11 @@ func verifyHongGuoDownload(ctx context.Context, path string, expected float64, f
 			Duration string `json:"duration"`
 		} `json:"format"`
 		Streams []struct {
-			Type   string `json:"codec_type"`
-			Codec  string `json:"codec_name"`
-			Width  int    `json:"width"`
-			Height int    `json:"height"`
+			Type     string `json:"codec_type"`
+			Codec    string `json:"codec_name"`
+			Width    int    `json:"width"`
+			Height   int    `json:"height"`
+			Duration string `json:"duration"`
 		} `json:"streams"`
 	}
 	if json.Unmarshal(data, &probe) != nil {
@@ -451,28 +457,43 @@ func verifyHongGuoDownload(ctx context.Context, path string, expected float64, f
 	}
 	duration, err := strconv.ParseFloat(probe.Format.Duration, 64)
 	video := false
+	primaryVideoDuration := ""
 	for _, stream := range probe.Streams {
-		if stream.Type == "video" && !video && media != nil {
-			media.Width, media.Height, media.Codec = stream.Width, stream.Height, stream.Codec
+		if stream.Type == "video" && !video {
+			primaryVideoDuration = stream.Duration
+			if media != nil {
+				media.Width, media.Height, media.Codec = stream.Width, stream.Height, stream.Codec
+			}
 		}
 		video = video || stream.Type == "video"
 	}
 	if err != nil || !video || duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
 		return fmt.Errorf("%w: 视频缺少有效时长或画面轨道", errHongGuoDownloadSource)
 	}
+	if videoDuration {
+		duration, err = strconv.ParseFloat(primaryVideoDuration, 64)
+		if err != nil || duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+			return fmt.Errorf("%w: 视频轨道缺少有效时长，未发布", errHongGuoDownloadSource)
+		}
+	}
 	if expected > 0 && math.Abs(duration-expected) > math.Max(2, expected*0.02) {
 		return fmt.Errorf("%w: 视频时长与来源不一致，未发布", errHongGuoDownloadSource)
 	}
 	if full {
-		return decodeHongGuoDownload(ctx, path, hardware, task)
+		return decodeHongGuoDownload(ctx, path, hardware, task, videoDuration)
 	}
 	return nil
 }
 
 // 硬解仅用于全流解码检查；失败时以软件校验为准，取消不能触发额外解码。
-func decodeHongGuoDownload(ctx context.Context, path string, hardware bool, task *TaskHandle) error {
+func decodeHongGuoDownload(ctx context.Context, path string, hardware bool, task *TaskHandle, allAudio bool) error {
 	base := []string{"-nostdin", "-v", "error", "-xerror", "-err_detect", "explode"}
-	input := []string{"-protocol_whitelist", "file,pipe", "-i", path, "-map", "0:v:0", "-map", "0:a:0?", "-f", "null", "-"}
+	audioMap := "0:a:0?"
+	if allAudio {
+		// 黄果 AI HLS 合并保留了全部音轨，校验也必须解码全部音轨。
+		audioMap = "0:a?"
+	}
+	input := []string{"-protocol_whitelist", "file,pipe", "-i", path, "-map", "0:v:0", "-map", audioMap, "-f", "null", "-"}
 	if hardware {
 		task.Update(TaskUpdate{Stage: "verifying", Message: "正在使用 VAAPI 核显解码校验"})
 		args := append(append([]string{}, base...), "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi")

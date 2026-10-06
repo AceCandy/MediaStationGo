@@ -411,14 +411,40 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 		return "", 0, errors.New("无法保存本地 HLS 清单")
 	}
 	output := filepath.Join(dir, "output.mp4")
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file,crypto", "-allowed_extensions", "ALL", "-i", input, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-n", output)
-	if err := cmd.Run(); err != nil {
+	// 部分源的画面晚于音频出现，需要扩大输入探测范围才能取得视频尺寸。
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file,crypto", "-allowed_extensions", "ALL", "-probesize", "30000000", "-analyzeduration", "30000000", "-i", input, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-n", output)
+	if _, err := cmd.Output(); err != nil {
 		if ctx.Err() != nil {
 			return "", 0, ctx.Err()
 		}
-		return "", 0, errors.New("HLS 合并失败")
+		return "", 0, hlsMergeError(err)
 	}
 	return output, p.Duration, nil
+}
+
+// 仅公开固定诊断和退出码；FFmpeg 原文可能包含源标题、路径或密钥，不能进入任务日志。
+func hlsMergeError(err error) error {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrPermission) {
+		return errors.New("HLS 合并失败：FFmpeg 未安装或不可执行")
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		// Output 将 stderr 限制为头尾片段，分类后不保留原始文本。
+		stderr := string(exit.Stderr)
+		switch {
+		case strings.Contains(stderr, "No space left on device"):
+			return errors.New("HLS 合并失败：存储空间不足")
+		case strings.Contains(stderr, "Permission denied"):
+			return errors.New("HLS 合并失败：暂存文件权限不足")
+		case strings.Contains(stderr, "dimensions not set"):
+			return errors.New("HLS 合并失败：未识别到视频尺寸")
+		case strings.Contains(stderr, "Invalid data found when processing input"):
+			return errors.New("HLS 合并失败：分片或密钥无法解析")
+		default:
+			return fmt.Errorf("HLS 合并失败：FFmpeg 退出码 %d", exit.ExitCode())
+		}
+	}
+	return errors.New("HLS 合并失败：FFmpeg 无法启动")
 }
 
 func (c *Client) fetchResource(ctx context.Context, r Resource, referer, path string, max int64) (int64, error) {
