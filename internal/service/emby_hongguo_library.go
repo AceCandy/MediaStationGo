@@ -125,18 +125,19 @@ func (e *EmbyService) hongGuoLibraryLatestWorks(ctx context.Context, p ItemsPara
 // hongGuoLibraryItems 在作品粒度排序分页，只为页内作品展开详情；Latest 不计总数。
 func (e *EmbyService) hongGuoLibraryItems(ctx context.Context, p ItemsParams, count bool) ([]map[string]any, int64, error) {
 	db := e.repo.DB.WithContext(ctx)
+	sort := primarySupportedEmbySort(p.SortBy, false)
 	dateAggregate := ""
-	if !embyRandomSort(p) && strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
+	if sort == "datecreated" {
 		dateAggregate = "MIN"
 	}
 	baseParams := p
 	baseParams.Filters = nil
 	order := "title"
-	if embyRandomSort(p) {
+	if sort == "random" {
 		order = embyRandomOrder(p, "id")
-	} else if strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
+	} else if sort == "datecreated" {
 		order = "created_at"
-	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
+	} else if sort == "datelastcontentadded" {
 		order = "latest_at"
 	}
 	var works *gorm.DB
@@ -172,7 +173,7 @@ func (e *EmbyService) hongGuoLibraryItems(ctx context.Context, p ItemsParams, co
 		members := db.Table("work_batch").Select("UNNEST(work_ids)")
 		if latestInLibrary {
 			visible, _ := e.hongGuoWorkMembers(ctx, baseParams, "")
-			visible = visible.Where("(batch.kind = 'series' AND w.kind = 'series' AND w.related_album_id = batch.related_album_id) OR (batch.kind = 'movie' AND w.id = batch.work_id)").
+			visible = visible.Where("w.related_album_id = batch.related_album_id").
 				Where("w.latest_media_added_at IS NOT NULL").Select("w.id")
 			members = db.Table("work_batch batch").Joins("JOIN LATERAL (? OFFSET 0) member ON TRUE", visible).Select("member.id")
 		}
@@ -202,21 +203,18 @@ func (e *EmbyService) hongGuoLibraryItems(ctx context.Context, p ItemsParams, co
 	}
 	var members []struct {
 		WorkID string
-		Kind   string
 	}
 	pageMembers, _ := e.hongGuoWorkMembers(ctx, baseParams, "")
 	pageMembers = repository.FilterHongGuoWorkIDs(pageMembers, ids).
-		Where("w.latest_media_added_at IS NOT NULL").Select("w.id AS work_id, w.kind")
+		Where("w.latest_media_added_at IS NOT NULL").Select("w.id AS work_id")
 	if err := pageMembers.Scan(&members).Error; err != nil {
 		return nil, 0, err
 	}
 	workIDs := make([]string, 0, len(members))
-	seriesOnly := true
 	for _, member := range members {
 		workIDs = append(workIDs, member.WorkID)
-		seriesOnly = seriesOnly && member.Kind == "series"
 	}
-	nodes, err := e.hongGuoLibraryNodes(ctx, p, workIDs, seriesOnly)
+	nodes, err := e.hongGuoLibraryNodes(ctx, p, workIDs)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -236,23 +234,15 @@ func (e *EmbyService) hongGuoLibraryItems(ctx context.Context, p ItemsParams, co
 
 // hongGuoLibraryNodes 先按源作品汇总页内文件，再关联一次作品资料、封面和收藏。
 // 不展开季集节点；保留文件最早入库时间、分集去重及有效已看状态的原有语义。
-func (e *EmbyService) hongGuoLibraryNodes(ctx context.Context, p ItemsParams, workIDs []string, seriesOnly bool) ([]hongGuoNode, error) {
+func (e *EmbyService) hongGuoLibraryNodes(ctx context.Context, p ItemsParams, workIDs []string) ([]hongGuoNode, error) {
 	db := e.repo.DB.WithContext(ctx)
 	works := db.Table("hongguo_works w").Where("w.id = ANY(?)", &workIDs).Joins(repository.HongGuoAlbumJoin).
 		Select(`w.id AS work_id, w.source_id, w.overview, w.tags, w.rating, w.season_index,
  g.id AS group_id, COALESCE(g.title,w.title) AS title,
  CASE WHEN g.id IS NULL THEN 'hg-work-' || w.id ELSE 'hg-group-' || g.id END AS id,
- CASE WHEN w.kind = 'movie' THEN 'Movie' ELSE 'Series' END AS kind`)
-	states := repository.PlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))
-	completed := "COALESCE(s.completed,FALSE)"
-	episodeFields := ", MIN(m.id) AS media_id"
-	fileFields := ", MIN(v.media_id) AS media_id, MAX(s.watched_at) AS played_at, MAX(COALESCE(s.position_ms,0)) AS position_ms"
-	nodeFields := ", MIN(v.media_id) AS media_id, MAX(v.played_at) AS played_at, MAX(v.position_ms) AS position_ms"
-	if seriesOnly {
-		states = repository.CompletedPlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))
-		completed = "s.source_id IS NOT NULL"
-		episodeFields, fileFields, nodeFields = "", "", ""
-	}
+ 'Series' AS kind`)
+	states := repository.CompletedPlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))
+	completed := "s.source_id IS NOT NULL"
 	// 按页内源作品读取状态并物化一次，避免逐文件探测或展开整位用户的历史。
 	states = db.Table("page_works state_work").
 		Joins("JOIN LATERAL (? OFFSET 0) state ON TRUE", states.Where("source_id = state_work.source_id")).Select("state.*")
@@ -260,18 +250,18 @@ func (e *EmbyService) hongGuoLibraryNodes(ctx context.Context, p ItemsParams, wo
 		Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Where("b.work_id = ANY(?)", &workIDs).
 		Joins("JOIN page_works w ON w.work_id = b.work_id").
 		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = b.work_id").
-		Select("b.work_id, w.source_id, ep.id AS episode_id, COALESCE(ep.number,1) AS episode_number, MIN(m.created_at) AS created_at" + episodeFields).
+		Select("b.work_id, w.source_id, ep.id AS episode_id, COALESCE(ep.number,1) AS episode_number, MIN(m.created_at) AS created_at").
 		Group("b.work_id, w.source_id, ep.id, ep.number")
 	// 先归并同集文件版本，再与状态集合连接，避免状态被嵌入每个文件的索引探测。
 	stats := db.Table("page_files v").
 		Joins("LEFT JOIN page_states s ON s.source_id = v.source_id AND s.episode_number = v.episode_number").
 		Select(`v.work_id, MIN(v.created_at) AS created_at,
  COUNT(DISTINCT v.episode_id) AS episode_count, BOOL_AND(` + completed + `) AS played,
- COUNT(DISTINCT v.episode_id) FILTER (WHERE NOT (` + completed + `)) AS unplayed_item_count` + fileFields).Group("v.work_id")
+ COUNT(DISTINCT v.episode_id) FILTER (WHERE NOT (` + completed + `)) AS unplayed_item_count`).Group("v.work_id")
 	var nodes []hongGuoNode
 	err := db.Raw(`WITH page_works AS MATERIALIZED (?), page_states AS MATERIALIZED (?),
  page_files AS MATERIALIZED (?), file_stats AS MATERIALIZED (?)
- SELECT w.id,w.kind,w.title, MIN(v.created_at) AS created_at`+nodeFields+`,
+ SELECT w.id,w.kind,w.title, MIN(v.created_at) AS created_at,
  SUM(v.episode_count) AS episode_count, BOOL_AND(v.played) AS played,
  SUM(v.unplayed_item_count) AS unplayed_item_count,
  BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite,

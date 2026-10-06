@@ -57,7 +57,7 @@ func (r *MediaViewRepository) HongGuoMediaPage(ctx context.Context, sourceID str
 	return rows, total, err
 }
 
-// HongGuoItemViews 仅解析电影或分集的逻辑身份，不把整剧作为可播放文件。
+// HongGuoItemViews 仅解析分集的逻辑身份，不把整剧作为可播放文件。
 func (r *MediaViewRepository) HongGuoItemViews(ctx context.Context, id string, filter MediaQueryFilter) ([]model.MediaView, error) {
 	return r.HongGuoItemsViews(ctx, []string{id}, filter)
 }
@@ -68,17 +68,13 @@ func (r *MediaViewRepository) HongGuoItemsViews(ctx context.Context, itemIDs []s
 		return []model.MediaView{}, nil
 	}
 	// 原生身份列先走索引，避免为当前页版本扫描全部绑定再拼接展示 ID。
-	workIDs, episodeIDs := []string{}, []string{}
+	episodeIDs := []string{}
 	for _, id := range itemIDs {
-		if workID, ok := strings.CutPrefix(id, "hg-work-"); ok {
-			workIDs = append(workIDs, workID)
-		} else if episodeID, ok := strings.CutPrefix(id, "hg-episode-"); ok {
+		if episodeID, ok := strings.CutPrefix(id, "hg-episode-"); ok {
 			episodeIDs = append(episodeIDs, episodeID)
 		}
 	}
-	q := r.db.WithContext(ctx).Table("hongguo_media_bindings AS b").Joins("JOIN hongguo_works AS w ON w.id = b.work_id")
-	q = q.Where("b.work_id = ANY(?) OR b.episode_id = ANY(?)", &workIDs, &episodeIDs)
-	q = q.Where("CASE WHEN w.kind = 'movie' AND b.episode_id IS NULL THEN 'hg-work-' || w.id WHEN w.kind = 'series' AND b.episode_id IS NOT NULL THEN 'hg-episode-' || b.episode_id ELSE '' END = ANY(?)", &itemIDs)
+	q := r.db.WithContext(ctx).Table("hongguo_media_bindings AS b").Where("b.episode_id = ANY(?)", &episodeIDs)
 	var ids []string
 	if err := q.Order("b.media_id").Pluck("b.media_id", &ids).Error; err != nil {
 		return nil, err
@@ -101,7 +97,7 @@ func (r *MediaViewRepository) hongGuoViewsByIDs(ctx context.Context, ids []strin
 	q := r.db.WithContext(ctx).Table("media AS m").
 		Joins("JOIN hongguo_media_bindings AS b ON b.media_id = m.id").
 		Joins("JOIN hongguo_works AS w ON w.id = b.work_id").
-		Joins("LEFT JOIN hongguo_episodes AS ep ON ep.id = b.episode_id AND ep.work_id = w.id").
+		Joins("JOIN hongguo_episodes AS ep ON ep.id = b.episode_id AND ep.work_id = w.id").
 		Joins(HongGuoAlbumJoin).
 		Joins("LEFT JOIN hongguo_artworks AS a ON a.work_id = w.id AND a.local_key <> ''").
 		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
@@ -120,17 +116,15 @@ func (r *MediaViewRepository) hongGuoViewsByIDs(ctx context.Context, ids []strin
 	}
 	var rows []model.MediaView
 	err := q.Select(`m.*,
-CASE WHEN ep.id IS NULL THEN 'hg-work-' || w.id ELSE 'hg-episode-' || ep.id END AS view_catalog_item_id,
-CASE WHEN ep.id IS NULL THEN '' WHEN g.id IS NULL THEN 'hg-work-' || w.id ELSE 'hg-group-' || g.id END AS view_series_id,
-CASE WHEN ep.id IS NULL THEN '' ELSE COALESCE(g.title,w.title) END AS view_series_title,
-CASE WHEN ep.id IS NULL THEN '' ELSE 'hg-season-' || w.id END AS view_season_id,
-CASE WHEN ep.id IS NULL THEN w.title ELSE '第' || ep.number || '集' END AS view_title,
-CASE WHEN ep.id IS NULL THEN w.overview ELSE '' END AS view_overview,
-CASE WHEN ep.id IS NULL THEN w.rating ELSE 0 END AS view_rating,
-CASE WHEN ep.id IS NULL THEN '' ELSE COALESCE(TO_CHAR(w.first_visible_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD'),'') END AS view_release_date,
-CASE WHEN ep.id IS NULL THEN 0 ELSE CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END END AS view_season_num,
-COALESCE(ep.number,0) AS view_episode_num,
-CASE WHEN ep.id IS NULL THEN 'movie' ELSE 'episode' END AS view_metadata_kind,
+'hg-episode-' || ep.id AS view_catalog_item_id,
+CASE WHEN g.id IS NULL THEN 'hg-work-' || w.id ELSE 'hg-group-' || g.id END AS view_series_id,
+COALESCE(g.title,w.title) AS view_series_title,
+'hg-season-' || w.id AS view_season_id,
+'第' || ep.number || '集' AS view_title,
+'' AS view_overview, 0 AS view_rating,
+COALESCE(TO_CHAR(w.first_visible_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD'),'') AS view_release_date,
+CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END AS view_season_num,
+ep.number AS view_episode_num, 'episode' AS view_metadata_kind,
 'hongguo' AS view_metadata_source,
 COALESCE(a.id,'') AS view_poster_asset_id,
 COALESCE(pm.duration_ms,0) AS view_probe_duration_ms,

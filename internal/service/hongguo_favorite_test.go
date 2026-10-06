@@ -133,23 +133,23 @@ func TestHongGuoAlbumFavoriteIdentity(t *testing.T) {
 	// 新成员加入已收藏的原合集，无需重新点收藏。
 	addSeason("91003", 3)
 	assertFavorite("viewer", true)
-	// 已有合集关系的电影变为连载剧时，也必须提升原电影收藏。
-	movie := hongguo.Work{SourceID: "94001", Title: "类型补全", Completed: true, EpisodeCount: 1, TotalEpisodes: 1, Snapshot: []byte(`{}`)}
-	if _, err := repos.HongGuo.SaveDetail(ctx, movie); err != nil {
+	// 一集短剧补充为两集时，合集收藏保持不变。
+	short := hongguo.Work{SourceID: "94001", Title: "类型补全", Completed: true, EpisodeCount: 1, TotalEpisodes: 1, Snapshot: []byte(`{}`)}
+	if _, err := repos.HongGuo.SaveDetail(ctx, short); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.HongGuo.SaveAlbum(ctx, movie.SourceID, hongguo.Album{ID: movie.SourceID, Season: 1}); err != nil {
+	if err := repos.HongGuo.SaveAlbum(ctx, short.SourceID, hongguo.Album{ID: short.SourceID, Season: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.HongGuo.SetFavorite(ctx, "viewer", movie.SourceID, true); err != nil {
+	if err := repos.HongGuo.SetFavorite(ctx, "viewer", short.SourceID, true); err != nil {
 		t.Fatal(err)
 	}
-	movie.Completed, movie.EpisodeCount, movie.TotalEpisodes = false, 2, 0
-	if _, err := repos.HongGuo.SaveDetail(ctx, movie); err != nil {
+	short.Completed, short.EpisodeCount, short.TotalEpisodes = false, 2, 0
+	if _, err := repos.HongGuo.SaveDetail(ctx, short); err != nil {
 		t.Fatal(err)
 	}
-	state, err = repos.HongGuo.UserState(ctx, "viewer", movie.SourceID, 0)
+	state, err = repos.HongGuo.UserState(ctx, "viewer", short.SourceID, 0)
 	if err != nil || !state.Favorite {
-		t.Fatalf("kind change lost source favorite: %+v %v", state, err)
+		t.Fatalf("episode refresh lost source favorite: %+v %v", state, err)
 	}
 }

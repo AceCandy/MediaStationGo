@@ -23,9 +23,10 @@ func TestSearchUsesMaintainedMembership(t *testing.T) {
 		`INSERT INTO media(id,library_id,catalog_source,path,created_at) SELECT 'nfo-file-'||id,library_id,'nfo','/fixture/nfo/'||id,'2026-01-01' FROM nfo_items WHERE id<>'empty'`,
 		`INSERT INTO nfo_media_bindings(media_id,item_id,fingerprint,title) SELECT 'nfo-file-'||id,id,'test',title FROM nfo_items WHERE id<>'empty'`,
 		`UPDATE nfo_items SET latest_media_added_at=NULL WHERE id='unknown'`,
-		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) SELECT id,id,'movie','Search target',now() FROM unnest(ARRAY['known','hidden','unknown','empty','unassigned']) id`,
+		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at) SELECT id,id,'series','Search target',id,1,now() FROM unnest(ARRAY['known','hidden','unknown','empty','unassigned']) id`,
 		`INSERT INTO media(id,library_id,catalog_source,path,created_at) SELECT 'hg-file-'||id,CASE WHEN id='hidden' THEN 'hidden' WHEN id='unassigned' THEN NULL ELSE 'visible' END,'hongguo','/fixture/hg/'||id,'2026-01-01' FROM hongguo_works WHERE id<>'empty'`,
-		`INSERT INTO hongguo_media_bindings(media_id,work_id) SELECT 'hg-file-'||id,id FROM hongguo_works WHERE id<>'empty'`,
+		`INSERT INTO hongguo_episodes(id,work_id,number) SELECT 'hg-ep-'||id,id,1 FROM hongguo_works`,
+		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) SELECT 'hg-file-'||id,id,'hg-ep-'||id FROM hongguo_works WHERE id<>'empty'`,
 		`UPDATE hongguo_works SET library_ids=NULL WHERE id='unknown'`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
@@ -55,14 +56,14 @@ func TestSearchUsesMaintainedMembership(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i := range want {
-			want[i].Kind = "movie"
+			want[i].Kind = "series"
 		}
 		got, err := repos.HongGuo.SearchCandidates(ctx, "Search target", MetadataSearchFilter{MediaQueryFilter: scope, Kinds: []string{"movie", "series"}})
 		if err != nil || len(got) != len(want) || len(got) > 0 && !reflect.DeepEqual(got, want) {
 			t.Fatalf("HongGuo scope=%+v got=%v want=%v err=%v", scope, got, want, err)
 		}
 	}
-	filter := MetadataSearchFilter{Kinds: []string{"movie"}, LibraryRestricted: true, VisibleLibraryIDs: []string{"visible"}, MediaQueryFilter: MediaQueryFilter{AllowedLibraryIDs: []string{"visible"}}}
+	filter := MetadataSearchFilter{Kinds: []string{"movie", "series"}, LibraryRestricted: true, VisibleLibraryIDs: []string{"visible"}, MediaQueryFilter: MediaQueryFilter{AllowedLibraryIDs: []string{"visible"}}}
 	for _, q := range []*gorm.DB{repos.MediaView.metadataSearchQuery(ctx, filter), repos.MediaView.nfoSearchQuery(ctx, filter, nil)} {
 		stmt := q.Where("search_metadata.id='known'").Select("search_metadata.id").Session(&gorm.Session{DryRun: true}).Find(&[]string{}).Statement
 		assertSearchSkipsFiles(t, db, stmt.SQL.String(), stmt.Vars)
@@ -76,7 +77,7 @@ func TestSearchUsesMaintainedMembership(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	repos.HongGuo.SetSearchBackend(&fakeMediaSearchBackend{ids: []string{"hg-work-known"}})
+	repos.HongGuo.SetSearchBackend(&fakeMediaSearchBackend{ids: []string{"hg-group-known"}})
 	if _, err := repos.HongGuo.SearchCandidates(ctx, "Search target", filter); err != nil {
 		t.Fatal(err)
 	}

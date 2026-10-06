@@ -15,7 +15,8 @@ func TestHongGuoSearchBatchCommitBoundaries(t *testing.T) {
 	ctx := t.Context()
 	for _, row := range []any{
 		&model.Library{Base: model.Base{ID: "library"}, Name: "batch", Path: "/batch", Type: model.LibraryTypeHongGuo},
-		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "work"}, SourceID: "12345678901", Kind: "movie", Title: "Target"},
+		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "work"}, SourceID: "12345678901", Kind: "series", Title: "Target"},
+		&model.HongGuoEpisode{WorkID: "work", Number: 1},
 	} {
 		if err := repos.DB.Create(row).Error; err != nil {
 			t.Fatal(err)
@@ -28,7 +29,7 @@ func TestHongGuoSearchBatchCommitBoundaries(t *testing.T) {
 	}
 	writer, flush := repos.Media.WithBatchedHongGuoSearch(2)
 	file := func(i int) *model.Media {
-		return &model.Media{LibraryID: "library", CatalogSource: "hongguo", LookupCatalogID: "12345678901", Path: fmt.Sprintf("/batch/%d.mkv", i)}
+		return &model.Media{LibraryID: "library", CatalogSource: "hongguo", LookupCatalogID: "12345678901", Path: fmt.Sprintf("/batch/%d.mkv", i), SeasonNum: 1, EpisodeNum: 1}
 	}
 	if err := writer.Upsert(ctx, file(1)); err != nil || len(backend.upserts) != 0 {
 		t.Fatalf("first commit err=%v writes=%v", err, backend.upserts)

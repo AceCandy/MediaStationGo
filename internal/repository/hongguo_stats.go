@@ -30,7 +30,7 @@ func (r *HongGuoRepository) playbackStatsQueries(ctx context.Context, f Playback
 			CASE WHEN w.kind = 'series' THEN CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END ELSE 0 END AS season_num,
 			CASE WHEN w.kind = 'series' THEN pe.episode_number ELSE 0 END AS episode_num,
 			CASE WHEN a.id IS NULL THEN '' ELSE '/api/catalogs/hongguo/artwork/' || a.id END AS poster_url,
-			(b.media_id IS NOT NULL AND (w.kind = 'movie' OR ep.number = pe.episode_number)) AS media_available`)
+			(b.media_id IS NOT NULL AND ep.number = pe.episode_number) AS media_available`)
 	rank := hongGuoStatsDisplay(r.playbackStatsQuery(ctx, f)).
 		Where("pe.played_at >= ? AND pe.played_at < ?", f.RankFrom, f.RankTo).
 		Select("'hongguo' AS system, 'hongguo-' || pe.source_id AS group_id, " + display)
@@ -51,7 +51,7 @@ func (r *HongGuoRepository) playbackStatsQuery(ctx context.Context, f PlaybackSt
 		q = q.Where("pe.library_id = ANY(?)", &f.LibraryIDs)
 	}
 	if f.MediaType == "movie" {
-		q = q.Where("w.kind = 'movie'")
+		q = q.Where("FALSE")
 	} else if f.MediaType == "tv" {
 		q = q.Where("w.kind = 'series'")
 	}

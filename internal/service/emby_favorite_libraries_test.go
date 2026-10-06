@@ -49,10 +49,14 @@ func TestFavoriteLibraryMembershipSourcesAndVisibility(t *testing.T) {
 	works := []model.HongGuoWork{
 		{SourceID: "101", Kind: "series", Title: "First", RelatedAlbumID: "900", SeasonIndex: 1},
 		{SourceID: "102", Kind: "series", Title: "Second", RelatedAlbumID: "900", SeasonIndex: 2},
-		{SourceID: "103", Kind: "movie", Title: "Source movie"},
+		{SourceID: "103", Kind: "series", Title: "Source short", RelatedAlbumID: "103", SeasonIndex: 1},
 	}
 	for i := range works {
 		if err := db.Create(&works[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+		episode := model.HongGuoEpisode{WorkID: works[i].ID, Number: 1}
+		if err := db.Create(&episode).Error; err != nil {
 			t.Fatal(err)
 		}
 		for _, lib := range libs[i%2:] {
@@ -60,7 +64,7 @@ func TestFavoriteLibraryMembershipSourcesAndVisibility(t *testing.T) {
 			if err := db.Create(&media).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := db.Create(&model.HongGuoMediaBinding{MediaID: media.ID, WorkID: works[i].ID}).Error; err != nil {
+			if err := db.Create(&model.HongGuoMediaBinding{MediaID: media.ID, WorkID: works[i].ID, EpisodeID: &episode.ID}).Error; err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -73,7 +77,7 @@ func TestFavoriteLibraryMembershipSourcesAndVisibility(t *testing.T) {
 		{"Id": movie.ID, "Type": "Movie", "ParentId": "unchanged"},
 		{"Id": series.ID, "Type": "Series"},
 		{"Id": "hg-group-900", "Type": "Series", "ParentId": ""},
-		{"Id": "hg-work-" + works[2].ID, "Type": "Movie"},
+		{"Id": "hg-group-103", "Type": "Series"},
 		{"Id": "nfo-" + local.ID, "Type": "Series"},
 	}
 	// 覆盖已维护归属与尚未初始化归属；后者必须从页内绑定回查。

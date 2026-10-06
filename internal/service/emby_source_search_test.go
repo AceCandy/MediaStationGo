@@ -161,13 +161,15 @@ func TestEmbyHongGuoSearchKeepsPlayedFilterWithoutNFO(t *testing.T) {
 	lib := model.Library{Name: "Source", Type: model.LibraryTypeHongGuo, Path: "/test/source"}
 	create(&lib)
 	for _, id := range []string{"played", "unplayed"} {
-		create(&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: id}, SourceID: id, Kind: "movie", Title: "航海王"})
+		create(&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: id}, SourceID: id, Kind: "series", Title: "航海王", RelatedAlbumID: id, SeasonIndex: 1})
 		create(&model.Media{PermanentBase: model.PermanentBase{ID: id}, LibraryID: lib.ID, CatalogSource: "hongguo", Path: "/test/source/" + id + ".mkv"})
-		create(&model.HongGuoMediaBinding{MediaID: id, WorkID: id})
+		episode := model.HongGuoEpisode{WorkID: id, Number: 1}
+		create(&episode)
+		create(&model.HongGuoMediaBinding{MediaID: id, WorkID: id, EpisodeID: &episode.ID})
 	}
 	create(&model.HongGuoUserState{UserID: "viewer", SourceID: "played", EpisodeNumber: 1, Completed: true})
 	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
-	for filter, want := range map[string]string{"IsPlayed": "hg-work-played", "IsUnplayed": "hg-work-unplayed"} {
+	for filter, want := range map[string]string{"IsPlayed": "hg-group-played", "IsUnplayed": "hg-group-unplayed"} {
 		page, err := e.Items(t.Context(), ItemsParams{UserID: "viewer", SearchTerm: "航海王", Filters: []string{filter}, Limit: 10})
 		if err != nil {
 			t.Fatal(err)

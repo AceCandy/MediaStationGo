@@ -126,9 +126,9 @@ func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams
 	q := e.resumeSourceFiles(ctx, p.UserID, model.TaskSystemHongGuo).
 		Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
 		Joins("JOIN hongguo_works w ON w.id = b.work_id").
-		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
+		Joins("JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
 		Joins("JOIN (?) s ON s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)", repository.PlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
-		Where("s.position_ms > 0 AND (w.kind = 'movie' OR (w.kind = 'series' AND ep.id IS NOT NULL))")
+		Where("s.position_ms > 0")
 	q = e.workLibraryScope(ctx, q, "w.library_ids", p)
 	if len(p.PersonIDs) > 0 {
 		q = q.Where("EXISTS (SELECT 1 FROM hongguo_credits c WHERE c.work_id = w.id AND 'hg-person-' || c.person_id IN ?)", p.PersonIDs)
@@ -139,10 +139,10 @@ func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams
 		favorite = "TRUE"
 	}
 	// 合法合集成员自身已满足原 lateral 查询，归组键无需再次查找合集标题。
-	return q.Select(`CASE WHEN w.kind = 'movie' THEN 'hg-work-' || w.id ELSE 'hg-episode-' || ep.id END AS id,
+	return q.Select(`'hg-episode-' || ep.id AS id,
  CASE WHEN w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0 THEN 'hongguo:group:' || w.related_album_id ELSE 'hongguo:work:' || w.source_id END AS resume_key,
- CASE WHEN w.kind = 'movie' THEN 'movie' ELSE 'episode' END AS kind,
- CASE WHEN w.kind = 'movie' THEN w.title ELSE '第' || ep.number || '集' END AS title,
+ 'episode' AS kind,
+ '第' || ep.number || '集' AS title,
  MAX(m.created_at) AS created_at, COALESCE(MAX(s.watched_at),MAX(m.created_at)) AS played_at,
  BOOL_AND(s.completed) AS played, ` + favorite + ` AS favorite, w.rating, '' AS release_date, 0 AS year`).Group("1, 2, 3, 4, w.rating")
 }

@@ -3,7 +3,7 @@ package model
 import "time"
 
 // HongGuoUserState 属于用户数据，不随资料停用/卸载级联删除。
-// 源作品 ID 与源集号构成稳定身份；0 仅兼容旧收藏迁移，电影进度仍归源第 1 集。
+// 源作品 ID 与源集号构成稳定身份；0 仅兼容旧收藏迁移。
 type HongGuoUserState struct {
 	UserID        string `gorm:"primaryKey;size:36" json:"user_id"`
 	SourceID      string `gorm:"primaryKey;size:32" json:"source_id"`
@@ -21,10 +21,10 @@ type HongGuoUserState struct {
 
 func (HongGuoUserState) TableName() string { return "hongguo_user_states" }
 
-// HongGuoFavorite 独立保存合集或电影收藏，不随资料删除；合集新增季自然沿用。
+// HongGuoFavorite 独立保存短剧合集收藏，不随资料删除；合集新增季自然沿用。
 type HongGuoFavorite struct {
 	UserID    string    `gorm:"primaryKey;size:36" json:"user_id"`
-	ItemID    string    `gorm:"primaryKey;size:64;index" json:"item_id"` // hg-group-合集 ID；未归组作品和电影使用源 ID。
+	ItemID    string    `gorm:"primaryKey;size:64;index" json:"item_id"` // hg-group-合集 ID；未归组作品使用源 ID。
 	Favorite  bool      `gorm:"not null;default:false" json:"favorite"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

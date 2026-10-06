@@ -5,7 +5,7 @@ export interface HongGuoWork {
   id: string
   source_id: string
   source_category: string
-  kind: 'movie' | 'series'
+  kind: 'series'
   title: string
   overview: string
   episode_count: number
@@ -34,11 +34,11 @@ export interface HongGuoListWork extends HongGuoWork { artwork_id: string; tags:
 export interface HongGuoGroup { id: string; title: string; members: (HongGuoWork & { season_number: number })[] }
 
 export interface HongGuoUserCard {
-  source_id: string; title: string; kind: 'movie' | 'series'; media_id: string
+  source_id: string; title: string; kind: 'series'; media_id: string
   season_number: number; episode_number: number; position_ms: number; duration_ms: number; completed: boolean; updated_at: string
 }
 
-export interface HongGuoLibraryCard { id: string; source_id: string; title: string; kind: 'movie' | 'series'; artwork_id: string }
+export interface HongGuoLibraryCard { id: string; source_id: string; title: string; kind: 'series'; artwork_id: string }
 export interface HongGuoPendingMedia { id: string; source_id: string; title: string; path: string; reason: string }
 
 export const hongguoAPI = {

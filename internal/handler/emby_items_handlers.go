@@ -227,7 +227,7 @@ func embyDisplayPreferencesHandler(_ *service.Container) gin.HandlerFunc {
 				"homesection0":       "smalllibrarytiles",
 				"homesection1":       "resume",
 				"homesection2":       "none",
-				"homesection3":       "nextup",
+				"homesection3":       "none",
 				"homesection4":       "none",
 				"homesection5":       "none",
 				"homesection6":       "none",

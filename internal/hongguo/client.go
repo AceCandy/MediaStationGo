@@ -540,5 +540,3 @@ func ParseDetail(body []byte, expectedID string) (Work, error) {
 	w.Snapshot, err = json.Marshal(snapshot)
 	return w, err
 }
-
-func (w Work) IsMovie() bool { return w.Completed && w.TotalEpisodes == 1 && w.EpisodeCount <= 1 }

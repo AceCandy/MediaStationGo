@@ -121,17 +121,17 @@ func TestHongGuoBindingGroupingAndStableProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err = r.MediaView.FindByID(ctx, m.ID)
-	if err != nil || view.MetadataKind != "movie" {
-		t.Fatalf("movie transition: %+v %v", view, err)
+	if err != nil || view.MetadataKind != "episode" || view.CatalogItemID != itemID {
+		t.Fatalf("single-episode completion changed identity: %+v %v", view, err)
 	}
 	if err := r.HongGuo.RecordProgress(ctx, "user-a", "session-a", *view, 50000, 120000, false); err != nil {
 		t.Fatal(err)
 	}
 	state, err = r.HongGuo.UserState(ctx, "user-a", input.SourceID, 1)
 	if err != nil || state.PositionMs != 50000 {
-		t.Fatal("movie transition lost progress")
+		t.Fatal("single-episode completion lost progress")
 	}
-	// 重扫无效坐标必须解除旧绑定，不能继续呈现成已匹配电影。
+	// 重扫无效坐标必须解除旧绑定，不能继续呈现成已匹配分集。
 	m.EpisodeNum = 2
 	if err := r.Media.Upsert(ctx, &m); err != nil {
 		t.Fatal(err)

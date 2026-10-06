@@ -65,7 +65,7 @@ func (r *HongGuoRepository) SearchResults(ctx context.Context, remote []hongguo.
 		}
 	}
 	for _, work := range remote {
-		row := HongGuoListWork{HongGuoWork: model.HongGuoWork{SourceID: work.SourceID, SourceCategory: categories[work.SourceID], Title: work.Title, Overview: work.Overview, EpisodeCount: work.EpisodeCount, UpdateText: work.UpdateText}, ArtworkID: images[work.SourceID], TagList: work.Tags}
+		row := HongGuoListWork{HongGuoWork: model.HongGuoWork{SourceID: work.SourceID, Kind: model.MetadataKindSeries, SourceCategory: categories[work.SourceID], Title: work.Title, Overview: work.Overview, EpisodeCount: work.EpisodeCount, UpdateText: work.UpdateText}, ArtworkID: images[work.SourceID], TagList: work.Tags}
 		if saved, ok := local[work.SourceID]; ok {
 			row.HongGuoWork, row.Hydrated = saved, true
 			if err := json.Unmarshal([]byte(saved.Tags), &row.TagList); err != nil {

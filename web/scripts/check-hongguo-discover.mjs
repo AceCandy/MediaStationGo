@@ -193,19 +193,20 @@ try {
   const second = { ...first, id: 'second-episode', catalog_item_id: 'hg-episode-second', lookup_catalog_id: '90002', season_num: 2 }
   const series = { ...first, id: seriesID, metadata_kind: 'series', title: '长风渡山河', overview: '第一季作为整剧简介', genres: '都市,成长', rating: 8.5, season_num: 0, episode_num: 0 }
   const card = { key: `metadata:${seriesID}`, rep: { ...series, id: first.id }, linkMedia: first, count: 2, seasons: [1, 2], season_media_ids: { 1: first.id, 2: second.id } }
-  const movie = { ...first, id: 'test-movie', lookup_catalog_id: '90003', catalog_item_id: 'hg-work-movie', series_id: '', metadata_kind: 'movie', title: '红果电影', season_num: 0, episode_num: 0 }
-  const movieCard = { key: 'hongguo:90003', rep: movie, linkMedia: movie, count: 1 }
-  route('libraries/hongguo-test/series?*hongguo*90003*', { items: [movieCard], total: 1 })
+  const short = { ...first, id: 'test-short', lookup_catalog_id: '90003', catalog_item_id: 'hg-episode-short', series_id: 'hg-group-90003', series_title: '一集短剧', title: '第1集' }
+  const shortSeries = { ...series, id: short.series_id, series_id: short.series_id, title: short.series_title, series_title: short.series_title, lookup_catalog_id: short.lookup_catalog_id }
+  const shortCard = { key: 'hongguo:90003', rep: { ...shortSeries, id: short.id }, linkMedia: short, count: 1, seasons: [1], season_media_ids: { 1: short.id } }
+  route('libraries/hongguo-test/series?*90003*', { items: [shortCard], total: 1 })
   route('libraries/hongguo-test/series?*hongguo*90001*', { items: [{ ...card, key: 'hongguo:90001' }], total: 1 })
-  route('libraries/hongguo-test/series?*', { items: [card, movieCard], total: 2 })
-  route('libraries/hongguo-test/series/episodes?*hongguo*90003*', { items: [movie], history: [], total: 1 })
+  route('libraries/hongguo-test/series?*', { items: [card, shortCard], total: 2 })
+  route('libraries/hongguo-test/series/episodes?*90003*', { items: [short], history: [], total: 1 })
   route('libraries/hongguo-test/series/episodes?*season=2*', { items: [second], history: [], total: 1 })
   route('libraries/hongguo-test/series/episodes?*', { items: [first, alternate, second], history: [], total: 3 })
   route('libraries/hongguo-test', { id: 'hongguo-test', name: '测试红果库', type: 'hongguo' })
-  for (const file of [first, alternate, second, movie]) {
-    route(`media/${file.id}/versions`, file === movie ? [movie] : file === second ? [second] : [first, alternate])
+  for (const file of [first, alternate, second, short]) {
+    route(`media/${file.id}/versions`, file === short ? [short] : file === second ? [second] : [first, alternate])
     route(`media/${file.id}/series/favorite`, { favourite: true })
-    route(`media/${file.id}/series`, { series, favourite: false })
+    route(`media/${file.id}/series`, { series: file === short ? shortSeries : series, favourite: false })
     route(`media/${file.id}/season`, { season: { ...series, id: `hg-season-${file.lookup_catalog_id}`, title: file.season_num === 2 ? '重逢第二部' : '长风渡山河', metadata_kind: 'season', season_num: file.season_num, overview: `第${file.season_num}季独立简介` } })
     route(`media/${file.id}/credits*`, { items: [{ person_id: 'source-person', name: '第一季演员', type: '' }] })
     route(`media/${file.id}`, file)
@@ -244,8 +245,8 @@ try {
   browser('find', 'role', 'button', 'click', '--name', '返回媒体库', '--exact')
   waitFor(`!new URLSearchParams(location.search).has('series_id') && document.querySelector('button .shadow-poster') !== null`)
   visit('/library/hongguo-test?hongguo_id=90003')
-  waitFor(`location.pathname === '/media/test-movie' && document.body.innerText.includes('红果电影')`)
-  assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r => new URL(r.name).pathname.endsWith('/media/test-movie/series'))`), 'movie redirect never mounts series details that rewrite its URL')
+  waitFor(`new URLSearchParams(location.search).get('series_id') === 'hg-group-90003' && document.body.innerText.includes('一集短剧')`)
+  assert.ok(evaluate(`location.pathname === '/library/hongguo-test' && document.querySelector('a[href="/play/test-short"]') !== null`), 'single-episode short uses series details and episode playback')
   assert.equal(browser('errors').trim(), '')
   console.log('红果发现：旧链接、参数、按需加载、体系切换、权限与双主题响应式检查通过')
 } catch (error) {

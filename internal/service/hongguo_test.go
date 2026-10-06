@@ -87,7 +87,7 @@ func TestHongGuoImportTaskAndIsolation(t *testing.T) {
 		t.Fatalf("disabled source requested: %d %v", requests, err)
 	}
 	work, err := repos.HongGuo.FindBySourceID(ctx, "9000000000000000001")
-	if err != nil || work.Kind != model.MetadataKindMovie {
+	if err != nil || work.Kind != model.MetadataKindSeries {
 		t.Fatal("source disable removed data")
 	}
 }

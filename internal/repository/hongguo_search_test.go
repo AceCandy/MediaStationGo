@@ -46,7 +46,7 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
-	if rows[0].SourceID != remote[0].SourceID || rows[0].Hydrated || rows[0].SourceCategory != "" || !rows[1].Hydrated || rows[1].Title != known.Title || rows[1].SourceCategory != "ai-drama" {
+	if rows[0].SourceID != remote[0].SourceID || rows[0].Hydrated || rows[0].Kind != model.MetadataKindSeries || rows[0].SourceCategory != "" || !rows[1].Hydrated || rows[1].Title != known.Title || rows[1].SourceCategory != "ai-drama" {
 		t.Fatalf("bad projection: %+v", rows)
 	}
 	if rows[0].GroupID != "" || rows[1].GroupID != groupID || rows[1].RelatedAlbumID != groupID || rows[1].SeasonIndex != 2 {

@@ -36,9 +36,10 @@ type HongGuoWork struct {
 	// LibraryIDs 仅记录本源作品现存文件的库集合，不包含合集其他季；NULL 表示尚未初始化。
 	LibraryIDs *string `gorm:"type:jsonb;->" json:"-"`
 
-	SourceID           string     `gorm:"size:32;not null;uniqueIndex" json:"source_id"`
-	SourceCategory     string     `gorm:"size:32;not null;default:'';index" json:"source_category"`
-	Kind               string     `gorm:"size:16;not null;index;check:chk_hongguo_work_kind,kind IN ('movie','series')" json:"kind"`
+	SourceID       string `gorm:"size:32;not null;uniqueIndex" json:"source_id"`
+	SourceCategory string `gorm:"size:32;not null;default:'';index" json:"source_category"`
+	// Kind 固定为剧集，一集完结短剧也保留季、集身份。
+	Kind               string     `gorm:"size:16;not null;index;check:chk_hongguo_work_series,kind = 'series'" json:"kind"`
 	Title              string     `gorm:"type:text;not null" json:"title"`
 	Overview           string     `gorm:"type:text" json:"overview"`
 	Tags               string     `gorm:"type:text;not null;default:'[]'" json:"-"`

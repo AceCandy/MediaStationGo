@@ -49,7 +49,7 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	if err := repos.HongGuo.ReplaceRank(ctx, "hot-drama", "", []hongguo.Work{{SourceID: work.SourceID, Title: work.Title}}); err != nil {
 		t.Fatal(err)
 	}
-	m := model.Media{LibraryID: library.ID, Path: filepath.Join(library.Path, "movie.mp4"), CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID}
+	m := model.Media{LibraryID: library.ID, Path: filepath.Join(library.Path, "short-S01E01.mp4"), CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID, SeasonNum: 1, EpisodeNum: 1}
 	if err := os.WriteFile(m.Path, []byte("0123456789"), 0600); err != nil {
 		t.Fatal(err)
 	}

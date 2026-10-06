@@ -31,11 +31,12 @@ SELECT 'work-'||n,n::text,'series','Show',CASE WHEN n=9 THEN '' ELSE n::text END
 SELECT 'viewer',n::text,e,'file-ep-'||n||'-'||e,true,'2026-01-01'::timestamptz+n*interval '1 day' FROM generate_series(1,9) n CROSS JOIN generate_series(1,239) e`,
 		`INSERT INTO hongguo_user_states(user_id,source_id,episode_number,media_id,completed,watched_at)
 SELECT 'other',w.source_id,e.number,'file-'||e.id,true,now() FROM hongguo_episodes e JOIN hongguo_works w ON w.id=e.work_id`,
-		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) VALUES ('movie','9001','movie','Movie',now())`,
-		`INSERT INTO media(id,catalog_source,library_id,path) VALUES ('movie-file','hongguo','visible','/test/movie')`,
-		`INSERT INTO hongguo_media_bindings(media_id,work_id) VALUES ('movie-file','movie')`,
+		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) VALUES ('short','9001','series','Short',now())`,
+		`INSERT INTO media(id,catalog_source,library_id,path) VALUES ('short-file','hongguo','visible','/test/short')`,
+		`INSERT INTO hongguo_episodes(id,work_id,number) VALUES ('short-ep','short',1)`,
+		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) VALUES ('short-file','short','short-ep')`,
 		`INSERT INTO hongguo_user_states(user_id,source_id,episode_number,media_id,position_ms,duration_ms,watched_at)
-VALUES ('viewer','9001',1,'movie-file',60000,120000,'2026-02-01')`,
+VALUES ('viewer','9001',1,'short-file',60000,120000,'2026-02-01')`,
 		`ANALYZE`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
@@ -58,9 +59,9 @@ VALUES ('viewer','9001',1,'movie-file',60000,120000,'2026-02-01')`,
 		mode                ContinuationMode
 		count, visits       int
 	}{
-		{"resume", "", "hg-work-movie", ContinuationResume, 10, 20000},
+		{"resume", "", "hg-episode-short-ep", ContinuationResume, 10, 20000},
 		{"next", "", "hg-episode-ep-9-240", ContinuationNextUp, 9, 20000},
-		{"web", "", "hg-work-movie", ContinuationWeb, 10, 20000},
+		{"web", "", "hg-episode-short-ep", ContinuationWeb, 10, 20000},
 		{"group", "hg-group-1", "hg-episode-ep-1-240", ContinuationNextUp, 1, 2500},
 		{"work", "hg-work-work-9", "hg-episode-ep-9-240", ContinuationNextUp, 1, 2500},
 		{"empty", "hg-group-200", "", ContinuationNextUp, 0, 0},

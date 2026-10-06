@@ -51,11 +51,10 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 		files = files.Joins("JOIN huangguoai_works w ON w.source_id=h.source_id").Joins("JOIN huangguoai_episodes ep ON ep.work_id=w.id AND ep.number=h.episode_number").Joins("JOIN huangguoai_media_bindings b ON b.media_id=m.id AND b.work_id=w.id AND b.episode_id=ep.id").Where("m.catalog_source='huangguoai' AND w.projection_error=''")
 	case "hongguo":
 		table, fields = "hongguo_user_states", "h.user_id,h.source_id,h.episode_number,h.favorite,h.updated_at"
-		// 先按作品和集号定位替代版本，电影的空分集绑定仍对应第 1 集。
+		// 先按作品和集号定位替代版本。
 		files = files.Joins("JOIN hongguo_works w ON w.source_id = h.source_id").
-			Joins("LEFT JOIN hongguo_episodes ep ON ep.work_id = w.id AND ep.number = h.episode_number").
-			Joins(`JOIN hongguo_media_bindings b ON b.media_id = m.id AND b.work_id = w.id
- AND (b.episode_id = ep.id OR (b.episode_id IS NULL AND h.episode_number = 1))`).
+			Joins("JOIN hongguo_episodes ep ON ep.work_id = w.id AND ep.number = h.episode_number").
+			Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id AND b.work_id = w.id AND b.episode_id = ep.id").
 			Where("m.catalog_source = 'hongguo'")
 	default:
 		files = files.Joins("JOIN metadata_items i ON i.id = m.metadata_id").Where("m.metadata_id = h.metadata_id")

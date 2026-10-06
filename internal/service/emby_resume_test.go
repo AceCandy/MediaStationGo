@@ -76,12 +76,11 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 				create(&model.NFOUserState{UserID: stateUser, ItemID: id, MediaID: file.ID, PositionMs: position, Completed: completed, WatchedAt: &watched})
 				publicID = "nfo-" + id
 			case "hongguo":
-				work := model.HongGuoWork{PermanentBase: model.PermanentBase{ID: id}, SourceID: id, Kind: "movie", Title: "同名 " + id}
-				var episodeID *string
+				work := model.HongGuoWork{PermanentBase: model.PermanentBase{ID: id}, SourceID: id, Kind: "series", Title: "同名 " + id, RelatedAlbumID: id, SeasonIndex: 1}
+				epID := id + "-episode"
+				episodeID := &epID
 				if episode > 0 {
 					work.Kind, work.RelatedAlbumID, work.SeasonIndex = "series", "album", episode
-					epID := id + "-episode"
-					episodeID = &epID
 				}
 				create(&work)
 				if episodeID != nil {
@@ -91,10 +90,7 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 				create(&file)
 				create(&model.HongGuoMediaBinding{MediaID: file.ID, WorkID: work.ID, EpisodeID: episodeID})
 				create(&model.HongGuoUserState{UserID: stateUser, SourceID: work.SourceID, EpisodeNumber: 1, MediaID: file.ID, PositionMs: position, Completed: completed, WatchedAt: &watched})
-				publicID = "hg-work-" + id
-				if episodeID != nil {
-					publicID = "hg-episode-" + *episodeID
-				}
+				publicID = "hg-episode-" + *episodeID
 			}
 			if i == 3 {
 				newest = append(newest, publicID)
@@ -132,7 +128,7 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 	p.StartIndex = 2
 	assertPage(p, 9, []string{newest[0], "nfo-nfo-item-1"})
 	p.StartIndex = 6
-	assertPage(p, 9, []string{"nfo-nfo-item-0", "hg-work-hongguo-item-0"})
+	assertPage(p, 9, []string{"nfo-nfo-item-0", "hg-episode-hongguo-item-0-episode"})
 	p.StartIndex = 9
 	assertPage(p, 9, []string{})
 	p.StartIndex = int(^uint(0) >> 1)
@@ -158,10 +154,10 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 	}
 	p.SortBy, p.SortOrder, p.StartIndex = "DatePlayed", "Descending", 0
 	p.IncludeItemTypes = []string{"Movie"}
-	assertPage(p, 6, []string{"nfo-nfo-item-1", "hg-work-hongguo-item-1"})
+	assertPage(p, 4, []string{"nfo-nfo-item-1", "legacy-item-1"})
 	p.IncludeItemTypes = nil
 	p.SearchTerm = "同名"
-	assertPage(p, 6, []string{"nfo-nfo-item-1", "hg-work-hongguo-item-1"})
+	assertPage(p, 4, []string{"nfo-nfo-item-1", "legacy-item-1"})
 	p.SearchTerm = ""
 	create(&model.Favorite{UserID: user, MetadataID: "legacy-item-1", MediaID: "legacy-item-1-file"})
 	create(&model.HongGuoFavorite{UserID: user, ItemID: "hongguo-item-1", Favorite: true})
@@ -169,7 +165,7 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.Filters = []string{"IsResumable", "IsFavorite"}
-	assertPage(p, 3, []string{"nfo-nfo-item-1", "hg-work-hongguo-item-1"})
+	assertPage(p, 2, []string{"nfo-nfo-item-1", "legacy-item-1"})
 	create(&model.Person{Base: model.Base{ID: "actor"}, Name: "Actor"})
 	create(&model.MetadataCredit{MetadataID: "legacy-season", PersonID: "actor", Type: "Actor"})
 	create(&model.HongGuoPerson{PermanentBase: model.PermanentBase{ID: "actor"}, SourceID: "actor", Name: "Actor"})
@@ -257,9 +253,10 @@ func TestEmbyResumeCandidatesIgnoreUnwatchedCatalog(t *testing.T) {
 		`INSERT INTO nfo_media_bindings (media_id,item_id,fingerprint,title) SELECT 'nfo-file-' || n,'nfo-' || n,'','Movie' FROM generate_series(1,20000) n`,
 		`INSERT INTO nfo_user_states (user_id,item_id,position_ms,completed,watched_at) VALUES ('viewer','nfo-1',1,false,now())`,
 		`INSERT INTO nfo_user_states (user_id,item_id,position_ms,completed,watched_at) SELECT 'other-user','nfo-' || n,1,false,now() FROM generate_series(1,20000) n`,
-		`INSERT INTO hongguo_works (id,source_id,kind,title,refreshed_at) SELECT 'hg-' || n,n::text,'movie','Movie',now() FROM generate_series(1,20000) n`,
+		`INSERT INTO hongguo_works (id,source_id,kind,title,refreshed_at) SELECT 'hg-' || n,n::text,'series','Short',now() FROM generate_series(1,20000) n`,
 		`INSERT INTO media (id,catalog_source,path,created_at) SELECT 'hg-file-' || n,'hongguo','/test/hg/' || n,now() FROM generate_series(1,20000) n`,
-		`INSERT INTO hongguo_media_bindings (media_id,work_id) SELECT 'hg-file-' || n,'hg-' || n FROM generate_series(1,20000) n`,
+		`INSERT INTO hongguo_episodes (id,work_id,number) SELECT 'hg-ep-'||n,'hg-'||n,1 FROM generate_series(1,20000) n`,
+		`INSERT INTO hongguo_media_bindings (media_id,work_id,episode_id) SELECT 'hg-file-' || n,'hg-' || n,'hg-ep-'||n FROM generate_series(1,20000) n`,
 		`INSERT INTO hongguo_user_states (user_id,source_id,episode_number,position_ms,completed,watched_at) VALUES ('viewer','1',1,1,false,now())`,
 		`INSERT INTO hongguo_user_states (user_id,source_id,episode_number,position_ms,completed,watched_at) SELECT 'other-user',n::text,1,1,false,now() FROM generate_series(1,20000) n`,
 		`ANALYZE`,
@@ -299,6 +296,6 @@ func TestEmbyResumeCandidatesIgnoreUnwatchedCatalog(t *testing.T) {
 			}
 		}
 		inspect(plans[0].Plan)
-		t.Logf("%s: 20,000 movies, one resume candidate: %.3f ms", name, plans[0].Time)
+		t.Logf("%s: 20,000 works, one resume candidate: %.3f ms", name, plans[0].Time)
 	}
 }

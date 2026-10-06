@@ -147,13 +147,13 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 	case "hongguo":
 		q = q.Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
 			Joins("JOIN hongguo_works w ON w.id = b.work_id").
-			Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
-			Where("m.catalog_source = 'hongguo' AND (w.kind = 'movie' OR (w.kind = 'series' AND ep.id IS NOT NULL))")
+			Joins("JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
+			Where("m.catalog_source = 'hongguo'")
 		q = FilterVisibleWorkLibraries(db, q, "w.library_ids", nil, filter)
-		projection = `CASE WHEN w.kind = 'movie' THEN 'hg-work-' || w.id ELSE 'hg-episode-' || ep.id END AS item_id,
+		projection = `'hg-episode-' || ep.id AS item_id,
  CASE WHEN w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0 THEN 'album:' || w.related_album_id ELSE 'work:' || w.source_id END AS group_id,
- CASE WHEN w.kind = 'movie' THEN '' WHEN w.related_album_id <> '' AND w.season_index > 0 THEN 'hg-group-' || w.related_album_id ELSE 'hg-work-' || w.id END AS series_id,
- CASE WHEN w.kind = 'movie' THEN 'movie' ELSE 'episode' END AS kind,
+ CASE WHEN w.related_album_id <> '' AND w.season_index > 0 THEN 'hg-group-' || w.related_album_id ELSE 'hg-work-' || w.id END AS series_id,
+ 'episode' AS kind,
  CASE WHEN w.related_album_id <> '' AND w.season_index > 0 THEN w.season_index ELSE 1 END AS season_num,
  w.source_id AS work_order, CASE WHEN w.related_album_id <> '' AND w.season_index > 0 THEN w.related_album_id ELSE '' END AS album_id,
  COALESCE(ep.number,1) AS episode_num, 'hg-state:' || w.source_id || ':' || COALESCE(ep.number,1) AS history_id`
@@ -205,10 +205,8 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 	states := db.Table("continuation_states AS h")
 	historyItems := q.Session(&gorm.Session{}).Where(stateIdentity)
 	if source == "hongguo" {
-		// 剧集按作品+集号走唯一索引，再取该集的版本；电影允许空分集绑定。
-		historyItems = db.Raw("? UNION ALL ?",
-			historyItems.Session(&gorm.Session{}).Where("ep.number = st.episode_number"),
-			historyItems.Session(&gorm.Session{}).Where("w.kind = 'movie' AND b.episode_id IS NULL"))
+		// 按作品与集号定位历史对应的分集版本。
+		historyItems = historyItems.Where("ep.number = st.episode_number")
 	}
 	// 只对历史中的逻辑身份查可见版本；边界阻止重新展开整个媒体目录。
 	historyItems = db.Raw("? OFFSET 0", historyItems)

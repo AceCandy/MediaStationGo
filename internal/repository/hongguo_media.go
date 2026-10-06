@@ -90,20 +90,16 @@ func bindHongGuoMedia(tx *gorm.DB, m *model.Media) error {
 		return err
 	}
 	binding := model.HongGuoMediaBinding{MediaID: m.ID, WorkID: work.ID}
-	if work.Kind == model.MetadataKindSeries {
-		if m.SeasonNum != 1 || m.EpisodeNum < 1 {
-			return pending("红果源作品使用 S01Exxx，聚合季号不改变源文件坐标")
-		}
-		var episode model.HongGuoEpisode
-		if err := tx.Where("work_id = ? AND number = ?", work.ID, m.EpisodeNum).First(&episode).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-			return pending("红果资料尚无对应集号")
-		} else if err != nil {
-			return err
-		}
-		binding.EpisodeID = &episode.ID
-	} else if m.EpisodeNum > 1 {
-		return pending("全一集电影不能匹配到其他集号")
+	if m.SeasonNum != 1 || m.EpisodeNum < 1 {
+		return pending("红果源作品使用 S01Exxx，聚合季号不改变源文件坐标")
 	}
+	var episode model.HongGuoEpisode
+	if err := tx.Where("work_id = ? AND number = ?", work.ID, m.EpisodeNum).First(&episode).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return pending("红果资料尚无对应集号")
+	} else if err != nil {
+		return err
+	}
+	binding.EpisodeID = &episode.ID
 	if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "media_id"}}, DoUpdates: clause.AssignmentColumns([]string{"work_id", "episode_id"})}).Create(&binding).Error; err != nil {
 		return err
 	}

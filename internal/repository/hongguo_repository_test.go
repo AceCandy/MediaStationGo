@@ -35,7 +35,7 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, total, err := r.List(ctx, "测试", "real-drama", "", "", 1, 10)
-	if err != nil || total != 1 || len(rows) != 1 || rows[0].Hydrated || rows[0].ArtworkID == "" || rows[0].Title != "测试剧摘要" {
+	if err != nil || total != 1 || len(rows) != 1 || rows[0].Hydrated || rows[0].Kind != model.MetadataKindSeries || rows[0].ArtworkID == "" || rows[0].Title != "测试剧摘要" {
 		t.Fatalf("discovery-only list projection: total=%d rows=%+v err=%v", total, rows, err)
 	}
 	rows, total, err = r.List(ctx, "", "real-drama", "短剧", "", 1, 10)
@@ -270,5 +270,36 @@ func TestHongGuoArtworkOwnershipMigration(t *testing.T) {
 	}
 	if err := db.Create(&model.HongGuoArtwork{WorkID: &legacyWork.ID, SourceURL: "https://example.invalid/work-only"}).Error; err != nil {
 		t.Fatalf("legacy work-only poster rejected: %v", err)
+	}
+}
+
+func TestHongGuoSingleEpisodeAndSeriesConstraint(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.HongGuoModels()...); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟现有库的宽松约束，升级必须真正收紧且可重复执行。
+	if err := db.Exec("ALTER TABLE hongguo_works DROP CONSTRAINT chk_hongguo_work_series, ADD CONSTRAINT chk_hongguo_work_kind CHECK (kind IN ('movie','series'))").Error; err != nil {
+		t.Fatal(err)
+	}
+	r := New(db).HongGuo
+	work, err := r.SaveDetail(t.Context(), hongguo.Work{SourceID: "9000000000000000071", Title: "一集完结短剧", EpisodeCount: 1, TotalEpisodes: 1, Completed: true, Snapshot: json.RawMessage(`{}`)})
+	if err != nil || work.Kind != model.MetadataKindSeries {
+		t.Fatalf("work=%+v err=%v", work, err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := db.AutoMigrate(model.HongGuoModels()...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Model(&model.HongGuoWork{}).Where("id = ?", work.ID).Update("kind", "movie").Error; err == nil {
+		t.Fatal("database accepted HongGuo movie")
+	}
+	var episode model.HongGuoEpisode
+	if err := db.Where("work_id = ? AND number = 1", work.ID).First(&episode).Error; err != nil {
+		t.Fatal(err)
 	}
 }

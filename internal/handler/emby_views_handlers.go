@@ -41,7 +41,7 @@ func embyVirtualFoldersHandler(svc *service.Container) gin.HandlerFunc {
 			}
 			collectionType := "movies"
 			switch lib.Type {
-			case "tv", "anime", "variety":
+			case "tv", "anime", "variety", "hongguo":
 				collectionType = "tvshows"
 			case "music":
 				collectionType = "music"

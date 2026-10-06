@@ -43,10 +43,10 @@ func TestWebSourceSearch(t *testing.T) {
 	for _, row := range []model.HongGuoWork{
 		{PermanentBase: model.PermanentBase{ID: "first"}, SourceID: "101", Kind: "series", Title: "航海王续篇", Overview: "首季资料", Tags: `["冒险"]`, RelatedAlbumID: "1000", SeasonIndex: 1},
 		{PermanentBase: model.PermanentBase{ID: "second"}, SourceID: "102", Kind: "series", Title: "第二季名称", RelatedAlbumID: "1000", SeasonIndex: 2},
-		{PermanentBase: model.PermanentBase{ID: "standalone"}, SourceID: "103", Kind: "series", Title: "航海王独立剧集"},
-		{PermanentBase: model.PermanentBase{ID: "movie"}, SourceID: "104", Kind: "movie", Title: "航海王电影", Tags: `["冒险"]`},
-		{PermanentBase: model.PermanentBase{ID: "hidden"}, SourceID: "105", Kind: "movie", Title: "航海王隐藏电影"},
-		{PermanentBase: model.PermanentBase{ID: "unavailable"}, SourceID: "106", Kind: "movie", Title: "航海王无文件"},
+		{PermanentBase: model.PermanentBase{ID: "standalone"}, SourceID: "103", Kind: "series", Title: "航海王独立剧集", RelatedAlbumID: "103", SeasonIndex: 1},
+		{PermanentBase: model.PermanentBase{ID: "movie"}, SourceID: "104", Kind: "series", Title: "航海王短剧", Tags: `["冒险"]`, RelatedAlbumID: "104", SeasonIndex: 1},
+		{PermanentBase: model.PermanentBase{ID: "hidden"}, SourceID: "105", Kind: "series", Title: "航海王隐藏短剧", RelatedAlbumID: "105", SeasonIndex: 1},
+		{PermanentBase: model.PermanentBase{ID: "unavailable"}, SourceID: "106", Kind: "series", Title: "航海王无文件", RelatedAlbumID: "106", SeasonIndex: 1},
 	} {
 		create(&row)
 		if row.ID == "first" || row.ID == "unavailable" {
@@ -71,11 +71,11 @@ func TestWebSourceSearch(t *testing.T) {
 	firstWorkID, firstSourceID := "first", "101"
 	create(&model.HongGuoArtwork{WorkID: &firstWorkID, SourceID: &firstSourceID, LocalKey: "poster", PermanentBase: model.PermanentBase{ID: "first-poster"}})
 	ordinary := &sourceSearchBackend{ids: []string{"overview", "ordinary"}}
-	source := &sourceSearchBackend{ids: []string{"hg-work-unavailable", "hg-work-hidden", "hg-work-movie", "hg-work-standalone", "hg-group-1000"}}
+	source := &sourceSearchBackend{ids: []string{"hg-group-106", "hg-group-105", "hg-group-104", "hg-group-103", "hg-group-1000"}}
 	repo.MediaView.SetSearchBackend(ordinary)
 	repo.HongGuo.SetSearchBackend(source)
 	visibility := MediaVisibility{IncludeNSFW: true, HiddenLibraryIDs: []string{"hidden"}}
-	wantIDs := []string{"ordinary-file", "second-file", "movie-file", "standalone-file", "local-file", "genre-file", "overview-file"}
+	wantIDs := []string{"ordinary-file", "second-file", "standalone-file", "movie-file", "local-file", "genre-file", "overview-file"}
 	for page, want := range wantIDs {
 		items, total, err := svc.SearchMediaVisiblePageGrouped(t.Context(), "航海王", page+1, 1, visibility)
 		if err != nil || total != int64(len(wantIDs)) || len(items) != 1 || items[0].ID != want {

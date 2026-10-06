@@ -267,12 +267,15 @@ func TestHongGuoSearchCommittedCancellation(t *testing.T) {
 
 func TestHongGuoSearchFilelessBatchAndMembershipDirtyReplay(t *testing.T) {
 	repos := newMetadataSearchTestRepositories(t)
+	episodeID := "z-ep"
 	for _, value := range []any{
 		&model.Library{Base: model.Base{ID: "library"}, Name: "source", Type: model.LibraryTypeHongGuo, Path: "/test"},
-		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "a"}, SourceID: "12345678901", Kind: "movie", Title: "Target"},
-		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "z"}, SourceID: "12345678902", Kind: "movie", Title: "Target"},
+		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "a"}, SourceID: "12345678901", Kind: "series", Title: "Target"},
+		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "z"}, SourceID: "12345678902", Kind: "series", Title: "Target"},
 		&model.Media{PermanentBase: model.PermanentBase{ID: "file"}, LibraryID: "library", CatalogSource: "hongguo", Path: "/test/file"},
-		&model.HongGuoMediaBinding{MediaID: "file", WorkID: "z"},
+		&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "a-ep"}, WorkID: "a", Number: 1},
+		&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "z-ep"}, WorkID: "z", Number: 1},
+		&model.HongGuoMediaBinding{MediaID: "file", WorkID: "z", EpisodeID: &episodeID},
 	} {
 		if err := repos.DB.Create(value).Error; err != nil {
 			t.Fatal(err)
@@ -282,7 +285,7 @@ func TestHongGuoSearchFilelessBatchAndMembershipDirtyReplay(t *testing.T) {
 	repos.HongGuo.SetSearchBackend(backend)
 	backend.onIndex = func() {
 		backend.onIndex = nil
-		file := model.Media{LibraryID: "library", CatalogSource: "hongguo", LookupCatalogID: "12345678901", Path: "/test/new-file"}
+		file := model.Media{LibraryID: "library", CatalogSource: "hongguo", LookupCatalogID: "12345678901", Path: "/test/new-file", SeasonNum: 1, EpisodeNum: 1}
 		if err := repos.Media.Upsert(t.Context(), &file); err != nil {
 			t.Fatal(err)
 		}

@@ -23,7 +23,7 @@ func TestHongGuoListsWaitForAlbumSupplement(t *testing.T) {
 	for _, sql := range []string{
 		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at) VALUES
 ('ready','1001','series','Ready','1001',1,now()),('pending','1002','series','Pending','',0,now()),
-('season-pending','1003','series','Season pending','1003',0,now()),('movie','1004','movie','Movie','1001',1,now())`,
+('season-pending','1003','series','Season pending','1003',0,now()),('short','1004','series','Short','1004',1,now())`,
 		`INSERT INTO hongguo_episodes(id,work_id,number) SELECT 'ep-'||id,id,1 FROM hongguo_works WHERE kind='series'`,
 		`INSERT INTO media(id,path,library_id,catalog_source,created_at) SELECT 'file-'||id,'/fixture/ready/'||id,'ready-library','hongguo',now() FROM hongguo_works`,
 		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) SELECT 'file-'||id,id,CASE WHEN kind='series' THEN 'ep-'||id END FROM hongguo_works`,
@@ -33,7 +33,7 @@ func TestHongGuoListsWaitForAlbumSupplement(t *testing.T) {
 		}
 	}
 	for _, supplemented := range []bool{false, true} {
-		want := map[string]bool{"hg-group-1001": true, "hg-work-movie": true}
+		want := map[string]bool{"hg-group-1001": true, "hg-group-1004": true}
 		if supplemented {
 			for _, source := range []string{"1002", "1003"} {
 				if err := e.repo.HongGuo.SaveAlbum(ctx, source, hongguo.Album{ID: source, Season: 1}); err != nil {

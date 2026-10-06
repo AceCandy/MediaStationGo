@@ -22,7 +22,7 @@ func TestDetailIdentityCountsAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.SourceID != testID || w.EpisodeCount != 81 || w.TotalEpisodes != 81 || w.AccessibleEpisodes != 3 || !w.Completed || w.IsMovie() {
+	if w.SourceID != testID || w.EpisodeCount != 81 || w.TotalEpisodes != 81 || w.AccessibleEpisodes != 3 || !w.Completed {
 		t.Fatalf("invalid work: %+v", w)
 	}
 	if len(w.VideoIDs) != 3 || w.VideoIDs[1] != "" || w.VideoIDs[2] != "9000000000000000004" {
@@ -39,20 +39,20 @@ func TestDetailIdentityCountsAndSnapshot(t *testing.T) {
 	}
 }
 
-func TestMovieRequiresConsistentCompletionEvidence(t *testing.T) {
+func TestSingleEpisodeCompletionEvidence(t *testing.T) {
 	for _, tc := range []struct {
-		fields string
-		movie  bool
+		fields    string
+		completed bool
 	}{
 		{`"episode_cnt":1,"episode_right_text":"全1集"`, true},
+		{`"episode_cnt":12,"episode_right_text":"全1集"`, false},
+		{`"episode_cnt":1,"episode_right_text":"全1集","vid_list":["9000000000000000002","9000000000000000003"]`, false},
 		{`"episode_cnt":1,"episode_right_text":"更新至1集"`, false},
 		{`"episode_cnt":1,"series_episode_info":{"series_status":1}`, false},
-		{`"episode_cnt":1,"episode_right_text":"全1集","series_episode_info":{"episode_total_cnt":12}`, false},
-		{`"episode_cnt":1,"episode_right_text":"全1集","vid_list":["2","3"]`, false},
 	} {
 		w, err := ParseDetail(detailPage(tc.fields), testID)
-		if err != nil || w.IsMovie() != tc.movie {
-			t.Fatalf("%s: movie=%v err=%v", tc.fields, w.IsMovie(), err)
+		if err != nil || w.Completed != tc.completed {
+			t.Fatalf("%s: completed=%v err=%v", tc.fields, w.Completed, err)
 		}
 	}
 }

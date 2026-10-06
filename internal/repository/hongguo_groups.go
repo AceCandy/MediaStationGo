@@ -12,14 +12,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// HongGuoWorkIdentitySQL 供已补齐关系的作品列表使用；电影不参与合集。
-const HongGuoWorkIdentitySQL = "CASE WHEN w.kind = 'series' THEN 'hg-group-' || w.related_album_id ELSE 'hg-work-' || w.id END"
+// HongGuoWorkIdentitySQL 供已补齐关系的短剧作品列表使用。
+const HongGuoWorkIdentitySQL = "'hg-group-' || w.related_album_id"
 
-// HongGuoFavoriteIdentitySQL 与展示合集共用身份；电影及未归组作品使用可重建的源 ID。
+// HongGuoFavoriteIdentitySQL 与展示合集共用身份；未归组作品使用可重建的源 ID。
 const HongGuoFavoriteIdentitySQL = "CASE WHEN w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0 THEN 'hg-group-' || w.related_album_id ELSE w.source_id END"
 
 // HongGuoReadyWorkSQL 暂缺合集的剧等待补充任务，不在列表中回退为独立作品。
-const HongGuoReadyWorkSQL = "(w.kind = 'movie' OR (w.related_album_id <> '' AND w.season_index > 0))"
+const HongGuoReadyWorkSQL = "(w.related_album_id <> '' AND w.season_index > 0)"
 
 // FilterHongGuoWorkIDs 用原生索引列限定作品别名 w；展示身份仍由调用方校验。
 func FilterHongGuoWorkIDs(q *gorm.DB, ids []string) *gorm.DB {

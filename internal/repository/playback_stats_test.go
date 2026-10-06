@@ -31,8 +31,10 @@ func TestPlaybackStatsAllSystems(t *testing.T) {
 	create(&libs)
 	movie := model.MetadataItem{Kind: "movie", Title: "同名作品", Source: "test"}
 	create(&movie)
-	work := model.HongGuoWork{SourceID: "stats-source", Kind: "movie", Title: movie.Title}
+	work := model.HongGuoWork{SourceID: "stats-source", Kind: "series", Title: movie.Title}
 	create(&work)
+	episode := model.HongGuoEpisode{WorkID: work.ID, Number: 1}
+	create(&episode)
 	series := model.NFOItem{LibraryID: libs[2].ID, LocalKey: "series", Kind: "series", NFOFields: model.NFOFields{Title: movie.Title}}
 	create(&series)
 	season := model.NFOItem{LibraryID: libs[2].ID, LocalKey: "season", Kind: "season", ParentID: &series.ID, SeasonNum: 2, NFOFields: model.NFOFields{Title: "第二季"}}
@@ -49,7 +51,7 @@ func TestPlaybackStatsAllSystems(t *testing.T) {
 		{LibraryID: libs[2].ID, Path: "/nfo/b.mkv", CatalogSource: "nfo"},
 	}
 	create(&files)
-	create(&model.HongGuoMediaBinding{MediaID: files[1].ID, WorkID: work.ID})
+	create(&model.HongGuoMediaBinding{MediaID: files[1].ID, WorkID: work.ID, EpisodeID: &episode.ID})
 	for i := range episodes {
 		create(&model.NFOMediaBinding{MediaID: files[2+i].ID, ItemID: episodes[i].ID, Fingerprint: "test"})
 	}
@@ -125,7 +127,7 @@ func TestPlaybackStatsAllSystems(t *testing.T) {
 	}
 	f.Page, f.PageSize, f.MediaType = 1, 20, "tv"
 	onlyTV, err := r.PlaybackStats(t.Context(), "all", f)
-	if err != nil || onlyTV.Total != 3 || onlyTV.Details.Items[0].System != "nfo" {
+	if err != nil || onlyTV.Total != 6 || onlyTV.Details.Items[0].System != "nfo" {
 		t.Fatalf("TV filter: %+v %v", onlyTV, err)
 	}
 	f.MediaType, f.LibraryIDs, f.UserID = "", []string{libs[0].ID, libs[2].ID}, user.ID
@@ -164,7 +166,7 @@ func TestPlaybackStatsAllSystems(t *testing.T) {
 	}
 	f.MediaType = "movie"
 	top, err := r.PlaybackStats(t.Context(), "all", f)
-	if err != nil || top.Total != 18 || len(top.Ranking.Items) != 10 || top.Ranking.Items[0].Count != 2 || top.Ranking.Items[1].Count != 2 {
+	if err != nil || top.Total != 15 || len(top.Ranking.Items) != 10 || top.Ranking.Items[0].Count != 2 || top.Ranking.Items[1].Count != 1 {
 		t.Fatalf("combined Top 10: %+v %v", top, err)
 	}
 	localMovies, err := r.PlaybackStats(t.Context(), "nfo", f)

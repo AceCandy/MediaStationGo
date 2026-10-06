@@ -15,11 +15,12 @@ func TestEmbyGlobalBatchMixedSourcesRefill(t *testing.T) {
 	for _, query := range []string{
 		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'ordinary-'||n,'movie','Title '||n,'local' FROM generate_series(1,155) n`,
 		`INSERT INTO nfo_items(id,library_id,local_key,kind,title) SELECT 'local-'||n,'library-nfo',n::text,'movie','Title '||n FROM generate_series(1,155) n`,
-		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) SELECT 'source-'||n,n::text,'movie','Title '||n,now() FROM generate_series(1,155) n`,
+		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at) SELECT 'source-'||n,n::text,'series','Title '||n,n::text,1,now() FROM generate_series(1,155) n`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'ordinary-file-'||n,'ordinary-'||n,'library-nfo','/ordinary/'||n,TIMESTAMP '2026-01-01'-n*INTERVAL '1 minute' FROM generate_series(1,155) n`,
 		`INSERT INTO media(id,library_id,catalog_source,path,created_at) SELECT source||'-file-'||n,'library-nfo',source,'/'||source||'/'||n,TIMESTAMP '2026-01-01'-n*INTERVAL '1 minute' FROM generate_series(1,155) n CROSS JOIN (VALUES ('nfo'),('hongguo')) s(source)`,
 		`INSERT INTO nfo_media_bindings(media_id,item_id,title,fingerprint) SELECT 'nfo-file-'||n,'local-'||n,'Title','fixture' FROM generate_series(1,155) n`,
-		`INSERT INTO hongguo_media_bindings(media_id,work_id) SELECT 'hongguo-file-'||n,'source-'||n FROM generate_series(1,155) n`,
+		`INSERT INTO hongguo_episodes(id,work_id,number) SELECT 'source-ep-'||n,'source-'||n,1 FROM generate_series(1,155) n`,
+		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) SELECT 'hongguo-file-'||n,'source-'||n,'source-ep-'||n FROM generate_series(1,155) n`,
 		`INSERT INTO playback_histories(id,user_id,metadata_id,media_id,completed) SELECT 'state-'||n,'viewer','ordinary-'||n,'ordinary-file-'||n,true FROM generate_series(1,155) n WHERE n NOT IN (51,103,155)`,
 		`INSERT INTO nfo_user_states(user_id,item_id,media_id,completed) SELECT 'viewer','local-'||n,'nfo-file-'||n,true FROM generate_series(1,155) n WHERE n NOT IN (51,103,155)`,
 		`INSERT INTO hongguo_user_states(user_id,source_id,episode_number,completed) SELECT 'viewer',n::text,1,true FROM generate_series(1,155) n WHERE n NOT IN (51,103,155)`,
@@ -28,7 +29,7 @@ func TestEmbyGlobalBatchMixedSourcesRefill(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := ItemsParams{UserID: "viewer", Recursive: true, IncludeItemTypes: []string{"Movie"}, SortBy: "DateLastContentAdded", SortOrder: "Descending", Filters: []string{"IsUnplayed"}, Limit: 2, Fields: []string{"BasicSyncInfo"}}
+	p := ItemsParams{UserID: "viewer", Recursive: true, IncludeItemTypes: []string{"Movie", "Series"}, SortBy: "DateLastContentAdded", SortOrder: "Descending", Filters: []string{"IsUnplayed"}, Limit: 2, Fields: []string{"BasicSyncInfo"}}
 	var expected []string
 	if err := originalGlobalBrowseCandidates(t, e, p).Order(globalItemsOrder(p)).Pluck("id", &expected).Error; err != nil || len(expected) != 9 {
 		t.Fatalf("oracle=%v err=%v", expected, err)
@@ -75,7 +76,7 @@ func TestEmbyGlobalBatchMixedSourcesRefill(t *testing.T) {
 		t.Fatal(err)
 	}
 	latest, err = e.LatestItems(ctx, p.UserID, "", 2, false, p.Fields...)
-	if err != nil || len(latest) != 2 || latest[0]["Id"] != "ordinary-51" || latest[1]["Id"] != "hg-work-source-51" {
+	if err != nil || len(latest) != 2 || latest[0]["Id"] != "ordinary-51" || latest[1]["Id"] != "hg-group-51" {
 		t.Fatalf("mixed latest=%v err=%v", latest, err)
 	}
 }
@@ -119,9 +120,10 @@ func TestGlobalLatestUsesWorkTieOrderWithoutNFO(t *testing.T) {
 	for _, query := range []string{
 		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('a','movie','A','local'),('b','movie','B','local'),('c','movie','C','local'),('z-series','series','Direct series','local')`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||id,id,'library-nfo','/fixture/'||id,TIMESTAMP '2026-01-01' FROM metadata_items`,
-		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) VALUES ('source','source','movie','Older',now())`,
+		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) VALUES ('source','source','series','Older',now())`,
 		`INSERT INTO media(id,library_id,catalog_source,path,created_at) VALUES ('source-file','library-nfo','hongguo','/source','2020-01-01')`,
-		`INSERT INTO hongguo_media_bindings(media_id,work_id) VALUES ('source-file','source')`,
+		`INSERT INTO hongguo_episodes(id,work_id,number) VALUES ('source-ep','source',1)`,
+		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) VALUES ('source-file','source','source-ep')`,
 	} {
 		if err := e.repo.DB.Exec(query).Error; err != nil {
 			t.Fatal(err)

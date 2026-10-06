@@ -156,14 +156,17 @@ func TestHongGuoLibrarySeriesPresentation(t *testing.T) {
 			t.Fatalf("filter used episode instead of first-season: %+v %d %v", cards, n, err)
 		}
 	}
-	movie, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "94001", Title: "独立电影", Completed: true, EpisodeCount: 1, TotalEpisodes: 1, Snapshot: []byte(`{}`)})
+	short, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "94001", Title: "一集短剧", Completed: true, EpisodeCount: 1, TotalEpisodes: 1, Snapshot: []byte(`{}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	movieFile := addFile(library, movie, 0, "movie")
-	movieCards, _, err := svc.ListLibrarySeriesCards(ctx, library.ID, 1, 50, "", "hongguo:"+movie.SourceID, visibility)
-	if err != nil || len(movieCards) != 1 || movieCards[0].Rep.SeriesID != "" || movieCards[0].Rep.ID != movieFile.ID {
-		t.Fatalf("movie routing=%+v err=%v", movieCards, err)
+	if err := repos.HongGuo.SaveAlbum(ctx, short.SourceID, hongguo.Album{ID: short.SourceID, Season: 1}); err != nil {
+		t.Fatal(err)
+	}
+	shortFile := addFile(library, short, 1, "short")
+	shortCards, _, err := svc.ListLibrarySeriesCards(ctx, library.ID, 1, 50, "", "hongguo:"+short.SourceID, visibility)
+	if err != nil || len(shortCards) != 1 || shortCards[0].Rep.SeriesID != "hg-group-"+short.SourceID || shortCards[0].Rep.ID != shortFile.ID {
+		t.Fatalf("single-episode series routing=%+v err=%v", shortCards, err)
 	}
 	page, n, err := svc.ListLibrarySeriesCards(ctx, library.ID, 2, 1, "", "", visibility)
 	if err != nil || n != 2 || len(page) != 1 {

@@ -21,8 +21,10 @@ SELECT 'work-'||n,n::text,'series',CASE WHEN n=1 THEN 'Plan target' ELSE 'Other'
 SELECT 'work-'||n,n::text,'series','Unavailable',now() FROM generate_series(201,10000) n`,
 		`INSERT INTO media (id,library_id,catalog_source,path,episode_num,scan_title)
 SELECT 'file-'||n||'-'||e,'library','hongguo','/test/'||n||'/'||e,e,repeat('File metadata ',16) FROM generate_series(1,200) n CROSS JOIN generate_series(1,200) e`,
-		`INSERT INTO hongguo_media_bindings (media_id,work_id)
-SELECT 'file-'||n||'-'||e,'work-'||n FROM generate_series(1,200) n CROSS JOIN generate_series(1,200) e`,
+		`INSERT INTO hongguo_episodes (id,work_id,number)
+SELECT 'ep-'||n||'-'||e,'work-'||n,e FROM generate_series(1,200) n CROSS JOIN generate_series(1,200) e`,
+		`INSERT INTO hongguo_media_bindings (media_id,work_id,episode_id)
+SELECT 'file-'||n||'-'||e,'work-'||n,'ep-'||n||'-'||e FROM generate_series(1,200) n CROSS JOIN generate_series(1,200) e`,
 		`ANALYZE hongguo_works`, `ANALYZE hongguo_media_bindings`, `ANALYZE media`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {

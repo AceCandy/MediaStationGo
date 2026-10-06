@@ -39,7 +39,7 @@ export function HongGuoDetailModal({ sourceID, summary, enabled, onClose, onCate
     finally { if (active.current) setBusy(false) }
   }
   const poster = detail?.artwork.find((a) => a.work_id === detail.id)
-  const display = { title: detail?.title || '作品详情', media_type: detail?.kind === 'movie' ? '电影' : '剧集', rating: detail?.rating, poster_url: poster ? hongguoAPI.artwork(poster.id) : undefined }
+  const display = { title: detail?.title || '作品详情', media_type: '剧集', rating: detail?.rating, poster_url: poster ? hongguoAPI.artwork(poster.id) : undefined }
   const credits = (detail?.credits ?? []).map((credit) => {
     const avatar = detail?.artwork.find((a) => a.person_id === credit.person_id)
     return { person_id: credit.person_id, name: credit.person.name, role: credit.subtitle, type: '', profile_url: avatar ? hongguoAPI.artwork(avatar.id) : undefined }

@@ -122,10 +122,10 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 	if err := e.repo.Media.Upsert(ctx, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, sortBy := range []string{"SortName", "DateCreated", "DateLastContentAdded"} {
-		p := ItemsParams{UserID: "viewer", ParentID: lib.ID, Recursive: true, IncludeItemTypes: []string{"Series"}, Limit: 1, SortBy: sortBy, SortOrder: "Descending"}
+	for _, sortBy := range []string{"SortName", "DateCreated", "DateLastContentAdded", "DateLastContentAdded,DateCreated,SortName"} {
+		p := ItemsParams{UserID: "viewer", ParentID: lib.ID, Recursive: true, IncludeItemTypes: []string{"Series", "Movie", "Video", "MusicVideo", "MusicAlbum"}, Limit: 1, SortBy: sortBy, SortOrder: "Descending"}
 		want := standalone
-		if sortBy == "DateLastContentAdded" {
+		if strings.HasPrefix(sortBy, "DateLastContentAdded") {
 			want = groupID
 		}
 		for offset := 0; offset < 3; offset++ {
@@ -138,6 +138,12 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 			if offset == 0 && (len(items) != 1 || items[0]["Id"] != want) || offset == 1 && (len(items) != 1 || items[0]["Id"] == want) || offset == 2 && len(items) != 0 {
 				t.Fatalf("%s page %d items: %v", sortBy, offset, items)
 			}
+		}
+	}
+	for _, kinds := range [][]string{{"Movie"}, {"Video", "MusicAlbum"}} {
+		got, err := e.Items(ctx, ItemsParams{UserID: "viewer", ParentID: lib.ID, Recursive: true, IncludeItemTypes: kinds, Limit: 20})
+		if err != nil || got["TotalRecordCount"] != int64(0) || len(got["Items"].([]map[string]any)) != 0 {
+			t.Fatalf("unsupported types %v: %v %v", kinds, got, err)
 		}
 	}
 	for _, withNFO := range []bool{false, true} {
@@ -256,6 +262,9 @@ func TestHongGuoLibraryPagePlan(t *testing.T) {
 	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Create(&model.Library{Base: model.Base{ID: "library"}, Name: "红果", Type: model.LibraryTypeHongGuo, Path: "/test/hongguo"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
 	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 	// 6,000 个有文件源作品组成 2,000 个多季合集，包含真实分集、封面及无文件作品。
@@ -288,7 +297,7 @@ SELECT 'file-'||n||'-'||e,'work-'||n,'episode-'||n||'-'||e FROM generate_series(
 			return
 		}
 		sql := tx.Statement.SQL.String()
-		if strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") || strings.HasPrefix(sql, "WITH albums AS MATERIALIZED") || strings.HasPrefix(sql, "WITH page_works AS MATERIALIZED") || strings.HasPrefix(sql, "SELECT w.id AS work_id, w.kind FROM hongguo_works w") || strings.HasPrefix(sql, "SELECT a.id FROM hongguo_works AS w") || inspectDetail && strings.Contains(sql, "hongguo_media_bindings") && !strings.HasPrefix(sql, "EXPLAIN") {
+		if strings.HasPrefix(sql, "WITH work_batch AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") || strings.HasPrefix(sql, "WITH albums AS MATERIALIZED") || strings.HasPrefix(sql, "WITH page_works AS MATERIALIZED") || strings.HasPrefix(sql, "SELECT w.id AS work_id FROM hongguo_works w") || strings.HasPrefix(sql, "SELECT a.id FROM hongguo_works AS w") || inspectDetail && strings.Contains(sql, "hongguo_media_bindings") && !strings.HasPrefix(sql, "EXPLAIN") {
 			queries = append(queries, statement{sql, append([]any(nil), tx.Statement.Vars...)})
 		}
 	}); err != nil {
@@ -363,7 +372,7 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 			}
 		}
 		queries = nil
-		p := ItemsParams{UserID: "viewer", ParentID: "library", IncludeItemTypes: []string{"Series"}, Limit: 3, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
+		p := ItemsParams{UserID: "viewer", ParentID: "library", Recursive: true, IncludeItemTypes: []string{"Series", "Movie", "Video", "MusicVideo", "MusicAlbum"}, Limit: 3, SortBy: "DateLastContentAdded,DateCreated,SortName", SortOrder: "Descending"}
 		want := "hg-group-2000"
 		if mode == "title" {
 			p.SortBy, p.SortOrder, want = "SortName", "Ascending", "hg-group-1"
@@ -371,9 +380,14 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 		if latest {
 			p.Filters = []string{"IsUnplayed"}
 		}
-		items, total, err := e.hongGuoLibraryItems(t.Context(), p, !latest)
-		if err != nil || len(items) != 3 || items[0]["Id"] != want || items[0]["Type"] != "Series" || !latest && total != 2000 {
-			t.Fatalf("latest=%v len=%d total=%d err=%v", latest, len(items), total, err)
+		p.SkipTotalRecordCount = latest
+		result, err := e.Items(t.Context(), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, total := result["Items"].([]map[string]any), result["TotalRecordCount"]
+		if err != nil || len(items) != 3 || items[0]["Id"] != want || items[0]["Type"] != "Series" || !latest && total != int64(2000) {
+			t.Fatalf("latest=%v len=%d total=%v err=%v", latest, len(items), total, err)
 		}
 		if len(queries) != 3 {
 			t.Fatalf("captured %d queries", len(queries))
@@ -494,6 +508,10 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 						t.Fatalf("known work membership still reads files: relation=%v loops=%v", node["Relation Name"], loops)
 					}
 					bound := float64(1000)
+					if i == 2 && p.SkipTotalRecordCount {
+						// 不计总数时多取一张卡片判断后续页，最多四个合集、十二季。
+						bound = 1200
+					}
 					if i == 0 {
 						bound = 6000 // 非空时间预筛后，只探测有文件的源作品。
 						if latest {
@@ -721,11 +739,6 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 		if err := e.repo.Media.Upsert(ctx, &m); err != nil {
 			t.Fatal(err)
 		}
-		if file.work == 4 {
-			if err := db.Model(&model.HongGuoMediaBinding{}).Where("media_id = ?", m.ID).Update("episode_id", nil).Error; err != nil {
-				t.Fatal(err)
-			}
-		}
 		if file.work == 3 || file.work == 4 {
 			if err := db.Create(&model.MediaProbeMetadata{MediaID: m.ID, DurationMS: 120_000}).Error; err != nil {
 				t.Fatal(err)
@@ -735,7 +748,7 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 	if err := e.MarkPlayed(ctx, "viewer", "hg-season-"+works[1].ID, true); err != nil {
 		t.Fatal(err)
 	}
-	// 纯剧集和无分集绑定的电影都保留删除旧版本后按替代片长推断已看的规则。
+	// 一集和多集短剧都保留删除旧版本后按替代片长推断已看的规则。
 	for _, work := range works[3:5] {
 		if err := db.Create(&model.HongGuoUserState{UserID: "viewer", SourceID: work.SourceID, EpisodeNumber: 1,
 			MediaID: "removed-version", PositionMs: 100_000, DurationMs: 200_000, WatchedAt: &base}).Error; err != nil {

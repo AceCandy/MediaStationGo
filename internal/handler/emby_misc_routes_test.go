@@ -43,6 +43,7 @@ func TestEmbyVirtualFoldersRouteReturnsJSON(t *testing.T) {
 		{Name: "电影", Path: "D:\\media\\movies", Type: "movie", Enabled: true},
 		{Name: "剧集", Path: "D:\\media\\tv", Type: "tv", Enabled: true},
 		{Name: "综艺", Path: "D:\\media\\variety", Type: "variety", Enabled: true},
+		{Name: "红果", Path: "/test/hongguo", Type: model.LibraryTypeHongGuo, Enabled: true},
 	} {
 		if err := repos.Library.Create(t.Context(), &lib); err != nil {
 			t.Fatalf("create library: %v", err)
@@ -72,10 +73,10 @@ func TestEmbyVirtualFoldersRouteReturnsJSON(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &folders); err != nil {
 		t.Fatalf("decode folders: %v", err)
 	}
-	if len(folders) != 3 {
-		t.Fatalf("expected 3 folders, got %d: %#v", len(folders), folders)
+	if len(folders) != 4 {
+		t.Fatalf("expected 4 folders, got %d: %#v", len(folders), folders)
 	}
-	if folders[1]["CollectionType"] != "tvshows" || folders[2]["CollectionType"] != "tvshows" {
+	if folders[1]["CollectionType"] != "tvshows" || folders[2]["CollectionType"] != "tvshows" || folders[3]["CollectionType"] != "tvshows" {
 		t.Fatalf("episodic libraries should expose tvshows collection type: %#v", folders)
 	}
 }
@@ -147,7 +148,7 @@ func TestEmbyDisplayPreferencesAllowsAnonymousCompatibility(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing CustomPrefs: %#v", body)
 	}
-	if customPrefs["homesection0"] != "smalllibrarytiles" || customPrefs["homesection2"] != "none" || customPrefs["latestItems"] != "false" {
+	if customPrefs["homesection0"] != "smalllibrarytiles" || customPrefs["homesection2"] != "none" || customPrefs["homesection3"] != "none" || customPrefs["latestItems"] != "false" {
 		t.Fatalf("homepage sections should expose library tiles without duplicate latest rails: %#v", customPrefs)
 	}
 	if body["ScrollDirection"] != "Vertical" {

@@ -68,7 +68,7 @@ const unplayedItemCountField: EmbyApiField = {
 }
 
 const itemFields: readonly EmbyApiField[] = [
-  { name: 'Id', type: 'string', description: '媒体项 ID。红果剧集核验合集后使用 hg-group-合集ID；官方确认无合集时使用自身源ID作为合集、第1季。作品列表和红果库最近添加暂不展示缺合集ID或有效季号的剧，补充任务完成后可刷新查看；电影、分集身份、观看历史和收藏不变。黄果 AI 独立使用 hga-work-作品UUID、hga-group-源ID、hga-season-作品UUID、hga-episode-分集UUID；每部剧固定默认第一季，ProviderIds.HuangGuoAI 为源ID。' },
+  { name: 'Id', type: 'string', description: '媒体项 ID。红果剧集核验合集后使用 hg-group-合集ID；官方确认无合集时使用自身源ID作为合集、第1季。作品列表和红果库最近添加暂不展示缺合集ID或有效季号的剧，补充任务完成后可刷新查看；红果仅支持剧集，一集完结短剧也使用季、集身份；分集身份、观看历史和收藏不变。黄果 AI 独立使用 hga-work-作品UUID、hga-group-源ID、hga-season-作品UUID、hga-episode-分集UUID；每部剧固定默认第一季，ProviderIds.HuangGuoAI 为源ID。' },
   { name: 'Name', type: 'string', description: '标题。' },
   { name: 'Type', type: 'string', description: 'Movie、Series、Season、Episode 等 Emby 类型。Movie 省略 SeriesId、SeriesName、SeasonId、SeasonName、ParentIndexNumber、IndexNumber；Episode 保留这些字段，包括特别篇的零季号。' },
   { name: 'SeriesId', type: 'string', description: '所属整剧 ID；红果 Season 与 ParentId 一致，列表和详情均返回。' },
@@ -148,7 +148,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'danmu-raw', category: '图片与播放', name: '当前集弹幕',
     description: '红果当前集实时弹幕与数据库历史按单条 ID 去重合并，同集、同视频和同参数的在途请求共用抓取，新增条目异步保存。普通媒体和 NFO 保留空响应。',
     methods: ['GET'], path: '/api/danmu/:id/raw', auth: 'token', support: 'implemented',
-    parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: '可见红果分集 ID、电影 ID 或已绑定文件 ID；合集、季和人物不能批量获取。' }],
+    parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: '可见红果分集 ID 或已绑定分集文件 ID；合集、季和人物不能批量获取。' }],
     responses: [
       { status: '200', contentType: 'application/xml; charset=utf-8', description: '红果返回 Emby 插件兼容 i/d/p XML，p 的时间单位为秒（保留毫秒），ID 保持字符串；Cache-Control: no-store。上游失败或禁用时返回历史，没有数据时返回空 XML。' },
       { status: '200', contentType: 'text/plain; charset=utf-8', description: '非红果保持空响应。' },
@@ -485,7 +485,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'EnableTotalRecordCount', location: 'query', type: 'boolean', description: '默认 false：不额外统计列表总数，每页多取一个合格结果，TotalRecordCount 返回用于翻页的已知下界；不是准确总量，可能随翻页增长。显式传 true 返回准确总数。兼容 enableTotalRecordCount / enabletotalrecordcount。仅影响本入口，不改变 Views、Latest、Resume、NextUp 或 Shows 专用入口。' },
     ],
     responses: [{ status: '200', contentType: 'application/json', description: '始终返回 Items、TotalRecordCount 和 StartIndex。默认分页下界为起点加取得数量（含额外一项），Items 裁回请求大小；空页返回下界 0。媒体 IDs 和根目录完整列表保留现有总数，Person 类型的 IDs 查询仍分页。true 模式返回准确总数；搜索总数限于既有召回结果集。', fields: itemsEnvelopeFields.map(field => field.name === 'TotalRecordCount' ? { ...field, description: '必有数字字段；默认是分页下界，不是真实总量。EnableTotalRecordCount=true 时为准确匹配总数。' } : field), example: itemsExample }, canceledResponse],
-    notes: ['已知下界模式仍需 HillS、Yamby 实机翻页验证；不能根据服务端测试声称客户端兼容。随机排序只处理轻量作品候选，不为排序计算文件日期，但仍可能扫描作品目录；资格稀疏时需要继续补取。', '红果常规 Movie/Series 作品分页不为缺合集ID或有效季号的剧提供独立作品兜底，补充任务完成后可刷新查看；电影和分集身份不变。'],
+    notes: ['已知下界模式仍需 HillS、Yamby 实机翻页验证；不能根据服务端测试声称客户端兼容。随机排序只处理轻量作品候选，不为排序计算文件日期，但仍可能扫描作品目录；资格稀疏时需要继续补取。', '红果常规 Series 作品分页不为缺合集ID或有效季号的剧提供独立作品兜底，补充任务完成后可刷新查看；分集身份不变。红果库的混合类型请求只保留支持类型，仅请求 Movie 等不支持类型返回空结果。'],
   },
   {
     id: 'search-hints',
@@ -728,7 +728,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'playback-info-get',
     category: '图片与播放',
     name: '获取播放信息',
-    description: '为播放器选择媒体源、音轨和字幕轨，生成直接播放地址。成功解析单集后复用后台轨道回填，预补同季下一集全部可见版本，每个版本先取得完整轨道信息，再按请求 User-Agent 后台验证并缓存配置的 302 直链，不阻塞响应；切集同 UA 复用缓存，未配置解析前缀或失败不缓存。已有完整轨道跳过，探测间隔 1 秒，支持不进入详情页的连播。剧集或季入口优先续播，无历史时选择首集；版本优选仅在同一集内进行。红果短剧电影与分集也解析到本地文件或 STRM 的 MediaSource，不从资源站取流。',
+    description: '为播放器选择媒体源、音轨和字幕轨，生成直接播放地址。成功解析单集后复用后台轨道回填，预补同季下一集全部可见版本，每个版本先取得完整轨道信息，再按请求 User-Agent 后台验证并缓存配置的 302 直链，不阻塞响应；切集同 UA 复用缓存，未配置解析前缀或失败不缓存。已有完整轨道跳过，探测间隔 1 秒，支持不进入详情页的连播。剧集或季入口优先续播，无历史时选择首集；版本优选仅在同一集内进行。红果短剧分集也解析到本地文件或 STRM 的 MediaSource，不从资源站取流。',
     methods: ['GET'],
     path: '/Items/:id/PlaybackInfo',
     aliases: ['/Users/:userId/Items/:id/PlaybackInfo', '/items/:id/playbackinfo'],

@@ -55,9 +55,6 @@ func (r *HongGuoRepository) SaveDetailWithChange(ctx context.Context, input hong
 	now := time.Now().UTC()
 	change := "new"
 	work := model.HongGuoWork{SourceID: input.SourceID, Kind: model.MetadataKindSeries, Title: input.Title, Overview: input.Overview, Tags: string(tags), EpisodeCount: input.EpisodeCount, TotalEpisodes: input.TotalEpisodes, AccessibleEpisodes: input.AccessibleEpisodes, UpdateText: input.UpdateText, SourceStatus: input.SourceStatus, Completed: input.Completed, FirstVisibleAt: input.FirstVisibleAt, Rating: input.Rating, RatingCount: input.RatingCount, RefreshedAt: now}
-	if input.IsMovie() {
-		work.Kind = model.MetadataKindMovie
-	}
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var previous model.HongGuoWork
 		found := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_id = ?", input.SourceID).Take(&previous)
@@ -99,11 +96,6 @@ func (r *HongGuoRepository) SaveDetailWithChange(ctx context.Context, input hong
 		// 冲突更新同时持有作品行锁，串行刷新其分集、人物与快照。
 		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"source_category", "kind", "title", "overview", "tags", "episode_count", "total_episodes", "accessible_episodes", "update_text", "source_status", "completed", "first_visible_at", "rating", "rating_count", "refreshed_at", "updated_at"})}, clause.Returning{}).Create(&work).Error; err != nil {
 			return err
-		}
-		if previous.Kind == model.MetadataKindMovie && work.Kind == model.MetadataKindSeries && work.RelatedAlbumID != "" && work.SeasonIndex > 0 {
-			if err := promoteHongGuoFavorite(tx, work.SourceID, work.RelatedAlbumID); err != nil {
-				return err
-			}
 		}
 		// 不删除已存在分集：上游临时缩短列表不应破坏绑定或观看身份。
 		episodes := make([]model.HongGuoEpisode, 0, work.EpisodeCount)
@@ -252,7 +244,7 @@ SELECT w.id, w.source_id, w.source_category, w.kind, w.title, w.overview, w.tags
        w.refreshed_at, w.created_at, w.updated_at, TRUE AS hydrated
 FROM hongguo_works AS w
 UNION ALL
-SELECT d.source_id AS id, d.source_id, d.source_category, '' AS kind, d.title, d.overview, '[]' AS tags,
+SELECT d.source_id AS id, d.source_id, d.source_category, 'series' AS kind, d.title, d.overview, '[]' AS tags,
        d.episode_count, 0 AS total_episodes, 0 AS accessible_episodes, d.update_text,
        '' AS source_status, FALSE AS completed, NULL::timestamptz AS first_visible_at,
        0::real AS rating, 0::bigint AS rating_count, TIMESTAMPTZ '0001-01-01 00:00:00+00' AS refreshed_at,

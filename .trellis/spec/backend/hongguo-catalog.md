@@ -18,9 +18,8 @@ a compatibility DTO, not a playback-state read.
 
 - Persist one `hg-group-<albumID>` row per user/album, not one row per currently
   visible member. New seasons inherit the album favorite without any copying.
-- Movies/unresolved sources use stable source IDs. `SaveAlbum` promotes source
-  rows in its relation transaction; changing a movie to a series with an already
-  known album does the same in `SaveDetailWithChange`. A preexisting album state wins. Do not move
+- Unresolved sources use stable source IDs. `SaveAlbum` promotes source
+  rows in its relation transaction. A preexisting album state wins. Do not move
   an album favorite when an individual source changes albums.
 - Keep user data outside catalog cleanup. File removal only hides cards until
   another member becomes visible; playback state/events remain source-grained.
@@ -64,7 +63,7 @@ The same fixture calls `assertGlobalFavoriteBrowsePlan` through `Items` with
 `Series + IsFavorite + DateLastContentAdded,SortName` and accurate count, plus
 title/file-date sorts. Capture count and page SQL separately: one favorite among
 10,000 works/600,000 files must visit at most 100 work rows, at most 1,000
-file/binding rows and compile no JIT functions. Verify source-movie favorites,
+file/binding rows and compile no JIT functions. Verify unresolved-source favorites,
 hidden/locked users, cancellations, mixed-source order and out-of-range totals
 against the hierarchy oracle. Favorite writes and Web cards do not cover this
 global count path; use timed EXPLAIN to distinguish scan cost from JIT cost.
@@ -147,8 +146,8 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - Never create a `metadata_items` surrogate. Reject source files before old
   automatic scraping, manual search/matching, or manual metadata editing writes
   any old metadata. The final Media CHECK alone cannot prevent orphan metadata.
-- Parse source IDs as strings with `json.Decoder.UseNumber`. Only consistent,
-  explicit completed-one-episode evidence makes a movie. Updated, total and
+- Parse source IDs as strings with `json.Decoder.UseNumber`. All HongGuo works
+  are series, including completed single-episode shorts; completion never changes kind. Updated, total and
   accessible episode counts are distinct. First visible time is not a claimed
   authoritative release date. Preserve episode positions when video IDs are absent.
 - Detail updates are transactional and idempotent. Do not delete missing
@@ -321,9 +320,9 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - Disabling stops source tasks and new bindings; a disabled file upsert rolls
   back rather than replacing an existing binding. Existing files, metadata and
   user state remain readable. No destructive uninstall is provided.
-- Playback state key is `(user_id, source_id, episode_number)`; episode 1 is also
-  movie progress. Favorites use `(user_id,item_id)` in `hongguo_favorites`:
-  `hg-group-<albumID>` for grouped series, stable source ID for movies/unresolved
+- Playback state key is `(user_id, source_id, episode_number)`; each file must
+  bind to a real episode (source S01, episode number >= 1). Favorites use `(user_id,item_id)` in `hongguo_favorites`:
+  `hg-group-<albumID>` for grouped series, stable source ID for unresolved
   works. Startup atomically merges legacy episode-0 favorites and removes only
   those legacy rows; existing new-table states win, including cancellations.
   Events are unique per user/session/source/episode and survive file deletion
@@ -429,7 +428,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   repeated/duplicate result IDs, category preservation, pending-task selection,
   failure cooldown and no canonical work/episode/artwork creation.
 
-- `internal/hongguo`: ID precision, movie evidence, count separation, snapshot
+- `internal/hongguo`: ID precision, single-episode completion evidence, count separation, snapshot
   whitelist, cancellation/HTTP bounds and explicit path IDs.
 - `TestHongGuoDetailIsolationIdentityAndRollback`: real migration twice,
   stable IDs, old-data sentinel, transaction rollback and exact-tag list filtering.
@@ -557,7 +556,12 @@ album timestamps and fileless representative seasons outside the visibility scop
 DateLastContentAdded uses this work time; DateCreated retains MIN. Unrelated NFO presence cannot choose a different
 library-scoped HongGuo Latest implementation. Bind page work IDs before detail
 file lookup; do not expand the entire library into series/season/episode nodes.
-Keep source movie identities unchanged despite the library's tvshows type.
+HongGuo supports Series/Season/Episode containers and leaves only; Views and
+VirtualFolders both declare tvshows. Root requests intersect IncludeItemTypes
+with Series/Season/Episode/Folder/CollectionFolder; an explicit empty intersection
+returns empty. Mixed SenPlayer Series,Movie,Video,MusicVideo,MusicAlbum requests
+therefore enter work paging as Series. Use the first supported SortBy field;
+DateLastContentAdded,DateCreated,SortName must prioritize latest content time.
 Special filters and recursive requests including child kinds retain hierarchy
 queries. Title/date-last-content browsing checks maintained library membership
 against the current parent, allowed and hidden libraries. Only unknown NULL
@@ -574,10 +578,8 @@ Preserve COUNT DISTINCT episode IDs, BOOL_AND completion and MIN file date;
 missing episode IDs still do not contribute to episode counts. Materializing
 only states is insufficient: the planner can rescan them per file. Do not expand
 season/episode nodes or repeat album MAX and display joins for every file.
-Pure Series pages use effective completed identities restricted to page source
-IDs and omit unused media-ID, watched-time and position aggregates. Mixed/Movie
-pages retain representative/position fields. The branch is selected from actual
-page kinds, not the library's tvshows presentation type.
+HongGuo pages use effective completed identities restricted to page source
+IDs and omit unused media-ID, watched-time and position aggregates.
 State-filtered candidates still check eligible files before paging, but use
 `NOT EXISTS (unplayed file)` for the all-played predicate so the first unfinished
 file ends that check. Use `CompletedPlaybackStates`, preserving `PlaybackStates` effective-state rules, and the
@@ -598,8 +600,8 @@ file dates; neither path is a constant-time listing or a search-index path.
 After the approved album supplement, normal Movie/Series candidates and Web
 library/recent pages omit series with empty album IDs or nonpositive seasons.
 The existing supplement makes them eligible later; do not fetch/repair albums
-inside a list request. Movies retain work identities, even if an album field is
-populated. Detail/hierarchy/source-discovery writers and playback identities are
+inside a list request. Completed one-episode shorts use the same album and
+episode identities as multi-episode shorts. Detail/hierarchy/source-discovery writers and playback identities are
 unchanged. Only candidate sorting needs global album title/time; state qualification
 and page-member resolution must not repeat that aggregate. Resolve page members
 through native work/album keys before checking visibility. Web title paging computes
@@ -634,7 +636,7 @@ joins by page source works, not by file count. Cover both empty and populated
 state tables (including 60,000 states) and bound materialized-state scan work.
 For nine page source works/900 files, all detail state-table loops total at most
 30 and visits at most 3,000; `page_states` rows times loops must not exceed 1,000.
-Keep deleted-version effective-completion cases for both pure Series and Movie
+Keep deleted-version effective-completion cases for both single-episode and multi-episode Series
 pages in the full payload comparison; raw completed flags are not an oracle.
 The same large fixture checks single-poster lookup only reads the requested
 work/album and no episode/state table. `TestEmbyHongGuoImageServesLocalArtwork`
@@ -645,7 +647,7 @@ that playback-state joins caused a production slowdown.
 Run PostgreSQL tests without skips; synthetic timings do not certify deployment
 latency or a real player's cached collection type.
 `TestHongGuoListsWaitForAlbumSupplement` covers missing ID, invalid season,
-supplement recovery and movies across Emby library/global and Web library/recent.
+supplement recovery and single-episode shorts across Emby library/global and Web library/recent.
 `TestHongGuoLibraryCandidatePlan` compares the actual Web page with the old query,
 including order/count/member results and work visits. The Emby page plan separately
 bounds native page-member work visits and asserts no repeated albums CTE in eligibility.
@@ -717,7 +719,7 @@ field matching. Empty-query browsing retains its existing uncapped database page
 Batch-load one visible representative per returned HongGuo identity and overlay
 the official first-season presentation without replacing the file ID, source ID
 or library. `metadata_id` stays empty. Web cards use the official series/source
-identity, never directory/title heuristics; HongGuo movies link to file details
+identity, never directory/title heuristics; HongGuo shorts link to shared series details
 even inside an episodic directory.
 
 Web keyword recall runs HongGuo alongside ordinary/NFO. Inside
@@ -1003,7 +1005,7 @@ normalization changes the card identity and requires client list refresh, but
 never changes source/episode IDs or playback state. `SaveAlbum` atomically promotes
 unresolved source favorites to the album identity; existing album favorites do not
 move with individual members. Whole-series favorites belong to the album, not a
-snapshot of visible members; movies retain stable source IDs. Disable old
+snapshot of visible members. Disable old
 metadata editing and TMDb/Douban controls for HongGuo while retaining file operations.
 
 ### 4. Validation & Error Matrix
@@ -1015,14 +1017,14 @@ source in the requested library -> empty card result. Empty library -> empty pag
 ### 5. Good / Base / Bad Cases
 
 Good: only season 2 has files, but stored season 1 owns the series header. Base:
-standalone work is season 1; a movie uses `/media/:fileID`. Bad: missing episode
+standalone work is season 1, including a completed one-episode short. Bad: missing episode
 stills select a different detail layout, or two versions inflate episode count.
 
 ### 6. Tests Required
 
 `TestHongGuoLibrarySeriesPresentation` covers first-season fields/credits without
 files, own-season blanks, duplicate seasons/versions, scoped pagination/filtering,
-history/favorites/user isolation, cross-season resume, legacy links and movies,
+history/favorites/user isolation, cross-season resume, legacy links and single-episode shorts,
 confirmed self-album season-1 presentation, unavailable works, and out-of-range page totals.
 `TestHongGuoHTTPAccessAndStateIsolation` verifies shared details without discovery
 permission and locked-profile read/write rejection. Run with isolated PostgreSQL.
@@ -1257,3 +1259,19 @@ preview before applying; it holds grouped legacy IDs in memory.
 Wrong: task history stores every episode stage and becomes the download recovery
 checkpoint. Correct: download rows own recovery; a stable work summary provides
 observability and episode detail stays in its business table and daily logs.
+
+## Series-only schema contract (2026-10-06)
+
+`HongGuoWork.Kind` is always `series`; the named CHECK
+`chk_hongguo_work_series` enforces `kind = 'series'`. AutoMigrate adds this new
+constraint even when the older `chk_hongguo_work_kind` allows movie/series.
+Existing movie rows cause upgrade validation to fail; never silently convert or
+delete works, episode IDs, bindings or user state. Before rollout check legacy
+kinds. Code rollback does not remove this CHECK; schema rollback requires
+explicit removal. No production schema/data migration is part of this task.
+
+`TestHongGuoSingleEpisodeAndSeriesConstraint` verifies single-episode identity,
+upgrade from the older CHECK, idempotent migration and rejection of movie writes.
+`TestHongGuoLibraryPagingAndLatest` covers actual SenPlayer mixed types,
+Movie-only/unsupported-only empties and SortBy priority. The large page-plan
+fixture uses the same public Items request and bounds page hydration reads.

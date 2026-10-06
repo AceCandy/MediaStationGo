@@ -132,7 +132,7 @@ LEFT JOIN (?) s ON s.source_id = w.source_id AND s.episode_number = COALESCE(ep.
 LEFT JOIN hongguo_favorites f ON f.user_id = ? AND f.item_id = `+repository.HongGuoFavoriteIdentitySQL+`
 CROSS JOIN LATERAL (VALUES
 	(CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END,
-	 CASE WHEN w.kind = 'movie' THEN 'Movie' ELSE 'Series' END,
+	 'Series',
 	 COALESCE(g.title,w.title), ''::text, 0, 0, CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END),
 	(CASE WHEN w.kind = 'series' THEN 'hg-season-' || w.id END, 'Season', w.title,
 	 CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END, CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END, 0, CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END),
@@ -262,6 +262,20 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		libraryID = lib.ID
 		local = libraryUsesNFOOnly(lib)
 	}
+	if libraryID != "" && !local && len(p.IncludeItemTypes) > 0 {
+		// 红果仅提供剧、季、集；客户端的混合类型不应迫使整剧列表展开展示层级。
+		kinds := make([]string, 0, len(p.IncludeItemTypes))
+		for _, kind := range p.IncludeItemTypes {
+			switch strings.ToLower(kind) {
+			case "series", "season", "episode", "folder", "collectionfolder":
+				kinds = append(kinds, kind)
+			}
+		}
+		if len(kinds) == 0 {
+			return emptyItemsEnvelope(p.StartIndex), true, nil
+		}
+		p.IncludeItemTypes = kinds
+	}
 	if libraryID != "" && !local && hongGuoLibraryPageSupported(p) {
 		items, total, err := e.hongGuoLibraryItems(ctx, p, !p.SkipTotalRecordCount)
 		return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, err
@@ -367,7 +381,7 @@ func (e *EmbyService) hongGuoNodePayloads(ctx context.Context, nodes []hongGuoNo
 		if node.SourceID != "" {
 			sourceIDs = append(sourceIDs, node.SourceID)
 		}
-		if node.Kind == "Movie" || node.Kind == "Episode" {
+		if node.Kind == "Episode" {
 			itemIDs = append(itemIDs, node.ID)
 		}
 	}
@@ -386,14 +400,14 @@ func (e *EmbyService) hongGuoNodePayloads(ctx context.Context, nodes []hongGuoNo
 		relations.versionsByMetadataID[view.CatalogItemID] = append(relations.versionsByMetadataID[view.CatalogItemID], view)
 	}
 	for _, node := range nodes {
-		if node.Kind == "Movie" || node.Kind == "Episode" {
+		if node.Kind == "Episode" {
 			versions := relations.versionsByMetadataID[node.ID]
 			if len(versions) == 0 {
 				continue
 			}
 			versions = orderMediaVersionSiblings(versions, node.MediaID)
 			relations.versionsByMetadataID[node.ID] = versions
-			items = append(items, e.itemPayloadWithRelations(ctx, &versions[0], userID, node.Kind == "Movie" && node.Favorite, node.PositionMs, node.Played, false, relations))
+			items = append(items, e.itemPayloadWithRelations(ctx, &versions[0], userID, false, node.PositionMs, node.Played, false, relations))
 			continue
 		}
 		item, err := e.hongGuoNodePayload(ctx, node, userID)
@@ -417,7 +431,7 @@ func (e *EmbyService) hongGuoNodePayloads(ctx context.Context, nodes []hongGuoNo
 }
 
 func (e *EmbyService) hongGuoNodePayload(ctx context.Context, node hongGuoNode, userID string) (map[string]any, error) {
-	if node.Kind == "Movie" || node.Kind == "Episode" {
+	if node.Kind == "Episode" {
 		return e.Item(ctx, node.MediaID, userID)
 	}
 	images := map[string]string{}
@@ -468,7 +482,7 @@ func (e *EmbyService) hongGuoContainerMutation(ctx context.Context, userID, id s
 		query = query.Where("w.kind = 'series'")
 	case strings.HasPrefix(id, "hg-work-"):
 		// 合集成员不再接受旧的独立作品身份。
-		query = query.Where("w.kind = 'movie' OR COALESCE(w.related_album_id,'') = '' OR COALESCE(w.season_index,0) <= 0")
+		query = query.Where("COALESCE(w.related_album_id,'') = '' OR COALESCE(w.season_index,0) <= 0")
 	case strings.HasPrefix(id, "hg-group-"):
 	default:
 		return true, errors.New("media not found")
@@ -477,7 +491,6 @@ func (e *EmbyService) hongGuoContainerMutation(ctx context.Context, userID, id s
 	query = query.Select(`DISTINCT ON (w.id,ep.id) m.id,m.catalog_source,m.lookup_catalog_id,
 w.kind AS view_metadata_kind,COALESCE(ep.number,0) AS view_episode_num,
 COALESCE(pm.duration_ms,0) AS view_probe_duration_ms`).Order("w.id,ep.id,m.id")
-	handled := true
 	err := e.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var views []model.MediaView
 		if err := tx.Table("(?) AS targets", query).Scan(&views).Error; err != nil {
@@ -485,10 +498,6 @@ COALESCE(pm.duration_ms,0) AS view_probe_duration_ms`).Order("w.id,ep.id,m.id")
 		}
 		if len(views) == 0 {
 			return errors.New("media not found")
-		}
-		if views[0].MetadataKind == model.MetadataKindMovie {
-			handled = false
-			return nil
 		}
 		episodes := views[:0]
 		for _, view := range views {
@@ -498,5 +507,5 @@ COALESCE(pm.duration_ms,0) AS view_probe_duration_ms`).Order("w.id,ep.id,m.id")
 		}
 		return repository.New(tx).HongGuo.MarkPlayedBatch(ctx, userID, episodes, played)
 	})
-	return handled || err != nil, err
+	return true, err
 }

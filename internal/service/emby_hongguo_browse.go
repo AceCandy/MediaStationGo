@@ -96,7 +96,7 @@ LEFT JOIN albums g ON w.kind='series' AND w.season_index>0 AND g.id=w.related_al
 LEFT JOIN hongguo_favorites f ON f.user_id=? AND f.item_id=`+repository.HongGuoFavoriteIdentitySQL+`
 CROSS JOIN LATERAL (VALUES
  (CASE WHEN g.id IS NULL THEN 'hg-work-'||w.id ELSE 'hg-group-'||g.id END,
- CASE WHEN w.kind='movie' THEN 'movie' ELSE 'series' END, COALESCE(g.title,w.title)),
+ 'series', COALESCE(g.title,w.title)),
  (CASE WHEN w.kind='series' THEN 'hg-season-'||w.id END, 'season', w.title),
  (CASE WHEN w.kind='series' AND ep.id IS NOT NULL THEN 'hg-episode-'||ep.id END, 'episode', '第'||ep.number||'集')
 ) n(id,kind,title)
@@ -104,32 +104,31 @@ WHERE n.id IS NOT NULL GROUP BY n.id,resume_key,n.kind,n.title`,
 		files, p.UserID))
 }
 
-// hongGuoLatestCandidates 直接生成电影/分集身份，避免为 Latest 再展开并聚合三层节点。
+// hongGuoLatestCandidates 直接生成分集身份，避免为 Latest 再展开并聚合三层节点。
 // 状态仍由当前候选批的文件资格查询检查；多版本时间保持可见文件的 MAX。
 func (e *EmbyService) hongGuoLatestCandidates(ctx context.Context, p ItemsParams) *gorm.DB {
 	db := e.repo.DB.WithContext(ctx)
-	episode := "CASE WHEN w.kind='movie' THEN NULL ELSE b.episode_id END"
+	episode := "b.episode_id"
 	files := e.hongGuoVisibleFiles(ctx, p.UserID, "").
 		Joins("JOIN hongguo_media_bindings b ON b.media_id=m.id").
 		Joins("JOIN hongguo_works w ON w.id=b.work_id").
 		Select("DISTINCT ON (b.work_id," + episode + ") b.work_id," + episode + " AS episode_id,m.created_at").
 		Order("b.work_id," + episode + ",m.created_at DESC NULLS LAST")
-	projection := `CASE WHEN w.kind='movie' THEN 'hg-work-'||w.id ELSE 'hg-episode-'||ep.id END AS id,
+	projection := `'hg-episode-'||ep.id AS id,
 CASE WHEN w.kind='series' AND w.related_album_id<>'' AND w.season_index>0 THEN 'hongguo:group:'||w.related_album_id
  ELSE 'hongguo:work:'||w.source_id END AS resume_key,
-CASE WHEN w.kind='movie' THEN w.title ELSE '第'||ep.number||'集' END AS title,
-m.created_at,CASE WHEN w.kind='movie' THEN w.latest_media_added_at ELSE m.created_at END AS latest_at,
+'第'||ep.number||'集' AS title,
+m.created_at,m.created_at AS latest_at,
 m.created_at AS played_at,FALSE AS played,COALESCE(f.favorite,FALSE) AS favorite,
 0::bigint AS position_ms,w.rating,'' AS release_date,0 AS year,ARRAY[w.id::text] AS work_ids`
 	base := db.Table("file_stats m").Joins("JOIN hongguo_works w ON w.id=m.work_id").
 		Joins("LEFT JOIN hongguo_favorites f ON f.user_id=? AND f.item_id="+repository.HongGuoFavoriteIdentitySQL, p.UserID)
 	// 分集 ID 已决定其作品；归属单独用 CASE 校验，避免两个关联等式被当作独立选择率。
-	// kind 投影常量，避免外层类型筛选低估百万分集；电影分支不读取分集。
+	// kind 投影常量，避免外层类型筛选低估百万分集。
 	episodes := base.Session(&gorm.Session{}).Joins("JOIN hongguo_episodes ep ON ep.id=m.episode_id").
 		Where("CASE WHEN w.kind='series' AND ep.work_id=w.id THEN TRUE ELSE FALSE END").
 		Select(projection + ",'episode' AS kind")
-	movies := base.Session(&gorm.Session{}).Joins("LEFT JOIN hongguo_episodes ep ON FALSE").Where("w.kind='movie'").Select(projection + ",'movie' AS kind")
-	return db.Table("(?) candidates", db.Raw("WITH file_stats AS MATERIALIZED (?) ? UNION ALL ?", files, episodes, movies))
+	return db.Table("(?) candidates", db.Raw("WITH file_stats AS MATERIALIZED (?) ?", files, episodes))
 }
 
 func globalItemKinds(p ItemsParams) []string {
@@ -319,23 +318,21 @@ func (e *EmbyService) hongGuoPageNodes(ctx context.Context, userID string, ids [
 	}
 	var nodes []hongGuoNode
 	if len(workIDs) > 0 {
-		var members []struct{ ID, Kind string }
+		var members []struct{ ID string }
 		q := repository.FilterHongGuoWorkIDs(e.repo.DB.WithContext(ctx).Table("hongguo_works w"), workIDs)
 		if len(ids) != 1 || !strings.HasPrefix(ids[0], "hg-work-") {
 			q = e.workLibraryScope(ctx, q, "w.library_ids", ItemsParams{UserID: userID})
 		}
-		if err := q.Select("w.id,w.kind").Scan(&members).Error; err != nil {
+		if err := q.Select("w.id").Scan(&members).Error; err != nil {
 			return nil, err
 		}
 		if len(members) > 0 {
 			memberIDs := make([]string, 0, len(members))
-			seriesOnly := true
 			for _, member := range members {
 				memberIDs = append(memberIDs, member.ID)
-				seriesOnly = seriesOnly && member.Kind == "series"
 			}
 			var err error
-			nodes, err = e.hongGuoLibraryNodes(ctx, ItemsParams{UserID: userID}, memberIDs, seriesOnly)
+			nodes, err = e.hongGuoLibraryNodes(ctx, ItemsParams{UserID: userID}, memberIDs)
 			if err != nil {
 				return nil, err
 			}

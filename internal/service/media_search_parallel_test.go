@@ -51,6 +51,7 @@ func newParallelSearchService(t *testing.T) *MediaService {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	episodeID := "source-ep"
 	for _, value := range []any{
 		&model.Library{Base: model.Base{ID: "library"}, Name: "Search", Type: "mixed", Path: "/test/search"},
 		&model.MetadataItem{PermanentBase: model.PermanentBase{ID: "ordinary"}, Kind: "movie", Title: "并行", Source: "test"},
@@ -58,9 +59,10 @@ func newParallelSearchService(t *testing.T) *MediaService {
 		&model.NFOItem{PermanentBase: model.PermanentBase{ID: "local"}, LibraryID: "library", LocalKey: "local", Kind: "movie", NFOFields: model.NFOFields{Title: "并行"}},
 		&model.Media{PermanentBase: model.PermanentBase{ID: "local-file"}, LibraryID: "library", CatalogSource: "nfo", Path: "/test/search/local"},
 		&model.NFOMediaBinding{MediaID: "local-file", ItemID: "local"},
-		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "source"}, SourceID: "101", Kind: "movie", Title: "并行"},
+		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "source"}, SourceID: "101", Kind: "series", Title: "并行", RelatedAlbumID: "101", SeasonIndex: 1},
 		&model.Media{PermanentBase: model.PermanentBase{ID: "source-file"}, LibraryID: "library", CatalogSource: "hongguo", Path: "/test/search/source"},
-		&model.HongGuoMediaBinding{MediaID: "source-file", WorkID: "source"},
+		&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "source-ep"}, WorkID: "source", Number: 1},
+		&model.HongGuoMediaBinding{MediaID: "source-file", WorkID: "source", EpisodeID: &episodeID},
 	} {
 		if err := db.Create(value).Error; err != nil {
 			t.Fatal(err)
@@ -104,7 +106,7 @@ func TestWebSourceSearchParallel(t *testing.T) {
 			}
 			if mode != "postgres" {
 				svc.repo.MediaView.SetSearchBackend(backend("ordinary", "ordinary"))
-				svc.repo.HongGuo.SetSearchBackend(backend("hongguo", "hg-work-source"))
+				svc.repo.HongGuo.SetSearchBackend(backend("hongguo", "hg-group-101"))
 			}
 			observe := func(tx *gorm.DB) {
 				sql := tx.Statement.SQL.String()

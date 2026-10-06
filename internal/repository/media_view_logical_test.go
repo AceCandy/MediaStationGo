@@ -335,11 +335,12 @@ func TestRecentWorksMergeAllSourcesBeforePaging(t *testing.T) {
 	for _, sql := range []string{
 		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('ordinary','movie','Ordinary','local')`,
 		`INSERT INTO nfo_items(id,library_id,local_key,kind,title) VALUES ('local','a','local','movie','Local')`,
-		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) VALUES ('source','100','movie','Source',now())`,
+		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at) VALUES ('source','100','series','Source','100',1,now())`,
 		`INSERT INTO media(id,path,library_id,metadata_id,created_at) VALUES ('ordinary-file','/test/ordinary','a','ordinary','2026-01-02')`,
 		`INSERT INTO media(id,path,library_id,catalog_source,created_at) VALUES ('nfo-file','/test/nfo','a','nfo','2026-01-03'),('hg-file','/test/hg','a','hongguo','2026-01-01')`,
 		`INSERT INTO nfo_media_bindings(media_id,item_id,title,fingerprint) VALUES ('nfo-file','local','Local','test')`,
-		`INSERT INTO hongguo_media_bindings(media_id,work_id) VALUES ('hg-file','source')`,
+		`INSERT INTO hongguo_episodes(id,work_id,number) VALUES ('source-ep','source',1)`,
+		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) VALUES ('hg-file','source','source-ep')`,
 	} {
 		if err := repos.DB.Exec(sql).Error; err != nil {
 			t.Fatal(err)

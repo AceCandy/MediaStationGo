@@ -194,7 +194,7 @@ function HongGuoPosterCard({ work, showSourceCategory, onOpen, selecting = false
       {work.downloaded && <span data-hongguo-downloaded className="absolute bottom-3 left-2 rounded-md bg-emerald-700/90 px-1 py-1 text-[10px] font-semibold text-white backdrop-blur xl:px-2 xl:text-xs" title="存在已完成的分集下载记录，不代表全剧下载完成、文件仍在或已入库">↓ 已下载</span>}
     </div>
     <h2 className="mt-3 truncate text-sm font-semibold text-ink-600 transition-colors group-hover:text-brand-500" title={work.title}>{work.title}</h2>
-    <p className="mt-1 truncate text-xs text-ink-50">{[showSourceCategory && hongGuoSourceCategories.find((item) => item.value === work.source_category)?.label, ...(work.tags ?? []).slice(0, 2)].filter(Boolean).join(' · ') || (work.hydrated ? work.kind === 'movie' ? '电影' : '剧集' : '待补齐')}</p>
+    <p className="mt-1 truncate text-xs text-ink-50">{[showSourceCategory && hongGuoSourceCategories.find((item) => item.value === work.source_category)?.label, ...(work.tags ?? []).slice(0, 2)].filter(Boolean).join(' · ') || (work.hydrated ? '剧集' : '待补齐')}</p>
   </button><div className="pointer-events-none absolute inset-x-0 top-0 flex aspect-[2/3] items-end justify-end px-3 pb-3"><div className={`flex min-w-0 items-center gap-1 font-medium text-white drop-shadow ${work.downloaded ? 'text-[10px] xl:text-xs' : 'text-xs'}`}>
     {work.group_id && <HongGuoGroupBadge key={work.group_id} groupID={work.group_id} sourceID={work.source_id} />}
     <span data-hongguo-episode-label className="min-w-0 truncate text-right" title={work.update_text || (work.episode_count > 0 ? `已更新 ${work.episode_count} 集` : '集数未知')}>{work.update_text || (work.episode_count > 0 ? `已更新 ${work.episode_count} 集` : '集数未知')}</span>

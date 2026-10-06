@@ -38,15 +38,17 @@ func TestEmbyProgressClampsProbeDuration(t *testing.T) {
 				create(&model.NFOItem{PermanentBase: model.PermanentBase{ID: "movie"}, LibraryID: "library", LocalKey: "movie", Kind: "movie", NFOFields: model.NFOFields{Title: "Movie"}})
 				file.CatalogSource, itemID = source, "nfo-movie"
 			case "hongguo":
-				create(&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "movie"}, SourceID: "123", Kind: "movie", Title: "Movie"})
-				file.CatalogSource, file.LookupCatalogID, itemID = source, "123", "hg-work-movie"
+				create(&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "short"}, SourceID: "123", Kind: "series", Title: "Short"})
+				create(&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "short-ep"}, WorkID: "short", Number: 1})
+				file.CatalogSource, file.LookupCatalogID, itemID = source, "123", "hg-episode-short-ep"
 			}
 			create(&file)
 			if source == "nfo" {
 				create(&model.NFOMediaBinding{MediaID: file.ID, ItemID: "movie", NFOFields: model.NFOFields{Title: "Movie"}})
 			}
 			if source == "hongguo" {
-				create(&model.HongGuoMediaBinding{MediaID: file.ID, WorkID: "movie"})
+				episodeID := "short-ep"
+				create(&model.HongGuoMediaBinding{MediaID: file.ID, WorkID: "short", EpisodeID: &episodeID})
 			}
 			const duration = int64(120_000)
 			create(&model.MediaProbeMetadata{MediaID: file.ID, DurationMS: duration})

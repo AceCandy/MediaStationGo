@@ -71,7 +71,7 @@ function HongGuoMyItems({ tab, source }: { tab: 'favourites' | 'history'; source
   const [params, setParams] = useSearchParams()
   const rawPage = Number(params.get('page') ?? 1)
   const page = Number.isInteger(rawPage) && rawPage >= 1 && rawPage <= 1000000 ? rawPage : 1
-  const [data, setData] = useState<{ items: HongGuoUserCard[]; total: number; page: number } | null>(null)
+  const [data, setData] = useState<{ items: (Omit<HongGuoUserCard, 'kind'> & { kind: 'movie' | 'series' })[]; total: number; page: number } | null>(null)
   const [error, setError] = useState(false)
   const [retry, setRetry] = useState(0)
   const [busy, setBusy] = useState(false)

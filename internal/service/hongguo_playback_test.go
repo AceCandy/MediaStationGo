@@ -32,11 +32,14 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if err := e.repo.DB.Create(&library).Error; err != nil {
 		t.Fatal(err)
 	}
-	work, err := e.repo.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "900000000000000001", Title: "测试电影", EpisodeCount: 1, TotalEpisodes: 1, Completed: true, People: []hongguo.Person{{SourceID: "92001", Name: "测试演员", Subtitle: "演员卡片文案"}}, Snapshot: []byte(`{}`)})
+	work, err := e.repo.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "900000000000000001", Title: "测试短剧", EpisodeCount: 1, TotalEpisodes: 1, Completed: true, People: []hongguo.Person{{SourceID: "92001", Name: "测试演员", Subtitle: "演员卡片文案"}}, Snapshot: []byte(`{}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := model.Media{LibraryID: library.ID, Path: "/test/hg/movie.strm", CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID}
+	if err := e.repo.HongGuo.SaveAlbum(ctx, work.SourceID, hongguo.Album{ID: work.SourceID, Season: 1}); err != nil {
+		t.Fatal(err)
+	}
+	m := model.Media{LibraryID: library.ID, Path: "/test/hg/short.strm", CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID, SeasonNum: 1, EpisodeNum: 1}
 	if err := e.repo.Media.Upsert(ctx, &m); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +52,12 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if _, err := (&ScraperService{repo: e.repo}).ApplyManualMatch(ctx, m.ID, ManualScrapeRequest{Title: "不能写入旧体系", Source: "manual"}); err == nil {
 		t.Fatal("source file entered legacy manual match")
 	}
-	id := "hg-work-" + work.ID
+	shortView, err := e.repo.MediaView.FindByID(ctx, m.ID)
+	if err != nil || shortView == nil {
+		t.Fatalf("short view=%v err=%v", shortView, err)
+	}
+	id := shortView.CatalogItemID
+	seriesID := "hg-group-" + work.SourceID
 	title := "不能写入旧体系"
 	if _, err := (&MediaService{repo: e.repo}).UpdateMetadata(ctx, m.ID, MediaMetadataUpdate{Title: &title}); err == nil {
 		t.Fatal("source file entered legacy metadata editor")
@@ -69,7 +77,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if err := e.RecordProgress(ctx, "user-a", id, m.ID, "session-a", 40000*10000, 120000*10000); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.SetFavorite(ctx, "user-a", id, true); err != nil {
+	if err := e.SetFavorite(ctx, "user-a", seriesID, true); err != nil {
 		t.Fatal(err)
 	}
 	resume, err := e.ResumeItems(ctx, "user-a", 20)
@@ -80,7 +88,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if len(resumeItems) != 1 || resumeItems[0]["Id"] != id {
 		t.Fatalf("source resume: %v", resume)
 	}
-	version := model.Media{LibraryID: library.ID, Path: "/test/hg/movie-v2.strm", CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID}
+	version := model.Media{LibraryID: library.ID, Path: "/test/hg/short-v2.strm", CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID, SeasonNum: 1, EpisodeNum: 1}
 	if err := e.repo.Media.Upsert(ctx, &version); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +105,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 		t.Fatalf("item=%v err=%v", item, err)
 	}
 	data := item["UserData"].(map[string]any)
-	if item["Id"] != id || item["Type"] != "Movie" || data["PlaybackPositionTicks"] != int64(40000*10000) || data["IsFavorite"] != true {
+	if item["Id"] != id || item["Type"] != "Episode" || data["PlaybackPositionTicks"] != int64(40000*10000) || data["IsFavorite"] != false {
 		t.Fatalf("wrong item state: %v", item)
 	}
 	people := item["People"].([]model.EmbyPerson)
@@ -118,7 +126,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 		t.Fatalf("source person credits: %v %v", credits, err)
 	}
 	credits, err = e.Items(ctx, ItemsParams{UserID: "user-a", PersonIDs: []string{personID}, IncludeItemTypes: []string{"Movie", "Series"}, Recursive: true, SortBy: "SortName", Limit: 50})
-	if err != nil || credits["TotalRecordCount"] != int64(1) || credits["Items"].([]map[string]any)[0]["Id"] != id {
+	if err != nil || credits["TotalRecordCount"] != int64(1) || credits["Items"].([]map[string]any)[0]["Id"] != seriesID {
 		t.Fatalf("global person works: %v %v", credits, err)
 	}
 	if err := e.MarkPlayed(ctx, "user-a", id, true); err != nil {
@@ -185,7 +193,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 		t.Fatalf("global source search: %v", search)
 	}
 	counts, err := e.ItemCounts(ctx, "user-a")
-	if err != nil || counts["MovieCount"] != int64(1) || counts["EpisodeCount"] != int64(2) || counts["SeriesCount"] != 1 {
+	if err != nil || counts["MovieCount"] != int64(0) || counts["EpisodeCount"] != int64(3) || counts["SeriesCount"] != 2 {
 		t.Fatalf("counts: %v %v", counts, err)
 	}
 	if err := e.SetFavorite(ctx, "user-a", "hg-group-"+groupID, true); err != nil {
@@ -235,7 +243,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 			t.Fatal(err)
 		}
 		items := result["Items"].([]map[string]any)
-		want := []string{legacy.ID, "hg-group-" + groupID, id}[page]
+		want := []string{legacy.ID, "hg-group-" + groupID, seriesID}[page]
 		if result["TotalRecordCount"] != int64(3) || len(items) != 1 || items[0]["Id"] != want {
 			t.Fatalf("mixed global page %d: %v", page, result)
 		}
@@ -249,7 +257,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 		t.Fatal(err)
 	}
 	latest, err := e.LatestItems(ctx, "user-a", "", 1, false)
-	if err != nil || len(latest) != 1 || latest[0]["Id"] != view.CatalogItemID {
+	if err != nil || len(latest) != 1 || latest[0]["Id"] != "hg-group-"+groupID {
 		t.Fatalf("mixed latest: %v %v", latest, err)
 	}
 	latest, err = e.LatestItems(ctx, "user-a", library.ID, 1, false)

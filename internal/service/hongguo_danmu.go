@@ -219,7 +219,7 @@ func marshalHongGuoDanmus(rows []model.HongGuoDanmu) ([]byte, error) {
 
 // HongGuoDanmuTarget 只解析当前可见叶子，不展开合集、季或整部剧的状态。
 func (e *EmbyService) HongGuoDanmuTarget(ctx context.Context, userID, id string) (source string, episode int, video string, matched bool, err error) {
-	if strings.HasPrefix(id, "hg-") && !strings.HasPrefix(id, "hg-episode-") && !strings.HasPrefix(id, "hg-work-") {
+	if strings.HasPrefix(id, "hg-") && !strings.HasPrefix(id, "hg-episode-") {
 		return "", 0, "", true, gorm.ErrRecordNotFound
 	}
 	var files *gorm.DB
@@ -241,10 +241,7 @@ func (e *EmbyService) HongGuoDanmuTarget(ctx context.Context, userID, id string)
 		Number        int
 		SourceVideoID string
 	}
-	q := e.repo.DB.WithContext(ctx).Table("(?) AS m", files).Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Joins("JOIN hongguo_works w ON w.id = b.work_id").Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id")
-	if strings.HasPrefix(id, "hg-work-") {
-		q = q.Where("w.kind = 'movie'")
-	}
+	q := e.repo.DB.WithContext(ctx).Table("(?) AS m", files).Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Joins("JOIN hongguo_works w ON w.id = b.work_id").Joins("JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id")
 	result := q.Select("w.source_id, COALESCE(ep.number,1) AS number, ep.source_video_id").Limit(1).Scan(&target)
 	if result.Error != nil {
 		return "", 0, "", true, result.Error

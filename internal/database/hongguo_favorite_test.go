@@ -21,7 +21,7 @@ func TestMigrateHongGuoFavorites(t *testing.T) {
 	for _, work := range []model.HongGuoWork{
 		{SourceID: "101", Kind: "series", RelatedAlbumID: "999", SeasonIndex: 1},
 		{SourceID: "102", Kind: "series", RelatedAlbumID: "999", SeasonIndex: 2},
-		{SourceID: "103", Kind: "movie"},
+		{SourceID: "103", Kind: "series"},
 		{SourceID: "104", Kind: "series"},
 	} {
 		if err := db.Create(&work).Error; err != nil {

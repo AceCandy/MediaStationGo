@@ -28,7 +28,7 @@ func TestHongGuoPageNodesPreservePayloadsAndBoundWorkReads(t *testing.T) {
 	for _, sql := range []string{
 		`INSERT INTO hongguo_works (id,source_id,kind,title,related_album_id,season_index,overview,tags,rating,refreshed_at)
 SELECT 'w-'||n,n::text,'series','Title '||n,((n-1)/3+1)::text,(n-1)%3+1,'Overview '||n,'["Genre"]',n,now() FROM generate_series(1,90) n`,
-		`UPDATE hongguo_works SET kind='movie',related_album_id='',season_index=0 WHERE id='w-90'`,
+		`UPDATE hongguo_works SET related_album_id='90',season_index=1 WHERE id='w-90'`,
 		`UPDATE hongguo_works SET related_album_id='',season_index=0 WHERE id='w-89'`,
 		`INSERT INTO hongguo_episodes (id,work_id,number)
 SELECT 'ep-'||n||'-'||ep,'w-'||n,ep FROM generate_series(1,90) n CROSS JOIN generate_series(1,30) ep`,
@@ -37,7 +37,7 @@ SELECT 'f-'||n||'-'||ep||'-'||v,CASE WHEN n=1 THEN 'hidden' ELSE 'visible' END,'
  TIMESTAMP '2026-01-01' + n*INTERVAL '1 day' + v*INTERVAL '1 hour'
 FROM generate_series(1,90) n CROSS JOIN generate_series(1,30) ep CROSS JOIN generate_series(1,2) v`,
 		`INSERT INTO hongguo_media_bindings (media_id,work_id,episode_id)
-SELECT 'f-'||n||'-'||ep||'-'||v,'w-'||n,CASE WHEN n=90 THEN NULL ELSE 'ep-'||n||'-'||ep END
+SELECT 'f-'||n||'-'||ep||'-'||v,'w-'||n,'ep-'||n||'-'||ep
 FROM generate_series(1,90) n CROSS JOIN generate_series(1,30) ep CROSS JOIN generate_series(1,2) v`,
 		`INSERT INTO media_probe_metadata (media_id,duration_ms,width,size_bytes,probe_json,schema_version,summary_version,probed_at) SELECT id,90000,1920,1000,'{}',1,1,now() FROM media`,
 		`INSERT INTO hongguo_artworks (id,work_id,source_url,local_key)
@@ -48,7 +48,7 @@ SELECT 'viewer',n::text,ep,CASE WHEN ep%3=1 THEN 'gone' ELSE 'f-'||n||'-'||ep||'
 FROM generate_series(1,90) n CROSS JOIN generate_series(1,30) ep`,
 		`INSERT INTO hongguo_user_states (user_id,source_id,episode_number,position_ms,duration_ms,completed)
 SELECT 'viewer','unrelated-'||n,1,0,0,true FROM generate_series(1,25000) n`,
-		`INSERT INTO hongguo_favorites (user_id,item_id,favorite) VALUES ('viewer','hg-group-1',true),('viewer','90',true)`,
+		`INSERT INTO hongguo_favorites (user_id,item_id,favorite) VALUES ('viewer','hg-group-1',true),('viewer','hg-group-90',true)`,
 		`ANALYZE hongguo_works`, `ANALYZE media`, `ANALYZE hongguo_media_bindings`, `ANALYZE hongguo_user_states`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
@@ -58,8 +58,8 @@ SELECT 'viewer','unrelated-'||n,1,0,0,true FROM generate_series(1,25000) n`,
 
 	for _, user := range []string{"viewer", "other"} {
 		for _, ids := range [][]string{
-			{"hg-group-1"}, {"hg-work-w-90"}, {"hg-season-w-2"}, {"hg-episode-ep-2-1"},
-			{"hg-group-1", "hg-season-w-2", "hg-episode-ep-2-1", "hg-work-w-90"},
+			{"hg-group-1"}, {"hg-group-90"}, {"hg-season-w-2"}, {"hg-episode-ep-2-1"},
+			{"hg-group-1", "hg-season-w-2", "hg-episode-ep-2-1", "hg-group-90"},
 			{"hg-work-w-89"}, {"hg-work-w-2"}, {"hg-group-missing"},
 		} {
 			var original []hongGuoNode
@@ -100,7 +100,7 @@ SELECT 'viewer','unrelated-'||n,1,0,0,true FROM generate_series(1,25000) n`,
 			t.Fatal(err)
 		}
 	}
-	// Latest 的电影/分集候选与原全层级投影对照，覆盖多版本和隐藏文件。
+	// Latest 的分集候选与原全层级投影对照，覆盖多版本和隐藏文件。
 	for _, user := range []string{"viewer", "other"} {
 		type candidate struct {
 			ID, Kind, Title     string
@@ -110,7 +110,7 @@ SELECT 'viewer','unrelated-'||n,1,0,0,true FROM generate_series(1,25000) n`,
 		}
 		p := ItemsParams{UserID: user, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
 		var want, got []candidate
-		if err := e.hongGuoNodes(t.Context(), user, "").Where("kind IN ('Movie','Episode')").
+		if err := e.hongGuoNodes(t.Context(), user, "").Where("kind = 'Episode'").
 			Select("id,LOWER(kind) AS kind,title,file_latest_at AS created_at,latest_at,favorite,rating").Order("id").Scan(&want).Error; err != nil {
 			t.Fatal(err)
 		}
