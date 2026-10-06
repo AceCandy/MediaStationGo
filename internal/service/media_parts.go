@@ -268,6 +268,11 @@ func collapseMediaPartViews(rows []model.MediaView) []model.MediaView {
 
 // mediaPartViews 返回当前用户可见、按播放顺序排列的同版本物理 Part。
 func (e *EmbyService) mediaPartViews(ctx context.Context, m *model.MediaView, userID string) ([]model.MediaView, error) {
+	return e.mediaPartViewsWithKnownViews(ctx, m, userID, nil)
+}
+
+// mediaPartViewsWithKnownViews 只补加载已知版本集合之外的 Part，保留跨资料分段。
+func (e *EmbyService) mediaPartViewsWithKnownViews(ctx context.Context, m *model.MediaView, userID string, known []model.MediaView) ([]model.MediaView, error) {
 	if e == nil || e.repo == nil || e.repo.DB == nil || e.repo.MediaView == nil || m == nil || strings.TrimSpace(m.PartGroupKey) == "" {
 		return nil, nil
 	}
@@ -278,14 +283,24 @@ func (e *EmbyService) mediaPartViews(ctx context.Context, m *model.MediaView, us
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(rows))
-	for i := range rows {
-		ids = append(ids, rows[i].ID)
+	byID := make(map[string]model.MediaView, len(known))
+	for _, view := range known {
+		byID[view.ID] = view
 	}
-	views, err := e.repo.MediaView.FindByIDs(ctx, ids, e.mediaQueryFilter(ctx, userID))
+	views := make([]model.MediaView, 0, len(rows))
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if view, ok := byID[row.ID]; ok {
+			views = append(views, view)
+		} else {
+			ids = append(ids, row.ID)
+		}
+	}
+	missing, err := e.repo.MediaView.FindByIDs(ctx, ids, e.mediaQueryFilter(ctx, userID))
 	if err != nil {
 		return nil, err
 	}
+	views = append(views, missing...)
 	sort.SliceStable(views, func(i, j int) bool {
 		if views[i].PartIndex != views[j].PartIndex {
 			return views[i].PartIndex < views[j].PartIndex

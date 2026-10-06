@@ -109,8 +109,8 @@ func TestEmbyItemCountsWorksAndAllFiles(t *testing.T) {
 	if err := db.Exec("INSERT INTO media (id,library_id,path,catalog_source) VALUES (?,?,?,'')", "unbound", visible.ID, "/synthetic/unbound.mp4").Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, historical := range []bool{false, true} {
-		if historical {
+	for _, unknown := range []bool{false, true} {
+		if unknown {
 			for _, table := range []string{"metadata_items", "hongguo_works", "huangguoai_works"} {
 				if err := db.Exec("UPDATE " + table + " SET library_ids=NULL").Error; err != nil {
 					t.Fatal(err)
@@ -134,9 +134,12 @@ func TestEmbyItemCountsWorksAndAllFiles(t *testing.T) {
 			{"intersection", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true, AllowedLibraryIDs: []string{visible.ID}, HiddenLibraryIDs: []string{visible.ID}}, 0, 0, 0},
 			{"locked", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true}, 0, 0, 0},
 		} {
-			t.Run(fmt.Sprintf("%s/historical=%t", tc.name, historical), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/unknown=%t", tc.name, unknown), func(t *testing.T) {
 				e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: tc.visibility, expiresAt: time.Now().Add(time.Hour)}}
 				got, err := e.ItemCounts(t.Context(), "viewer")
+				if unknown {
+					tc.movies, tc.series = 0, 0
+				}
 				want := map[string]any{"MovieCount": tc.movies, "SeriesCount": tc.series, "EpisodeCount": tc.files, "ItemCount": tc.movies + int64(tc.series)}
 				if err != nil || !reflect.DeepEqual(got, want) {
 					t.Fatalf("counts = %v, %v; want %v", got, err, want)

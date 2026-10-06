@@ -113,10 +113,17 @@ func (e *EmbyService) PlayableMediaID(ctx context.Context, id, userID string) (s
 
 // mediaViewForItemID 同时接受作品 ID 和具体 MediaSource ID。
 func (e *EmbyService) mediaViewForItemID(ctx context.Context, id, userID string) (*model.MediaView, error) {
+	view, _, err := e.mediaViewWithVersionsForItemID(ctx, id, userID)
+	return view, err
+}
+
+// mediaViewWithVersionsForItemID 同时返回优选文件和本次已加载的版本/分段。
+func (e *EmbyService) mediaViewWithVersionsForItemID(ctx context.Context, id, userID string) (*model.MediaView, []model.MediaView, error) {
 	views, err := e.mediaViewsForItemID(ctx, id, userID)
 	if err != nil || len(views) == 0 {
-		return nil, err
+		return nil, nil, err
 	}
+	versions := views
 	if len(views) != 1 || views[0].ID != id {
 		views = collapseMediaPartViews(views)
 	}
@@ -126,7 +133,7 @@ func (e *EmbyService) mediaViewForItemID(ctx context.Context, id, userID string)
 			preferred = views[i]
 		}
 	}
-	return &preferred, nil
+	return &preferred, versions, nil
 }
 
 func (e *EmbyService) mediaViewsForItemID(ctx context.Context, id, userID string) ([]model.MediaView, error) {
@@ -163,22 +170,7 @@ func (e *EmbyService) itemTarget(ctx context.Context, id, userID string) (embyIt
 	if m, err := e.mediaViewForItemID(ctx, id, userID); err != nil {
 		return embyItemTarget{}, err
 	} else if m != nil {
-		target := embyItemTarget{ItemID: embyItemID(m), MetadataID: m.MetadataID, MediaID: m.ID}
-		if m.CatalogSource == model.CatalogSourceNFO {
-			target.NFOItemID = m.CatalogItemID
-			if strings.HasPrefix(id, "nfo-") {
-				target.ItemID, target.NFOItemID = id, id
-			}
-		}
-		if m.CatalogSource == model.TaskSystemHuangGuoAI || m.CatalogSource == model.TaskSystemHongGuo {
-			target.Source = m.CatalogSource
-			target.SourceID, target.SourceEpisode = m.LookupCatalogID, m.EpisodeNum
-			if strings.HasPrefix(id, "hga-group-") || strings.HasPrefix(id, "hga-season-") {
-				target.ItemID = id
-				target.SourceEpisode = 0
-			}
-		}
-		return target, nil
+		return embyTargetForView(id, m), nil
 	}
 	if series, ok, err := e.findSeriesGroup(ctx, id, userID); err != nil {
 		return embyItemTarget{}, err
@@ -199,4 +191,24 @@ func (e *EmbyService) itemTarget(ctx context.Context, id, userID string) (embyIt
 		return embyItemTarget{ItemID: season.ID, MetadataID: season.ID, MediaID: mediaID}, nil
 	}
 	return embyItemTarget{}, nil
+}
+
+// embyTargetForView 复用已解析的媒体身份，保留各来源的容器和叶子状态规则。
+func embyTargetForView(id string, m *model.MediaView) embyItemTarget {
+	target := embyItemTarget{ItemID: embyItemID(m), MetadataID: m.MetadataID, MediaID: m.ID}
+	if m.CatalogSource == model.CatalogSourceNFO {
+		target.NFOItemID = m.CatalogItemID
+		if strings.HasPrefix(id, "nfo-") {
+			target.ItemID, target.NFOItemID = id, id
+		}
+	}
+	if m.CatalogSource == model.TaskSystemHuangGuoAI || m.CatalogSource == model.TaskSystemHongGuo {
+		target.Source = m.CatalogSource
+		target.SourceID, target.SourceEpisode = m.LookupCatalogID, m.EpisodeNum
+		if strings.HasPrefix(id, "hga-group-") || strings.HasPrefix(id, "hga-season-") {
+			target.ItemID = id
+			target.SourceEpisode = 0
+		}
+	}
+	return target
 }

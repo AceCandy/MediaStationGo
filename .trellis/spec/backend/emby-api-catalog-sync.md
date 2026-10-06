@@ -236,9 +236,11 @@ MovieCount/SeriesCount count source work records in ordinary metadata, NFO,
 HongGuo and HuangGuo AI. HongGuo album members count separately; no album
 projection is needed. Versions and multipart files do not increase work counts.
 Only works with files in the user's visible libraries count. Maintained work
-library membership proves file visibility; historical NULL membership retains
-visible-file EXISTS. NFO uses its library ownership and maintained file time,
-with a visible-file fallback when the time is uninitialized.
+library membership proves file visibility. Counts excludes both NULL and empty
+membership; it does not run historical file-existence fallbacks. NFO uses its
+library ownership and non-null maintained file time, without binding/hierarchy
+existence probes. This endpoint assumes the approved historical initialization
+has completed; other browse consumers retain their own unknown-data contracts.
 EpisodeCount counts **all visible Media rows**, including movies, unbound files,
 versions and multipart files. It does not mean distinct episode identities.
 ItemCount is MovieCount + SeriesCount: the total number of works, never a mix
@@ -261,7 +263,8 @@ multiple source works, or count distinct metadata IDs as the Media total.
 
 `TestEmbyItemCountsWorksAndAllFiles` covers all four sources, versions/parts,
 shared cross-library movies, album members, fileless/unbound records, known and
-historical memberships, permission intersection, cancellation and source failure.
+uninitialized memberships (excluded works, unchanged file totals), permission
+intersection, cancellation and source failure.
 Keep existing ordinary/HongGuo/HuangGuo AI count assertions synchronized.
 Verify production-sized read-only query timings separately from player HTTP QA.
 

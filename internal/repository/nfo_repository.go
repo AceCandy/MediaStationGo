@@ -59,6 +59,13 @@ func (r *NFORepository) UpdateMetadata(ctx context.Context, mediaID, itemID stri
 		if itemID == "" {
 			return errors.New("NFO 条目不存在")
 		}
+		var libraryID string
+		if err := tx.Model(&model.NFOItem{}).Select("library_id").Where("id = ?", itemID).Scan(&libraryID).Error; err != nil {
+			return err
+		}
+		if err := lockNFOLibrary(tx, libraryID); err != nil {
+			return err
+		}
 		updates := map[string]any{
 			"title": fields.Title, "original_name": fields.OriginalName, "overview": fields.Overview,
 			"year": fields.Year, "release_date": fields.ReleaseDate, "rating": fields.Rating,
@@ -91,6 +98,9 @@ func (r *NFORepository) IngestWithResult(ctx context.Context, media *model.Media
 		return false, false, errors.New("本地资料文件归属无效")
 	}
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockNFOLibrary(tx, media.LibraryID); err != nil {
+			return err
+		}
 		status, reason := media.ScrapeStatus, media.ScrapeError
 		// 同路径首次入库也需要串行化，不能依赖尚不存在的行锁。
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "nfo:"+media.Path).Error; err != nil {
@@ -123,6 +133,12 @@ func (r *NFORepository) IngestWithResult(ctx context.Context, media *model.Media
 				}
 				*media = existing
 				return nil
+			}
+		}
+		var previousItemID string
+		if existing.ID != "" && input != nil {
+			if err := tx.Model(&model.NFOMediaBinding{}).Select("item_id").Where("media_id = ?", existing.ID).Scan(&previousItemID).Error; err != nil {
+				return err
 			}
 		}
 		if fileChanged {
@@ -203,6 +219,11 @@ func (r *NFORepository) IngestWithResult(ctx context.Context, media *model.Media
 				Columns: []clause.Column{{Name: "media_id"}}, UpdateAll: true,
 			}).Create(binding).Error; err != nil {
 				return err
+			}
+			if previousItemID != "" && previousItemID != binding.ItemID {
+				if err := pruneEmptyNFOItems(tx, []string{previousItemID}); err != nil {
+					return err
+				}
 			}
 		}
 		if err := tx.Model(&model.Media{}).Where("id = ?", media.ID).Updates(map[string]any{

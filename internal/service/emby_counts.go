@@ -33,20 +33,13 @@ func (e *EmbyService) ItemCounts(ctx context.Context, userID string) (map[string
 		}
 		return q
 	}
-	works := func(table string, fallback *gorm.DB) *gorm.DB {
-		q := db.Table(table + " w").Where("w.kind IN ('movie','series')")
-		q = repository.FilterVisibleWorkLibraries(db, q, "w.library_ids", nil, filter)
-		// 已维护的归属直接计数；历史 NULL 仅检查可见文件是否存在。
-		return q.Where("(w.library_ids IS NOT NULL AND w.library_ids <> '[]'::jsonb) OR (w.library_ids IS NULL AND EXISTS (?))", fallback.Select("1"))
+	works := func(table string) *gorm.DB {
+		q := db.Table(table + " w").Where("w.kind IN ('movie','series')").
+			Where("w.library_ids IS NOT NULL AND w.library_ids <> '[]'::jsonb")
+		return repository.FilterVisibleWorkLibraries(db, q, "w.library_ids", nil, filter)
 	}
-	ordinaryFiles := files().Where(`m.metadata_id IN (
-SELECT w.id UNION ALL SELECT id FROM metadata_items WHERE parent_id=w.id UNION ALL
-SELECT ep.id FROM metadata_items season JOIN metadata_items ep ON ep.parent_id=season.id WHERE season.parent_id=w.id)`)
-	nfoFiles := files().Joins("JOIN nfo_media_bindings b ON b.media_id=m.id").Where(`b.item_id IN (
-SELECT w.id UNION ALL SELECT id FROM nfo_items WHERE parent_id=w.id UNION ALL
-SELECT ep.id FROM nfo_items season JOIN nfo_items ep ON ep.parent_id=season.id WHERE season.parent_id=w.id)`)
 	nfo := db.Table("nfo_items w").Where("w.kind IN ('movie','series')").
-		Where("w.latest_media_added_at IS NOT NULL OR EXISTS (?)", nfoFiles.Select("1"))
+		Where("w.latest_media_added_at IS NOT NULL")
 	if len(filter.AllowedLibraryIDs) > 0 {
 		nfo = nfo.Where("w.library_id = ANY(?)", &filter.AllowedLibraryIDs)
 	}
@@ -54,10 +47,10 @@ SELECT ep.id FROM nfo_items season JOIN nfo_items ep ON ep.parent_id=season.id W
 		nfo = nfo.Where("w.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
 	queries := []*gorm.DB{
-		works("metadata_items", ordinaryFiles),
+		works("metadata_items"),
 		nfo,
-		works("hongguo_works", files().Joins("JOIN hongguo_media_bindings b ON b.media_id=m.id").Where("b.work_id=w.id")),
-		works("huangguoai_works", files().Joins("JOIN huangguoai_media_bindings b ON b.media_id=m.id").Where("b.work_id=w.id")),
+		works("hongguo_works"),
+		works("huangguoai_works"),
 	}
 	type workCounts struct {
 		Movies int64

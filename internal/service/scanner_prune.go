@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // RemovePath deletes the media row for a path that has disappeared from disk
@@ -50,21 +51,19 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 		return 0, err
 	}
 	refresh := s.repo.HongGuo.PrepareMediaSearchRefresh(s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path))
-	res := s.repo.DB.WithContext(ctx).
-		Where("path = ?", path).
-		Delete(&model.Media{})
-	if res.Error == nil && res.RowsAffected > 0 {
+	removed, deleteErr := repository.DeleteMedia(s.repo.DB.WithContext(ctx).Where("path = ?", path))
+	if deleteErr == nil && removed > 0 {
 		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 		_, partCandidate := parseMediaPartCandidate(removedMedia.Path)
 		if partCandidate || removedMedia.PartGroupKey != "" || removedMedia.PartIndex != 0 {
 			if _, err := s.reconcileMediaParts(ctx, removedMedia.LibraryID, filepath.Dir(removedMedia.Path), false, nil); err != nil {
-				return res.RowsAffected, err
+				return removed, err
 			}
 		}
 		s.invalidateMediaCache(ctx)
 	}
-	return res.RowsAffected, res.Error
+	return removed, deleteErr
 }
 
 func (s *ScannerService) pruneMissingMedia(ctx context.Context, libraryID string, seen map[string]struct{}) (int64, error) {
@@ -174,11 +173,11 @@ func (s *ScannerService) deleteMediaByIDs(ctx context.Context, ids []string) (in
 			return removed, err
 		}
 		refresh := s.repo.HongGuo.PrepareMediaSearchRefresh(s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id IN ?", ids[i:end]))
-		res := s.repo.DB.WithContext(ctx).Where("id IN ?", ids[i:end]).Delete(&model.Media{})
-		if res.Error != nil {
-			return removed, res.Error
+		count, err := repository.DeleteMedia(s.repo.DB.WithContext(ctx).Where("id IN ?", ids[i:end]))
+		if err != nil {
+			return removed, err
 		}
-		removed += res.RowsAffected
+		removed += count
 		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	}

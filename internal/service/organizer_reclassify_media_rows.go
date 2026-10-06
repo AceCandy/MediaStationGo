@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func (o *OrganizerService) updateReclassifiedMediaRow(ctx context.Context, oldPath, newPath string, req organizeExistingReclassifyRequest) error {
@@ -54,7 +55,7 @@ func (o *OrganizerService) deleteMediaRowForPath(ctx context.Context, path strin
 	var metadataIDs []string
 	_ = o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error
 	refresh := o.repo.HongGuo.PrepareMediaSearchRefresh(o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path))
-	if err := o.repo.DB.WithContext(ctx).Where("path = ?", path).Delete(&model.Media{}).Error; err == nil {
+	if _, err := repository.DeleteMedia(o.repo.DB.WithContext(ctx).Where("path = ?", path)); err == nil {
 		refresh()
 		o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	}

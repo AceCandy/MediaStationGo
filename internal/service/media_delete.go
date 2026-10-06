@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // Delete 永久删除媒体数据库记录，不删除磁盘上的媒体文件。
@@ -13,7 +14,7 @@ func (s *MediaService) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	refresh := s.repo.HongGuo.PrepareMediaSearchRefresh(s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", id))
-	err := s.repo.DB.WithContext(ctx).Where("id = ?", id).Delete(&model.Media{}).Error
+	_, err := repository.DeleteMedia(s.repo.DB.WithContext(ctx).Where("id = ?", id))
 	if err == nil {
 		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)

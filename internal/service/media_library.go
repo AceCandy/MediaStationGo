@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -22,7 +23,7 @@ func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 		if err := tx.Model(&model.Media{}).Where("library_id = ?", id).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
+		if _, err := repository.DeleteMedia(tx.Where("library_id = ?", id), id); err != nil {
 			return err
 		}
 		if err := hardDeleteLibraryRoots(ctx, tx, id); err != nil {

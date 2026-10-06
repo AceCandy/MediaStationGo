@@ -15,6 +15,9 @@ confirmed there are no existing NFO libraries.
 - `NFORepository.IngestWithResult(ctx, media, input) (changed, added bool, err error)`
   exposes the same transaction plus committed file-creation classification.
   The original `Ingest` signature delegates to it for existing callers.
+- `repository.DeleteMedia(query, libraryIDs...) (int64, error)` deletes media and
+  prunes empty NFO items atomically. Explicit library/root cleanup also includes
+  pre-existing unbound items in the selected libraries.
 - `NFORepository.ScanInputs(ctx, media) (manifest string, compatible bool, err error)`
   reads same-library NFO dependencies and current scan-fact compatibility.
 - Scans and file events use common kinds `scan`/`watch` and definitions
@@ -102,6 +105,20 @@ confirmed there are no existing NFO libraries.
   video identity/ctime changes also use the original probe invalidation path.
   A missing managed image forces preparation to restore it when its source exists.
   Unstable reads or more than 512 dependencies do not persist a skip manifest.
+- All application media deletions use `repository.DeleteMedia`, including manual,
+  scanner/watch, library/root, organizer and missing-duplicate paths. Collect
+  bound item identities before deletion, expand ancestors, then delete only rows
+  with neither bindings nor children, leaves before parents. Preserve a surviving
+  version/episode and its ancestors. Rebinding prunes the previous identity after
+  the new binding succeeds. Any failure rolls back media, bindings and cleanup.
+- NFO ingestion, metadata editing and deletion acquire the same transaction
+  advisory lock `nfo-library:<library_id>` before media/item row locks. Multi-library
+  deletion locks sorted unique library IDs. Never introduce item deletion into
+  the latest-time triggers: their NO KEY UPDATE lock is compatible with ingest
+  KEY SHARE, while upgrading it to DELETE can deadlock a concurrent ingest.
+- Pruning removes item snapshots only; independent favorites/progress/events and
+  shared artwork assets remain. No automatic startup/global historical cleanup
+  runs. Explicit library/root purge cleans existing orphan items in that library.
 - Valid unrelated XML is not accepted as an empty NFO. Explicit season zero is
   supported; missing/invalid seasons are not silently converted into specials.
 - Adult visibility is library-scoped. Items, bindings and snapshots have no
@@ -171,6 +188,9 @@ confirmed there are no existing NFO libraries.
 | `<html>` supplied as movie NFO | Reject instead of clearing metadata |
 | Single-episode NFO has no valid season | Reject; no invented season zero |
 | Fresh or repeated startup | Create/reuse four independent tables |
+| Delete one of multiple versions | Preserve item and ancestry |
+| Delete last file or rebind away | Prune unbound leaf and empty ancestry; preserve user state/events |
+| Cleanup or outer transaction fails | Restore media, bindings and items |
 
 ## 5. Good / Base / Bad Cases
 
@@ -181,6 +201,9 @@ claim complete isolation while the scanner still uses the old writer.
 
 ## 6. Tests Required
 
+`TestNFODeletePrunesOnlyEmptyItems` covers version/episode retention, upward
+cleanup, rollback, rebinding, scoped historical orphan cleanup, independent
+state/events and concurrent deletion/ingestion with schema-pinned connections.
 `TestNFORepositoryPreservesFilesAndPreviousSnapshot` covers repeat/changed
 snapshots, invalid-NFO preservation, independent views and library filters.
 `TestNFOScanBatchesRecognitionAndAvoidsRedundantReads` covers 101-file movie/TV

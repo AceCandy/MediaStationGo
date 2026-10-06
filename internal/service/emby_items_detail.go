@@ -79,7 +79,7 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 		}
 		return e.libraryAsView(lib), nil
 	}
-	m, err := e.mediaViewForItemID(ctx, mediaID, userID)
+	m, versions, err := e.mediaViewWithVersionsForItemID(ctx, mediaID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -96,13 +96,14 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 	if !e.mediaVisibility(ctx, userID).AllowsView(m) {
 		return nil, nil
 	}
-	target, err := e.itemTarget(ctx, mediaID, userID)
-	if err != nil {
-		return nil, err
+	target := embyTargetForView(mediaID, m)
+	// 具体文件只加载了自身；作品 ID 的首轮查询已经取得全部可见版本。
+	if len(versions) == 1 && versions[0].ID == strings.TrimSpace(mediaID) {
+		versions = e.mediaVersionSiblings(ctx, m, userID)
 	}
 	fav, pos, completed := e.userDataForTarget(ctx, userID, target)
 	e.mediaProbe.WakeNextEpisodeBackfill(ctx, m, e.mediaQueryFilter(ctx, userID))
-	return e.itemPayloadWithRelations(ctx, m, userID, fav, pos, completed, true, nil), nil
+	return e.itemPayloadWithRelations(ctx, m, userID, fav, pos, completed, true, nil, versions), nil
 }
 
 // AdditionalParts 返回当前播放版本除首 Part 外的物理文件。
@@ -268,7 +269,21 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 	return e.itemPayloadWithRelations(ctx, m, userID, fav, posMs, false, completeStreams, nil)
 }
 
-func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completed, completeStreams bool, relations *embyItemRelations) map[string]any {
+func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completed, completeStreams bool, relations *embyItemRelations, loadedVersions ...[]model.MediaView) map[string]any {
+	var versions []model.MediaView
+	if len(loadedVersions) > 0 {
+		versions = loadedVersions[0]
+	}
+	sourcesForView := func() []map[string]any {
+		if versions == nil {
+			versions = e.mediaVersionSiblings(ctx, m, userID)
+		}
+		if len(versions) == 0 {
+			versions = []model.MediaView{*m}
+		}
+		return e.mediaSourcesForViews(ctx, orderMediaVersionSiblings(versions, m.ID), true, completeStreams)
+	}
+
 	var episode bool
 	var people []model.EmbyPerson
 	var providerIDs map[string]string
@@ -279,7 +294,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		people = []model.EmbyPerson{}
 		providerIDs = map[string]string{"HuangGuoAI": m.LookupCatalogID}
 		if relations == nil {
-			mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
+			mediaSources = sourcesForView()
 		} else if relations.fields.mediaSources {
 			mediaSources = e.mediaSourcesForViews(ctx, relations.versionsByMetadataID[m.CatalogItemID], true, completeStreams)
 		}
@@ -287,7 +302,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		episode = m.MetadataKind == model.MetadataKindEpisode
 		people, providerIDs = []model.EmbyPerson{}, map[string]string{}
 		if relations == nil {
-			mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
+			mediaSources = sourcesForView()
 		} else if relations.fields.mediaSources {
 			mediaSources = e.mediaSourcesForViews(ctx, relations.versionsByMetadataID[m.CatalogItemID], true, completeStreams)
 		}
@@ -303,7 +318,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		}
 		providerIDs = map[string]string{"HongGuoDB": m.LookupCatalogID}
 		if relations == nil {
-			mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
+			mediaSources = sourcesForView()
 		} else if relations.fields.mediaSources {
 			mediaSources = e.mediaSourcesForViews(ctx, relations.versionsByMetadataID[m.CatalogItemID], true, completeStreams)
 		}
@@ -311,8 +326,8 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		episode = e.mediaShouldBeEpisode(ctx, &m.Media)
 		people = e.peopleForMetadata(ctx, m.MetadataID)
 		providerIDs = e.metadataProviderIDs(ctx, m.MetadataID)
-		mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
-		if parts, err := e.mediaPartViews(ctx, m, userID); err == nil {
+		mediaSources = sourcesForView()
+		if parts, err := e.mediaPartViewsWithKnownViews(ctx, m, userID, versions); err == nil {
 			partCount = len(parts)
 		}
 	} else {
