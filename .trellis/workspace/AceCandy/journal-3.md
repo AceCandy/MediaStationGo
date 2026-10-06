@@ -1150,3 +1150,37 @@ DateCreated 作品排序统一复用最新入库时间，NextUp 固定空响应�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 207: 播放器日志稳定流水号与慢请求诊断
+<!-- trellis-session: v=2 fp=a881db1c247c8780 -->
+
+**Date**: 2026-10-07
+**Task**: 播放器日志稳定流水号与慢请求诊断
+**Branch**: `main`
+
+### Summary
+
+播放器日志新增跨月稳定流水号及详情复制；确认两次 SenPlayer 慢请求仍使用旧日期汇总路径。完成隔离数据库回归、前端 lint/build、响应式浏览器检查和独立复核，提交归档；未部署或重启。
+
+### Main Changes
+
+- 数据库序列为历史和新日志分配稳定编号，管理接口以字符串传输，桌面与手机列表及详情显示编号并支持复制。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f7d499d` | feat(player-logs): 增加稳定流水号与详情复制 |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 日志迁移、仓储、服务和 handler 回归通过；Web lint/build、390/768/1024/1440 深浅主题显示及复制检查、独立复核和 diff 检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 更新构建并重启部署后验证 SenPlayer 请求走作品 latest_media_added_at 排序；首次日志补号可能锁表，生产迁移耗时与实机效果尚未验证。
