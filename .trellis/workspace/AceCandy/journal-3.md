@@ -1035,3 +1035,37 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Next Steps
 
 - 无待完成事项；原有未跟踪 core 文件保持未提交。
+
+
+## Session 203: 黄果 HLS 时长校验与安全诊断
+<!-- trellis-session: v=2 fp=8d8b8c1823e538f2 -->
+
+**Date**: 2026-10-06
+**Task**: 黄果 HLS 时长校验与安全诊断
+**Branch**: `main`
+
+### Summary
+
+HLS 按完整媒体清单时长校验并持久化，网页差异记录警告；下载记录与任务日志保留受控诊断，未知底层错误保持通用提示。
+
+### Main Changes
+
+- 保留完整分片传输、最终时长和完整解码检查，直连 MP4 继续按网页时长校验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0437c76` | fix(huangguoai): 按 HLS 清单时长校验下载并保留安全诊断 |
+
+### Testing
+
+- [OK] 下载器测试、黄果下载 PostgreSQL 集成测试、完整解码测试、go vet 和独立复核通过；临时数据库已清理。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 重新启动服务后重试真实第 7 集；尚未完整播放核实正片内容。
