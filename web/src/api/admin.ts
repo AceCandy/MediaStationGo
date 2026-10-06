@@ -1,7 +1,7 @@
 import { api } from './client'
 import type { AccessLog, Setting, User } from '../types'
 
-export type PlaybackStatsSystem = 'catalog' | 'hongguo' | 'nfo'
+export type PlaybackStatsSystem = 'catalog' | 'hongguo' | 'huangguoai' | 'nfo'
 
 export interface PlaybackStatsQuery {
   system?: PlaybackStatsSystem | 'all'

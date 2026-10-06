@@ -10,7 +10,7 @@ import (
 )
 
 func (o *OrganizerService) lookupReclassifyMetadata(ctx context.Context, media model.Media, lib model.Library, mediaType string) *Match {
-	if o == nil || o.scraper == nil || !o.scraper.AnyEnabled() {
+	if media.CatalogSource == model.TaskSystemHuangGuoAI || lib.Type == model.LibraryTypeHuangGuoAI || o == nil || o.scraper == nil || !o.scraper.AnyEnabled() {
 		return nil
 	}
 	title := strings.TrimSpace(media.Title)

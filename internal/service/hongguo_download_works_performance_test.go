@@ -99,19 +99,19 @@ func TestHongGuoDownloadWorkPagePlan(t *testing.T) {
 	}
 	pool.SetMaxOpenConns(1) // 通用预编译计划必须在同一条连接上准备和执行。
 	for _, sql := range []string{
-		`INSERT INTO hong_guo_download_works(source_id,title,root,directory,created_at)
+		`INSERT INTO hongguo_download_works(source_id,title,root,directory,created_at)
 		SELECT n::text,'Fixture','/fixture','fixture',TIMESTAMP '2026-01-01' FROM generate_series(1,3000) n`,
-		`INSERT INTO hong_guo_downloads(id,source_id,episode,title,status,created_at)
+		`INSERT INTO hongguo_downloads(id,source_id,episode,title,status,created_at)
 		SELECT 'fixture-'||n||'-'||e,n::text,e,'Fixture',
 		CASE WHEN e <= 80 THEN 'completed' WHEN e <= 90 THEN 'failed' WHEN e <= 95 THEN 'cancelled'
 		WHEN e = 96 THEN 'queued' WHEN e = 97 THEN 'downloading' WHEN e = 98 THEN 'verifying'
 		WHEN e = 99 THEN 'waiting_verify' ELSE 'publishing' END,
 		TIMESTAMP '2026-01-01'+n*INTERVAL '1 hour'+e*INTERVAL '1 second'
 		FROM generate_series(1,3000) n CROSS JOIN generate_series(1,100) e`,
-		`CREATE INDEX idx_hg_download_work_created_c ON hong_guo_downloads(source_id COLLATE "C",created_at)`,
-		`CREATE INDEX idx_hg_download_status_work_c ON hong_guo_downloads(status,source_id COLLATE "C")`,
-		`ANALYZE hong_guo_downloads`,
-		`ANALYZE hong_guo_download_works`,
+		`CREATE INDEX idx_hg_download_work_created_c ON hongguo_downloads(source_id COLLATE "C",created_at)`,
+		`CREATE INDEX idx_hg_download_status_work_c ON hongguo_downloads(status,source_id COLLATE "C")`,
+		`ANALYZE hongguo_downloads`,
+		`ANALYZE hongguo_download_works`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
 			t.Fatal(err)
@@ -194,7 +194,7 @@ func TestHongGuoDownloadWorkPagePlan(t *testing.T) {
 						if n.Index == "idx_hg_download_work_created_c" && n.Loops > 0 {
 							usesCreatedIndex = true
 						}
-						if n.Relation == "hong_guo_downloads" {
+						if n.Relation == "hongguo_downloads" {
 							visits += (n.Rows + n.Removed) * n.Loops
 							if n.Type == "Seq Scan" && n.Loops > 0 {
 								t.Fatalf("episode full scan: %s", raw)

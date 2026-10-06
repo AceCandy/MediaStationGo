@@ -5,10 +5,10 @@ import { HongGuoDetailModal } from './HongGuoDetailModal'
 import { Film, RefreshCw, Search } from 'lucide-react'
 import { imageURL } from '../api/client'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
-import { Select } from '../components/Select'
 import { useAuthStore } from '../stores/auth'
 import { HongGuoBatchActions } from './HongGuoBatchActions'
 import { HongGuoGroupBadge } from './HongGuoGroupBadge'
+import { CatalogRankingHeader, CatalogRankingRow, CatalogRankingPagination } from '../components/CatalogRanking'
 
 const hongGuoCategories = {
   'real-drama': ['', '爱情', '年代', '逆袭', '传奇', '成长', '家庭', '家族', '萌宝', '悬疑', '惊悚', '恐怖', '志怪', '古装', '玄幻', '奇幻', '都市', '青春', '喜剧', '科幻', '灾难', '动作冒险', '战争', '综艺', '剧情'],
@@ -85,6 +85,8 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
   const [remoteError, setRemoteError] = useState(false)
   const [remoteRetry, setRemoteRetry] = useState(0)
   const [enabled, setEnabled] = useState<boolean | null>(null)
+  const ranking = section === 'rank' && !keyword
+  const pageSize = ranking ? 20 : 50
   const firstPage = keyword ? 1 : page
   const [catalogPage, setCatalogPage] = useState(firstPage)
   const [hasMore, setHasMore] = useState(false)
@@ -94,17 +96,17 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
     const load = async () => {
       setLoading(true); setError(false)
       try {
-        const data = await hongguoAPI.list(keyword, keyword ? '' : sourceCategory, keyword ? '' : category, keyword ? '' : rank, catalogPage, controller.signal)
+        const data = await hongguoAPI.list(keyword, keyword ? '' : sourceCategory, keyword ? '' : category, keyword ? '' : rank, catalogPage, controller.signal, pageSize)
         if (!controller.signal.aborted) {
           setRows((current) => catalogPage === firstPage ? data.items : Array.from(new Map([...current, ...data.items].map((item) => [item.source_id, item])).values()))
-          setTotal(data.total); setHasMore(catalogPage * 50 < data.total)
+          setTotal(data.total); setHasMore(catalogPage * pageSize < data.total)
         }
       } catch { if (!controller.signal.aborted) setError(true) }
       finally { if (!controller.signal.aborted) setLoading(false) }
     }
     void load()
     return () => controller.abort()
-  }, [keyword, sourceCategory, category, rank, firstPage, catalogPage, revision, localRetry])
+  }, [keyword, sourceCategory, category, rank, firstPage, catalogPage, revision, localRetry, pageSize])
   useEffect(() => {
     if (!keyword) return
     const controller = new AbortController()
@@ -117,13 +119,13 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
   }, [keyword, revision, remoteRetry])
   useEffect(() => {
     const target = loadMoreRef.current
-    if (!target || sourceID || loading || error || !hasMore) return
+    if (ranking || !target || sourceID || loading || error || !hasMore) return
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) { observer.disconnect(); setLoading(true); setCatalogPage((current) => current + 1) }
     }, { rootMargin: '320px' })
     observer.observe(target)
     return () => observer.disconnect()
-  }, [hasMore, loading, error, sourceID])
+  }, [hasMore, loading, error, sourceID, ranking])
   useEffect(() => { let active = true; void hongguoAPI.status().then((s) => { if (active) setEnabled(s.enabled) }).catch(() => undefined); return () => { active = false } }, [])
 
   const merged = new Map<string, HongGuoListWork>()
@@ -148,9 +150,10 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
     </div>
       {keyword ? <div className="space-y-1 text-sm text-ink-50"><p>官网首屏 + 本地资料 · 已显示 {visibleRows.length} 部（去重）</p><p className="text-xs">下滑加载本地匹配作品，不代表官网全部搜索结果。</p>{remoteLoading && <p role="status">正在搜索官网…</p>}</div> : <div className="space-y-3">
         {section === 'category' && <div className="flex flex-wrap gap-2">{hongGuoSourceCategories.map((item) => <button key={item.value || 'all'} type="button" aria-pressed={sourceCategory === item.value} className={sourceCategory === item.value ? 'btn-primary' : 'btn-outline'} onClick={() => navigate({ source: item.value, category: '', page: '1' })}>{item.label}</button>)}</div>}
-        {section === 'category' && sourceCategory && sourceCategory !== 'other' ? <div className="flex flex-wrap gap-2">{hongGuoCategories[sourceCategory].map((item) => <button key={item || 'all'} type="button" aria-pressed={category === item} className={category === item ? 'btn-primary' : 'btn-outline'} onClick={() => navigate({ section: '', category: item, rank: '', page: '1' })}>{item || '全部'}</button>)}</div> : section === 'rank' ? <Select aria-label="选择红果榜单" className="input-field min-h-10 w-full sm:w-64" value={rank} onChange={(value) => navigate({ section: 'rank', source: '', category: '', rank: value, page: '1' })}>{hongGuoRanks.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</Select> : null}
-        <p className="text-sm text-ink-50">{section === 'category' && `${hongGuoSourceCategories.find((item) => item.value === sourceCategory)?.label} · ${category || '全部'}分类 · `}<span className="font-semibold text-ink-600">{loading && rows.length === 0 ? '…' : total}</span></p>
+        {section === 'category' && sourceCategory && sourceCategory !== 'other' ? <div className="flex flex-wrap gap-2">{hongGuoCategories[sourceCategory].map((item) => <button key={item || 'all'} type="button" aria-pressed={category === item} className={category === item ? 'btn-primary' : 'btn-outline'} onClick={() => navigate({ section: '', category: item, rank: '', page: '1' })}>{item || '全部'}</button>)}</div> : null}
+        {!ranking && <p className="text-sm text-ink-50">{section === 'category' && `${hongGuoSourceCategories.find((item) => item.value === sourceCategory)?.label} · ${category || '全部'}分类 · `}<span className="font-semibold text-ink-600">{loading && rows.length === 0 ? '…' : total}</span></p>}
       </div>}</>}
+    {ranking && <CatalogRankingHeader source="红果" title={hongGuoRanks.find(item => item.value === rank)?.label || '排行榜'} total={total} options={hongGuoRanks} value={rank} onChange={value => navigate({ rank: value, page: '1', id: '' })} />}
     {admin && <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="btn-outline" aria-pressed={selecting} disabled={batchBusy} onClick={() => { setSelecting((value) => !value); setSelected([]) }}>{selecting ? '退出多选' : '多选'}</button>
@@ -161,13 +164,17 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
     {remoteError && <p role="alert" className="text-sm text-red-500">官网搜索失败，已保留本地结果。<button className="btn-outline ml-2" onClick={() => setRemoteRetry((value) => value + 1)}>重试官网搜索</button></p>}
     {error && <p role="alert" className="text-sm text-red-500">{keyword ? '本地资料加载失败，已保留现有结果。' : '资料加载失败，已保留现有结果。'}<button className="btn-outline ml-2" onClick={() => setLocalRetry((value) => value + 1)}>重试加载</button></p>}
     {(loading || remoteLoading) && visibleRows.length === 0 ? <p role="status">加载红果资料中…</p> : <>
-      <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map((work) => <HongGuoPosterCard key={`${work.source_id}:${revision}`} work={work} showSourceCategory={Boolean(keyword) || !sourceCategory} selecting={admin && selecting} selected={selected.some((item) => item.source_id === work.source_id)} disabled={admin && selecting && (batchBusy || !work.hydrated)} onOpen={() => {
+      {ranking ? <ol className="space-y-3" aria-label="红果排行榜">{visibleRows.map((work, index) => <CatalogRankingRow key={`${work.source_id}:${revision}`} work={work} position={(page - 1) * pageSize + index + 1} artworkURL={work.artwork_id ? imageURL(hongguoAPI.artwork(work.artwork_id)) : ''} metadata={[hongGuoSourceCategories.find(item => item.value === work.source_category)?.label, ...(work.tags ?? []), work.update_text || (work.episode_count > 0 ? `已更新 ${work.episode_count} 集` : '')].filter(Boolean).join(' · ')} rankLabel={hongGuoRanks.find(item => item.value === rank)?.label || '热播榜'} selecting={admin && selecting} selected={selected.some(item => item.source_id === work.source_id)} disabled={admin && selecting && (batchBusy || !work.hydrated)} onOpen={() => {
         if (!admin || !selecting) { navigate({ id: work.source_id, media_page: '' }); return }
         setSelected((current) => current.some((item) => item.source_id === work.source_id) ? current.filter((item) => item.source_id !== work.source_id) : [...current, work])
-      }} />)}</div>
+      }} />)}</ol> : <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map((work) => <HongGuoPosterCard key={`${work.source_id}:${revision}`} work={work} showSourceCategory={Boolean(keyword) || !sourceCategory} selecting={admin && selecting} selected={selected.some((item) => item.source_id === work.source_id)} disabled={admin && selecting && (batchBusy || !work.hydrated)} onOpen={() => {
+        if (!admin || !selecting) { navigate({ id: work.source_id, media_page: '' }); return }
+        setSelected((current) => current.some((item) => item.source_id === work.source_id) ? current.filter((item) => item.source_id !== work.source_id) : [...current, work])
+      }} />)}</div>}
       {visibleRows.length === 0 && !error && !remoteError && <p className="py-12 text-center text-ink-50">{keyword ? '没有找到匹配的作品，试试其他标题或作品 ID。' : '暂无完整资料。管理员可按 ID 导入，或先运行作品发现，再运行资料刷新。'}</p>}
-      <div ref={loadMoreRef} data-testid="hongguo-load-more" className="h-px" aria-hidden="true" />
+      {!ranking && <div ref={loadMoreRef} data-testid="hongguo-load-more" className="h-px" aria-hidden="true" />}
       {loading && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
+      {ranking && <CatalogRankingPagination page={page} total={total} loading={loading} failed={error} onChange={value => navigate({ page: String(value), id: '' })} />}
       {keyword && !loading && !error && !hasMore && <p className="py-3 text-center text-xs text-ink-50">本地匹配已加载完，官网仅展示首屏结果。</p>}
     </>}
     {sourceID && <HongGuoDetailModal key={sourceID} sourceID={sourceID} summary={visibleRows.find((work) => work.source_id === sourceID)} enabled={enabled === true} onClose={() => navigate({ id: '', media_page: '' })} onCategorySaved={(value) => {

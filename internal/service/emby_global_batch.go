@@ -43,7 +43,7 @@ NULL::text AS origin_id, ARRAY_AGG(s.work_id::text) AS work_ids, 'hongguo' AS so
 			Select("id,kind,title,created_at,latest_at,played_at,favorite,rating,release_date,year,NULL::text AS origin_id,work_ids,'hongguo' AS source")
 	}
 	source = e.hongGuoPersonFilter(ctx, source, p.UserID, "", p.PersonIDs)
-	combined := db.Raw("? UNION ALL ?", legacy, source)
+	combined := db.Raw("? UNION ALL ? UNION ALL ?", legacy, source, e.huangGuoAIGlobalCandidates(ctx, base))
 	if hasNFO {
 		filter := e.mediaQueryFilter(ctx, p.UserID)
 		local := db.Table("nfo_items item").
@@ -137,11 +137,13 @@ SELECT id FROM metadata_items WHERE parent_id=item.id AND kind='season'))`)
 		Joins("LEFT JOIN hongguo_episodes ep ON ep.id=b.episode_id AND ep.work_id=w.id").
 		Where("b.work_id = ANY(item.work_ids)").
 		Where("item.kind<>'episode' OR b.episode_id=SUBSTRING(item.id FROM 12)")
+	hga := e.huangGuoAIFiles(ctx, p.UserID, "").Where("CASE WHEN item.kind IN ('movie','series') THEN b.work_id=ANY(item.work_ids) WHEN item.kind='season' THEN 'hga-season-'||w.id=item.id ELSE 'hga-episode-'||ep.id=item.id END")
 	return db.Table("work_batch item").Select("item.ordinal").Where(`CASE WHEN item.source='legacy' THEN EXISTS (?)
 WHEN item.source='legacy-work' THEN EXISTS (?)
-WHEN item.source='nfo' THEN EXISTS (?) ELSE EXISTS (?) END`,
+WHEN item.source='nfo' THEN EXISTS (?) WHEN item.source='huangguoai' THEN EXISTS (?) ELSE EXISTS (?) END`,
 		e.workBatchFileEligibility(ctx, p, legacy, "legacy", "metadata_id=media.metadata_id"),
 		e.workBatchFileEligibility(ctx, p, works, "legacy", "metadata_id=media.metadata_id"),
 		e.workBatchFileEligibility(ctx, p, local, "nfo", "item_id=b.item_id"),
+		e.workBatchFileEligibility(ctx, p, hga, "huangguoai", "source_id=w.source_id AND episode_number=ep.number"),
 		e.workBatchFileEligibility(ctx, p, source, "hongguo", "source_id=w.source_id AND episode_number=COALESCE(ep.number,1)"))
 }

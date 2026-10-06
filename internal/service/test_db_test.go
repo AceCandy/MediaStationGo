@@ -36,6 +36,9 @@ func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 			if err := db.AutoMigrate(&model.NFOItem{}, &model.NFOMediaBinding{}, &model.HongGuoWork{}, &model.HongGuoEpisode{}, &model.HongGuoMediaBinding{}); err != nil {
 				t.Fatal(err)
 			}
+			if err := db.AutoMigrate(model.HuangGuoAIModels()...); err != nil {
+				t.Fatal(err)
+			}
 			if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 				t.Fatal(err)
 			}

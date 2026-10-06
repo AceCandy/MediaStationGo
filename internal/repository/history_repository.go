@@ -24,9 +24,11 @@ func (r *HistoryRepository) ListByUserMetadataIDs(ctx context.Context, userID st
 	if len(metadataIDs) == 0 {
 		return rows, nil
 	}
-	localIDs, ordinaryIDs, hongGuoIDs := []string{}, []string{}, []string{}
+	localIDs, ordinaryIDs, hongGuoIDs, hgaIDs := []string{}, []string{}, []string{}, []string{}
 	for _, id := range metadataIDs {
-		if strings.HasPrefix(id, "hg-episode-") {
+		if strings.HasPrefix(id, "hga-") {
+			hgaIDs = append(hgaIDs, id)
+		} else if strings.HasPrefix(id, "hg-episode-") {
 			hongGuoIDs = append(hongGuoIDs, strings.TrimPrefix(id, "hg-episode-"))
 		} else if strings.HasPrefix(id, "nfo-") {
 			localIDs = append(localIDs, strings.TrimPrefix(id, "nfo-"))
@@ -34,6 +36,23 @@ func (r *HistoryRepository) ListByUserMetadataIDs(ctx context.Context, userID st
 			ordinaryIDs = append(ordinaryIDs, id)
 		}
 	}
+	if len(hgaIDs) > 0 {
+		var hgaRows []model.PlaybackHistory
+		err := r.db.WithContext(ctx).Table("(?) state", PlaybackStates(ctx, r.db, "huangguoai", userID, filter)).Joins("JOIN huangguoai_works w ON w.source_id=state.source_id").Joins("JOIN huangguoai_episodes ep ON ep.work_id=w.id AND ep.number=state.episode_number").Where("state.watched_at IS NOT NULL").Where("CASE WHEN w.kind='movie' THEN 'hga-work-' || w.id ELSE 'hga-episode-' || ep.id END = ANY(?)", &hgaIDs).Select("'hga-state:' || state.source_id || ':' || state.episode_number AS id,CASE WHEN w.kind='movie' THEN 'hga-work-' || w.id ELSE 'hga-episode-' || ep.id END AS metadata_id,state.user_id,state.media_id,state.position_ms,state.duration_ms,state.completed,state.watched_at").Scan(&hgaRows).Error
+		if err != nil {
+			return nil, err
+		}
+		otherIDs := append([]string{}, ordinaryIDs...)
+		for _, id := range localIDs {
+			otherIDs = append(otherIDs, "nfo-"+id)
+		}
+		for _, id := range hongGuoIDs {
+			otherIDs = append(otherIDs, "hg-episode-"+id)
+		}
+		other, err := r.ListByUserMetadataIDs(ctx, userID, otherIDs, filter)
+		return append(hgaRows, other...), err
+	}
+
 	if len(hongGuoIDs) > 0 {
 		err := r.db.WithContext(ctx).Table("(?) AS state", PlaybackStates(ctx, r.db, "hongguo", userID, filter)).
 			Joins("JOIN hongguo_works w ON w.source_id = state.source_id").

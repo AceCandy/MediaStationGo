@@ -23,6 +23,9 @@ import (
 //     显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
 //     永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
+	if m != nil && m.CatalogSource == model.TaskSystemHuangGuoAI {
+		return r.upsertHuangGuoAIMedia(ctx, m)
+	}
 	if m != nil && m.CatalogSource == model.TaskSystemHongGuo {
 		return r.upsertHongGuoMedia(ctx, m)
 	}
@@ -194,7 +197,7 @@ func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.
 
 func mediaUpsertUpdates(existing, incoming model.Media) map[string]any {
 	updates := map[string]any{}
-	if existing.CatalogSource == model.TaskSystemHongGuo {
+	if existing.CatalogSource == model.TaskSystemHongGuo || existing.CatalogSource == model.TaskSystemHuangGuoAI {
 		setIfChanged(updates, "lookup_catalog_id", existing.LookupCatalogID, incoming.LookupCatalogID)
 		setIfChanged(updates, "season_num", existing.SeasonNum, incoming.SeasonNum)
 		setIfChanged(updates, "episode_num", existing.EpisodeNum, incoming.EpisodeNum)

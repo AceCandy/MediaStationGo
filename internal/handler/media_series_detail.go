@@ -30,6 +30,8 @@ func getMediaSeriesHandler(svc *service.Container) gin.HandlerFunc {
 		if series.CatalogSource == "hongguo" {
 			visibility := mediaVisibilityForRequest(c, svc)
 			favorite, err = svc.Repo.MediaView.HongGuoSeriesFavorite(c.Request.Context(), toString(uid), series.SeriesID, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}, nil)
+		} else if series.CatalogSource == "huangguoai" {
+			favorite, err = svc.Repo.HuangGuoAI.Favorite(c.Request.Context(), toString(uid), series.LookupCatalogID, nil)
 		} else {
 			favorite, err = svc.Repo.Favorite.IsFavoriteByIdentity(c.Request.Context(), toString(uid), identity, "")
 		}
@@ -80,6 +82,8 @@ func setMediaSeriesFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 		if series.CatalogSource == "hongguo" {
 			visibility := mediaVisibilityForRequest(c, svc)
 			_, err = svc.Repo.MediaView.HongGuoSeriesFavorite(c.Request.Context(), toString(uid), series.SeriesID, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}, req.Favourite)
+		} else if series.CatalogSource == "huangguoai" {
+			_, err = svc.Repo.HuangGuoAI.Favorite(c.Request.Context(), toString(uid), series.LookupCatalogID, req.Favourite)
 		} else {
 			_, err = svc.Repo.Favorite.SetByIdentity(c.Request.Context(), toString(uid), identity, c.Param("id"), *req.Favourite)
 		}

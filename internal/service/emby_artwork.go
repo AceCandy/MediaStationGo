@@ -9,6 +9,17 @@ import (
 
 // ImageURL returns artwork for a library/media/series/season item id.
 func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (string, error) {
+	if strings.HasPrefix(id, "hga-") {
+		if !strings.EqualFold(imageType, "Primary") {
+			return "", nil
+		}
+		var nodes []hongGuoNode
+		err := e.huangGuoAINodes(ctx, "", "", id).Where("id=?", id).Select("artwork_id").Limit(1).Scan(&nodes).Error
+		if err != nil || len(nodes) == 0 || nodes[0].ArtworkID == "" {
+			return "", err
+		}
+		return "/api/catalogs/huangguoai/artwork/" + nodes[0].ArtworkID, nil
+	}
 	if strings.HasPrefix(id, "nfo-") {
 		view, err := e.repo.MediaView.NFOPresentation(ctx, id)
 		if err != nil || view == nil {

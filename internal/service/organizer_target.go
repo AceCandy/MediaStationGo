@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/huangguoai"
 )
 
 type organizeTargetInput struct {
@@ -38,6 +40,25 @@ func (o *OrganizerService) buildOrganizeTargetPath(ctx context.Context, in organ
 	ext := strings.TrimSpace(in.Ext)
 	if ext != "" && !strings.HasPrefix(ext, ".") {
 		ext = "." + ext
+	}
+
+	// 独立来源必须保留源标签及 S01 坐标，避免整理后落入旧刮削。
+	if strings.Contains(strings.ToLower(in.Source), "[huangguoai-") {
+		id, err := huangguoai.PathID(in.Source)
+		if err != nil {
+			return organizeTargetPath{}, err
+		}
+		season, episode := parseStandardEpisode(in.Source)
+		if season != 1 || episode < 1 {
+			return organizeTargetPath{}, fmt.Errorf("黄果 AI 整理需要 S01Exxx 坐标")
+		}
+		tag := fmt.Sprintf("[huangguoai-%s]", id)
+		if !strings.Contains(strings.ToLower(title), strings.ToLower(tag)) {
+			title += " " + tag
+		}
+		episodeTag := fmt.Sprintf("S01E%03d", episode)
+		dst := filepath.Join(root, title, "Season 01", title+" - "+episodeTag+ext)
+		return organizeTargetPath{Dir: filepath.Dir(dst), Path: dst, EpisodeTag: episodeTag}, nil
 	}
 
 	episodeTag := ""

@@ -47,7 +47,7 @@ func mediaPathTitleYear(mediaPath string) (string, int) {
 // refreshLocalMetadataHints 仅刷新普通库侧车提示，保留已确认的资料绑定及文件探测指纹。
 func (s *ScannerService) refreshLocalMetadataHints(ctx context.Context, libraryID, path string) (bool, error) {
 	lib, err := s.repo.Library.FindByID(ctx, libraryID)
-	if err != nil || lib == nil || !lib.Enabled || libraryUsesNFOOnly(lib) || lib.Type == model.LibraryTypeHongGuo {
+	if err != nil || lib == nil || !lib.Enabled || libraryUsesNFOOnly(lib) || (lib.Type == model.LibraryTypeHongGuo || lib.Type == model.LibraryTypeHuangGuoAI) {
 		return false, err
 	}
 	root, err := s.localLibraryRootForPath(ctx, lib, path)

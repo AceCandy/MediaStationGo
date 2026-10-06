@@ -111,9 +111,8 @@ try {
   browser('find', 'role', 'button', 'click', '--name', '榜单', '--exact')
   waitFor(`new URLSearchParams(location.search).get('section') === 'rank' && new URLSearchParams(location.search).get('rank') === 'hot-drama' && !new URLSearchParams(location.search).has('source') && performance.getEntriesByType('resource').some(r=>r.name.includes('rank=hot-drama'))`)
   assert.ok(!evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('rank=hot-drama')).some(r=>r.name.includes('sort=')||r.name.includes('source_category='))`))
-  browser('find', 'role', 'button', 'click', '--name', '选择红果榜单', '--exact')
-  assert.deepEqual(evaluate(`[...document.querySelectorAll('[role="option"]')].map(o=>o.innerText)`), ['红果热播榜', '真人剧热播榜', 'AI剧热播榜', '漫剧热播榜'])
-  browser('find', 'role', 'option', 'click', '--name', 'AI剧热播榜', '--exact')
+  assert.deepEqual(evaluate(`[...document.querySelector('nav[aria-label="红果榜单切换"]').querySelectorAll('button')].map(o=>o.innerText)`), ['红果热播榜', '真人剧热播榜', 'AI剧热播榜', '漫剧热播榜'])
+  browser('find', 'role', 'button', 'click', '--name', 'AI剧热播榜', '--exact')
   waitFor(`new URLSearchParams(location.search).get('rank') === 'hot-ai-drama' && performance.getEntriesByType('resource').some(r=>r.name.includes('rank=hot-ai-drama'))`)
 
   for (const theme of ['dark', 'light']) {

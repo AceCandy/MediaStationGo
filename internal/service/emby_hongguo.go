@@ -162,6 +162,17 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		items, _ := result["Items"].([]map[string]any)
 		return items, nil
 	}
+	filterHGA := "IsUnplayed"
+	if isPlayed {
+		filterHGA = "IsPlayed"
+	}
+	if result, ok, err := e.huangGuoAIHierarchyItems(ctx, ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, IncludeItemTypes: []string{"Movie", "Series"}, Filters: []string{filterHGA}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}); ok {
+		if err != nil {
+			return nil, err
+		}
+		items, _ := result["Items"].([]map[string]any)
+		return items, nil
+	}
 	if parentID != "" && !strings.HasPrefix(parentID, "hg-") && !strings.HasPrefix(parentID, "nfo-") {
 		library, err := FindLibraryBasic(ctx, e.repo, e.cache, parentID)
 		if err != nil {

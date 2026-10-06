@@ -22,7 +22,7 @@ func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, c
 		return nil, false, nil
 	}
 	var hasSource bool
-	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source IN ('hongguo','nfo'))").Scan(&hasSource).Error; err != nil {
+	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source IN ('hongguo','nfo','huangguoai'))").Scan(&hasSource).Error; err != nil {
 		return nil, true, err
 	}
 	workLatest := len(latestWorks) > 0 && latestWorks[0]
@@ -203,11 +203,14 @@ func (e *EmbyService) globalItemPayloadsWithPreferredMedia(ctx context.Context, 
 
 // loadGlobalItemPayloads 并发读取各来源，普通 Latest 保留自己的直接绑定文件投影。
 func (e *EmbyService) loadGlobalItemPayloads(ctx context.Context, ids []string, p ItemsParams, preferredMedia map[string]string, legacyPayloads func(context.Context, []string, ItemsParams) ([]map[string]any, error)) ([]map[string]any, error) {
+	hgaIDs := []string{}
 	sourceIDs := []string{}
 	localIDs := []string{}
 	legacyIDs := []string{}
 	for _, id := range ids {
-		if strings.HasPrefix(id, "hg-") {
+		if strings.HasPrefix(id, "hga-") {
+			hgaIDs = append(hgaIDs, id)
+		} else if strings.HasPrefix(id, "hg-") {
 			sourceIDs = append(sourceIDs, id)
 		} else if strings.HasPrefix(id, "nfo-") {
 			localIDs = append(localIDs, id)
@@ -218,7 +221,26 @@ func (e *EmbyService) loadGlobalItemPayloads(ctx context.Context, ids []string, 
 	loadCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	var pending sync.WaitGroup
-	var sourceItems, localItems, legacyItems []map[string]any
+	var sourceItems, localItems, legacyItems, hgaItems []map[string]any
+	if len(hgaIDs) > 0 {
+		pending.Go(func() {
+			var nodes []hongGuoNode
+			err := e.huangGuoAINodes(loadCtx, p.UserID, "", hgaIDs...).Where("id=ANY(?)", &hgaIDs).Scan(&nodes).Error
+			if err != nil {
+				cancel(err)
+				return
+			}
+			for i := range nodes {
+				if id := preferredMedia[nodes[i].ID]; id != "" {
+					nodes[i].MediaID = id
+				}
+			}
+			hgaItems, err = e.huangGuoAIPayloads(loadCtx, nodes, p.UserID, p.Fields)
+			if err != nil {
+				cancel(err)
+			}
+		})
+	}
 	if len(sourceIDs) > 0 {
 		pending.Go(func() {
 			nodes, err := e.hongGuoPageNodes(loadCtx, p.UserID, sourceIDs)
@@ -270,7 +292,7 @@ func (e *EmbyService) loadGlobalItemPayloads(ctx context.Context, ids []string, 
 		return nil, err
 	}
 	byID := map[string]map[string]any{}
-	for _, source := range [][]map[string]any{sourceItems, localItems, legacyItems} {
+	for _, source := range [][]map[string]any{sourceItems, localItems, legacyItems, hgaItems} {
 		for _, item := range source {
 			byID[item["Id"].(string)] = item
 		}

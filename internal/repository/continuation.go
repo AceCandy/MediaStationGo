@@ -41,10 +41,12 @@ func (r *HistoryRepository) Continuations(ctx context.Context, userID string, fi
 	switch {
 	case strings.HasPrefix(seriesID, "nfo-"):
 		sources = []string{"nfo"}
+	case strings.HasPrefix(seriesID, "hga-"):
+		sources = []string{"huangguoai"}
 	case strings.HasPrefix(seriesID, "hg-"):
 		sources = []string{"hongguo"}
 	case seriesID == "":
-		for _, source := range []string{"nfo", "hongguo"} {
+		for _, source := range []string{"nfo", "hongguo", "huangguoai"} {
 			var exists bool
 			// 固定来源字面量让预编译计划可利用来源索引。
 			if err := db.Raw("SELECT EXISTS(SELECT 1 FROM media WHERE catalog_source = '" + source + "')").Scan(&exists).Error; err != nil {
@@ -132,6 +134,16 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
  '' AS work_order, '' AS album_id, i.episode_num, 'nfo-' || i.id AS history_id`
 		scope = "series.id = a.group_id"
 		stateIdentity = "st.item_id = i.id"
+	case "huangguoai":
+		q = q.Joins("JOIN huangguoai_media_bindings b ON b.media_id=m.id").Joins("JOIN huangguoai_works w ON w.id=b.work_id").Joins("JOIN huangguoai_episodes ep ON ep.id=b.episode_id AND ep.work_id=w.id").Where("m.catalog_source='huangguoai' AND w.projection_error='' AND (w.kind='series' OR ep.number=1)")
+		q = FilterVisibleWorkLibraries(db, q, "w.library_ids", nil, filter)
+		projection = `CASE WHEN w.kind='movie' THEN 'hga-work-' || w.id ELSE 'hga-episode-' || ep.id END AS item_id,
+ 'hga-work:' || w.source_id AS group_id,CASE WHEN w.kind='series' THEN 'hga-group-' || w.source_id ELSE '' END AS series_id,
+ CASE WHEN w.kind='movie' THEN 'movie' ELSE 'episode' END AS kind,1 AS season_num,
+ w.source_id AS work_order,'' AS album_id,ep.number AS episode_num,'hga-state:' || w.source_id || ':' || ep.number AS history_id`
+		scope = "w.source_id=a.work_order AND w.kind='series'"
+		stateIdentity = "st.source_id=w.source_id AND st.episode_number=ep.number"
+		threshold = 1
 	case "hongguo":
 		q = q.Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
 			Joins("JOIN hongguo_works w ON w.id = b.work_id").
@@ -170,6 +182,8 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 	if seriesID != "" {
 		// 在有效状态和文件解析前收窄历史，不影响无历史的下一集查询。
 		switch source {
+		case "huangguoai":
+			effectiveStates = effectiveStates.Where("h.source_id=?", strings.TrimPrefix(seriesID, "hga-group-"))
 		case "hongguo":
 			works := db.Table("hongguo_works").Select("source_id").Where("kind = 'series'")
 			if strings.HasPrefix(seriesID, "hg-group-") {

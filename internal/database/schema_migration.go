@@ -11,6 +11,9 @@ import (
 
 // AutoMigrate creates tables for every model registered in the model package.
 func AutoMigrate(db *gorm.DB) error {
+	if err := migrateHongGuoDownloadTableNames(db); err != nil {
+		return err
+	}
 	hadHongGuoArtwork := db.Migrator().HasTable(&model.HongGuoArtwork{})
 	if hadHongGuoArtwork {
 		if err := ensureHongGuoArtworkOwnership(db); err != nil {
@@ -18,6 +21,9 @@ func AutoMigrate(db *gorm.DB) error {
 		}
 	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		return err
+	}
+	if err := ensureHuangGuoAIBindingIdentity(db); err != nil {
 		return err
 	}
 	if err := migrateHongGuoFavorites(db); err != nil {
@@ -93,6 +99,27 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return EnsureLatestMediaAddedTriggers(db)
+}
+
+// migrateHongGuoDownloadTableNames 在自动建表前统一红果下载表名，原地保留数据与索引。
+func migrateHongGuoDownloadTableNames(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, names := range [][2]string{
+			{"hong_guo_download_works", "hongguo_download_works"},
+			{"hong_guo_downloads", "hongguo_downloads"},
+		} {
+			if !tx.Migrator().HasTable(names[0]) {
+				continue
+			}
+			if tx.Migrator().HasTable(names[1]) {
+				return fmt.Errorf("红果下载表重命名冲突：%s 与 %s 同时存在", names[0], names[1])
+			}
+			if err := tx.Migrator().RenameTable(names[0], names[1]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // migrateHongGuoFavorites 合并旧成员收藏；新表已有状态优先，避免重启复活已取消的收藏。
@@ -555,10 +582,10 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 	}
 	if db.Migrator().HasTable(&model.HongGuoDownload{}) {
 		statements = append(statements,
-			`CREATE INDEX IF NOT EXISTS idx_hg_download_work_created_c ON hong_guo_downloads(source_id COLLATE "C", created_at)`,
-			`CREATE INDEX IF NOT EXISTS idx_hg_download_status_work_c ON hong_guo_downloads(status, source_id COLLATE "C")`,
-			`CREATE INDEX IF NOT EXISTS idx_hg_download_transfer_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND raw_size = 0 AND COALESCE(sha256, '') = ''`,
-			`CREATE INDEX IF NOT EXISTS idx_hg_download_verification_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND (raw_size > 0 OR COALESCE(sha256, '') <> '')`,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_work_created_c ON hongguo_downloads(source_id COLLATE "C", created_at)`,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_status_work_c ON hongguo_downloads(status, source_id COLLATE "C")`,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_transfer_claim ON hongguo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND raw_size = 0 AND COALESCE(sha256, '') = ''`,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_verification_claim ON hongguo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND (raw_size > 0 OR COALESCE(sha256, '') <> '')`,
 		)
 	}
 	if db.Migrator().HasTable(&model.MediaProbeMetadata{}) {

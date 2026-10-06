@@ -2,7 +2,7 @@ import { Film } from 'lucide-react'
 
 import { MediaCard } from '../components/MediaCard'
 import type { Media } from '../types'
-import type { SeriesCard } from '../utils/groupSeries'
+import { isCatalogMovie, type SeriesCard } from '../utils/groupSeries'
 
 type LibraryMediaSectionsProps = {
   isSeries: boolean
@@ -60,9 +60,9 @@ export function LibraryMediaSections({
             <MediaCard
               key={series.key}
               media={series.rep}
-              count={series.rep.catalog_source === 'hongguo' && !series.rep.series_id ? undefined : series.count}
-              onClick={series.rep.catalog_source === 'hongguo' && !series.rep.series_id ? undefined : () => onSeriesClick(series)}
-              linkTo={series.rep.catalog_source === 'hongguo' && !series.rep.series_id ? `/media/${series.rep.id}` : undefined}
+              count={isCatalogMovie(series.rep) ? undefined : series.count}
+              onClick={isCatalogMovie(series.rep) ? undefined : () => onSeriesClick(series)}
+              linkTo={isCatalogMovie(series.rep) ? `/media/${series.rep.id}` : undefined}
               linkState={{ from: detailFrom }}
               staggerIndex={index}
             />

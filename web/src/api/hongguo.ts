@@ -43,7 +43,7 @@ export interface HongGuoPendingMedia { id: string; source_id: string; title: str
 
 export const hongguoAPI = {
   search: (keyword: string, signal?: AbortSignal) => api.get<{ items: HongGuoListWork[]; total: number }>('/catalogs/hongguo/search', { params: { keyword }, signal }).then((r) => r.data),
-  list: (keyword: string, sourceCategory: string, category: string, rank: string, page: number, signal?: AbortSignal) => api.get<{ items: HongGuoListWork[]; total: number }>('/catalogs/hongguo/works', { params: { keyword, source_category: sourceCategory || undefined, category: category || undefined, rank: rank || undefined, page, page_size: 50 }, signal }).then((r) => r.data),
+  list: (keyword: string, sourceCategory: string, category: string, rank: string, page: number, signal?: AbortSignal, pageSize = 50) => api.get<{ items: HongGuoListWork[]; total: number }>('/catalogs/hongguo/works', { params: { keyword, source_category: sourceCategory || undefined, category: category || undefined, rank: rank || undefined, page, page_size: pageSize }, signal }).then((r) => r.data),
   detail: (id: string, signal?: AbortSignal) => api.get<HongGuoDetail>(`/catalogs/hongguo/works/${encodeURIComponent(id)}`, { signal }).then((r) => r.data),
   media: (id: string, page: number, signal?: AbortSignal) => api.get<{ items: Media[]; total: number }>(`/catalogs/hongguo/works/${encodeURIComponent(id)}/media`, { params: { page }, signal }).then((r) => r.data),
   library: (id: string, page: number, signal?: AbortSignal) => api.get<{ items: HongGuoLibraryCard[]; total: number }>(`/catalogs/hongguo/libraries/${encodeURIComponent(id)}`, { params: { page }, signal }).then((r) => r.data),

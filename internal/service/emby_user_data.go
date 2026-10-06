@@ -14,6 +14,23 @@ import (
 
 // SetFavorite 按 Emby 作品身份保存收藏，MediaID 仅保留具体版本。
 func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, favorite bool) error {
+	if strings.HasPrefix(itemID, "hga-season-") || strings.HasPrefix(itemID, "hga-episode-") {
+		return repository.ErrFavoriteUnsupportedType
+	}
+	if strings.HasPrefix(itemID, "hga-") {
+		target, err := e.itemTarget(ctx, itemID, userID)
+		if err != nil {
+			return err
+		}
+		if target.Source == "" {
+			return errors.New("media not found")
+		}
+		_, err = e.repo.HuangGuoAI.Favorite(ctx, userID, target.SourceID, &favorite)
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
+	}
 	if strings.HasPrefix(itemID, "hg-group-") {
 		_, err := e.repo.MediaView.HongGuoSeriesFavorite(ctx, userID, itemID, e.mediaQueryFilter(ctx, userID), &favorite)
 		if err == nil && e.cache != nil {
@@ -59,6 +76,20 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 
 // MarkPlayed 按作品身份标记已看，并保留当前具体版本。
 func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, played bool) error {
+	if strings.HasPrefix(itemID, "hga-") {
+		views, err := e.repo.MediaView.HuangGuoAIItemsViews(ctx, []string{itemID}, e.mediaQueryFilter(ctx, userID))
+		if err != nil {
+			return err
+		}
+		if len(views) == 0 {
+			return errors.New("media not found")
+		}
+		err = e.repo.HuangGuoAI.MarkPlayedBatch(ctx, userID, views, played)
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
+	}
 	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, played); handled {
 		if err == nil && e.cache != nil {
 			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
@@ -109,7 +140,11 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		if media == nil {
 			return errors.New("media not found")
 		}
-		err = e.repo.HongGuo.MarkPlayed(ctx, userID, *media, played)
+		if target.Source == model.TaskSystemHuangGuoAI {
+			err = e.repo.HuangGuoAI.MarkPlayed(ctx, userID, *media, played)
+		} else {
+			err = e.repo.HongGuo.MarkPlayed(ctx, userID, *media, played)
+		}
 		if err == nil && e.cache != nil {
 			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
 		}
@@ -177,7 +212,7 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 			}
 			sameItem := target.MetadataID != "" && sourceTarget.MetadataID == target.MetadataID
 			if target.SourceID != "" {
-				sameItem = sourceTarget.SourceID == target.SourceID && sourceTarget.SourceEpisode == target.SourceEpisode
+				sameItem = sourceTarget.Source == target.Source && sourceTarget.SourceID == target.SourceID && sourceTarget.SourceEpisode == target.SourceEpisode
 			}
 			if target.NFOItemID != "" {
 				sameItem = target.NFOItemID == sourceTarget.NFOItemID

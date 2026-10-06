@@ -478,6 +478,14 @@ func (r *MediaViewRepository) FindSeriesPresentation(ctx context.Context, metada
 
 // FindSeasonPresentation 读取季自身的资料与图片；调用方必须先验证所属文件可见性。
 func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metadataID string) (*model.MediaView, error) {
+	if strings.HasPrefix(metadataID, "hga-season-") {
+		rows, err := r.huangGuoAIPresentations(ctx, []string{metadataID}, true)
+		view, ok := rows[metadataID]
+		if err != nil || !ok {
+			return nil, err
+		}
+		return &view, nil
+	}
 	if strings.HasPrefix(metadataID, "hg-season-") {
 		rows, err := r.hongGuoPresentations(ctx, []string{metadataID}, true)
 		view, ok := rows[metadataID]
@@ -508,8 +516,11 @@ func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metad
 	out := make(map[string]model.MediaView)
 	ordinaryIDs := make([]string, 0, len(metadataIDs))
 	hongGuoIDs := []string{}
+	hgaIDs := []string{}
 	for _, id := range metadataIDs {
-		if strings.HasPrefix(id, "hg-") {
+		if strings.HasPrefix(id, "hga-") {
+			hgaIDs = append(hgaIDs, id)
+		} else if strings.HasPrefix(id, "hg-") {
 			hongGuoIDs = append(hongGuoIDs, id)
 		} else if strings.HasPrefix(id, "nfo-") {
 			view, err := r.NFOPresentation(ctx, id)
@@ -528,6 +539,13 @@ func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metad
 		return nil, err
 	}
 	for id, view := range sourceViews {
+		out[id] = view
+	}
+	hgaViews, e := r.huangGuoAIPresentations(ctx, hgaIDs, false)
+	if e != nil {
+		return nil, e
+	}
+	for id, view := range hgaViews {
 		out[id] = view
 	}
 	metadataIDs = ordinaryIDs
@@ -563,17 +581,19 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 	if len(metadataIDs) == 0 {
 		return []model.MediaView{}, nil
 	}
-	localIDs, hongGuoIDs, ordinaryIDs := []string{}, []string{}, []string{}
+	localIDs, hongGuoIDs, ordinaryIDs, hgaIDs := []string{}, []string{}, []string{}, []string{}
 	for _, id := range metadataIDs {
 		if strings.HasPrefix(id, "nfo-") {
 			localIDs = append(localIDs, id)
+		} else if strings.HasPrefix(id, "hga-") {
+			hgaIDs = append(hgaIDs, id)
 		} else if strings.HasPrefix(id, "hg-") {
 			hongGuoIDs = append(hongGuoIDs, id)
 		} else {
 			ordinaryIDs = append(ordinaryIDs, id)
 		}
 	}
-	if len(localIDs) > 0 || len(hongGuoIDs) > 0 {
+	if len(localIDs) > 0 || len(hongGuoIDs) > 0 || len(hgaIDs) > 0 {
 		ordinary, err := r.FindMetadataSearchRepresentatives(ctx, ordinaryIDs, filter)
 		if err != nil {
 			return nil, err
@@ -595,6 +615,13 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 		}
 		for _, view := range hongGuo {
 			byID[view.CatalogItemID] = view
+		}
+		hga, err := r.huangGuoAISearchRepresentatives(ctx, hgaIDs, filter)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range hga {
+			byID[v.CatalogItemID] = v
 		}
 		result := make([]model.MediaView, 0, len(metadataIDs))
 		for _, id := range metadataIDs {

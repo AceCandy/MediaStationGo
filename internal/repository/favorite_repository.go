@@ -22,6 +22,14 @@ func (r *FavoriteRepository) Toggle(ctx context.Context, userID, mediaID string)
 	if err != nil {
 		return false, err
 	}
+	if media.CatalogSource == model.TaskSystemHuangGuoAI {
+		fav, err := (&HuangGuoAIRepository{db: r.db}).Favorite(ctx, userID, media.LookupCatalogID, nil)
+		if err != nil {
+			return false, err
+		}
+		fav = !fav
+		return (&HuangGuoAIRepository{db: r.db}).Favorite(ctx, userID, media.LookupCatalogID, &fav)
+	}
 	var f model.Favorite
 	metadataID := mediaMetadataID(media)
 	if strings.HasPrefix(metadataID, "nfo-") {
@@ -49,6 +57,9 @@ func (r *FavoriteRepository) Set(ctx context.Context, userID, mediaID string, fa
 	media, err := r.findMedia(ctx, mediaID)
 	if err != nil {
 		return false, err
+	}
+	if media.CatalogSource == model.TaskSystemHuangGuoAI {
+		return (&HuangGuoAIRepository{db: r.db}).Favorite(ctx, userID, media.LookupCatalogID, &favorite)
 	}
 	return r.SetByIdentity(ctx, userID, mediaMetadataID(media), mediaID, favorite)
 }
@@ -109,6 +120,9 @@ func (r *FavoriteRepository) IsFavorite(ctx context.Context, userID, mediaID str
 	if err != nil {
 		return false, err
 	}
+	if media.CatalogSource == model.TaskSystemHuangGuoAI {
+		return (&HuangGuoAIRepository{db: r.db}).Favorite(ctx, userID, media.LookupCatalogID, nil)
+	}
 	return r.IsFavoriteByIdentity(ctx, userID, mediaMetadataID(media), mediaID)
 }
 
@@ -138,6 +152,15 @@ func (r *FavoriteRepository) findMedia(ctx context.Context, mediaID string) (*mo
 		}
 		// 仅作收藏路由身份，不回写公共文件的 metadata_id。
 		media.MetadataID = "nfo-" + binding.ItemID
+	}
+	if err == nil && media.CatalogSource == model.TaskSystemHuangGuoAI {
+		var work model.HuangGuoAIWork
+		if e := r.db.WithContext(ctx).Where("source_id=? AND projection_error=''", media.LookupCatalogID).Take(&work).Error; e != nil {
+			return nil, e
+		}
+		if work.Kind != model.MetadataKindMovie {
+			return nil, ErrFavoriteUnsupportedType
+		}
 	}
 	return &media, err
 }

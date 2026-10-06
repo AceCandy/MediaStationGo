@@ -103,6 +103,9 @@ func LibraryVisibleForUser(ctx context.Context, repo *repository.Container, lib 
 			return false
 		}
 	}
+	if lib.Type == model.LibraryTypeHuangGuoAI && !visibility.IncludeNSFW {
+		return false
+	}
 	if visibility.IncludeNSFW {
 		return true
 	}
@@ -156,7 +159,14 @@ func hiddenAdultLibraryIDs(ctx context.Context, repo *repository.Container, incl
 		return nil
 	}
 	ids := AdultLibraryIDs(ctx, repo)
-	if len(ids) > 0 || repo == nil || repo.Library == nil {
+	hasConfigured := len(ids) > 0
+	if repo != nil && repo.DB != nil {
+		var sourceIDs []string
+		if err := repo.DB.WithContext(ctx).Model(&model.Library{}).Where("type=?", model.LibraryTypeHuangGuoAI).Pluck("id", &sourceIDs).Error; err == nil {
+			ids = append(ids, sourceIDs...)
+		}
+	}
+	if hasConfigured || repo == nil || repo.Library == nil {
 		return ids
 	}
 	// 未配置成人库时沿用库名称/路径判断，所有文件入口使用同一库级范围。
@@ -165,7 +175,7 @@ func hiddenAdultLibraryIDs(ctx context.Context, repo *repository.Container, incl
 		return nil
 	}
 	for _, library := range libraries {
-		if LibraryLooksAdult(library) {
+		if library.Type == model.LibraryTypeHuangGuoAI || LibraryLooksAdult(library) {
 			ids = append(ids, library.ID)
 		}
 	}

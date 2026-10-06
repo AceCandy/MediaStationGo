@@ -46,6 +46,9 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 		files = files.Joins("JOIN nfo_media_bindings b ON b.media_id = m.id").
 			Joins("JOIN nfo_items i ON i.id = b.item_id").
 			Where("m.catalog_source = 'nfo' AND b.item_id = h.item_id")
+	case "huangguoai":
+		table, fields = "huangguoai_user_states", "h.user_id,h.source_id,h.episode_number,h.updated_at"
+		files = files.Joins("JOIN huangguoai_works w ON w.source_id=h.source_id").Joins("JOIN huangguoai_episodes ep ON ep.work_id=w.id AND ep.number=h.episode_number").Joins("JOIN huangguoai_media_bindings b ON b.media_id=m.id AND b.work_id=w.id AND b.episode_id=ep.id").Where("m.catalog_source='huangguoai' AND w.projection_error=''")
 	case "hongguo":
 		table, fields = "hongguo_user_states", "h.user_id,h.source_id,h.episode_number,h.favorite,h.updated_at"
 		// 先按作品和集号定位替代版本，电影的空分集绑定仍对应第 1 集。
@@ -72,7 +75,7 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 			" CASE WHEN " + reached + " THEN 0 ELSE " + position + " END AS position_ms," +
 			" COALESCE(replacement.duration_ms,h.duration_ms) AS duration_ms," +
 			" (COALESCE(h.completed,FALSE) OR COALESCE(" + reached + ",FALSE)) AS completed")
-	if source != "nfo" && source != "hongguo" {
+	if source != "nfo" && source != "hongguo" && source != "huangguoai" {
 		q = q.Where("h.deleted_at IS NULL")
 	}
 	return q
@@ -84,6 +87,8 @@ func CompletedPlaybackStates(ctx context.Context, db *gorm.DB, source, userID st
 	db = db.WithContext(ctx)
 	table, identity := "playback_histories", "metadata_id"
 	switch source {
+	case "huangguoai":
+		table, identity = "huangguoai_user_states", "source_id,episode_number"
 	case "hongguo":
 		table, identity = "hongguo_user_states", "source_id,episode_number"
 	case "nfo":

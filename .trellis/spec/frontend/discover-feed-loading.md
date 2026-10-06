@@ -190,3 +190,95 @@ POST /api/discover/tmdb/:kind/:id/refresh
 - Wrong: make the detail GET mutate shared metadata for every viewer, or hide the local projection until refresh completes.
 - Correct: GET is a safe projection; administrator-only POST reuses the canonical metadata refresh path after the local projection is shown, with abort/retry and old-data retention on failure.
 - Wrong: reuse the cast layout but read `OriginalRole` from TMDb for an already-owned title. Correct: reuse both the local data projection and the display components; verify translated fields, units and source precedence together.
+
+
+## Scenario: Catalog Ranking Lists
+
+### 1. Scope / Trigger
+HongGuo and HuangGuo AI ranking presentation in their discovery pages.
+
+### 2. Signatures
+`hongguoAPI.list(keyword, sourceCategory, category, rank, page, signal?, pageSize = 50)`;
+`huangguoaiAPI.list({ keyword, category, tag, rank, page, page_size? }, signal?)`.
+The existing works endpoints accept `page_size=20`; omitted client size stays 50.
+
+### 3. Contracts
+Ranking mode without a keyword uses shared `CatalogRankingHeader/Row/Pagination`,
+20-item URL pages, no scroll observer, and ordinal `(page - 1) * 20 + index + 1`.
+Keep upstream response order; no fabricated heat values or daily-update claims.
+Page changes replace rows and abort obsolete reads; detail ID changes preserve rows.
+Hover and keyboard focus reveal poster/synopsis using CSS transitions; reduced
+motion disables meaningful animation. Missing artwork/synopsis uses a placeholder.
+Header mount scrolls to its start on page/rank changes; below desktop widths,
+copy and rank buttons occupy separate rows so headings cannot be squeezed. Category/search grids keep
+50-item incremental loading and existing source/search semantics. HongGuo retains
+administrator multiselect and disables pending works in selection mode.
+
+### 4. Validation & Error Matrix
+Initial/failing loads disable next-page navigation; previous page remains available
+when a failed page is greater than one. Retry requests the same URL page. A final
+partial/empty page disables next. Rank changes reset to page one. Old responses
+cannot overwrite a new rank/page. Verify settled responsive layout after resize
+animations; global reduced-motion CSS uses an effectively zero 0.01ms duration.
+
+### 5. Good / Base / Bad Cases
+Good: 43 results appear as 20/20/3, ranked 01–20/21–40/41–43.
+Base: fewer than 20 results have no next page. Bad: scrolling appends another
+ranking page, or a global API-size change makes search pagination skip results.
+
+### 6. Tests Required
+Run `node scripts/check-catalog-rankings.mjs` from `web` against local Vite on 4179
+(or `DISCOVER_TEST_URL`). Synthetic data covers paging, retry/cancellation,
+continuous ordinals, no prefetch, hover/focus, reduced motion, detail preservation,
+HongGuo selection, artwork failure, category regression and responsive themes.
+Also run existing HongGuo discovery/search and HuangGuo AI checks, lint and build.
+
+### 7. Wrong vs Correct
+Wrong: change every list request to 20 and retain a 50-item has-more calculation.
+Correct: only ranking pages pass 20 explicitly; category/search keep their default
+50 and calculate continuation with their actual requested size.
+
+
+## Scenario: HuangGuo AI Unified Search
+
+### 1. Scope / Trigger
+HuangGuo AI discovery keyword search and incremental loading.
+
+### 2. Signatures
+Use existing `huangguoaiAPI.list({keyword, category: '', tag: '', rank: '', page, page_size: 50}, signal)`
+and `huangguoaiAPI.search(keyword, page, signal)`; upstream pages retain their source size.
+
+### 3. Contracts
+One search form queries both sources; remove search-scope selection and manual
+tag input. Normalize legacy mode/tag away and start both cursors at one for a keyword.
+Maintain independent rows, cursors, loading, has-more, error and retry state.
+Merge by source ID in official-first order, preserving hydrated metadata and OR'ing
+downloaded flags. Later official pages continue independently from 50-item local
+pages; never equate deduplicated displayed count with the upstream total.
+Details keep lists mounted. Query/access changes abort both sources. Explicit
+repeat-search/refresh clears both sources and resets both cursors to one.
+
+### 4. Validation & Error Matrix
+A failed source preserves the successful source and prior results. Retry only its
+failed page without advancing it or refetching the other source. Pause automatic
+continuation for the failed source until retried; successful sources can continue. An exhausted source stays exhausted while
+the other continues. Stale success/failure/completion cannot mutate a newer query.
+
+### 5. Good / Base / Bad Cases
+Good: 24 official hits overlapping two of 50 local hits display 72 deduplicated
+works and both retain their pagination. Base: empty official results still display
+local matches. Bad: a scope selector is hidden but search still queries only local,
+or retrying official page two advances local page two to three.
+
+### 6. Tests Required
+Run `node scripts/check-huangguoai-search.mjs` from `web` against local Vite on 4179
+(or `HUANGGUOAI_TEST_URL`) for overlap/metadata precedence/download flags,
+independent paging/failure/retry, explicit refresh, obsolete response/empty results,
+legacy URL cleanup and dark/light responsive layout. Run existing HuangGuo AI and
+catalog ranking checks, lint and build. Account isolation also follows the access-key
+remount and AbortController contract; do not claim account-switch browser coverage
+from keyword-switch tests alone.
+
+### 7. Wrong vs Correct
+Wrong: a shared page or retry counter refetches both sources and skips a failed page.
+Correct: advance and retry the local/official cursors independently, then merge.

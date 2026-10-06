@@ -38,15 +38,15 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 		default:
 			args = append(args, status)
 		}
-		filter = `WHERE EXISTS (SELECT 1 FROM hong_guo_downloads d WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" AND ` + condition + `)`
+		filter = `WHERE EXISTS (SELECT 1 FROM hongguo_downloads d WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" AND ` + condition + `)`
 	}
 	args = append(args, (page-1)*50)
 	// 同一份候选同时用于计数和分页，避免重复探测每部作品；空位置由首任务查询排除。
 	// 排序仍取当前最早任务，分集清理后不能用位置创建时间替代。
 	// 来源 ID 以字节匹配对应索引，页面的来源 ID 排序保留数据库原排序规则。
 	query := `WITH download_candidates AS MATERIALIZED (
-	SELECT w.source_id, first_task.created_at FROM hong_guo_download_works w
-	JOIN LATERAL (SELECT created_at FROM hong_guo_downloads d
+	SELECT w.source_id, first_task.created_at FROM hongguo_download_works w
+	JOIN LATERAL (SELECT created_at FROM hongguo_downloads d
 	WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" ORDER BY created_at LIMIT 1) first_task ON TRUE ` + filter + `
 	), paged_sources AS (
 	SELECT source_id FROM download_candidates ORDER BY created_at DESC, source_id LIMIT 50 OFFSET ?
@@ -60,7 +60,7 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 	COUNT(*) FILTER (WHERE status = 'completed') AS completed,
 	COUNT(*) FILTER (WHERE status = 'failed') AS failed,
 	COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled
-	FROM hong_guo_downloads WHERE source_id IN (SELECT source_id FROM paged_sources) GROUP BY source_id
+	FROM hongguo_downloads WHERE source_id IN (SELECT source_id FROM paged_sources) GROUP BY source_id
 	), totals AS (SELECT COUNT(*) AS work_total FROM download_candidates)
 	SELECT summaries.*, totals.work_total FROM totals LEFT JOIN summaries ON TRUE
 	ORDER BY summaries.first_task_at DESC, summaries.source_id`

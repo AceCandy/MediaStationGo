@@ -64,20 +64,20 @@ const userFields: readonly EmbyApiField[] = [
 
 const unplayedItemCountField: EmbyApiField = {
   name: 'UnplayedItemCount', type: 'number',
-  description: 'Series/Season 海报的未看集数。按当前用户可见且有文件的逻辑分集去重统计，多版本不重复；全部看完返回 0。普通、红果、NFO 均支持。媒体库入口 CollectionFolder 不返回未经统计的未看数。',
+  description: 'Series/Season 海报的未看集数。按当前用户可见且有文件的逻辑分集去重统计，多版本不重复；全部看完返回 0。普通、红果、黄果 AI、NFO 均支持。媒体库入口 CollectionFolder 不返回未经统计的未看数。',
 }
 
 const itemFields: readonly EmbyApiField[] = [
-  { name: 'Id', type: 'string', description: '媒体项 ID。红果剧集核验合集后使用 hg-group-合集ID；官方确认无合集时使用自身源ID作为合集、第1季。作品列表和红果库最近添加暂不展示缺合集ID或有效季号的剧，补充任务完成后可刷新查看；电影、分集身份、观看历史和收藏不变。' },
+  { name: 'Id', type: 'string', description: '媒体项 ID。红果剧集核验合集后使用 hg-group-合集ID；官方确认无合集时使用自身源ID作为合集、第1季。作品列表和红果库最近添加暂不展示缺合集ID或有效季号的剧，补充任务完成后可刷新查看；电影、分集身份、观看历史和收藏不变。黄果 AI 独立使用 hga-work-作品UUID、hga-group-源ID、hga-season-作品UUID、hga-episode-分集UUID；每部剧固定默认第一季，ProviderIds.HuangGuoAI 为源ID。' },
   { name: 'Name', type: 'string', description: '标题。' },
   { name: 'Type', type: 'string', description: 'Movie、Series、Season、Episode 等 Emby 类型。Movie 省略 SeriesId、SeriesName、SeasonId、SeasonName、ParentIndexNumber、IndexNumber；Episode 保留这些字段，包括特别篇的零季号。' },
   { name: 'SeriesId', type: 'string', description: '所属整剧 ID；红果 Season 与 ParentId 一致，列表和详情均返回。' },
-  { name: 'SeriesName', type: 'string', description: '所属整剧名称；红果 Season 按“第 x 季”返回，例如“第 4 季”。' },
+  { name: 'SeriesName', type: 'string', description: '所属整剧名称，黄果 AI Season 返回作品名称；红果 Season 按“第 x 季”返回，例如“第 4 季”。' },
   { name: 'MediaType', type: 'string', description: 'Video 等媒体类型。' },
   { name: 'RunTimeTicks', type: 'number', description: '以 100ns 为单位的时长。' },
   { name: 'DateCreated', type: 'string', description: '媒体项创建时间（UTC）。NFO 使用本地条目首次创建时间，新增版本、删除文件或重扫不改写仍存在条目的时间；其他来源保持原有规则。具体 MediaSource 和 PlaybackInfo 的文件时间不受影响。' },
   { name: 'PartCount', type: 'number', description: '当前播放版本的物理 Part 数量；单文件省略。' },
-  { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识；普通剧集的季缺少海报时使用剧集海报，单集 Primary 缺少剧照时依次使用剧集横版图、剧集海报。红果单集仅声明 Primary，使用所属季的作品海报，海报缺失时不声明有图。' },
+  { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识；普通剧集的季缺少海报时使用剧集海报，单集 Primary 缺少剧照时依次使用剧集横版图、剧集海报。红果单集仅声明 Primary，使用所属季的作品海报，海报缺失时不声明有图。黄果 AI 作品、默认季及分集共用该作品的本地海报，接口遵守成人内容及文件库权限。' },
   { name: 'PremiereDate', type: 'string', description: 'UTC 日期字符串；普通单集缺失时使用同季内最近一个更早集号的已知播出时间。红果分集使用所属作品 first_visible_at 的北京时间日期，按 UTC 零点格式返回；字段缺失时省略，不代表单集或全网首播。' },
   { name: 'UserData', type: 'object', description: '收藏、已播放和进度等用户状态。' },
   { ...unplayedItemCountField, name: 'UserData.UnplayedItemCount' },
@@ -86,8 +86,8 @@ const itemFields: readonly EmbyApiField[] = [
 
 const itemsEnvelopeFields: readonly EmbyApiField[] = [
   { name: 'Items', type: 'array', description: '媒体项数组；Movie 不返回季/集层级字段，Episode 保留（含特别篇零季号），规则与媒体项详情一致。' },
-  { name: 'Items[].LibraryIds', type: 'string[]', description: 'IsFavorite 查询的 Movie/Series 附带当前用户可见的所属媒体库 ID，跨库作品和红果合集取去重并集，未知或无可见归属返回 []；不改变 ParentId。旧服务端可能省略此扩展，客户端应保持原类型显示。' },
-  { name: 'Items[].LibraryType', type: 'string', description: 'CollectionFolder 视图附带的实际媒体库类型，hongguo 表示红果短剧库；原 CollectionType 仍为 tvshows。客户端可将库 Id 与收藏 LibraryIds 匹配，字段缺失时不按库名或作品 ID 猜测。' },
+  { name: 'Items[].LibraryIds', type: 'string[]', description: 'IsFavorite 查询的 Movie/Series 附带当前用户可见的所属媒体库 ID，跨库作品、黄果 AI 作品和红果合集取去重并集，未知或无可见归属返回 []；不改变 ParentId。旧服务端可能省略此扩展，客户端应保持原类型显示。' },
+  { name: 'Items[].LibraryType', type: 'string', description: 'CollectionFolder 视图附带的实际媒体库类型，hongguo 表示红果短剧库；原 CollectionType 仍为 tvshows；huangguoai 为黄果 AI 混合电影/剧集库，CollectionType 为空。客户端可将库 Id 与收藏 LibraryIds 匹配，字段缺失时不按库名或作品 ID 猜测。' },
   { ...unplayedItemCountField, name: 'Items[].UserData.UnplayedItemCount' },
   { name: 'TotalRecordCount', type: 'number', description: '匹配总数。' },
   { name: 'StartIndex', type: 'number', description: '本次结果的起始位置，部分兼容响应会省略。' },
@@ -604,7 +604,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'items-resume',
     category: '媒体项',
     name: '继续观看',
-    description: '首页继续播放：同一剧集或红果合集优先返回最近的播放断点；没有断点时，返回已看进度之后的下一可播放未看集，支持跨季。普通资料、NFO 和红果统一分组后按观看时间分页；重播保留已看状态，断点优先最后观看版本。',
+    description: '首页继续播放：同一剧集或红果合集优先返回最近的播放断点；没有断点时，返回已看进度之后的下一可播放未看集，支持跨季。普通资料、NFO、红果和黄果 AI 统一分组后按观看时间分页；重播保留已看状态，断点优先最后观看版本。',
     methods: ['GET'],
     path: '/Items/Resume',
     aliases: ['/Users/:userId/Items/Resume', '/items/resume', '/users/:userId/items/resume'],
@@ -660,7 +660,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'show-nextup',
     category: '媒体项',
     name: '接着看下一集',
-    description: '按最近观看顺序返回已开始剧集的下一可播放未看单集，支持普通资料、本地 NFO 和红果官方合集跨季衔接。已有断点的剧由 Resume 提供；未开始、已看完或没有后续可见文件的剧不返回。',
+    description: '按最近观看顺序返回已开始剧集的下一可播放未看单集，支持普通资料、本地 NFO、红果官方合集跨季衔接，以及黄果 AI 作品内的真实分集顺序。已有断点的剧由 Resume 提供；未开始、已看完或没有后续可见文件的剧不返回。',
     methods: ['GET'],
     path: '/Shows/NextUp',
     aliases: ['/Users/:userId/Shows/NextUp', '/shows/nextup', '/users/:userId/shows/nextup'],

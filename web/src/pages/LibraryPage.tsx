@@ -6,7 +6,7 @@ import toast from 'react-hot-toast'
 import type { Media } from '../types'
 import { playbackAPI } from '../api/playback'
 import { useAuthStore } from '../stores/auth'
-import type { SeriesCard } from '../utils/groupSeries'
+import { isCatalogMovie, type SeriesCard } from '../utils/groupSeries'
 import { LibraryPageDialogs } from './LibraryPageDialogs'
 import { LibraryPageHeader } from './LibraryPageHeader'
 import { LibraryMediaSections } from './LibraryMediaSections'
@@ -77,7 +77,7 @@ export function LibraryPage() {
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!library || library.type === 'hongguo') return
+    if (!library || ['hongguo', 'huangguoai'].includes(library.type)) return
     let cancelled = false
     playbackAPI.listFavourites().then((list) => {
       if (!cancelled) setFavouriteIds(new Set(list.map((item) => item.metadata_id || item.id)))
@@ -127,13 +127,13 @@ export function LibraryPage() {
   })
 
   useEffect(() => {
-    if (selectedSeries?.rep.catalog_source === 'hongguo' && !selectedSeries.rep.series_id) {
+    if (selectedSeries && isCatalogMovie(selectedSeries.rep)) {
       navigate(`/media/${selectedSeries.rep.id}`, { replace: true, state: { from: `/library/${id}` } })
     }
   }, [selectedSeries, navigate, id])
 
   // 电影转入文件详情时，不挂载会同步季集 URL 的剧集详情。
-  if (selectedSeries?.rep.catalog_source === 'hongguo' && !selectedSeries.rep.series_id) return null
+  if (selectedSeries && isCatalogMovie(selectedSeries.rep)) return null
 
   if (loading) {
     return (

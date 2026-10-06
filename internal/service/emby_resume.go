@@ -11,7 +11,7 @@ import (
 // globalResumeItems 各来源先筛用户状态、按作品归组，再合并有界候选。
 // 最终排序仍由数据库执行，保留文本排序规则及 NULL 顺序。
 func (e *EmbyService) globalResumeItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
-	sources := []*gorm.DB{e.legacyResumeCandidates(ctx, p), e.hongGuoResumeCandidates(ctx, p)}
+	sources := []*gorm.DB{e.legacyResumeCandidates(ctx, p), e.hongGuoResumeCandidates(ctx, p), e.huangGuoAIResumeCandidates(ctx, p)}
 	if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
 		return nil, err
 	} else if has {
@@ -145,4 +145,20 @@ func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams
  CASE WHEN w.kind = 'movie' THEN w.title ELSE '第' || ep.number || '集' END AS title,
  MAX(m.created_at) AS created_at, COALESCE(MAX(s.watched_at),MAX(m.created_at)) AS played_at,
  BOOL_AND(s.completed) AS played, ` + favorite + ` AS favorite, w.rating, '' AS release_date, 0 AS year`).Group("1, 2, 3, 4, w.rating")
+}
+
+// huangGuoAIResumeCandidates 仅聚合有进度且当前可见的本源作品/分集。
+func (e *EmbyService) huangGuoAIResumeCandidates(ctx context.Context, p ItemsParams) *gorm.DB {
+	q := e.huangGuoAIFiles(ctx, p.UserID, "").
+		Joins("JOIN (?) s ON s.source_id=w.source_id AND s.episode_number=ep.number", repository.PlaybackStates(ctx, e.repo.DB, "huangguoai", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
+		Where("s.position_ms>0")
+	q = e.workLibraryScope(ctx, q, "w.library_ids", p)
+	if len(p.PersonIDs) > 0 {
+		q = q.Where("FALSE")
+	}
+	return q.Select(`CASE WHEN w.kind='movie' THEN 'hga-work-'||w.id ELSE 'hga-episode-'||ep.id END AS id,
+ 'huangguoai:'||w.source_id AS resume_key,CASE WHEN w.kind='movie' THEN 'movie' ELSE 'episode' END AS kind,
+ CASE WHEN w.kind='movie' THEN w.title ELSE '第'||ep.number||'集' END AS title,
+ MAX(m.created_at) AS created_at,COALESCE(MAX(s.watched_at),MAX(m.created_at)) AS played_at,
+ BOOL_AND(s.completed) AS played,BOOL_OR(EXISTS (SELECT 1 FROM huangguoai_favorites f WHERE f.source_id=w.source_id AND f.user_id=? AND f.favorite)) AS favorite,w.rating,'' AS release_date,0 AS year`, p.UserID).Group("1,2,3,4,w.rating")
 }

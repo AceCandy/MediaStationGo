@@ -3,6 +3,7 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { hongguoAPI, type HongGuoUserCard } from '../api/hongguo'
+import { huangguoaiAPI } from '../api/huangguoai'
 import { Select } from '../components/Select'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
 
@@ -28,25 +29,25 @@ export function MePage() {
   const valid = tabValues.length <= 1 && TABS.some((tab) => tab.id === activeTab)
 
   if (!valid) return <Navigate to="/me?tab=favourites" replace />
-  if (!['catalog', 'hongguo'].includes(source) || searchParams.getAll('source').length > 1) return <Navigate to={`/me?tab=${activeTab}`} replace />
-  if (source === 'hongguo' && activeTab === 'playlists') return <Navigate to="/me?tab=favourites&source=hongguo" replace />
+  if (!['catalog', 'hongguo', 'huangguoai'].includes(source) || searchParams.getAll('source').length > 1) return <Navigate to={`/me?tab=${activeTab}`} replace />
+  if (source !== 'catalog' && activeTab === 'playlists') return <Navigate to={`/me?tab=favourites&source=${source}`} replace />
 
   return (
     <div className="space-y-6">
       <Select aria-label="用户记录资料体系" value={source} onChange={(value) => {
         const next = new URLSearchParams(searchParams); next.set('source', value); next.delete('page');
-        if (value === 'hongguo' && activeTab === 'playlists') next.set('tab', 'favourites')
+        if (value !== 'catalog' && activeTab === 'playlists') next.set('tab', 'favourites')
         setSearchParams(next)
-      }}><option value="catalog">现有资料体系</option><option value="hongguo">红果短剧</option></Select>
+      }}><option value="catalog">现有资料体系</option><option value="hongguo">红果短剧</option><option value="huangguoai">黄果 AI</option></Select>
 
       <nav aria-label="我的内容" className="tab-list w-fit">
-        {TABS.filter((tab) => source !== 'hongguo' || tab.id !== 'playlists').map((tab) => {
+        {TABS.filter((tab) => source === 'catalog' || tab.id !== 'playlists').map((tab) => {
           const Icon = tab.icon
           const active = tab.id === activeTab
           return (
             <Link
               key={tab.id}
-              to={`/me?tab=${tab.id}${source === 'hongguo' ? '&source=hongguo' : ''}`}
+              to={`/me?tab=${tab.id}${source !== 'catalog' ? `&source=${source}` : ''}`}
               aria-current={active ? 'page' : undefined}
               className="tab-item"
             >
@@ -57,7 +58,7 @@ export function MePage() {
         })}
       </nav>
 
-      {source === 'hongguo' ? <HongGuoMyItems key={`${accessKey}:${activeTab}`} tab={activeTab === 'history' ? 'history' : 'favourites'} /> : <>
+      {source !== 'catalog' ? <HongGuoMyItems key={`${accessKey}:${source}:${activeTab}`} source={source} tab={activeTab === 'history' ? 'history' : 'favourites'} /> : <>
         {activeTab === 'favourites' && <FavouritesPage embedded />}
         {activeTab === 'playlists' && <PlaylistsPage embedded />}
         {activeTab === 'history' && <WatchHistoryPage embedded />}
@@ -66,7 +67,7 @@ export function MePage() {
   )
 }
 
-function HongGuoMyItems({ tab }: { tab: 'favourites' | 'history' }) {
+function HongGuoMyItems({ tab, source }: { tab: 'favourites' | 'history'; source: string }) {
   const [params, setParams] = useSearchParams()
   const rawPage = Number(params.get('page') ?? 1)
   const page = Number.isInteger(rawPage) && rawPage >= 1 && rawPage <= 1000000 ? rawPage : 1
@@ -78,7 +79,7 @@ function HongGuoMyItems({ tab }: { tab: 'favourites' | 'history' }) {
     if (busy) return
     setBusy(true)
     try {
-      await hongguoAPI.markPlayed(mediaID, played)
+      await (source === 'huangguoai' ? huangguoaiAPI : hongguoAPI).markPlayed(mediaID, played)
       setData(null); setRetry((value) => value + 1)
       toast.success(played ? '已标记看完' : '已清除观看进度，播放统计记录保留')
     } catch { toast.error('观看状态更新失败') }
@@ -90,15 +91,15 @@ function HongGuoMyItems({ tab }: { tab: 'favourites' | 'history' }) {
   }, [rawPage, page, params, setParams])
   useEffect(() => {
     const controller = new AbortController(); setError(false)
-    void hongguoAPI.userCards(tab, page, controller.signal).then((result) => { if (!controller.signal.aborted) setData({ ...result, page }) }).catch(() => { if (!controller.signal.aborted) setError(true) })
+    void (source === 'huangguoai' ? huangguoaiAPI.userCards(tab, page, controller.signal).then(data => ({ ...data, items: data.items.map(item => ({ ...item, season_number: item.kind === 'series' ? 1 : 0 })) })) : hongguoAPI.userCards(tab, page, controller.signal)).then((result) => { if (!controller.signal.aborted) setData({ ...result, page }) }).catch(() => { if (!controller.signal.aborted) setError(true) })
     return () => controller.abort()
-  }, [tab, page, retry])
-  if (error) return <p role="alert">红果记录读取失败 <button className="btn-outline" onClick={() => setRetry((v) => v + 1)}>重试</button></p>
-  if (data?.page !== page) return <p role="status">读取红果记录中…</p>
+  }, [source, tab, page, retry])
+  if (error) return <p role="alert">{source === 'huangguoai' ? '黄果 AI' : '红果'}记录读取失败 <button className="btn-outline" onClick={() => setRetry((v) => v + 1)}>重试</button></p>
+  if (data?.page !== page) return <p role="status">读取{source === 'huangguoai' ? '黄果 AI' : '红果'}记录中…</p>
   const goPage = (value: number) => { const next = new URLSearchParams(params); next.set('page', String(value)); setParams(next) }
   return <section className="space-y-4">
-    {data.items.length === 0 ? <p>暂无可访问的红果{tab === 'favourites' ? '收藏' : '观看记录'}。</p> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{data.items.map((item) => <article className="card space-y-2 p-4" key={`${item.source_id}:${item.episode_number}`}>
-      <Link className="font-semibold" to={`/discover?system=hongguo&id=${encodeURIComponent(item.source_id)}`}>{item.title}</Link>
+    {data.items.length === 0 ? <p>暂无可访问的{source === 'huangguoai' ? '黄果 AI' : '红果'}{tab === 'favourites' ? '收藏' : '观看记录'}。</p> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{data.items.map((item) => <article className="card space-y-2 p-4" key={`${item.source_id}:${item.episode_number}`}>
+      <Link className="font-semibold" to={`/discover?system=${source}&id=${encodeURIComponent(item.source_id)}`}>{item.title}</Link>
       {tab === 'history' && <><p className="text-sm text-ink-50">{item.kind === 'series' ? `S${item.season_number}E${String(item.episode_number).padStart(3, '0')} · ` : ''}{item.completed ? '已看完' : `已观看 ${Math.floor(item.position_ms / 1000)} 秒`}</p><Link className="btn-outline" to={`/play/${encodeURIComponent(item.media_id)}?start_ms=${item.position_ms}`} state={{ from: `/me?${params.toString()}` }}>{item.position_ms > 0 ? '继续播放' : '重新播放'}</Link></>}
       {tab === 'history' && <div className="flex flex-wrap gap-2">{!item.completed && <button className="btn-outline" disabled={busy} onClick={() => void markPlayed(item.media_id, true)}>标记已看</button>}<button className="btn-outline" disabled={busy} onClick={() => void markPlayed(item.media_id, false)}>清除观看进度</button></div>}
     </article>)}</div>}

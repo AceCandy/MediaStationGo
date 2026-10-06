@@ -34,14 +34,14 @@ const maxMediaSearchLimit = 50000
 const maxMediaSearchPageSize = 2000
 
 func (v MediaVisibility) Allows(media *model.Media) bool {
-	if media == nil {
+	if media == nil || (!v.IncludeNSFW && media.CatalogSource == model.TaskSystemHuangGuoAI) {
 		return false
 	}
 	return v.allows(media.LibraryID)
 }
 
 func (v MediaVisibility) AllowsView(media *model.MediaView) bool {
-	if media == nil {
+	if media == nil || (!v.IncludeNSFW && media.CatalogSource == model.TaskSystemHuangGuoAI) {
 		return false
 	}
 	return v.allows(media.LibraryID)

@@ -10,7 +10,7 @@ import (
 // EnsureLatestMediaAddedTriggers 安装增量维护，不补算历史文件。
 func EnsureLatestMediaAddedTriggers(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		for _, table := range []string{"metadata_items", "nfo_items", "hongguo_works"} {
+		for _, table := range []string{"metadata_items", "nfo_items", "hongguo_works", "huangguoai_works"} {
 			if err := tx.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_%s_latest_media ON %s (latest_media_added_at DESC NULLS LAST, id DESC)", table, table)).Error; err != nil {
 				return err
 			}
@@ -27,7 +27,7 @@ func EnsureLatestMediaAddedTriggers(db *gorm.DB) error {
 		if err := tx.Exec(latestMediaRefreshSQL).Error; err != nil {
 			return err
 		}
-		for _, table := range []string{"media", "nfo_media_bindings", "hongguo_media_bindings", "metadata_items", "nfo_items"} {
+		for _, table := range []string{"media", "nfo_media_bindings", "hongguo_media_bindings", "huangguoai_media_bindings", "metadata_items", "nfo_items"} {
 			for _, event := range []string{"INSERT", "UPDATE", "DELETE"} {
 				if (table == "metadata_items" || table == "nfo_items") && event == "INSERT" {
 					continue
@@ -46,7 +46,7 @@ func EnsureLatestMediaAddedTriggers(db *gorm.DB) error {
 						columns = "o.metadata_id, o.created_at, o.library_id"
 					case "nfo_media_bindings":
 						columns, key = "o.item_id, o.media_id", "media_id"
-					case "hongguo_media_bindings":
+					case "hongguo_media_bindings", "huangguoai_media_bindings":
 						columns, key = "o.work_id, o.media_id", "media_id"
 					}
 					changed := fmt.Sprintf("(%s) IS DISTINCT FROM (%s)", columns, strings.ReplaceAll(columns, "o.", "n."))
@@ -63,11 +63,14 @@ func EnsureLatestMediaAddedTriggers(db *gorm.DB) error {
 					for _, source := range []struct{ binding, target, key string }{
 						{"nfo_media_bindings", "nfo_items", "item_id"},
 						{"hongguo_media_bindings", "hongguo_works", "work_id"},
+						{"huangguoai_media_bindings", "huangguoai_works", "work_id"},
 					} {
 						body += refresh(source.target, fmt.Sprintf("SELECT b.%s AS target FROM %s b JOIN (%s) r ON r.id=b.media_id", source.key, source.binding, rows))
 					}
 				case "nfo_media_bindings":
 					body = refresh("nfo_items", "SELECT r.item_id AS target FROM ("+rows+") r")
+				case "huangguoai_media_bindings":
+					body = refresh("huangguoai_works", "SELECT r.work_id AS target FROM ("+rows+") r")
 				case "hongguo_media_bindings":
 					body = refresh("hongguo_works", "SELECT r.work_id AS target FROM ("+rows+") r")
 				default:
@@ -97,7 +100,7 @@ DECLARE expanded text[]; locked text[] := ARRAY[]::text[]; acquired text[]; file
 BEGIN
  IF cardinality(targets) = 0 THEN RETURN; END IF;
  LOOP
-  IF entity = 'hongguo_works' THEN
+  IF entity IN ('hongguo_works','huangguoai_works') THEN
    expanded := targets;
   ELSE
    EXECUTE format('WITH RECURSIVE ancestors AS (
@@ -121,6 +124,13 @@ BEGIN
    COALESCE(jsonb_agg(DISTINCT m.library_id ORDER BY m.library_id) FILTER (WHERE m.library_id <> ''), '[]'::jsonb) library_ids
    FROM unnest(targets) x(id)
    LEFT JOIN hongguo_media_bindings b ON b.work_id=x.id LEFT JOIN media m ON m.id=b.media_id GROUP BY x.id) dates
+  WHERE w.id=dates.id AND (w.latest_media_added_at IS DISTINCT FROM dates.latest_at OR w.library_ids IS DISTINCT FROM dates.library_ids);
+ ELSIF entity = 'huangguoai_works' THEN
+  UPDATE huangguoai_works w SET latest_media_added_at = dates.latest_at, library_ids = dates.library_ids
+  FROM (SELECT x.id, MAX(m.created_at) latest_at,
+   COALESCE(jsonb_agg(DISTINCT m.library_id ORDER BY m.library_id) FILTER (WHERE m.library_id <> ''), '[]'::jsonb) library_ids
+   FROM unnest(targets) x(id)
+   LEFT JOIN huangguoai_media_bindings b ON b.work_id=x.id LEFT JOIN media m ON m.id=b.media_id GROUP BY x.id) dates
   WHERE w.id=dates.id AND (w.latest_media_added_at IS DISTINCT FROM dates.latest_at OR w.library_ids IS DISTINCT FROM dates.library_ids);
  ELSE
   IF entity = 'metadata_items' THEN

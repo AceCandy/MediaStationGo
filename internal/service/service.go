@@ -15,65 +15,67 @@ import (
 
 // Container 持有在启动时初始化的每个服务。Handler 接收指向它的指针并选择相关字段。
 type Container struct {
-	Cfg              *config.Config
-	Log              *zap.Logger
-	Repo             *repository.Container
-	WSHub            *Hub
-	SSEHub           *SSEHub
-	Tasks            *TaskTrackerService
-	HongGuo          *HongGuoService
-	HongGuoDownloads *HongGuoDownloadService
-	HongGuoDanmu     *HongGuoDanmuService
-	Auth             *AuthService
-	Media            *MediaService
-	Scan             *ScannerService
-	Stream           *StreamService
-	FFprobe          *FFprobeService
-	MediaProbe       *MediaProbeService
-	TMDb             *TMDbProvider
-	Bangumi          *BangumiProvider
-	TheTVDB          *TheTVDBProvider
-	Fanart           *FanartProvider
-	Scraper          *ScraperService
-	Discover         *DiscoverService
-	Playback         *PlaybackService
-	ImageProxy       *ImageProxy
-	Artwork          *ArtworkStore
-	PeopleImages     *PeopleImageStore
-	Watcher          *WatcherService
-	Subtitle         *SubtitleService
-	Stats            *StatsService
-	Profile          *ProfileService
-	Audit            *AuditService
-	AI               *AIService
-	APIConfig        *APIConfigService
-	ProxyPool        *ProxyPoolService
-	Crypto           *CryptoService
-	Duplicate        *DuplicateService
-	FileManager      *FileManagerService
-	DLNA             *DLNAService
-	Scheduler        *SchedulerService
-	Storage          *StorageService
-	Emby             *EmbyService
-	Notifier         *NotifierService
-	NotifyChannels   *NotifyChannelService
-	TelegramBot      *TelegramBotService
-	PlayProfiles     *PlayProfileService
-	Permissions      *PermissionService
-	STRM             *STRMService
-	Assistant        *AssistantService
-	Organizer        *OrganizerService
-	OrganizePipeline *OrganizePipelineService
-	Douban           *DoubanProvider
-	Token            *TokenService
-	ApiConfig        *ApiConfigService
-	Notify           *NotifyService
-	Device           *DeviceService
-	Cache            *RuntimeCacheService
-	Sessions         *SessionTrackerService
-	RecognitionWords *RecognitionWordsService
-	PlayerLogs       *PlayerRequestLogService
-	Startup          *StartupState
+	Cfg                 *config.Config
+	Log                 *zap.Logger
+	Repo                *repository.Container
+	WSHub               *Hub
+	SSEHub              *SSEHub
+	Tasks               *TaskTrackerService
+	HuangGuoAI          *HuangGuoAIService
+	HuangGuoAIDownloads *HuangGuoAIDownloadService
+	HongGuo             *HongGuoService
+	HongGuoDownloads    *HongGuoDownloadService
+	HongGuoDanmu        *HongGuoDanmuService
+	Auth                *AuthService
+	Media               *MediaService
+	Scan                *ScannerService
+	Stream              *StreamService
+	FFprobe             *FFprobeService
+	MediaProbe          *MediaProbeService
+	TMDb                *TMDbProvider
+	Bangumi             *BangumiProvider
+	TheTVDB             *TheTVDBProvider
+	Fanart              *FanartProvider
+	Scraper             *ScraperService
+	Discover            *DiscoverService
+	Playback            *PlaybackService
+	ImageProxy          *ImageProxy
+	Artwork             *ArtworkStore
+	PeopleImages        *PeopleImageStore
+	Watcher             *WatcherService
+	Subtitle            *SubtitleService
+	Stats               *StatsService
+	Profile             *ProfileService
+	Audit               *AuditService
+	AI                  *AIService
+	APIConfig           *APIConfigService
+	ProxyPool           *ProxyPoolService
+	Crypto              *CryptoService
+	Duplicate           *DuplicateService
+	FileManager         *FileManagerService
+	DLNA                *DLNAService
+	Scheduler           *SchedulerService
+	Storage             *StorageService
+	Emby                *EmbyService
+	Notifier            *NotifierService
+	NotifyChannels      *NotifyChannelService
+	TelegramBot         *TelegramBotService
+	PlayProfiles        *PlayProfileService
+	Permissions         *PermissionService
+	STRM                *STRMService
+	Assistant           *AssistantService
+	Organizer           *OrganizerService
+	OrganizePipeline    *OrganizePipelineService
+	Douban              *DoubanProvider
+	Token               *TokenService
+	ApiConfig           *ApiConfigService
+	Notify              *NotifyService
+	Device              *DeviceService
+	Cache               *RuntimeCacheService
+	Sessions            *SessionTrackerService
+	RecognitionWords    *RecognitionWordsService
+	PlayerLogs          *PlayerRequestLogService
+	Startup             *StartupState
 
 	stopCtx    context.Context
 	stopCancel context.CancelFunc
@@ -110,6 +112,9 @@ func (c *Container) Boot() {
 		if err := c.startupStep("恢复任务执行状态", func() error { return c.Tasks.Recover(c.stopCtx) }); err != nil {
 			return
 		}
+	}
+	if c.HuangGuoAIDownloads != nil {
+		_ = c.startupStep("启动黄果 AI 下载服务", func() error { c.HuangGuoAIDownloads.Start(c.stopCtx); return nil })
 	}
 	if c.HongGuoDownloads != nil {
 		_ = c.startupStep("启动红果下载服务", func() error { c.HongGuoDownloads.Start(c.stopCtx); return nil })
@@ -157,6 +162,12 @@ func (c *Container) Close() {
 	c.bootWG.Wait()
 	if c.Scheduler != nil {
 		c.Scheduler.Stop()
+	}
+	if c.HuangGuoAIDownloads != nil {
+		c.HuangGuoAIDownloads.Wait()
+	}
+	if c.HuangGuoAI != nil {
+		c.HuangGuoAI.Wait()
 	}
 	if c.HongGuo != nil {
 		c.HongGuo.Wait()

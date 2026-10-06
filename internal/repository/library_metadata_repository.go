@@ -84,6 +84,9 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	if library.Type == model.LibraryTypeNFOMovie || library.Type == model.LibraryTypeNFOTV {
 		return r.nfoLibraryPage(ctx, libraryID, kind, metadataID, offset, limit, filter)
 	}
+	if library.Type == model.LibraryTypeHuangGuoAI {
+		return r.huangGuoAILibraryPage(ctx, libraryID, metadataID, offset, limit, filter)
+	}
 	if library.Type == model.LibraryTypeHongGuo {
 		return r.hongGuoLibraryPage(ctx, libraryID, metadataID, offset, limit, filter)
 	}
@@ -299,6 +302,10 @@ type LibrarySeriesSeason struct {
 // ListLibrarySeriesSeasons 返回可见季及各季的代表文件，仅用于读取季资料，不展开分集。
 func (r *MediaViewRepository) ListLibrarySeriesSeasons(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]LibrarySeriesSeason, error) {
 	var seasons []LibrarySeriesSeason
+	if source, ok := strings.CutPrefix(metadataID, "hga-group-"); ok {
+		err := r.huangGuoAIFileScope(ctx, filter).Where("m.library_id=? AND w.source_id=? AND w.kind='series'", libraryID, source).Select("1 AS season,MIN(m.id) AS media_id").Group("w.id").Scan(&seasons).Error
+		return seasons, err
+	}
 	if strings.HasPrefix(metadataID, "hg-") {
 		err := r.hongGuoSeriesScope(ctx, libraryID, metadataID, filter).
 			Select(hongGuoSeasonNumber + " AS season, (ARRAY_AGG(m.id ORDER BY w.source_id,m.episode_num,m.id))[1] AS media_id").
@@ -316,6 +323,17 @@ func (r *MediaViewRepository) ListLibrarySeriesSeasons(ctx context.Context, libr
 }
 
 func (r *MediaViewRepository) listLibrarySeriesViews(ctx context.Context, libraryID, metadataID string, season *int, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if source, ok := strings.CutPrefix(metadataID, "hga-group-"); ok {
+		if season != nil && *season != 1 {
+			return []model.MediaView{}, nil
+		}
+		var ids []string
+		if err := r.huangGuoAIFileScope(ctx, filter).Where("m.library_id=? AND w.source_id=? AND w.kind='series'", libraryID, source).Order("ep.number,m.id").Pluck("m.id", &ids).Error; err != nil {
+			return nil, err
+		}
+		return r.huangGuoAIViewsByIDs(ctx, ids, filter)
+	}
+
 	if strings.HasPrefix(metadataID, "hg-") {
 		q := r.hongGuoSeriesScope(ctx, libraryID, metadataID, filter)
 		if season != nil {

@@ -138,6 +138,16 @@ func (o *OrganizerService) buildOrganizeMediaDestination(ctx context.Context, re
 
 func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeMediaRequest, dst organizeMediaDestination) (string, error) {
 	m := req.media
+	if m.CatalogSource == model.TaskSystemHuangGuoAI {
+		targetID := dst.libraryID
+		if targetID == "" {
+			targetID = m.LibraryID
+		}
+		lib, err := o.repo.Library.FindByID(ctx, targetID)
+		if err != nil || lib == nil || lib.Type != model.LibraryTypeHuangGuoAI || !pathWithin(dst.path, lib.Path) {
+			return "", errors.New("黄果 AI 已入库文件只能整理到黄果 AI 媒体库")
+		}
+	}
 
 	// Refuse to overwrite an existing different file. 当多个 release（如
 	// 不同字幕组、不同源）刮削后被统一改名，原本不重复的文件会被映射到
@@ -164,7 +174,7 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 	updates := map[string]any{
 		"path": dst.path,
 	}
-	if normalizeOrganizeMediaType(dst.mediaType) == "movie" {
+	if normalizeOrganizeMediaType(dst.mediaType) == "movie" && m.CatalogSource != model.TaskSystemHuangGuoAI {
 		updates["season_num"] = 0
 		updates["episode_num"] = 0
 	} else {

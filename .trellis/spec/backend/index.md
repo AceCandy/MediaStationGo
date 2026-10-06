@@ -27,6 +27,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) | Required backend-to-frontend catalog updates for player-visible Emby contract changes | Active |
 | [Parameterized Image Delivery](./image-variants.md) | Web/Emby sizing, encoding, original fallback and disk cache identity | Active |
 | [Playback History and Statistics Contracts](./playback-contracts.md) | Shared progress, UserData isolation, events, and statistics contract | Active |
+| [HuangGuo AI Catalog Isolation](./huangguoai-catalog.md) | Independent source identity, mixed types, binding, downloads and visibility | Active |
 | [HongGuoDB Catalog Isolation](./hongguo-catalog.md) | Independent catalog, binding, tasks, user state and Web/Emby projections | Active |
 | [HongGuo On-Demand Danmu](./hongguo-danmu.md) | Optional encrypted App parameters, current-episode XML and append-only comments | Active |
 | [HongGuo Android Offline Fallback](./hongguo-android.md) | Optional fourth-source App RPC, deployment and cancellation contracts | Active |

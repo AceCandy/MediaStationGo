@@ -118,6 +118,26 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 			return nil
 		})
 	}
+	if len(rows) > 0 && rows[0].CatalogSource == model.TaskSystemHuangGuoAI {
+		if !visibility.AllowsView(&rows[0]) {
+			return errors.New("media not found")
+		}
+		completed := playbackCompleted(position, duration)
+		autoMark, err := p.autoMarkPreviousEpisodes(ctx, completed)
+		if err != nil {
+			return err
+		}
+		return p.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			repos := repository.New(tx)
+			if err := repos.HuangGuoAI.RecordProgress(ctx, userID, sessionID, rows[0], position, duration, completed); err != nil {
+				return err
+			}
+			if autoMark {
+				return repos.HuangGuoAI.MarkPreviousEpisodes(ctx, userID, rows[0].LookupCatalogID, rows[0].EpisodeNum, filter)
+			}
+			return nil
+		})
+	}
 	if len(rows) > 0 && rows[0].CatalogSource == model.TaskSystemHongGuo {
 		if !visibility.AllowsView(&rows[0]) {
 			return errors.New("media not found")
@@ -162,6 +182,14 @@ func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, med
 	q := p.repo.DB.WithContext(ctx).Where("user_id = ?", userID)
 	if media == nil {
 		return 0, errors.New("media not found")
+	}
+	if media.CatalogSource == model.TaskSystemHuangGuoAI {
+		q = q.Model(&model.HuangGuoAIUserState{}).Where("source_id=? AND episode_number=? AND watched_at IS NOT NULL", media.LookupCatalogID, max(1, media.EpisodeNum))
+		if completed != nil {
+			q = q.Where("completed=?", *completed)
+		}
+		result := q.Updates(map[string]any{"position_ms": 0, "duration_ms": 0, "resume_position_ms": nil, "completed": false, "watched_at": nil})
+		return result.RowsAffected, result.Error
 	}
 	if media.CatalogSource == model.CatalogSourceNFO {
 		var binding model.NFOMediaBinding

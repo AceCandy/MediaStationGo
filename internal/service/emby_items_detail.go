@@ -13,6 +13,21 @@ import (
 
 // Item 单条目详情。
 func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[string]any, error) {
+	if strings.HasPrefix(mediaID, "hga-") {
+		var nodes []hongGuoNode
+		err := e.huangGuoAINodes(ctx, userID, "", mediaID).Where("id=?", mediaID).Scan(&nodes).Error
+		if err != nil || len(nodes) == 0 {
+			return nil, err
+		}
+		if nodes[0].Kind == "Movie" || nodes[0].Kind == "Episode" {
+			return e.Item(ctx, nodes[0].MediaID, userID)
+		}
+		items, err := e.huangGuoAIPayloads(ctx, nodes, userID, nil)
+		if err != nil || len(items) == 0 {
+			return nil, err
+		}
+		return items[0], nil
+	}
 	if strings.HasPrefix(mediaID, "nfo-") {
 		var nodes []hongGuoNode
 		if err := e.nfoItemNodes(ctx, userID, mediaID).Where("id = ?", mediaID).Scan(&nodes).Error; err != nil {
@@ -259,7 +274,16 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 	var providerIDs map[string]string
 	var mediaSources []map[string]any
 	partCount := 0
-	if m.CatalogSource == model.CatalogSourceNFO {
+	if m.CatalogSource == model.TaskSystemHuangGuoAI {
+		episode = m.MetadataKind == model.MetadataKindEpisode
+		people = []model.EmbyPerson{}
+		providerIDs = map[string]string{"HuangGuoAI": m.LookupCatalogID}
+		if relations == nil {
+			mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
+		} else if relations.fields.mediaSources {
+			mediaSources = e.mediaSourcesForViews(ctx, relations.versionsByMetadataID[m.CatalogItemID], true, completeStreams)
+		}
+	} else if m.CatalogSource == model.CatalogSourceNFO {
 		episode = m.MetadataKind == model.MetadataKindEpisode
 		people, providerIDs = []model.EmbyPerson{}, map[string]string{}
 		if relations == nil {

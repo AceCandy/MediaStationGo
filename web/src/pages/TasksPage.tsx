@@ -611,7 +611,7 @@ function ScrapeIssuesPanel({ libraries, onClose }: { libraries: Library[]; onClo
 export function TasksPage() {
 	const [params, setParams] = useSearchParams()
 	const values = params.getAll('system')
-	const system: TaskSystem = values.length === 1 && values[0] === 'nfo' ? 'common' : values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo') ? values[0] : 'catalog'
+	const system: TaskSystem = values.length === 1 && values[0] === 'nfo' ? 'common' : values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo' || values[0] === 'huangguoai') ? values[0] : 'catalog'
 	useEffect(() => {
 		if (values.length > 1 || (values.length === 1 && values[0] !== system)) {
 			const next = new URLSearchParams(params); next.set('system', system); setParams(next, { replace: true })
@@ -746,7 +746,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
         </section>
       )}
       <div className="tab-list" role="group" aria-label="任务体系">
-        {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧']] as const).map(([value, label]) => (
+        {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧'], ['huangguoai', '黄果 AI']] as const).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={system === value} onClick={() => { if (system !== value) onSystemChange(value) }}
             className="tab-item">
             {label}

@@ -28,6 +28,7 @@ const LIBRARY_TYPE_LABELS: Record<string, string> = {
   nfo_movie: '非常规电影',
   nfo_tv: '非常规剧集',
   hongguo: '红果短剧',
+  huangguoai: '黄果 AI',
 }
 
 function libraryTypeLabel(type: string): string {

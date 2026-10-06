@@ -1,9 +1,10 @@
 package model
 
 const (
-	LibraryTypeNFOMovie = "nfo_movie"
-	LibraryTypeNFOTV    = "nfo_tv"
-	LibraryTypeHongGuo  = "hongguo"
+	LibraryTypeNFOMovie   = "nfo_movie"
+	LibraryTypeNFOTV      = "nfo_tv"
+	LibraryTypeHongGuo    = "hongguo"
+	LibraryTypeHuangGuoAI = "huangguoai"
 )
 
 // Library 表示一个逻辑媒体库。Path 保留为兼容字段，指向第一条 LibraryRoot。

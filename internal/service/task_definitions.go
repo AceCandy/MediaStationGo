@@ -60,6 +60,11 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIDownload, Name: "黄果 AI 视频下载", Description: "完整校验后发布到下载目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIDownload}},
+	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISync, Name: "黄果 AI 作品发现", Description: "分页扫描四类作品，保存摘要与断点", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISync}, schedulerJob: TaskKindHuangGuoAISync},
+	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIRefresh, Name: "黄果 AI 资料刷新", Description: "补齐新作品，重试失败资料，刷新未完结作品", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIRefresh}, schedulerJob: TaskKindHuangGuoAIRefresh},
+	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIArtwork, Name: "黄果 AI 图片下载", Description: "保存本地海报，失败保留旧图并独立重试", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIArtwork}, schedulerJob: TaskKindHuangGuoAIArtwork},
+	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIRank, Name: "黄果 AI 排行榜刷新", Description: "原子替换热播、推荐与潜力榜，保留官网顺序", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIRank}, schedulerJob: TaskKindHuangGuoAIRank},
 	{TaskDefinition: TaskDefinition{Key: TaskKindNFOScan, Name: "非常规媒体库扫描", Description: "扫描本地文件和 NFO，不进行网络资料匹配；定时执行沿用公共媒体库扫描周期", Trigger: "定时 / 手动 / 新增后自动", Action: "library_scan"}, filter: repository.TaskExecutionFilter{Kind: TaskKindNFOScan}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindNFOWatch, Name: "非常规媒体库变更监听", Description: "处理非常规媒体库的本地文件变更", Trigger: "文件事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindNFOWatch}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoAlbum, Name: "红果官方合集补充", Description: "分批补充历史作品的官方合集和季号；已检查项跳过，失败冷却后重试，可取消后续跑", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoAlbum}, schedulerJob: TaskKindHongGuoAlbum},
@@ -130,7 +135,7 @@ func (t *TaskTrackerService) DefinitionsForSystem(scheduler []JobStatus, system 
 			continue
 		}
 		// 下载执行记录由下载空间展示，保留定义以兼容历史与日志接口。
-		if spec.Key == TaskKindHongGuoDownload {
+		if spec.Key == TaskKindHongGuoDownload || spec.Key == TaskKindHuangGuoAIDownload {
 			continue
 		}
 		definition := spec.TaskDefinition

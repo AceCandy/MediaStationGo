@@ -119,6 +119,13 @@ func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaVi
 		}
 		return orderMediaVersionSiblings(views, m.ID)
 	}
+	if m.CatalogSource == model.TaskSystemHuangGuoAI {
+		views, err := e.repo.MediaView.HuangGuoAIItemsViews(ctx, []string{m.CatalogItemID}, e.mediaQueryFilter(ctx, userID))
+		if err != nil {
+			return nil
+		}
+		return orderMediaVersionSiblings(views, m.ID)
+	}
 	if m.CatalogSource == model.TaskSystemHongGuo {
 		views, err := e.repo.MediaView.HongGuoItemViews(ctx, m.CatalogItemID, e.mediaQueryFilter(ctx, userID))
 		if err != nil {

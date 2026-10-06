@@ -12,6 +12,7 @@ type embyItemTarget struct {
 	ItemID        string
 	MetadataID    string
 	MediaID       string
+	Source        string
 	SourceID      string
 	SourceEpisode int
 	NFOItemID     string
@@ -21,6 +22,11 @@ func (e *EmbyService) userDataForTarget(ctx context.Context, userID string, targ
 	if userID != "" && target.NFOItemID != "" {
 		state, _ := e.repo.NFO.UserState(ctx, userID, target.NFOItemID, e.mediaQueryFilter(ctx, userID))
 		return state.Favorite, state.PositionMs, state.Completed
+	}
+	if userID != "" && target.Source == model.TaskSystemHuangGuoAI {
+		state, _ := e.repo.HuangGuoAI.UserState(ctx, userID, target.SourceID, max(1, target.SourceEpisode), e.mediaQueryFilter(ctx, userID))
+		fav, _ := e.repo.HuangGuoAI.Favorite(ctx, userID, target.SourceID, nil)
+		return fav, state.PositionMs, state.Completed
 	}
 	if userID != "" && target.SourceID != "" {
 		state, _ := e.repo.HongGuo.UserState(ctx, userID, target.SourceID, max(1, target.SourceEpisode), e.mediaQueryFilter(ctx, userID))
@@ -89,7 +95,7 @@ func embyItemID(m *model.MediaView) string {
 	if m == nil {
 		return ""
 	}
-	if m.CatalogSource == model.TaskSystemHongGuo || m.CatalogSource == model.CatalogSourceNFO {
+	if m.CatalogSource == model.TaskSystemHuangGuoAI || m.CatalogSource == model.TaskSystemHongGuo || m.CatalogSource == model.CatalogSourceNFO {
 		return m.CatalogItemID
 	}
 	return strings.TrimSpace(m.MetadataID)
@@ -128,6 +134,9 @@ func (e *EmbyService) mediaViewsForItemID(ctx context.Context, id, userID string
 	if id == "" {
 		return nil, nil
 	}
+	if strings.HasPrefix(id, "hga-") {
+		return e.repo.MediaView.HuangGuoAIItemsViews(ctx, []string{id}, e.mediaQueryFilter(ctx, userID))
+	}
 	if strings.HasPrefix(id, "hg-") {
 		return e.repo.MediaView.HongGuoItemViews(ctx, id, e.mediaQueryFilter(ctx, userID))
 	}
@@ -161,8 +170,13 @@ func (e *EmbyService) itemTarget(ctx context.Context, id, userID string) (embyIt
 				target.ItemID, target.NFOItemID = id, id
 			}
 		}
-		if m.CatalogSource == model.TaskSystemHongGuo {
+		if m.CatalogSource == model.TaskSystemHuangGuoAI || m.CatalogSource == model.TaskSystemHongGuo {
+			target.Source = m.CatalogSource
 			target.SourceID, target.SourceEpisode = m.LookupCatalogID, m.EpisodeNum
+			if strings.HasPrefix(id, "hga-group-") || strings.HasPrefix(id, "hga-season-") {
+				target.ItemID = id
+				target.SourceEpisode = 0
+			}
 		}
 		return target, nil
 	}

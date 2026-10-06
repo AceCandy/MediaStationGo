@@ -148,8 +148,14 @@ func (r *MediaViewRepository) FindByID(ctx context.Context, id string) (*model.M
 			return &rows[0], nil
 		}
 		rows, err = r.hongGuoViewsByIDs(ctx, []string{id}, MediaQueryFilter{})
-		if err != nil || len(rows) == 0 {
+		if err != nil {
 			return nil, err
+		}
+		if len(rows) == 0 {
+			rows, err = r.huangGuoAIViewsByIDs(ctx, []string{id}, MediaQueryFilter{})
+			if err != nil || len(rows) == 0 {
+				return nil, err
+			}
 		}
 	}
 	return &rows[0], nil
@@ -179,6 +185,13 @@ func (r *MediaViewRepository) FindByIDs(ctx context.Context, ids []string, filte
 		return nil, err
 	}
 	for _, row := range sourceRows {
+		byID[row.ID] = row
+	}
+	hgaRows, err := r.huangGuoAIViewsByIDs(ctx, missing, filter)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range hgaRows {
 		byID[row.ID] = row
 	}
 	nfoRows, err := r.nfoViewsByIDs(ctx, missing, filter)
@@ -225,9 +238,11 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 	if len(metadataIDs) == 0 {
 		return []model.MediaView{}, nil
 	}
-	var localIDs, ordinaryIDs, hongGuoIDs []string
+	var localIDs, ordinaryIDs, hongGuoIDs, huangGuoAIIDs []string
 	for _, id := range metadataIDs {
-		if strings.HasPrefix(id, "hg-") {
+		if strings.HasPrefix(id, "hga-") {
+			huangGuoAIIDs = append(huangGuoAIIDs, id)
+		} else if strings.HasPrefix(id, "hg-") {
 			hongGuoIDs = append(hongGuoIDs, id)
 		} else if strings.HasPrefix(id, "nfo-") {
 			localIDs = append(localIDs, strings.TrimPrefix(id, "nfo-"))
@@ -236,7 +251,7 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 		}
 	}
 	// 混合页按来源并发加载，单来源仍走原查询；结果保持红果、NFO、普通的旧拼接顺序。
-	sources := [][]string{hongGuoIDs, nil, ordinaryIDs}
+	sources := [][]string{hongGuoIDs, nil, ordinaryIDs, huangGuoAIIDs}
 	for _, id := range localIDs {
 		sources[1] = append(sources[1], "nfo-"+id)
 	}
@@ -250,7 +265,7 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 		loadCtx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 		var pending sync.WaitGroup
-		var results [3][]model.MediaView
+		var results [4][]model.MediaView
 		for i, ids := range sources {
 			if len(ids) > 0 {
 				pending.Go(func() {
@@ -266,7 +281,10 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 		if err := context.Cause(loadCtx); err != nil {
 			return nil, err
 		}
-		return append(append(results[0], results[1]...), results[2]...), nil
+		return append(append(append(results[0], results[1]...), results[2]...), results[3]...), nil
+	}
+	if len(huangGuoAIIDs) > 0 {
+		return r.HuangGuoAIItemsViews(ctx, huangGuoAIIDs, filter)
 	}
 	if len(hongGuoIDs) > 0 {
 		var workIDs []string
@@ -407,7 +425,8 @@ func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit 
 		Joins("LEFT JOIN albums g ON w.kind='series' AND g.id=w.related_album_id").
 		Select(HongGuoWorkIdentitySQL + " AS id, " + HongGuoWorkIdentitySQL + " AS work_id, '' AS kind, NULL::jsonb AS library_ids, MAX(CASE WHEN w.kind='series' THEN g.latest ELSE w.latest_media_added_at END) AS latest, 'hongguo' AS source, ARRAY_AGG(w.id::text) AS work_ids").Group(HongGuoWorkIdentitySQL)
 	source = FilterVisibleWorkLibraries(db, source, "w.library_ids", nil, filter)
-	combined := db.Raw("WITH albums AS MATERIALIZED (?) ? UNION ALL ? UNION ALL ?", albums, ordinary, local, source)
+	hga := FilterVisibleWorkLibraries(db, db.Table("huangguoai_works w").Where(huangGuoAIReadyWorkSQL), "w.library_ids", nil, filter).Select(huangGuoAIWorkIdentitySQL + " AS id,w.id AS work_id,w.kind,w.library_ids,w.latest_media_added_at AS latest,'huangguoai' AS source,ARRAY[w.id::text] AS work_ids")
+	combined := db.Raw("WITH albums AS MATERIALIZED (?) ? UNION ALL ? UNION ALL ? UNION ALL ?", albums, ordinary, local, source, hga)
 	candidates := db.Table("(?) recent_works", combined).
 		Select("*, ROW_NUMBER() OVER (ORDER BY latest DESC NULLS LAST,id DESC) AS ordinal").Order("latest DESC NULLS LAST,id DESC")
 	hongGuoFiles := r.hongGuoFileScope(ctx, "", filter).Select("1").Where("b.work_id=ANY(recent.work_ids)")
@@ -419,11 +438,12 @@ SELECT id FROM metadata_items WHERE parent_id=parent.id OFFSET 0
 ) leaf ON TRUE WHERE parent.parent_id=recent.work_id)`).
 		Where("CASE WHEN mi.kind IN ('episode','season') THEN series_metadata.id ELSE mi.id END = recent.work_id")
 	localFiles := r.NFOCandidateFiles(ctx, filter, "recent.work_id").Select("1").Where("COALESCE(nw.id,ni.id)=recent.work_id")
-	qualification := "CASE WHEN source='legacy' THEN EXISTS (? OFFSET 0) WHEN source='nfo' THEN EXISTS (? OFFSET 0) ELSE EXISTS (? OFFSET 0) END"
+	hgaFiles := r.huangGuoAIFileScope(ctx, filter).Select("1").Where("b.work_id=ANY(recent.work_ids)")
+	qualification := "CASE WHEN source='legacy' THEN EXISTS (? OFFSET 0) WHEN source='nfo' THEN EXISTS (? OFFSET 0) WHEN source='huangguoai' THEN EXISTS (? OFFSET 0) ELSE EXISTS (? OFFSET 0) END"
 	if !filter.MissingPoster && !filter.MissingChineseTitle {
 		qualification = "CASE WHEN source='legacy' AND kind='movie' AND library_ids IS NOT NULL AND library_ids <> '[]'::jsonb AND latest IS NOT NULL THEN TRUE WHEN source='nfo' AND latest IS NOT NULL THEN TRUE ELSE " + qualification + " END"
 	}
-	eligible := db.Table("work_batch recent").Select("ordinal").Where(qualification, ordinaryFiles, localFiles, hongGuoFiles)
+	eligible := db.Table("work_batch recent").Select("ordinal").Where(qualification, ordinaryFiles, localFiles, hgaFiles, hongGuoFiles)
 	page, _, err := r.workBatchPage(ctx, candidates, eligible, 0, limit, false, true)
 	if err != nil || len(page) == 0 {
 		return []model.MediaView{}, err

@@ -36,7 +36,7 @@ func (e *EmbyService) continuationItems(ctx context.Context, p ItemsParams, mode
 		if !candidate.IsNext {
 			preferredMedia[candidate.ItemID] = candidate.MediaID
 		}
-		if strings.HasPrefix(candidate.ItemID, "nfo-") || strings.HasPrefix(candidate.ItemID, "hg-") {
+		if strings.HasPrefix(candidate.ItemID, "nfo-") || strings.HasPrefix(candidate.ItemID, "hg-") || strings.HasPrefix(candidate.ItemID, "hga-") {
 			ids = append(ids, candidate.ItemID)
 		} else {
 			legacy = append(legacy, candidate)

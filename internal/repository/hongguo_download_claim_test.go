@@ -31,7 +31,7 @@ func TestHongGuoDownloadClaimOrderAndPlan(t *testing.T) {
 		}
 	}
 	// 同时包含大量已结束任务和待下载任务，暴露先扫描候选再排序的计划。
-	if err := db.Exec(`INSERT INTO hong_guo_downloads (id, source_id, episode, status, raw_size, sha256, created_at)
+	if err := db.Exec(`INSERT INTO hongguo_downloads (id, source_id, episode, status, raw_size, sha256, created_at)
 		SELECT 'bulk-' || lpad(i::text, 6, '0'), 'bulk', i,
 		CASE WHEN i <= 20000 THEN 'completed' ELSE 'queued' END, 0, '', now()
 		FROM generate_series(1, 40000) AS i`).Error; err != nil {
@@ -64,7 +64,7 @@ func TestHongGuoDownloadClaimOrderAndPlan(t *testing.T) {
 	if err := db.Model(&rows[5]).Update("sha256", nil).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("ANALYZE hong_guo_downloads").Error; err != nil {
+	if err := db.Exec("ANALYZE hongguo_downloads").Error; err != nil {
 		t.Fatal(err)
 	}
 	var claimSQL string

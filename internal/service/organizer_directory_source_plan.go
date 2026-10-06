@@ -161,6 +161,9 @@ func organizeEpisodeLooksSourcedFromMovieYear(src string, identity organizeSourc
 }
 
 func (o *OrganizerService) lookupOrganizeSourceMetadata(ctx context.Context, req organizeSourceFileRequest, mediaType string, identity *organizeSourceIdentity) *Match {
+	if strings.Contains(strings.ToLower(req.Source), "[huangguoai-") {
+		return nil
+	}
 	match := o.lookupOrganizeMetadata(ctx, req.Source, req.SourceRoot, mediaType, identity.Title, identity.Year, identity.Season, identity.Episode)
 	if match == nil && identity.SourceMedia != nil {
 		match = organizeMatchFromMedia(identity.SourceMedia)

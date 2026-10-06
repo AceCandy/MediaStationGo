@@ -4,18 +4,22 @@ import toast from 'react-hot-toast'
 import { hongguoDownloadsAPI, type DownloadConfig, type HongGuoDownload, type HongGuoDownloadWork } from '../api/hongguoDownloads'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
 import { ModalShell } from '../components/ModalShell'
+import { DownloadProgress } from '../components/DownloadProgress'
+import { statusLabels, statusColors } from '../utils/downloadStatus'
 import { Select } from '../components/Select'
+import { HuangGuoAIDownloadSpace } from './HuangGuoAIDownloadSpace'
 import { HongGuoDownloadActions } from './HongGuoDownloadActions'
 
 const sourceLabels: Record<string, string> = { app: 'App 接口', fallback: '备用接口', official: '官方网页', android: 'Android 离线' }
-const statusLabels: Record<HongGuoDownload['status'], string> = { downloading: '↓ 下载中', verifying: '◉ 校验中', publishing: '↗ 发布中', waiting_verify: '◷ 等待校验', failed: '⚠ 失败', queued: '◷ 等待下载', cancelled: '⊘ 已取消', completed: '✓ 已完成' }
-const statusColors: Record<HongGuoDownload['status'], string> = { downloading: 'text-brand-500 bg-brand-500/10', verifying: 'text-sage-600 bg-sage-500/10', publishing: 'text-sage-600 bg-sage-500/10', waiting_verify: 'text-gold-600 bg-gold-500/10', failed: 'text-red-500 bg-red-500/10', queued: 'text-ink-50 bg-ink-100/5', cancelled: 'text-ink-50 bg-ink-100/5', completed: 'text-emerald-600 bg-emerald-500/10' }
 const statuses = Object.keys(statusLabels) as HongGuoDownload['status'][]
 const message = (err: unknown) => (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '操作失败，请重试'
 
 export function DownloadSpacePage() {
   const key = useMediaAccessKey()
-  return <DownloadSpaceContent key={key} />
+  const [params, setParams] = useSearchParams()
+  const source = params.get('source') === 'huangguoai' ? 'huangguoai' : 'hongguo'
+  useEffect(() => { if (params.getAll('source').length > 1 || (params.has('source') && params.get('source') !== source)) { const next = new URLSearchParams(params); next.set('source', source); setParams(next, { replace: true }) } }, [params, setParams, source])
+  return <div className="space-y-5"><nav className="tab-list" aria-label="下载来源">{[['hongguo', '红果短剧'], ['huangguoai', '黄果 AI']].map(([value, label]) => <button key={value} className="tab-item" aria-pressed={source === value} onClick={() => { const next = new URLSearchParams(params); next.set('source', value); next.delete('page'); next.delete('status'); next.delete('id'); setParams(next) }}>{label}</button>)}</nav>{source === 'huangguoai' ? <HuangGuoAIDownloadSpace key={`${key}:huangguoai`} /> : <DownloadSpaceContent key={`${key}:hongguo`} />}</div>
 }
 
 function DownloadSpaceContent() {
@@ -204,9 +208,4 @@ function DownloadWork({ work, refresh, busy, perform }: { work: HongGuoDownloadW
       </>)}
     </div>
   </article>
-}
-
-function DownloadProgress({ label, value, total }: { label: string; value: number; total: number }) {
-  const percent = total > 0 ? Math.max(0, Math.min(100, value * 100 / total)) : undefined
-  return <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={percent === undefined ? '总大小未知' : undefined} className="h-0.5 overflow-hidden rounded-full bg-brand-500/10"><div className={`h-full rounded-full bg-gradient-to-r from-brand-500 to-sage-400 ${percent === undefined ? 'w-1/3 motion-safe:animate-pulse' : ''}`} style={percent === undefined ? undefined : { width: `${percent}%` }} /></div>
 }

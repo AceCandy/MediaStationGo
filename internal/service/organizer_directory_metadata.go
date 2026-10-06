@@ -11,6 +11,9 @@ import (
 )
 
 func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sourceRoot, mediaType, title string, year, season, episode int) *Match {
+	if strings.Contains(strings.ToLower(src), "[huangguoai-") {
+		return nil
+	}
 	normalizedType := normalizeOrganizeMediaType(mediaType)
 	lookupSeason, lookupEpisode := season, episode
 	if normalizedType == "movie" {

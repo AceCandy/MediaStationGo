@@ -16,7 +16,7 @@ type playbackStatsQueries struct {
 	ranking *gorm.DB
 }
 
-var ErrPlaybackStatsSystem = errors.New("system must be all, catalog, hongguo or nfo")
+var ErrPlaybackStatsSystem = errors.New("system must be all, catalog, hongguo, huangguoai or nfo")
 
 // PlaybackStats 合并查看只合并读投影，事件和排行榜身份始终按体系隔离。
 func (r *Container) PlaybackStats(ctx context.Context, system string, f PlaybackStatsFilter) (*PlaybackStatsResult, error) {
@@ -26,16 +26,19 @@ func (r *Container) PlaybackStats(ctx context.Context, system string, f Playback
 		queries = r.PlaybackEvent.playbackStatsQueries(ctx, f)
 	case "hongguo":
 		queries = r.HongGuo.playbackStatsQueries(ctx, f)
+	case "huangguoai":
+		queries = r.HuangGuoAI.playbackStatsQueries(ctx, f)
 	case "nfo":
 		queries = r.NFO.playbackStatsQueries(ctx, f)
 	case "all":
 		catalog := r.PlaybackEvent.playbackStatsQueries(ctx, f)
 		hongguo := r.HongGuo.playbackStatsQueries(ctx, f)
 		nfo := r.NFO.playbackStatsQueries(ctx, f)
+		hga := r.HuangGuoAI.playbackStatsQueries(ctx, f)
 		queries = playbackStatsQueries{
-			events:  r.DB.Raw("? UNION ALL ? UNION ALL ?", catalog.events, hongguo.events, nfo.events),
-			details: r.DB.Raw("? UNION ALL ? UNION ALL ?", catalog.details, hongguo.details, nfo.details),
-			ranking: r.DB.Raw("? UNION ALL ? UNION ALL ?", catalog.ranking, hongguo.ranking, nfo.ranking),
+			events:  r.DB.Raw("? UNION ALL ? UNION ALL ? UNION ALL ?", catalog.events, hongguo.events, nfo.events, hga.events),
+			details: r.DB.Raw("? UNION ALL ? UNION ALL ? UNION ALL ?", catalog.details, hongguo.details, nfo.details, hga.details),
+			ranking: r.DB.Raw("? UNION ALL ? UNION ALL ? UNION ALL ?", catalog.ranking, hongguo.ranking, nfo.ranking, hga.ranking),
 		}
 	default:
 		return nil, ErrPlaybackStatsSystem

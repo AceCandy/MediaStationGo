@@ -82,6 +82,26 @@ func (e *EmbyService) ItemCounts(ctx context.Context, userID string) (map[string
 		}
 	}
 
+	var counts []struct {
+		Kind  string
+		Total int64
+	}
+	if err := e.huangGuoAINodes(ctx, userID, "").Select("kind, COUNT(*) AS total").Group("kind").Scan(&counts).Error; err != nil {
+		return nil, err
+	}
+	for _, count := range counts {
+		switch count.Kind {
+		case "Movie":
+			movieCount += count.Total
+			itemCount += count.Total
+		case "Episode":
+			episodeCount += count.Total
+			itemCount += count.Total
+		case "Series":
+			seriesCount += int(count.Total)
+		}
+	}
+
 	return map[string]any{
 		"MovieCount":   movieCount,
 		"SeriesCount":  seriesCount,

@@ -19,6 +19,11 @@ func (r *MediaViewRepository) NextEpisodeMediaIDs(ctx context.Context, media *mo
 			Where("work_id = ? AND number = ?", strings.TrimPrefix(media.SeasonID, "hg-season-"), media.EpisodeNum+1)
 		bindings := r.db.WithContext(ctx).Table("hongguo_media_bindings").Select("media_id").Where("episode_id IN (?)", episodes)
 		q = q.Where("m.catalog_source = ? AND m.id IN (?)", model.TaskSystemHongGuo, bindings)
+	case model.TaskSystemHuangGuoAI:
+		episodes := r.db.WithContext(ctx).Table("huangguoai_episodes").Select("id").
+			Where("work_id = ? AND number = ?", strings.TrimPrefix(media.SeasonID, "hga-season-"), media.EpisodeNum+1)
+		bindings := r.db.WithContext(ctx).Table("huangguoai_media_bindings").Select("media_id").Where("episode_id IN (?)", episodes)
+		q = q.Where("m.catalog_source = ? AND m.id IN (?)", model.TaskSystemHuangGuoAI, bindings)
 	case model.CatalogSourceNFO:
 		episodes := r.db.WithContext(ctx).Table("nfo_items").Select("id").
 			Where("parent_id = ? AND kind = 'episode' AND episode_num = ?", strings.TrimPrefix(media.SeasonID, "nfo-"), media.EpisodeNum+1)

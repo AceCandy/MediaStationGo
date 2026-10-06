@@ -11,6 +11,9 @@ import (
 )
 
 func inferLibraryKind(name, path, requested string) string {
+	if strings.TrimSpace(requested) == model.LibraryTypeHuangGuoAI {
+		return model.LibraryTypeHuangGuoAI
+	}
 	if strings.TrimSpace(requested) == model.LibraryTypeHongGuo {
 		return model.LibraryTypeHongGuo
 	}

@@ -156,6 +156,8 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 		collectionType = "tvshows" // Emby 没有专门的 anime CollectionType
 	case "variety":
 		collectionType = "tvshows"
+	case model.LibraryTypeHuangGuoAI:
+		collectionType = "" // 混合电影和剧集，使用通用媒体库。
 	case "music":
 		collectionType = "music"
 	}

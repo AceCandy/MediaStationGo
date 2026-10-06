@@ -64,6 +64,13 @@ func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (m
 		}
 		candidates = append(candidates, source...)
 	}
+	if v.IncludeNSFW {
+		hga, err := e.repo.HuangGuoAI.SearchCandidates(ctx, p.SearchTerm, filter)
+		if err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, hga...)
+	}
 	ranked, total := repository.RankMetadataSearchCandidatePage(p.SearchTerm, candidates, p.StartIndex, p.Limit)
 	ids = make([]string, 0, len(ranked))
 	for _, candidate := range ranked {

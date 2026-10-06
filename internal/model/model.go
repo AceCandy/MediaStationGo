@@ -46,7 +46,7 @@ func (b *PermanentBase) BeforeCreate(_ *gorm.DB) error {
 
 // AllModels returns the slice consumed by gorm.AutoMigrate.
 func AllModels() []interface{} {
-	return append([]interface{}{
+	return append(append([]interface{}{
 		&User{},
 		&Library{},
 		&LibraryRoot{},
@@ -101,5 +101,5 @@ func AllModels() []interface{} {
 		&RegistrationCode{},
 		&SignIn{},
 		&UserDevice{},
-	}, HongGuoModels()...)
+	}, HongGuoModels()...), HuangGuoAIModels()...)
 }

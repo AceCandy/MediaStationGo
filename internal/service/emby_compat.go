@@ -192,6 +192,9 @@ func (e *EmbyService) items(ctx context.Context, p ItemsParams) (map[string]any,
 		}
 		return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
 	}
+	if result, ok, err := e.huangGuoAIHierarchyItems(ctx, p); ok {
+		return result, err
+	}
 	if strings.TrimSpace(p.SearchTerm) != "" {
 		if result, ok, err := e.hongGuoHierarchyItems(ctx, p); ok {
 			return result, err

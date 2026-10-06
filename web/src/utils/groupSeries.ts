@@ -37,6 +37,7 @@ export function getSeriesKey(media: Media): string {
 }
 
 function getSeriesRawKey(media: Media): string {
+  if (media.catalog_source === 'huangguoai') return media.series_id ? `series:${media.series_id}` : `huangguoai:${media.lookup_catalog_id || media.id}`
   if (media.catalog_source === 'hongguo') return media.series_id ? `series:${media.series_id}` : `hongguo:${media.lookup_catalog_id || media.id}`
   const fromPath = seriesTitleFromPath(media.path)
   if (isEpisodeLike(media) || pathLooksEpisodic(media)) {
@@ -76,6 +77,10 @@ function compactSeriesKey(raw: string): string {
   return `series:${hash.toString(16).padStart(8, '0')}`
 }
 
+export function isCatalogMovie(media: Media): boolean {
+  return media.catalog_source === 'huangguoai' ? media.metadata_kind === 'movie' : media.catalog_source === 'hongguo' && !media.series_id
+}
+
 export function isEpisodeLike(media: Media): boolean {
   if (!media) return false
   return (media.season_num ?? 0) > 0 || (media.episode_num ?? 0) > 0
@@ -90,6 +95,7 @@ const SEASON_FOLDER_RE =
   /^(?:s\d{1,2}|season[\s._-]*\d{1,2}|第\s*[0-9一二三四五六七八九十百零两]+\s*季|special[\s._-]*episodes?|specials?|sp|ovas?|oads?|extras?|bonus(?:es)?|omake|特别篇|特別篇|番外篇?|特典|外传|外傳|总集篇|總集篇)$/i
 
 function pathLooksEpisodic(media: Media): boolean {
+  if (media.catalog_source === 'huangguoai') return media.metadata_kind === 'episode' || media.metadata_kind === 'series'
   const path = (media.path || media.display_library_path || media.library_path || '')
   return EPISODIC_PATH_RE.test(path)
 }
@@ -274,7 +280,7 @@ export function groupSeries(items: Media[] = []): SeriesCard[] {
     const pathKey = getSeriesRawKey(m)
     const externalKey = repeatedSeriesExternalRawKey(m)
     const titleKey = repeatedSeriesTitleRawKey(m)
-    const key = m.catalog_source === 'hongguo'
+    const key = ['hongguo', 'huangguoai'].includes(m.catalog_source ?? '')
       ? getSeriesKey(m)
       : pathKey.startsWith('library-path') && (pathCounts.get(pathKey) ?? 0) > 1
       ? compactSeriesKey(pathKey)

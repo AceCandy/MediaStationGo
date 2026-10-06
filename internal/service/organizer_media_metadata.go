@@ -40,6 +40,9 @@ func (o *OrganizerService) refreshOrganizeMediaMetadata(ctx context.Context, med
 }
 
 func organizeMediaNeedsMetadataRefresh(media model.Media) bool {
+	if media.CatalogSource == model.TaskSystemHuangGuoAI {
+		return false
+	}
 	if strings.TrimSpace(media.ScrapeStatus) != "matched" {
 		return true
 	}
@@ -71,6 +74,9 @@ func organizeMediaTitleLooksLikeRelease(title string) bool {
 
 func (o *OrganizerService) persistOrganizerMatch(ctx context.Context, media *model.Media, lib *model.Library, match *Match) error {
 	if o == nil || o.scraper == nil || o.repo == nil || o.repo.DB == nil || media == nil || lib == nil || match == nil {
+		return nil
+	}
+	if media.CatalogSource == model.TaskSystemHuangGuoAI || lib.Type == model.LibraryTypeHuangGuoAI {
 		return nil
 	}
 	var (

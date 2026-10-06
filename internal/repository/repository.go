@@ -18,6 +18,7 @@ type Container struct {
 	MediaView     *MediaViewRepository
 	Metadata      *MetadataRepository
 	HongGuo       *HongGuoRepository
+	HuangGuoAI    *HuangGuoAIRepository
 	NFO           *NFORepository
 	Person        *PersonRepository
 	Artwork       *ArtworkRepository
@@ -56,6 +57,7 @@ func New(db *gorm.DB) *Container {
 		MediaView:     mediaView,
 		Metadata:      &MetadataRepository{db: db, view: mediaView},
 		HongGuo:       hongGuo,
+		HuangGuoAI:    &HuangGuoAIRepository{db: db},
 		NFO:           &NFORepository{db: db},
 		Person:        &PersonRepository{db: db},
 		Artwork:       &ArtworkRepository{db: db},

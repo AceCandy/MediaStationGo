@@ -44,8 +44,8 @@ func (s *HongGuoDownloadService) Supplement(ctx context.Context, count int) (Hon
 	var ids []string
 	err = s.repo.DB.WithContext(ctx).Model(&model.HongGuoWork{}).Select("hongguo_works.source_id").
 		Where("source_category <> ? AND source_id ~ ?", "comic", `^[1-9][0-9]{0,31}$`).
-		Where("NOT EXISTS (SELECT 1 FROM hong_guo_download_works d WHERE d.source_id = hongguo_works.source_id)").
-		Where("NOT EXISTS (SELECT 1 FROM hong_guo_downloads d WHERE d.source_id = hongguo_works.source_id)").
+		Where("NOT EXISTS (SELECT 1 FROM hongguo_download_works d WHERE d.source_id = hongguo_works.source_id)").
+		Where("NOT EXISTS (SELECT 1 FROM hongguo_downloads d WHERE d.source_id = hongguo_works.source_id)").
 		Where("(SELECT COUNT(*) FROM hongguo_episodes e WHERE e.work_id = hongguo_works.id) BETWEEN 1 AND 10000").
 		Where("NOT EXISTS (SELECT 1 FROM hongguo_episodes e WHERE e.work_id = hongguo_works.id AND (e.source_video_id IS NULL OR e.source_video_id !~ ?))", `^[1-9][0-9]{0,31}$`).
 		Order("first_visible_at DESC NULLS LAST, created_at DESC, id DESC").Limit(count).Scan(&ids).Error

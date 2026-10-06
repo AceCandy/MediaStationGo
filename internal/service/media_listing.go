@@ -306,6 +306,8 @@ func (s *MediaService) ListMediaVersions(ctx context.Context, id, userID string,
 	var items []model.MediaView
 	if media != nil && media.CatalogSource == model.CatalogSourceNFO && visibility.AllowsView(media) {
 		items, err = s.repo.MediaView.NFOItemViews(ctx, media.CatalogItemID, filter)
+	} else if media != nil && media.CatalogSource == model.TaskSystemHuangGuoAI && visibility.AllowsView(media) {
+		items, err = s.repo.MediaView.HuangGuoAIItemsViews(ctx, []string{media.CatalogItemID}, filter)
 	} else if media != nil && media.CatalogSource == model.TaskSystemHongGuo && visibility.AllowsView(media) {
 		items, err = s.repo.MediaView.HongGuoItemViews(ctx, media.CatalogItemID, filter)
 	} else if media == nil {
@@ -321,6 +323,13 @@ func (s *MediaService) ListMediaVersions(ctx context.Context, id, userID string,
 		return preferMediaVersion(items[i].Media, items[j].Media)
 	})
 	if userID != "" && len(items) > 1 {
+		if items[0].CatalogSource == model.TaskSystemHuangGuoAI {
+			state, err := s.repo.HuangGuoAI.UserState(ctx, userID, items[0].LookupCatalogID, max(1, items[0].EpisodeNum), filter)
+			if err != nil {
+				return nil, err
+			}
+			return orderMediaVersionSiblings(items, state.MediaID), nil
+		}
 		if items[0].CatalogSource == model.TaskSystemHongGuo {
 			state, err := s.repo.HongGuo.UserState(ctx, userID, items[0].LookupCatalogID, max(1, items[0].EpisodeNum), filter)
 			if err != nil {

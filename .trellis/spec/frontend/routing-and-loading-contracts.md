@@ -70,7 +70,7 @@ Viewer composition state is URL owned:
   restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
 - Download Space: absent `status` defaults to `downloading`; explicit `status=` selects all states. Keep the explicit empty value when selecting all so reload and pagination do not revert to the default. Existing named status links retain their selection.
-- Discover: `system=catalog|hongguo`, default `catalog`; mount only the selected
+- Discover: `system=catalog|hongguo|huangguoai`, default `catalog`; mount only the selected
   catalog and rebuild it on user/profile changes. `/hongguo` is a guarded
   replace redirect to `/discover`, preserving query parameters and setting
   `system=hongguo`. Both routes require `can_view_discover`.
@@ -230,3 +230,28 @@ For routing or layout changes, verify at least 390x844, 768x1024, 1440x900,
 and the exact responsive breakpoint affected by the change. Check canonical
 URLs, active navigation, keyboard focus return, control target sizes, document
 scroll width, and runtime console errors.
+
+HuangGuo AI mixed libraries use the paged work-card `/series` endpoint. Movie
+cards link to concrete media detail; Series cards load season-scoped episodes.
+Run `node web/scripts/check-huangguoai.mjs` from the repository root against
+local Vite on 4179 for synthetic discovery/download/mixed-library responsive QA.
+
+HuangGuo AI discovery uses category/rank modes with four source categories and
+three ranks; numeric source IDs remain the detail API keys. One search form
+queries local and upstream catalogs concurrently and merges by source ID with
+hydrated metadata precedence. Removed `mode`/`tag` URL values normalize away;
+tags remain metadata display only. Search starts both cursors at page one, ignores
+category/rank filters, and retries each failed source independently. Category/search feeds start at the canonical URL
+page, append one 50-item page at a time on scroll (or the accessible load-more
+control), deduplicate by source ID, and retry a failed page without discarding
+prior cards. Rankings instead use 20-item URL pages and the shared animated
+`CatalogRanking` list; never append ranking pages or automatically prefetch them. Opening details keeps
+loaded rows mounted; query/access changes abort old reads. Never reinterpret
+source-reported episode counts as confirmed downloadable episodes.
+
+HuangGuo AI download cards expand inline. Read only the expanded work's current
+50-item episode page, poll every five seconds only while visible, and abort on
+collapse/page/access changes. Shared `DownloadProgress` and `downloadStatus`
+preserve HongGuo presentation. Unknown total bytes have an indeterminate bar,
+never a made-up percentage. Settings show backend-provided temporary/output
+directories; keep draft inputs on failed saves and return focus on close.

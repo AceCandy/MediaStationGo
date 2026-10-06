@@ -17,7 +17,7 @@ func (e *EmbyService) favoriteLibraryMembership(ctx context.Context, userID stri
 	if len(items) == 0 {
 		return items, nil
 	}
-	var ordinary, hongGuo, nfo []string
+	var ordinary, hongGuo, huangGuoAI, nfo []string
 	for _, item := range items {
 		if item["Type"] != "Movie" && item["Type"] != "Series" {
 			continue
@@ -26,6 +26,8 @@ func (e *EmbyService) favoriteLibraryMembership(ctx context.Context, userID stri
 		switch {
 		case strings.HasPrefix(id, "hg-work-"), strings.HasPrefix(id, "hg-group-"):
 			hongGuo = append(hongGuo, id)
+		case strings.HasPrefix(id, "hga-work-"), strings.HasPrefix(id, "hga-group-"):
+			huangGuoAI = append(huangGuoAI, id)
 		case strings.HasPrefix(id, "nfo-"):
 			nfo = append(nfo, strings.TrimPrefix(id, "nfo-"))
 		default:
@@ -52,6 +54,11 @@ func (e *EmbyService) favoriteLibraryMembership(ctx context.Context, userID stri
 			Joins("JOIN LATERAL (? UNION ?) membership ON TRUE", known, files).
 			Select("CASE WHEN g.id IS NULL THEN 'hg-work-'||w.id ELSE 'hg-group-'||g.id END AS id, membership.id AS library_id"))
 	}
+	if len(huangGuoAI) > 0 {
+		queries = append(queries, e.huangGuoAIFiles(ctx, userID, "", huangGuoAI...).
+			Select("CASE WHEN w.kind='movie' THEN 'hga-work-'||w.id ELSE 'hga-group-'||w.source_id END AS id,m.library_id"))
+	}
+
 	if len(nfo) > 0 {
 		queries = append(queries, db.Table("nfo_items item").Where("item.id IN ?", nfo).
 			Select("'nfo-'||item.id AS id, item.library_id"))

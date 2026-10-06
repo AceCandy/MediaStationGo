@@ -11,6 +11,8 @@ type HongGuoDownloadWork struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+func (HongGuoDownloadWork) TableName() string { return "hongguo_download_works" }
+
 // HongGuoDownload 是分集业务队列；地址和媒体密钥不持久化，也不从执行日志恢复。
 type HongGuoDownload struct {
 	PermanentBase
@@ -43,3 +45,5 @@ type HongGuoDownload struct {
 	Codec        string            `gorm:"size:32" json:"codec"`
 	SourceErrors map[string]string `gorm:"serializer:json;type:text" json:"source_errors"`
 }
+
+func (HongGuoDownload) TableName() string { return "hongguo_downloads" }

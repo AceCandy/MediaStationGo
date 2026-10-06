@@ -1,0 +1,173 @@
+// 本地 Vite + 合成 API 数据，禁止访问来源图片或媒体。
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { Buffer } from 'node:buffer'
+import console from 'node:console'
+import process from 'node:process'
+import { URLSearchParams } from 'node:url'
+const base = process.env.HUANGGUOAI_TEST_URL || 'http://127.0.0.1:4179'
+const session = `huangguoai-check-${process.pid}`
+const browser = (...args) => execFileSync('agent-browser', ['--session', session, ...args], { encoding: 'utf8', timeout: 30000 })
+const evaluate = code => { const r = JSON.parse(browser('--json', 'eval', '-b', Buffer.from(code).toString('base64'))); assert.equal(r.success, true, r.error); return r.data.result }
+const route = (path, data) => browser('network', 'route', `${base}/api/${path}`, '--body', JSON.stringify(data))
+const visit = path => browser('open', base + path)
+const wait = code => browser('wait', '--fn', code)
+const items = Array.from({ length: 52 }, (_, i) => ({ id: `work-${i}`, source_id: `${71+i}`, title: `合成作品${i}`, kind: i%2 ? 'movie' : 'series', source_category: i%2 ? 'ai-mogai':'ai-duanju', categories:[], hydrated:true, episode_count:3, confirmed_episode_count:2, tags:['合成标签'], artwork_id:'', overview:'合成简介，用于布局测试。'.repeat(12), rating:8.2, downloaded:i===0 }))
+try {
+ visit('/login')
+ route('auth/permissions', { permissions: { can_view_discover:true, can_view_libraries:true }, role:'admin', is_super:true })
+ route('play-profiles', [])
+ route('catalogs/huangguoai/search?*', {items:items.slice(0,2),has_more:false})
+ route('catalogs/huangguoai/status', {enabled:true})
+ route('catalogs/huangguoai/works/71/episodes?*',{items:[{id:'ep1',number:1},{id:'ep3',number:3}],total:2})
+ route('catalogs/huangguoai/works/71/media?*',{items:[],total:0})
+ route('catalogs/huangguoai/works/71/state',{favorite:false})
+ route('catalogs/huangguoai/works/71',items[0])
+ route('catalogs/huangguoai/works?*page=1&page_size=20', {items:items.slice(0,20),total:52})
+ route('catalogs/huangguoai/works?*page=1&page_size=50', {items:items.slice(0,50),total:52})
+ route('catalogs/huangguoai/works?*page=2&page_size=50', {items:items.slice(49),total:52})
+ route('catalogs/huangguoai/downloads/config',{root:'/synthetic/download',temporary_dir:'/synthetic/download/downloading',output_dir:'/synthetic/download/completed',concurrency:2,verification_concurrency:2})
+ route('catalogs/huangguoai/downloads/works?*',{items:[{source_id:'71',title:'合成作品0',total:5,completed:1,queued:0,active:3,downloading:2,waiting_verify:1,verifying:0,publishing:0,failed:1,cancelled:0}],total:1})
+ route('catalogs/huangguoai/downloads/works/71/episodes?page=1',{items:[{id:'download1',episode:3,status:'failed',bytes:1024,total_bytes:0,error:'合成失败',relative_path:'synthetic/E003.mp4',attempts:2},{id:'download2',episode:4,status:'downloading',bytes:1024,total_bytes:2048,relative_path:'synthetic/E004.mp4',attempts:1},{id:'download3',episode:5,status:'downloading',bytes:1024,total_bytes:0,relative_path:'synthetic/E005.mp4',attempts:1}],total:51})
+ route('catalogs/huangguoai/downloads/works/71/episodes?page=2',{items:[{id:'download51',episode:51,status:'completed',bytes:2048,total_bytes:2048,relative_path:'synthetic/E051.mp4',attempts:1}],total:51})
+ route('catalogs/huangguoai/downloads/works/71/retry',{updated:1})
+ route('catalogs/huangguoai/downloads/works/71/cancel',{updated:4})
+ route('catalogs/huangguoai/downloads/download1/retry',{})
+ route('catalogs/huangguoai/downloads/download2/cancel',{})
+ route('libraries/synthetic/media?*',{items:[],total:0})
+ const movie = {id:'movie-file',library_id:'synthetic',catalog_source:'huangguoai',lookup_catalog_id:'72',metadata_kind:'movie',title:'合成电影',series_id:'',path:'/synthetic/[huangguoai-72] S01E001.mp4'}
+ const series = {...movie,id:'series-file',lookup_catalog_id:'71',metadata_kind:'episode',title:'合成剧集',series_id:'hga-group-71',series_title:'合成剧集',season_num:1,episode_num:1}
+ route('libraries/synthetic/series?*',{items:[{key:'metadata:hga-work-movie',rep:movie,linkMedia:movie,count:1},{key:'metadata:hga-group-71',rep:series,linkMedia:series,count:2}],total:2})
+ route('libraries/synthetic', {id:'synthetic',name:'合成混合库',type:'huangguoai',path:'/synthetic',enabled:true})
+ route('media?*',{items:[],total:0})
+ route('**', {})
+ evaluate(`localStorage.setItem('mediastationgo-auth',JSON.stringify({state:{token:'synthetic-token',user:{id:'admin',username:'合成管理员',role:'admin',tier:'free'}},version:0}))`)
+ visit('/discover?system=huangguoai&category=invalid&page=0')
+ wait(`document.querySelector('button[aria-label="查看合成作品0"]') !== null`)
+ const params = new URLSearchParams(evaluate('location.search'))
+ assert.equal(params.get('category'),null);assert.equal(params.get('page'),'1')
+ assert.equal(evaluate(`document.querySelectorAll('button[aria-label^="查看合成作品"]').length`),50)
+ assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r=>r.name.includes('/catalogs/hongguo/')||r.name.includes('/discover/feed'))`))
+ assert.equal(evaluate(`document.querySelectorAll('[data-huangguoai-downloaded]').length`),1)
+ assert.ok(evaluate(`document.querySelector('button[aria-label="查看合成作品0"]').innerText.includes('8.2')`))
+ for(const theme of ['light','dark']) {
+  evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
+  for(const width of [390,640,768,1024,1440]) {
+   browser('set','viewport',String(width),'900')
+   assert.ok(evaluate(`document.documentElement.scrollWidth<=innerWidth`),`discover ${theme}/${width} overflow`)
+   if(width===390) wait(`document.querySelector('input[aria-label="搜索黄果AI标题或ID"]').getBoundingClientRect().width>300`)
+   if(process.env.HUANGGUOAI_SCREENSHOT_DIR && [390,1440].includes(width)) browser('screenshot',`${process.env.HUANGGUOAI_SCREENSHOT_DIR}/hga-discover-${theme}-${width}.png`)
+  }
+ }
+ evaluate(`window.hgaRequests=[];window.failPage=true;window.holdPage=false;
+  const open=XMLHttpRequest.prototype.open,send=XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open=function(method,url,...rest){this.hgaURL=String(url);this.hgaMethod=method;return open.call(this,method,url,...rest)};
+  XMLHttpRequest.prototype.send=function(body){window.hgaRequests.push({url:this.hgaURL,method:this.hgaMethod,body});
+   if(window.failPage&&this.hgaURL.includes('/works?')&&this.hgaURL.includes('page=2&')) throw new Error('合成续载失败');
+   if(window.holdPage&&this.hgaURL.includes('/works?')&&this.hgaURL.includes('page=2&')) { window.releasePage=()=>send.call(this,body);return; }
+   return send.call(this,body);
+  }`)
+ browser('find','role','button','click','--name','查看合成作品0','--exact')
+ wait(`document.querySelector('[role="dialog"]')?.innerText.includes('合成简介') || document.body.innerText.includes('页面加载失败')`); assert.ok(evaluate(`!document.body.innerText.includes('页面加载失败')`))
+ assert.ok(evaluate(`document.querySelector('[role="dialog"]').innerText.includes('第 3 集')`))
+ assert.ok(!evaluate(`document.querySelector('[role="dialog"]').innerText.includes('收藏作品')`))
+ for(const theme of ['light','dark']) {
+  evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
+  for(const width of [390,640,768,1024,1440]) {
+   browser('set','viewport',String(width),'900')
+   wait(`document.querySelector('[role="dialog"]').getAnimations({subtree:true}).every(a=>a.playState!=='running')`)
+   assert.ok(evaluate(`document.documentElement.scrollWidth <= innerWidth && document.querySelector('[role="dialog"]').scrollWidth<=document.querySelector('[role="dialog"]').clientWidth`),`${theme}/${width} overflow`)
+   if(process.env.HUANGGUOAI_SCREENSHOT_DIR && [390,1440].includes(width)) browser('screenshot',`${process.env.HUANGGUOAI_SCREENSHOT_DIR}/hga-${theme}-${width}.png`)
+  }
+ }
+ browser('press','Escape');wait(`!document.querySelector('[role="dialog"]')`)
+ assert.equal(evaluate(`window.hgaRequests.filter(r=>r.url.includes('/works?')).length`),0)
+ browser('scrollintoview','[data-testid="huangguoai-load-more"]')
+ wait(`document.body.innerText.includes('资料读取失败')`)
+ assert.equal(evaluate(`document.querySelectorAll('button[aria-label^="查看合成作品"]').length`),50)
+ evaluate(`window.failPage=false`)
+ browser('find','role','button','click','--name','重试加载','--exact')
+ wait(`document.querySelectorAll('button[aria-label^="查看合成作品"]').length===52`)
+ assert.deepEqual(evaluate(`window.hgaRequests.filter(r=>r.url.includes('/works?')).map(r=>new URL(r.url,location.origin).searchParams.get('page'))`),['2','2'])
+ browser('scroll','up','20000')
+ browser('find','role','button','click','--name','刷新黄果AI目录','--exact')
+ wait(`document.querySelectorAll('button[aria-label^="查看合成作品"]').length===50`)
+ assert.equal(evaluate(`new URL(window.hgaRequests.filter(r=>r.url.includes('/works?')).at(-1).url,location.origin).searchParams.get('page')`),'1')
+ evaluate(`window.holdPage=true`)
+ browser('scrollintoview','[data-testid="huangguoai-load-more"]')
+ wait(`typeof window.releasePage==='function'`)
+ browser('scroll','up','20000')
+ browser('find','role','button','click','--name','AI换脸','--exact')
+ wait(`[...document.querySelectorAll('button')].some(b=>b.textContent==='AI换脸'&&b.getAttribute('aria-pressed')==='true') && document.querySelectorAll('button[aria-label^="查看合成作品"]').length===50 && !document.body.innerText.includes('加载黄果 AI')`)
+ evaluate(`window.holdPage=false;window.releasePage()`)
+ assert.equal(evaluate(`document.querySelectorAll('button[aria-label^="查看合成作品"]').length`),50)
+ visit('/discover?system=huangguoai&rank=potential')
+ wait(`performance.getEntriesByType('resource').some(r=>r.name.includes('rank=potential'))`)
+ visit('/discover?system=huangguoai&mode=remote&keyword=合成&page=2')
+ wait(`document.querySelectorAll('button[aria-label^="查看合成作品"]').length===50`)
+ assert.ok(evaluate(`document.body.innerText.includes('官网 + 本地资料')`))
+ assert.equal(evaluate(`new URLSearchParams(location.search).get('mode')`),null)
+ assert.equal(evaluate(`new URLSearchParams(location.search).get('page')`),'1')
+ assert.equal(evaluate(`document.querySelector('[aria-label="搜索范围"]')`),null)
+ assert.equal(evaluate(`document.querySelector('[aria-label="题材标签"]')`),null)
+ visit('/admin/media/downloads?source=huangguoai&status=')
+ wait(`document.body.innerText.includes('完成 1/5')`)
+ assert.equal(evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/downloads/works/71/episodes')).length`),0)
+ browser('find','role','button','click','--name','▸ 合成作品0','--exact')
+ wait(`document.querySelector('[data-download-episode="3"]') !== null`)
+ assert.equal(evaluate(`document.querySelector('[aria-label="作品完成进度"]').getAttribute('aria-valuenow')`),'20')
+ assert.equal(evaluate(`document.querySelector('[data-download-episode="4"] [role="progressbar"]').getAttribute('aria-valuenow')`),'50')
+ assert.equal(evaluate(`document.querySelector('[data-download-episode="5"] [role="progressbar"]').getAttribute('aria-valuenow')`),null)
+ browser('click','[aria-label="查看第 3 集任务详情"]')
+ assert.ok(evaluate(`document.querySelector('[data-download-episode="3"] details').innerText.includes('合成失败')`))
+ for (const theme of ['light','dark']) {
+  evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
+  for (const width of [390,640,768,1024,1440]) {
+   browser('set','viewport',String(width),'900')
+   assert.ok(evaluate(`document.documentElement.scrollWidth<=innerWidth`),`download ${theme}/${width} overflow`)
+   if(width===390) wait(`document.querySelector('[aria-controls="hga-episodes-71"]').getBoundingClientRect().width>280`)
+   if(process.env.HUANGGUOAI_SCREENSHOT_DIR && [390,1440].includes(width)) browser('screenshot',`${process.env.HUANGGUOAI_SCREENSHOT_DIR}/hga-download-${theme}-${width}.png`)
+  }
+ }
+ browser('find','role','button','click','--name','下一页分集','--exact')
+ wait(`document.querySelector('[data-download-episode="51"]') !== null`)
+ assert.ok(!evaluate(`document.querySelector('[data-download-episode="3"]')`))
+ browser('find','role','button','click','--name','上一页分集','--exact')
+ wait(`document.querySelector('[data-download-episode="3"]') !== null`)
+ evaluate(`window.hgaActions=[];const opened=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url,...rest){this.hgaURL=String(url);this.hgaMethod=method;return opened.call(this,method,url,...rest)};const original=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(body){window.hgaActions.push({url:this.hgaURL,method:this.hgaMethod,body});return original.call(this,body)}`)
+ browser('find','role','button','click','--name','重试','--exact')
+ wait(`document.body.innerText.includes('分集已重新入队')`)
+ browser('find','role','button','click','--name','取消第 4 集下载','--exact')
+ wait(`document.body.innerText.includes('分集下载已取消')`)
+ browser('find','role','button','click','--name','重试失败及取消集','--exact')
+ wait(`document.body.innerText.includes('已重新入队 1 集')`)
+ browser('find','role','button','click','--name','取消未完成','--exact')
+ wait(`document.body.innerText.includes('已取消 4 集未完成任务')`)
+ assert.deepEqual(evaluate(`window.hgaActions.filter(r=>r.method==='POST').map(r=>new URL(r.url,location.origin).pathname)`),['/api/catalogs/huangguoai/downloads/download1/retry','/api/catalogs/huangguoai/downloads/download2/cancel','/api/catalogs/huangguoai/downloads/works/71/retry','/api/catalogs/huangguoai/downloads/works/71/cancel'])
+ wait(`!document.body.innerText.includes('已取消 4 集未完成任务') && !document.body.innerText.includes('已重新入队 1 集')`)
+ browser('find','role','button','click','--name','设置','--exact')
+ wait(`document.querySelector('[role="dialog"]') !== null`)
+ assert.ok(evaluate(`document.querySelector('[role="dialog"]').innerText.includes('/synthetic/download/completed')`))
+ browser('press','Shift+Tab')
+ assert.equal(evaluate(`document.activeElement.textContent`),'取消')
+ browser('find','role','button','click','--name','取消','--exact')
+ wait(`!document.querySelector('[role="dialog"]')`)
+ assert.equal(evaluate(`document.activeElement.textContent`),'设置')
+ evaluate(`window.hgaHidden=false;Object.defineProperty(document,'hidden',{configurable:true,get:()=>window.hgaHidden});window.setHgaHidden=value=>{window.hgaHidden=value;document.dispatchEvent(new Event('visibilitychange'))};window.setHgaHidden(true);window.hgaPollTime=Date.now()`)
+ const episodeRequests = () => evaluate(`window.hgaActions.filter(r=>r.url.includes('/episodes?')).length`)
+ const hiddenCount=episodeRequests()
+ wait(`Date.now()-window.hgaPollTime>5200`)
+ assert.equal(episodeRequests(),hiddenCount)
+ evaluate(`window.setHgaHidden(false)`)
+ wait(`window.hgaActions.filter(r=>r.url.includes('/episodes?')).length>${hiddenCount}`)
+ browser('find','role','button','click','--name','▾ 合成作品0','--exact')
+ const collapsedCount=episodeRequests()
+ evaluate(`window.hgaPollTime=Date.now()`)
+ wait(`Date.now()-window.hgaPollTime>5200`)
+ assert.equal(episodeRequests(),collapsedCount)
+ visit('/library/synthetic')
+ wait(`document.body.innerText.includes('合成电影')`)
+ assert.ok(evaluate(`document.querySelector('a[href="/media/movie-file"]') !== null`))
+ assert.equal(browser('errors').trim(),'')
+ console.log('黄果 AI 浏览器检查通过：分类/榜单/官网搜索、详情、续载去重/失败重试/过期响应、下载展开/分页/进度/操作/设置、混合库电影链接、响应式暗亮主题。')
+} catch(error) { console.error(evaluate('({text:document.body.innerText,query:location.search})'));console.error(browser('errors'));console.error(browser('console'));console.error(evaluate(`Promise.all(['media?page=1','episodes?page=1',''].map(async p=>({path:p,data:await fetch('/api/catalogs/huangguoai/works/71'+(p?'/'+p:'')).then(r=>r.json())})))`));  throw error } finally { browser('close') }

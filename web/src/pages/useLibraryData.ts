@@ -42,7 +42,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const loadVersionRef = useRef(0)
   const loadMoreController = useRef<AbortController | null>(null)
 
-  const isSeriesLibrary = isSeriesLibraryType(library?.type) || library?.type === 'hongguo'
+  const isSeriesLibrary = isSeriesLibraryType(library?.type) || library?.type === 'hongguo' || library?.type === 'huangguoai'
   const episodeKey = seriesID ? `metadata:${seriesID}` : seriesKey
   const isSeriesDetail = isSeriesLibrary && !!episodeKey
   const linkedCard = linkedSeries?.target === target ? linkedSeries.card : null

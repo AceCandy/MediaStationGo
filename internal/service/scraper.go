@@ -38,8 +38,8 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	if lib == nil {
 		return errors.New("library not found")
 	}
-	if lib.Type == model.LibraryTypeHongGuo {
-		return errors.New("红果媒体库不能运行现有资料刮削")
+	if lib.Type == model.LibraryTypeHongGuo || lib.Type == model.LibraryTypeHuangGuoAI {
+		return errors.New("独立来源媒体库不能运行现有资料刮削")
 	}
 	if libraryUsesNFOOnly(lib) {
 		return errors.New("非常规媒体库请使用本地扫描任务")

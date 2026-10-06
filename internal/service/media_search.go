@@ -77,6 +77,11 @@ func (s *MediaService) searchMediaPage(ctx context.Context, query string, offset
 		pending.Go(func() {
 			var err error
 			source, err = s.repo.HongGuo.SearchCandidates(searchCtx, query, filter)
+			if err == nil && visibility.IncludeNSFW {
+				var hga []repository.MetadataSearchCandidate
+				hga, err = s.repo.HuangGuoAI.SearchCandidates(searchCtx, query, filter)
+				source = append(source, hga...)
+			}
 			if err != nil {
 				cancel(err)
 			}

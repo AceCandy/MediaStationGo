@@ -398,7 +398,7 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 	}
 	for _, sidecar := range sidecars {
 		lib, ok := libraries[sidecar.libraryID]
-		if !ok || !lib.Enabled || lib.Type == model.LibraryTypeHongGuo {
+		if !ok || !lib.Enabled || (lib.Type == model.LibraryTypeHongGuo || lib.Type == model.LibraryTypeHuangGuoAI) {
 			continue
 		}
 		nfo := libraryUsesNFOOnly(&lib)
