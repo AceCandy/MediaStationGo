@@ -976,3 +976,25 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 201: 优化 Emby 详情与计数及 NFO 删除清理
+<!-- trellis-session: v=2 fp=4f59eff6db7a9a84 -->
+
+**Date**: 2026-10-06
+**Task**: 优化 Emby 详情与计数及 NFO 删除清理
+**Branch**: `main`
+
+### Summary
+
+详情复用已加载版本和分段，Counts 移除历史关联回查，NFO 最后文件删除时事务清理空条目并保留用户状态；真实 PostgreSQL 定向 race 回归、go vet、独立复核和 diff 检查通过。已提交并归档，未部署或生产压测，原有 core 未跟踪文件保持原样。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ae4c478` | perf(emby): 优化详情与计数查询并清理空 NFO 条目 |
+
+### Status
+
+[OK] **Completed**
