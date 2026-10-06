@@ -1,0 +1,31 @@
+{
+  "id": "huangguo-download-layout",
+  "name": "huangguo-download-layout",
+  "title": "调整黄果下载目录并迁移现有作品",
+  "description": "黄果下载采用完整来源分类、64 个字母哈希桶及简化分集文件名，协调迁移当前唯一作品的文件与下载记录并完成校验。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-06",
+  "completedAt": "2026-10-06",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "789ceb3",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/service/huangguoai_download.go",
+    "internal/service/huangguoai_download_test.go",
+    "internal/service/huangguoai_download_task_test.go",
+    ".trellis/spec/backend/huangguoai-catalog.md"
+  ],
+  "notes": "实现与校验完成后补录；迁移现有唯一作品的 42 集，迁移前后哈希一致，后端已恢复。未做界面和播放器实测。",
+  "meta": {}
+}
