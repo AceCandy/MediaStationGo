@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 207
+- **Total Sessions**: 208
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1186 | Active |
+| `journal-3.md` | ~1223 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 208 | 2026-10-07 | 修复已观看条目的重播进度百分比 | `7e93a7a` | `main` |
 | 207 | 2026-10-07 | 播放器日志稳定流水号与慢请求诊断 | `f7d499d` | `main` |
 | 206 | 2026-10-07 | 黄果补充下载与榜单海报标示 | `bce1847` | `main` |
 | 205 | 2026-10-07 | 统一作品日期排序并修复播放器首页展示 | `7be1022` | `main` |
