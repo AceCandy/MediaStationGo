@@ -47,16 +47,19 @@ func tasksHandler(svc *service.Container) gin.HandlerFunc {
 		page := service.TaskPage{Items: []service.BackgroundTask{}, Page: 1, PageSize: 30}
 		definitions := []service.TaskDefinition{}
 		if svc != nil && svc.Tasks != nil {
-			if system == "" {
+			var err error
+			definitionsOnly := c.Query("definitions_only") == "1"
+			if system == "" && !definitionsOnly {
 				background = svc.Tasks.Snapshot()
 			}
-			pageNum, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-			pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "30"))
-			var err error
-			page, err = svc.Tasks.ListSystem(system, pageNum, pageSize)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tasks"})
-				return
+			if !definitionsOnly {
+				pageNum, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+				pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "30"))
+				page, err = svc.Tasks.ListSystem(system, pageNum, pageSize)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tasks"})
+					return
+				}
 			}
 			var scheduler []service.JobStatus
 			if svc.Scheduler != nil {

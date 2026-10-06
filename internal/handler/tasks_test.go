@@ -42,6 +42,55 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	}
 }
 
+func TestTasksHandlerDefinitionsOnlyPreservesTaskState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tracker := service.NewTaskTrackerService(zap.NewNop(), nil)
+	finished := tracker.Start(service.TaskKindScan, "scan", service.TaskUpdate{})
+	finished.Finish(nil, service.TaskUpdate{})
+	tracker.Start(service.TaskKindScan, "scan", service.TaskUpdate{})
+	svc := &service.Container{Tasks: tracker}
+	for _, definitionsOnly := range []bool{false, true} {
+		url := "/api/tasks?system=common"
+		if definitionsOnly {
+			url += "&definitions_only=1"
+		}
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, url, nil)
+		tasksHandler(svc)(ctx)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+		var response struct {
+			Items       []service.BackgroundTask `json:"items"`
+			Total       int64                    `json:"total"`
+			Definitions []service.TaskDefinition `json:"definitions"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		want := 2
+		if definitionsOnly {
+			want = 0
+		}
+		if len(response.Items) != want || response.Total != int64(want) {
+			t.Fatalf("definitions_only=%v: items=%d total=%d want=%d", definitionsOnly, len(response.Items), response.Total, want)
+		}
+		found := false
+		for _, definition := range response.Definitions {
+			if definition.Key == service.TaskDefinitionLibraryScan {
+				found = true
+				if definition.Current == nil || definition.Latest == nil || definition.CurrentState != service.TaskStatusRunning {
+					t.Fatalf("definitions_only=%v: missing task state: %+v", definitionsOnly, definition)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("scan definition missing")
+		}
+	}
+}
+
 func TestTaskDefinitionRunHandlerReportsTMDbSnapshotBackfillUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

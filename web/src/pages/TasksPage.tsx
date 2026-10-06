@@ -644,7 +644,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 	const supplementTrigger = useRef<HTMLElement | null>(null)
 	const closeSupplement = () => { setSupplementDefinition(null); supplementTrigger.current?.focus() }
 
-	const refresh = () => tasksAPI.snapshot(1, 1, system).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
+	const refresh = () => tasksAPI.snapshot(1, 1, system, undefined, true).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
   useEffect(() => {
     const controller = new AbortController()
     let timer: number | undefined
@@ -670,7 +670,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
     let active = true
 		const controller = new AbortController()
 		let timer: number | undefined
-		const tick = () => tasksAPI.snapshot(1, 1, system, controller.signal).then((value) => { if (active) { setDefinitions(value.definitions ?? []); setLoadError(false) } }).catch(() => { if (active) setLoadError(true) }).finally(() => { if (active) timer = window.setTimeout(tick, 3_000) })
+		const tick = () => tasksAPI.snapshot(1, 1, system, controller.signal, true).then((value) => { if (active) { setDefinitions(value.definitions ?? []); setLoadError(false) } }).catch(() => { if (active) setLoadError(true) }).finally(() => { if (active) timer = window.setTimeout(tick, 3_000) })
     void tick()
     return () => { active = false; controller.abort(); window.clearTimeout(timer) }
   }, [system])

@@ -99,8 +99,8 @@ export const tasksAPI = {
 		api.get<TMDbRecheckPage>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { view: 'items', status, keyword: keyword || undefined, page, page_size: pageSize }, signal }).then((r) => r.data),
 	recheckSummary: (signal?: AbortSignal) =>
 		api.get<TMDbRecheckSummary>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { view: 'summary' }, signal }).then((r) => r.data),
-  snapshot: (page = 1, pageSize = 30, system?: TaskSystem, signal?: AbortSignal) =>
-    api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize, system }, signal }).then((r) => r.data),
+  snapshot: (page = 1, pageSize = 30, system?: TaskSystem, signal?: AbortSignal, definitionsOnly = false) =>
+    api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize, system, definitions_only: definitionsOnly ? 1 : undefined }, signal }).then((r) => r.data),
   log: (key: string, date?: string) =>
     api.get<TaskLog>(`/tasks/definitions/${key}/log`, { params: date ? { date } : undefined }).then((r) => r.data),
   history: (key: string, page = 1, pageSize = 20, signal?: AbortSignal) =>
