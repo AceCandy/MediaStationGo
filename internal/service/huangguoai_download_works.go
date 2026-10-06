@@ -85,6 +85,7 @@ func (s *HuangGuoAIDownloadService) WorkAction(ctx context.Context, id, action s
 	}
 	result := q.Updates(values)
 	if result.Error == nil {
+		s.refreshWorkTask(ctx, id)
 		s.Wake()
 	}
 	return result.RowsAffected, result.Error

@@ -42,6 +42,7 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	}
 	repos := repository.New(db)
 	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(repos.TaskExecution, t.TempDir())
 	catalog := NewHuangGuoAIService(repos, tasks, nil, root)
 	catalog.client = huangguoai.NewClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		var body []byte
@@ -85,6 +86,9 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	if current.Status != "waiting_verify" || current.RawSize == 0 {
 		t.Fatal("not handed to verifier", current.Status)
 	}
+	if got := readHuangGuoDownloadTask(t, service, "51"); got.Status != TaskStatusRunning || got.Metrics["remaining"] != 1 {
+		t.Fatalf("transfer prematurely completed work: %+v", got)
+	}
 	if _, err = os.Stat(filepath.Join(root, "completed", current.RelativePath)); !os.IsNotExist(err) {
 		t.Fatal("published without full verification")
 	}
@@ -96,6 +100,13 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	db.Where("id=?", transfer.ID).Take(&current)
 	if current.Status != "completed" {
 		t.Fatal("not published", current.Status)
+	}
+	if got := readHuangGuoDownloadTask(t, service, "51"); got.Status != TaskStatusCompleted || got.Metrics["completed"] != 1 {
+		t.Fatalf("published work summary: %+v", got)
+	}
+	var executions int64
+	if err = db.Model(&model.TaskExecution{}).Where("kind = ?", TaskKindHuangGuoAIDownload).Count(&executions).Error; err != nil || executions != 1 {
+		t.Fatalf("per-stage executions remain: %d %v", executions, err)
 	}
 	output, err := os.ReadFile(filepath.Join(root, "completed", current.RelativePath))
 	if err != nil || !bytes.Equal(output, data) {

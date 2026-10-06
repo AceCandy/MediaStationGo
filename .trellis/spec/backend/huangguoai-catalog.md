@@ -93,3 +93,28 @@ compatible aggregate `active`. Filter and page works before aggregating their
 whole episode queues; never truncate a work's counts by the selected status.
 `TestHuangGuoAIListDownloadedBadge` and
 `TestHuangGuoAIDownloadWorkStatusCounts` verify these projections in PostgreSQL.
+
+
+## Download execution summaries
+
+- Both Movie (one internal episode) and Series keep one task execution per source
+  work. The ID is a deterministic UUID namespaced with
+  `huangguoai_download:<sourceID>`; SourcePath stores `huangguoai://<sourceID>`.
+  HongGuo identities and queues remain separate; no schema migration is needed.
+- Download rows remain authoritative for leases, retries, verification and
+  publication. Summaries count the complete work queue using its source-ID index;
+  pending phases remain running, and completion requires every row completed.
+  Serialize refresh with a per-system/work transaction advisory lock before
+  reading a fresh queue snapshot and upserting the stable task ID.
+- Refresh only after committed enqueue/action operations and worker entry/exit,
+  never on byte heartbeats. Summary failures must not alter business outcomes.
+  Startup reconciles running/interrupted summaries once and joins on shutdown,
+  including a terminal queue commit followed by a crash before summary refresh.
+- Each episode/stage writes a log-only handle, without execution rows or active/
+  recent tracker entries. Names use source ID and episode number; source titles,
+  title-bearing paths and raw upstream errors never enter summaries or logs.
+- `TestHuangGuoAIDownloadWorkTaskLifecycle` covers Movie/Series, supplement,
+  mixed states, retry/cancel, recovery, concurrency and cross-system identity.
+  `TestHuangGuoAIDownloadSummaryFailureKeepsPublicationAndLogs` verifies publication
+  despite missing summary storage and safe diagnostics including upstream errors.
+  The transfer/verify/publish integration test asserts both stages share one task.

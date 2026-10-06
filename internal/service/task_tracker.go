@@ -108,6 +108,7 @@ type TaskTrackerService struct {
 type TaskHandle struct {
 	tracker *TaskTrackerService
 	id      string
+	logOnly *taskHandleLog
 }
 
 func NewTaskTrackerService(log *zap.Logger, hub *Hub) *TaskTrackerService {
@@ -195,12 +196,20 @@ func (t *TaskTrackerService) startTriggered(kind, trigger, name string, update T
 
 func (h *TaskHandle) Update(update TaskUpdate) {
 	if h != nil && h.tracker != nil {
+		if h.logOnly != nil {
+			h.updateLogOnly(update, false, nil)
+			return
+		}
 		h.tracker.update(h.id, update)
 	}
 }
 
 func (h *TaskHandle) Finish(err error, update TaskUpdate) {
 	if h != nil && h.tracker != nil {
+		if h.logOnly != nil {
+			h.updateLogOnly(update, true, err)
+			return
+		}
 		h.tracker.finish(h.id, err, update)
 	}
 }

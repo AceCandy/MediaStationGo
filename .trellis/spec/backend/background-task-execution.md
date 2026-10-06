@@ -230,8 +230,12 @@ history is observability only; business object state owns retry and recovery.
   platform emoji fonts. Historical level labels are hidden only when they occur
   in the structured position immediately after the timestamp; legacy error
   lines fall back to the failure badge and other legacy lines to the info badge.
-- A persisted execution must exist before its background work starts. A create
+- A persisted execution must exist before ordinary background work starts. A create
   failure aborts that execution; log append failure does not abort business work.
+  HongGuo and HuangGuo AI episode downloads instead use log-only handles and best-effort work
+  summaries: the durable episode queue remains authoritative, and summary failures
+  never prevent transfer, verification, publication, enqueue or retry. See the
+  work-summary contracts in `hongguo-catalog.md` and `huangguoai-catalog.md`.
 - `TaskUpdate.Details` are append-only log records for that update, not an
   accumulated task transcript. A batch worker must pass only newly produced
   detail lines on each `Update` and must not repeat them on `Finish`.

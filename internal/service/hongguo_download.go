@@ -328,6 +328,7 @@ func (s *HongGuoDownloadService) enqueue(ctx context.Context, id string, onlyNew
 		return nil
 	})
 	if err == nil {
+		s.refreshWorkTask(ctx, id)
 		s.Wake()
 	}
 	return added, err
@@ -347,11 +348,13 @@ func (s *HongGuoDownloadService) Action(ctx context.Context, id, action string) 
 	if action != "cancel" && action != "retry" {
 		return errors.New("下载操作无效")
 	}
+	var sourceID string
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row model.HongGuoDownload
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, "id = ?", id).Error; err != nil {
 			return err
 		}
+		sourceID = row.SourceID
 		if action == "cancel" {
 			if row.Status == "completed" {
 				return errors.New("已完成文件不能取消或删除")
@@ -364,6 +367,7 @@ func (s *HongGuoDownloadService) Action(ctx context.Context, id, action string) 
 		return retryHongGuoDownload(tx, row)
 	})
 	if err == nil {
+		s.refreshWorkTask(ctx, sourceID)
 		s.Wake()
 	}
 	return err
@@ -394,6 +398,7 @@ func (s *HongGuoDownloadService) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		s.recoverWorkTasks(ctx)
 		timer := time.NewTicker(5 * time.Second)
 		defer timer.Stop()
 		finished := make(chan bool, maxHongGuoDownloadConcurrency+maxHongGuoVerificationConcurrency)

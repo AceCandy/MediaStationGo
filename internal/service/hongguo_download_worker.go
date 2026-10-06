@@ -67,6 +67,8 @@ func downloadMediaCommandError(err error, message string) error {
 }
 
 func (s *HongGuoDownloadService) run(parent context.Context, row model.HongGuoDownload) {
+	s.refreshWorkTask(parent, row.SourceID)
+	defer s.refreshWorkTask(parent, row.SourceID)
 	ctx, cancel := context.WithTimeout(parent, 90*time.Minute)
 	defer cancel()
 	var downloaded, total atomic.Int64
@@ -98,44 +100,39 @@ func (s *HongGuoDownloadService) run(parent context.Context, row model.HongGuoDo
 			}
 		}
 	}()
-	task := s.tasks.StartTriggered(TaskKindHongGuoDownload, TaskTriggerManual, fmt.Sprintf("红果下载：%s E%03d", row.Title, row.Episode), TaskUpdate{Stage: row.Status, DestPath: row.RelativePath})
-	var err error
-	if task == nil {
-		err = errors.New("下载执行记录创建失败")
-	} else {
-		err = fmt.Errorf("%w: 已达到来源重试上限", errHongGuoDownloadSource)
-		for row.SourceTries < s.sourceTryLimit() || row.RawSize > 0 || row.SHA256 != "" {
-			cfg, configErr := s.Config(ctx)
-			if configErr != nil {
-				err = configErr
-				break
+	task := s.tasks.startLogOnly(TaskKindHongGuoDownload, fmt.Sprintf("红果下载：%s E%03d", row.Title, row.Episode), TaskUpdate{Stage: row.Status, DestPath: row.RelativePath})
+	err := fmt.Errorf("%w: 已达到来源重试上限", errHongGuoDownloadSource)
+	for row.SourceTries < s.sourceTryLimit() || row.RawSize > 0 || row.SHA256 != "" {
+		cfg, configErr := s.Config(ctx)
+		if configErr != nil {
+			err = configErr
+			break
+		}
+		source := s.nextDownloadSource(cfg.Priority, row.Source, row.SourceTries)
+		verification := row.RawSize > 0 || row.SHA256 != ""
+		err = s.executeDownload(ctx, &row, &downloaded, &total, task, source)
+		if ctx.Err() == nil && errors.Is(err, errHongGuoDownloadSource) {
+			if row.SourceErrors == nil {
+				row.SourceErrors = make(map[string]string)
 			}
-			source := s.nextDownloadSource(cfg.Priority, row.Source, row.SourceTries)
-			verification := row.RawSize > 0 || row.SHA256 != ""
-			err = s.executeDownload(ctx, &row, &downloaded, &total, task, source)
-			if ctx.Err() == nil && errors.Is(err, errHongGuoDownloadSource) {
-				if row.SourceErrors == nil {
-					row.SourceErrors = make(map[string]string)
-				}
-				row.SourceErrors[row.Source] = sanitizeTaskLogError(err).Error()
-				encoded, _ := json.Marshal(row.SourceErrors)
-				if saveErr := s.repo.HongGuo.UpdateHongGuoDownload(ctx, row.ID, row.LeaseToken, map[string]any{"source_errors": string(encoded)}); saveErr != nil {
-					err = saveErr
-				}
+			row.SourceErrors[row.Source] = sanitizeTaskLogError(err).Error()
+			encoded, _ := json.Marshal(row.SourceErrors)
+			if saveErr := s.repo.HongGuo.UpdateHongGuoDownload(ctx, row.ID, row.LeaseToken, map[string]any{"source_errors": string(encoded)}); saveErr != nil {
+				err = saveErr
 			}
-			if err == nil || ctx.Err() != nil || row.SHA256 != "" || !errors.Is(err, errHongGuoDownloadSource) {
-				break
-			}
-			row.RawSize = 0
-			if verification {
-				break
-			} // 需要重下时交还调度器，重新取得传输名额。
-			if row.SourceTries < s.sourceTryLimit() {
-				task.Update(TaskUpdate{Message: "下载失败，准备重试", Details: []string{sanitizeTaskLogError(err).Error()}})
-				select {
-				case <-ctx.Done():
-				case <-time.After(2 * time.Second):
-				}
+		}
+		if err == nil || ctx.Err() != nil || row.SHA256 != "" || !errors.Is(err, errHongGuoDownloadSource) {
+			break
+		}
+		row.RawSize = 0
+		if verification {
+			break
+		} // 需要重下时交还调度器，重新取得传输名额。
+		if row.SourceTries < s.sourceTryLimit() {
+			task.Update(TaskUpdate{Message: "下载失败，准备重试", Details: []string{sanitizeTaskLogError(err).Error()}})
+			select {
+			case <-ctx.Done():
+			case <-time.After(2 * time.Second):
 			}
 		}
 	}
@@ -179,7 +176,7 @@ func (s *HongGuoDownloadService) run(parent context.Context, row model.HongGuoDo
 		s.Wake()
 	}
 	if task != nil {
-		task.Finish(err, TaskUpdate{Message: map[bool]string{true: "文件已完成并发布，等待外部备份", false: "下载未完成"}[err == nil]})
+		task.Finish(sanitizeTaskLogError(err), TaskUpdate{Message: map[bool]string{true: "文件已完成并发布，等待外部备份", false: "下载未完成"}[err == nil]})
 	}
 }
 

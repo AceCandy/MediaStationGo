@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,6 +29,8 @@ func validHuangGuoAIStage(path, id string) bool {
 	return ok && err == nil
 }
 func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangGuoAIDownload) {
+	s.refreshWorkTask(parent, row.SourceID)
+	defer s.refreshWorkTask(parent, row.SourceID)
 	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
 	defer cancel()
 	var bytes atomic.Int64
@@ -59,13 +62,8 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 		}
 	}()
 	// Source titles do not enter task logs; IDs are enough to diagnose queue failures.
-	task := s.tasks.StartTriggered(TaskKindHuangGuoAIDownload, TaskTriggerManual, "黄果 AI 下载 "+row.SourceID, TaskUpdate{Stage: row.Status})
-	var err error
-	if task == nil {
-		err = errors.New("下载任务记录不可用")
-	} else {
-		err = s.execute(ctx, &row, &bytes, task)
-	}
+	task := s.tasks.startLogOnly(TaskKindHuangGuoAIDownload, fmt.Sprintf("黄果 AI 下载 %s 第 %d 集", row.SourceID, row.Episode), TaskUpdate{Stage: row.Status})
+	err := s.execute(ctx, &row, &bytes, task)
 	close(finished)
 	<-joined
 	if errors.Is(err, errHuangGuoAIWaitingVerify) {
@@ -88,9 +86,6 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 	}
 	if parent.Err() != nil {
 		safeErr = context.Canceled
-	}
-	if task == nil {
-		return
 	}
 	task.Finish(safeErr, TaskUpdate{Message: map[bool]string{true: "文件已完成并发布，等待整理入库", false: "文件未发布，等待重试"}[err == nil]})
 	s.Wake()

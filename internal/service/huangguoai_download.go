@@ -204,6 +204,7 @@ func (s *HuangGuoAIDownloadService) Enqueue(ctx context.Context, id string) (int
 		return result.Error
 	})
 	if err == nil {
+		s.refreshWorkTask(ctx, id)
 		s.Wake()
 	}
 	return added, err
@@ -222,11 +223,13 @@ func (s *HuangGuoAIDownloadService) List(ctx context.Context, page int) ([]model
 	return rows, count, err
 }
 func (s *HuangGuoAIDownloadService) Action(ctx context.Context, id, action string) error {
+	var sourceID string
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row model.HuangGuoAIDownload
 		if e := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).Take(&row).Error; e != nil {
 			return e
 		}
+		sourceID = row.SourceID
 		switch action {
 		case "cancel":
 			if row.Status == "completed" {
@@ -246,6 +249,7 @@ func (s *HuangGuoAIDownloadService) Action(ctx context.Context, id, action strin
 		}
 	})
 	if err == nil {
+		s.refreshWorkTask(ctx, sourceID)
 		s.Wake()
 	}
 	return err
@@ -258,6 +262,11 @@ func (s *HuangGuoAIDownloadService) Start(parent context.Context) {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	s.cancel = cancel
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.recoverWorkTasks(ctx)
+	}()
 	for _, verify := range []bool{false, true} {
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); s.pool(ctx, verify) }()

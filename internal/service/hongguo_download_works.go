@@ -119,6 +119,7 @@ func (s *HongGuoDownloadService) RetryFailedWork(ctx context.Context, sourceID s
 		return 0, 0, err
 	}
 	if added > 0 {
+		s.refreshWorkTask(ctx, sourceID)
 		s.Wake()
 	}
 	return added, skipped, nil
