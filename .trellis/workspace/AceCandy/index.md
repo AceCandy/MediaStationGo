@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 196
+- **Total Sessions**: 197
 - **Last Active**: 2026-10-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~853 | Active |
+| `journal-3.md` | ~890 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 197 | 2026-10-06 | 优化媒体数量统计并明确作品与文件计数 | `26dd7e8` | `main` |
 | 196 | 2026-10-06 | 任务页加载性能优化 | `fafd711` | `main` |
 | 195 | 2026-10-06 | 黄果接入、发现下载体验与红果表名迁移提交归档 | `e0af2aa` | `main` |
 | 194 | 2026-10-05 | 红果安卓排队与系统异常恢复 | `ff3084e` | `main` |
