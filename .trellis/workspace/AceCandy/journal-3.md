@@ -1069,3 +1069,25 @@ HLS 按完整媒体清单时长校验并持久化，网页差异记录警告；�
 ### Next Steps
 
 - 重新启动服务后重试真实第 7 集；尚未完整播放核实正片内容。
+
+
+## Session 204: 红果仅支持剧集与 SenPlayer 库分页
+<!-- trellis-session: v=2 fp=4bcddc512b105ce2 -->
+
+**Date**: 2026-10-06
+**Task**: 红果仅支持剧集与 SenPlayer 库分页
+**Branch**: `main`
+
+### Summary
+
+红果固定剧集，移除电影分类与播放分支；SenPlayer 混合类型取交集后按作品分页，默认关闭接下来观看。定向回归、Web 检查与六十万文件执行计划通过；较宽测试有既有任务数量断言失败。未部署及实机验证，旧 movie 数据会阻止新约束升级。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `65e3002` | fix(hongguo): 仅支持剧集并修复 SenPlayer 库分页 |
+
+### Status
+
+[OK] **Completed**
