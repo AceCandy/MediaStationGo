@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/huangguoai-catalog.md", "reason": "来源独立与下载安全"}
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "补充任务和已有下载规则"}
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "调度和任务日志"}
+{"file": ".trellis/spec/frontend/discover-feed-loading.md", "reason": "发现交互与加载"}
