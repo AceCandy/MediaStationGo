@@ -53,8 +53,8 @@ func TestHuangGuoAIDownloadWorkTaskLifecycle(t *testing.T) {
 	s := newHuangGuoDownloadTaskTestService(t)
 	db, ctx := s.repo.DB, t.Context()
 	for _, w := range []model.HuangGuoAIWork{
-		{SourceID: "123", Kind: model.MetadataKindSeries, Title: "private-title"},
-		{SourceID: "124", Kind: model.MetadataKindMovie, Title: "private-title"},
+		{SourceID: "123", SourceCategory: "ai-duanju", Kind: model.MetadataKindSeries, Title: "private-title"},
+		{SourceID: "124", SourceCategory: "ai-mogai", Kind: model.MetadataKindMovie, Title: "private-title"},
 	} {
 		if err := db.Create(&w).Error; err != nil {
 			t.Fatal(err)

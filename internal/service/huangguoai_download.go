@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -150,6 +151,19 @@ func (s *HuangGuoAIDownloadService) SaveConfig(ctx context.Context, cfg HuangGuo
 	s.Wake()
 	return s.Config(ctx)
 }
+
+// huangGuoAIDownloadDirectory 按来源分类及作品 ID 分入 aa～hh 共 64 个桶。
+func huangGuoAIDownloadDirectory(category, title, id string) (string, error) {
+	categoryName := map[string]string{"ai-duanju": "AI短剧", "ai-manju": "AI漫剧", "ai-huanlian": "AI换脸", "ai-mogai": "AI魔改"}[category]
+	if categoryName == "" {
+		return "", errors.New("黄果 AI 来源分类未补齐")
+	}
+	// 复用作品标题清洗与截断规则，来源标签只保留在作品目录中。
+	name := strings.Replace(filepath.Base(hongGuoDownloadDirectory(0, 0, title, id)), "[hongguo-", "[huangguoai-", 1)
+	bucket := crc32.ChecksumIEEE([]byte(id)) % 64
+	return filepath.Join(categoryName, fmt.Sprintf("%c%c", 'a'+bucket/8, 'a'+bucket%8), name), nil
+}
+
 func (s *HuangGuoAIDownloadService) Enqueue(ctx context.Context, id string) (int, error) {
 	if !huangguoai.ValidID(id) {
 		return 0, errors.New("作品 ID 无效")
@@ -187,7 +201,10 @@ func (s *HuangGuoAIDownloadService) Enqueue(ctx context.Context, id string) (int
 		if work.Kind == model.MetadataKindMovie && (len(episodes) != 1 || episodes[0].Number != 1) {
 			return errors.New("电影存在未确认的分集结构，暂不下载")
 		}
-		dir := strings.Replace(hongGuoDownloadDirectory(0, 0, work.Title, id), "[hongguo-", "[huangguoai-", 1)
+		dir, err := huangGuoAIDownloadDirectory(work.SourceCategory, work.Title, id)
+		if err != nil {
+			return err
+		}
 		placement := model.HuangGuoAIDownloadWork{SourceID: id, Title: work.Title, Root: cfg.Root, Directory: dir}
 		if e := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&placement).Error; e != nil {
 			return e
@@ -197,7 +214,7 @@ func (s *HuangGuoAIDownloadService) Enqueue(ctx context.Context, id string) (int
 		}
 		rows := make([]model.HuangGuoAIDownload, 0, len(episodes))
 		for _, ep := range episodes {
-			rows = append(rows, model.HuangGuoAIDownload{SourceID: id, Episode: ep.Number, Title: placement.Title, Root: placement.Root, RelativePath: filepath.Join(placement.Directory, "Season 01", fmt.Sprintf("[huangguoai-%s] S01E%03d.mp4", id, ep.Number)), Status: "queued"})
+			rows = append(rows, model.HuangGuoAIDownload{SourceID: id, Episode: ep.Number, Title: placement.Title, Root: placement.Root, RelativePath: filepath.Join(placement.Directory, "Season 01", fmt.Sprintf("S01E%03d.mp4", ep.Number)), Status: "queued"})
 		}
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&rows, 100)
 		added = int(result.RowsAffected)

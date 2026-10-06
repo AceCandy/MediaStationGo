@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,44 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+func TestHuangGuoAIDownloadDirectory(t *testing.T) {
+	for category, name := range map[string]string{"ai-duanju": "AI短剧", "ai-manju": "AI漫剧", "ai-huanlian": "AI换脸", "ai-mogai": "AI魔改"} {
+		dir, err := huangGuoAIDownloadDirectory(category, "剧名", "117")
+		if err != nil || filepath.ToSlash(dir) != name+"/ba/剧名 [huangguoai-117]" {
+			t.Fatalf("directory: %s %v", dir, err)
+		}
+		path := filepath.Join(dir, "Season 01", "S01E002.mp4")
+		id, err := huangguoai.PathID(path)
+		season, episode := parseStandardEpisode(path)
+		if err != nil || id != "117" || season != 1 || episode != 2 {
+			t.Fatalf("directory identity: %s %d %d %v", id, season, episode, err)
+		}
+	}
+	buckets := map[string]bool{}
+	for id := 1; id <= 10000; id++ {
+		dir, err := huangGuoAIDownloadDirectory("ai-duanju", "剧名", strconv.Itoa(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		bucket := strings.Split(filepath.ToSlash(dir), "/")[1]
+		if len(bucket) != 2 || bucket[0] < 'a' || bucket[0] > 'h' || bucket[1] < 'a' || bucket[1] > 'h' {
+			t.Fatalf("invalid bucket: %s", bucket)
+		}
+		buckets[bucket] = true
+	}
+	if len(buckets) != 64 {
+		t.Fatalf("bucket count: %d", len(buckets))
+	}
+	if _, err := huangGuoAIDownloadDirectory("", "剧名", "117"); err == nil {
+		t.Fatal("accepted missing category")
+	}
+	dir, err := huangGuoAIDownloadDirectory("ai-duanju", "../../剧名 [huangguoai-999]/\x00", "117")
+	id, identityErr := huangguoai.PathID(dir)
+	if err != nil || identityErr != nil || id != "117" || !filepath.IsLocal(dir) || len(strings.Split(filepath.ToSlash(dir), "/")) != 3 {
+		t.Fatalf("unsafe title: %s %v %v", dir, err, identityErr)
+	}
+}
 
 func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -112,8 +151,8 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	if err != nil || !bytes.Equal(output, data) {
 		t.Fatal("output content changed", err)
 	}
-	if !strings.Contains(current.RelativePath, "[huangguoai-51] S01E001.mp4") {
-		t.Fatal("source identity lost")
+	if filepath.ToSlash(current.RelativePath) != "AI魔改/gd/Synthetic [huangguoai-51]/Season 01/S01E001.mp4" {
+		t.Fatal("unexpected output path", current.RelativePath)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "downloading"))
 	if err != nil || len(entries) != 0 {
@@ -219,7 +258,7 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 
 func TestHuangGuoAIOrganizePreservesSourceIdentity(t *testing.T) {
 	o := &OrganizerService{}
-	target, err := o.buildOrganizeTargetPath(t.Context(), organizeTargetInput{Root: t.TempDir(), Title: "Synthetic", Source: "/source/[huangguoai-71] S01E003.mp4", Ext: ".mp4", MediaType: "movie"})
+	target, err := o.buildOrganizeTargetPath(t.Context(), organizeTargetInput{Root: t.TempDir(), Title: "Synthetic", Source: "/source/AI短剧/aa/Synthetic [huangguoai-71]/Season 01/S01E003.mp4", Ext: ".mp4", MediaType: "movie"})
 	if err != nil {
 		t.Fatal(err)
 	}

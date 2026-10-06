@@ -15,7 +15,8 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   retain numeric source IDs as strings, never UUIDs or display IDs.
 - Display IDs: Movie `hga-work-UUID`, Series `hga-group-sourceID`, virtual S01
   `hga-season-workUUID`, Episode `hga-episode-episodeUUID`.
-- File tag: `[huangguoai-sourceID] S01Exxx`; Movie keeps episode 1 internally.
+- Path tag: `[huangguoai-sourceID]` in the work directory or legacy filename;
+  episode filenames use `S01Exxx.mp4`. Movie keeps episode 1 internally.
   Shared library `/series` returns mixed Movie/Series work cards.
 - Settings: `huangguoai.enabled`, `huangguoai.download_root`, source-specific
   scheduler keys. See download config service for current supported keys.
@@ -36,6 +37,13 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
 - Download re-resolves media per attempt; credentials, keys and signed media URLs
   stay transient. Verify duration and complete decode before no-overwrite publish.
   Completed output and scanner ingestion are separate stages.
+- New download work directories use the fixed source category labels `AI短剧`,
+  `AI漫剧`, `AI换脸`, `AI魔改`, then 64 letter buckets `aa` through `hh`:
+  CRC32 IEEE(sourceID) modulo 64, encoded as two base-8 letters `a` through `h`.
+  Layout: `<category>/<bucket>/<title> [huangguoai-ID]/Season 01/S01Exxx.mp4`.
+  Missing source categories reject enqueue. Existing placements remain stable;
+  moving historical files and download paths is a coordinated operational action,
+  never an automatic startup migration. Scanner/organizer identity uses full paths.
 - Public Media keeps `metadata_id IS NULL`. Source library scans skip ordinary
   metadata/sidecars. Organizers retain tag/S01 and reject moving bound source files
   into ordinary libraries before file transfer. Auto-mark preserves completed rows.
