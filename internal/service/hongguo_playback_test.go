@@ -185,7 +185,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 		t.Fatalf("global source search: %v", search)
 	}
 	counts, err := e.ItemCounts(ctx, "user-a")
-	if err != nil || counts["MovieCount"] != int64(1) || counts["EpisodeCount"] != int64(1) || counts["SeriesCount"] != 1 {
+	if err != nil || counts["MovieCount"] != int64(1) || counts["EpisodeCount"] != int64(2) || counts["SeriesCount"] != 1 {
 		t.Fatalf("counts: %v %v", counts, err)
 	}
 	if err := e.SetFavorite(ctx, "user-a", "hg-group-"+groupID, true); err != nil {

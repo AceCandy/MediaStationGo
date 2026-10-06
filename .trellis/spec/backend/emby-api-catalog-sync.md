@@ -218,3 +218,54 @@ This advertises an unregistered path and treats one optional token carrier as ma
    complete visible membership set. When reviewing dispatch, evaluate the
    outer library-ID branch before its recursive-parent `else if`; do not infer
    library behavior from a child-container branch.
+
+## Items/Counts work and file totals
+
+### 1. Scope / Trigger
+
+Changes to `GET /Items/Counts` and its user/case aliases.
+
+### 2. Signatures
+
+`EmbyService.ItemCounts(ctx, userID)` returns MovieCount, SeriesCount,
+EpisodeCount and ItemCount as JSON numbers.
+
+### 3. Contracts
+
+MovieCount/SeriesCount count source work records in ordinary metadata, NFO,
+HongGuo and HuangGuo AI. HongGuo album members count separately; no album
+projection is needed. Versions and multipart files do not increase work counts.
+Only works with files in the user's visible libraries count. Maintained work
+library membership proves file visibility; historical NULL membership retains
+visible-file EXISTS. NFO uses its library ownership and maintained file time,
+with a visible-file fallback when the time is uninitialized.
+EpisodeCount counts **all visible Media rows**, including movies, unbound files,
+versions and multipart files. It does not mean distinct episode identities.
+ItemCount is MovieCount + SeriesCount: the total number of works, never a mix
+of work and file totals. Four source work aggregates and
+one Media count may run concurrently; there is no count/page snapshot to share.
+Never expand hierarchy nodes, artwork, favorites or playback state for counts.
+
+### 4. Validation & Error Matrix
+
+Hidden/disallowed libraries and locked-empty profiles contribute zero. Source
+query failures fail the complete response; cancellation retains bodyless 499.
+
+### 5. Good / Base / Bad Cases
+
+Good: two versions of one movie return MovieCount=1, EpisodeCount=2 and ItemCount=1.
+Base: a work with no files contributes zero. Bad: count one HongGuo album for
+multiple source works, or count distinct metadata IDs as the Media total.
+
+### 6. Tests Required
+
+`TestEmbyItemCountsWorksAndAllFiles` covers all four sources, versions/parts,
+shared cross-library movies, album members, fileless/unbound records, known and
+historical memberships, permission intersection, cancellation and source failure.
+Keep existing ordinary/HongGuo/HuangGuo AI count assertions synchronized.
+Verify production-sized read-only query timings separately from player HTTP QA.
+
+### 7. Wrong vs Correct
+
+Wrong: call `hongGuoNodes` and aggregate its complete display projection.
+Correct: count work rows under library visibility and count Media rows separately.

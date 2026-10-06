@@ -154,8 +154,8 @@ func TestEmbyCountsSharedMetadataOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("item counts: %v", err)
 	}
-	if counts["ItemCount"] != int64(1) || counts["MovieCount"] != int64(1) {
-		t.Fatalf("shared metadata counts = %#v, want one item and one movie", counts)
+	if counts["ItemCount"] != int64(1) || counts["EpisodeCount"] != int64(2) || counts["MovieCount"] != int64(1) {
+		t.Fatalf("shared metadata counts = %#v, want two files, one movie and one work", counts)
 	}
 }
 

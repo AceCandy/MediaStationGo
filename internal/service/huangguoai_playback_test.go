@@ -117,7 +117,7 @@ func TestHuangGuoAIEmbyPlaybackHierarchyAndPermissions(t *testing.T) {
 		t.Fatal("favorite memberships", favorites)
 	}
 	counts, err := e.ItemCounts(ctx, "viewer")
-	if err != nil || counts["MovieCount"] != int64(1) || counts["EpisodeCount"] != int64(2) || counts["SeriesCount"] != 1 {
+	if err != nil || counts["MovieCount"] != int64(1) || counts["EpisodeCount"] != int64(3) || counts["SeriesCount"] != 1 {
 		t.Fatal("item counts", counts, err)
 	}
 	movie, err := repos.MediaView.FindByID(ctx, files[2].ID)
