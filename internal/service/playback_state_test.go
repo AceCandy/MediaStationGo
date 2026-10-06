@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -56,7 +57,7 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 			p := NewPlaybackService(zap.NewNop(), repos)
 			visibility := MediaVisibility{IncludeNSFW: true}
 			e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
-			assertState := func(played bool, position int64, resumes int) {
+			assertState := func(played bool, position int64, resumes int, percentage float64) {
 				t.Helper()
 				item, err := e.Item(t.Context(), itemID, "viewer")
 				if err != nil {
@@ -65,6 +66,9 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 				data := item["UserData"].(map[string]any)
 				if data["Played"] != played || data["PlaybackPositionTicks"] != position*10_000 {
 					t.Fatalf("state=%v want played=%v position=%d", data, played, position)
+				}
+				if math.Abs(data["PlayedPercentage"].(float64)-percentage) > 1e-9 {
+					t.Fatalf("detail percentage=%v want %v", data["PlayedPercentage"], percentage)
 				}
 				var completed int64
 				var expectedCompleted int64
@@ -82,23 +86,29 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 				if err != nil || reflect.ValueOf(resume["Items"]).Len() != resumes {
 					t.Fatalf("emby resumes=%v err=%v", resume, err)
 				}
+				if resumes > 0 {
+					resumeData := resume["Items"].([]map[string]any)[0]["UserData"].(map[string]any)
+					if resumeData["Played"] != played || resumeData["PlaybackPositionTicks"] != position*10_000 || math.Abs(resumeData["PlayedPercentage"].(float64)-percentage) > 1e-9 {
+						t.Fatalf("resume state=%v want played=%v position=%d percentage=%v", resumeData, played, position, percentage)
+					}
+				}
 			}
 			if err := e.MarkPlayed(t.Context(), "viewer", itemID, true); err != nil {
 				t.Fatal(err)
 			}
-			assertState(true, 0, 0)
+			assertState(true, 0, 0, 100)
 			if err := p.RecordProgress(t.Context(), "viewer", file.ID, "replay", 120_000, 1_440_000, visibility); err != nil {
 				t.Fatal(err)
 			}
-			assertState(true, 120_000, 1)
+			assertState(true, 120_000, 1, 100.0/12)
 			if err := p.RecordProgress(t.Context(), "viewer", file.ID, "replay", 1_440_000, 3_900_000, visibility); err != nil {
 				t.Fatal(err)
 			}
-			assertState(true, 0, 0)
+			assertState(true, 0, 0, 100)
 			if err := e.MarkPlayed(t.Context(), "viewer", itemID, false); err != nil {
 				t.Fatal(err)
 			}
-			assertState(false, 0, 0)
+			assertState(false, 0, 0, 0)
 			// 旧版本已被删除，只剩 24 分钟版本；读取不能改写历史快照。
 			now := time.Now()
 			switch source {
@@ -111,7 +121,7 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 			case "hongguo":
 				create(&model.HongGuoUserState{UserID: "viewer", SourceID: "123", EpisodeNumber: 1, MediaID: "removed", PositionMs: 1_440_000, DurationMs: 3_900_000, WatchedAt: &now})
 			}
-			assertState(true, 0, 0)
+			assertState(true, 0, 0, 100)
 			stateTable := map[string]string{"legacy": "playback_histories", "nfo": "nfo_user_states", "hongguo": "hongguo_user_states"}[source]
 			var snapshot struct {
 				MediaID                string

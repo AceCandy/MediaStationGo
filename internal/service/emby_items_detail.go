@@ -400,7 +400,9 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 	}
 	container := embyMediaContainer(&m.Media, m.ProbeContainer)
 	if completed {
-		pct = 100
+		if posMs == 0 {
+			pct = 100
+		}
 		playCount = 1
 	}
 	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""

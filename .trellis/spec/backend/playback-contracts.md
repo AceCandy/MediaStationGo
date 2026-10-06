@@ -201,8 +201,11 @@ per-user, per-metadata history state but playback events are append-only.
   Detail and list payloads agree; lists use one current-page aggregate query,
   never per-item history queries or whole-catalog file probes.
 - Movie/Episode payloads honor history `completed` even without probe duration.
-  Completed payloads return `Played=true`, `PlayCount=1`, and
-  `PlayedPercentage=100`; containers have no playback position of their own.
+  Completed payloads return `Played=true` and `PlayCount=1`. Without a resume
+  position they return `PlayedPercentage=100`; a positive replay position uses
+  the current position/duration percentage (clamped to 0..100, zero for unknown
+  duration), independently of the sticky completed mark. Containers have no
+  playback position of their own.
   Successful manual watched/unwatched writes invalidate `media:emby:` caches.
 - Only the authenticated user may read or mutate UserData, history, favorites,
   and realtime sessions. An administrator may target another user only when an

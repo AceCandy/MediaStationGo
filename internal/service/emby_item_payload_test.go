@@ -6,6 +6,38 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
+func TestEmbyItemPayloadReplayPercentage(t *testing.T) {
+	svc := &EmbyService{}
+	for _, tc := range []struct {
+		name       string
+		completed  bool
+		position   int64
+		duration   int64
+		percentage float64
+	}{
+		{"unplayed", false, 0, 1_440_000, 0},
+		{"in_progress", false, 360_000, 1_440_000, 25},
+		{"watched", true, 0, 1_440_000, 100},
+		{"replay", true, 360_000, 1_440_000, 25},
+		{"watched_unknown_duration", true, 0, 0, 100},
+		{"replay_unknown_duration", true, 360_000, 0, 0},
+		{"replay_clamped", true, 1_500_000, 1_440_000, 100},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			view := model.MediaView{ProbeDurationMS: tc.duration}
+			item := svc.itemPayloadWithRelations(t.Context(), &view, "", false, tc.position, tc.completed, false, &embyItemRelations{})
+			data := item["UserData"].(map[string]any)
+			playCount := 0
+			if tc.completed {
+				playCount = 1
+			}
+			if data["Played"] != tc.completed || data["PlayCount"] != playCount || data["PlaybackPositionTicks"] != tc.position*10_000 || data["PlayedPercentage"] != tc.percentage {
+				t.Fatalf("UserData=%v want played=%v playCount=%d position=%d percentage=%v", data, tc.completed, playCount, tc.position, tc.percentage)
+			}
+		})
+	}
+}
+
 func TestEmbyItemPayloadHierarchyFields(t *testing.T) {
 	svc := newTestEmbyService(t)
 	for _, tc := range []struct {

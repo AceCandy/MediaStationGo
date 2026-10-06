@@ -139,6 +139,7 @@ const playStateRequest = `{
 const userDataFields: readonly EmbyApiField[] = [
   { name: 'IsFavorite', type: 'boolean', description: '是否收藏。' },
   { name: 'Played', type: 'boolean', description: '是否已看过；重播不清除，显式取消已看才重置。' },
+  { name: 'PlayedPercentage', type: 'number', description: 'Movie/Episode 有续播断点时按已知片长计算当前进度（0–100）；片长未知时为 0。已观看且无断点时为 100，重播进度与已观看标记独立。' },
   unplayedItemCountField,
   { name: 'PlaybackPositionTicks', type: 'number', description: '续播位置；播放完成或手动标已看后为 0。已看过的作品重播时也可有断点。旧文件不可用时按可见替代版本的已知片长修正。' },
 ]
