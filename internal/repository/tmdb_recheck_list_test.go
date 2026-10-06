@@ -108,6 +108,15 @@ func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 		if err != nil || !maps.Equal(summary.Counts, counts) {
 			t.Fatalf("summary=%+v err=%v, want=%v", summary, err, counts)
 		}
+		var pending int64
+		for status, n := range counts {
+			if status != "done" {
+				pending += n
+			}
+		}
+		if total, err := repo.CountPendingTMDbRechecks(t.Context()); err != nil || total != pending {
+			t.Fatalf("pending=%d want=%d err=%v", total, pending, err)
+		}
 		for _, id := range []string{season.ID, episodes[0].ID} {
 			files, err := repo.ListTMDbRecheckFiles(t.Context(), id, 1, 100)
 			if err != nil || (len(files.Items) > 0) != (want[id] == "not_found") {
@@ -176,6 +185,10 @@ func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 	if saved.Status != "not_found" || saved.DueAt == nil || !saved.DueAt.Equal(due) || saved.Attempts != 2 || saved.NotFoundIdentity != "unchanged" {
 		t.Fatalf("query changed recheck state: %+v", saved)
 	}
+	if err := db.Model(&model.TMDbRecheckJob{}).Where("metadata_id=?", season.ID).Update("status", "done").Error; err != nil {
+		t.Fatal(err)
+	}
+	check(map[string]string{season.ID: "done", episodes[0].ID: "not_found"})
 }
 
 func TestTMDbRecheckListCountsAvoidPerEpisodeProbes(t *testing.T) {

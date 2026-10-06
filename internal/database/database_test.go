@@ -278,7 +278,7 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataCredit{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}, &model.HongGuoDownload{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataCredit{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}, &model.HongGuoDownload{}, &model.TaskExecution{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`CREATE INDEX idx_metadata_credits_pending_translation ON metadata_credits(metadata_id, id)
@@ -307,10 +307,14 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		"idx_media_scrape_pending_pick",
 		"idx_media_scrape_group",
 		"idx_media_scrape_running",
+		"idx_media_scrape_issues",
 		"idx_media_probe_automatic_candidates",
 		"idx_media_probe_nonempty_document",
 		"idx_media_recent_metadata",
 		"idx_metadata_parent_episode_active",
+		"idx_metadata_recheck_kind_id",
+		"idx_task_executions_kind_latest",
+		"idx_task_executions_kind_name_latest",
 		"idx_favorites_user_media_active",
 		"idx_playback_histories_user_media_active",
 		"idx_play_profiles_user_created_active",

@@ -562,10 +562,12 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_pending_pick ON media ((CASE WHEN COALESCE(season_num, 0) > 0 OR COALESCE(episode_num, 0) > 0 THEN 1 ELSE 0 END), id) WHERE COALESCE(catalog_source, '') = '' AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = 'pending')`,
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_group ON media (BTRIM(COALESCE(series_hint, '')), BTRIM(COALESCE(metadata_id, '')), id) WHERE COALESCE(catalog_source, '') = '' AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = 'pending')`,
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_running ON media (id) WHERE COALESCE(catalog_source, '') = '' AND scrape_status = 'running'`,
+		`CREATE INDEX IF NOT EXISTS idx_media_scrape_issues ON media (library_id, updated_at DESC, id DESC) WHERE scrape_status IN ('error', 'no_match')`,
 		`CREATE INDEX IF NOT EXISTS idx_media_probe_automatic_candidates ON media (id) INCLUDE (library_id, metadata_id) WHERE COALESCE(episode_num, 0) = 0 AND LOWER(path) NOT LIKE '%.iso'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_kind_release_active ON metadata_items(kind, release_date DESC, year DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_season_active ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_episode_active ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_recheck_kind_id ON metadata_items(kind, id) WHERE kind IN ('episode', 'season')`,
 		`CREATE INDEX IF NOT EXISTS idx_favorites_user_media_active ON favorites(user_id, media_id) WHERE deleted_at IS NULL`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS uniq_favorites_user_metadata_active ON favorites(user_id, metadata_id) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_playback_histories_user_media_active ON playback_histories(user_id, media_id, watched_at DESC) WHERE deleted_at IS NULL`,
@@ -573,6 +575,12 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS uniq_playback_histories_user_metadata_active ON playback_histories(user_id, metadata_id) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_playback_histories_resume_active ON playback_histories(user_id, completed, watched_at DESC) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_play_profiles_user_created_active ON play_profiles(user_id, created_at DESC) WHERE deleted_at IS NULL`,
+	}
+	if db.Migrator().HasTable(&model.TaskExecution{}) {
+		statements = append(statements,
+			`CREATE INDEX IF NOT EXISTS idx_task_executions_kind_latest ON task_executions(kind, started_at DESC, id DESC) WHERE deleted_at IS NULL`,
+			`CREATE INDEX IF NOT EXISTS idx_task_executions_kind_name_latest ON task_executions(kind, name, started_at DESC, id DESC) WHERE deleted_at IS NULL`,
+		)
 	}
 	if db.Migrator().HasTable(&model.PlaylistItem{}) {
 		statements = append(statements,

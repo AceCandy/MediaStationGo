@@ -36,23 +36,18 @@ func taskPendingCountsHandler(svc *service.Container) gin.HandlerFunc {
 		if current := cached.Load(); current != nil && current != previous {
 			return current, nil
 		}
-		rechecks, err := svc.Repo.Metadata.SummarizeTMDbRechecks(ctx)
+		rechecks, err := svc.Repo.Metadata.CountPendingTMDbRechecks(ctx)
 		if err != nil {
 			return nil, err
 		}
-		issues, err := svc.Media.ListScrapeIssues(ctx, "", "", nil, 1, 1)
+		issues, err := svc.Media.CountScrapeIssues(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		next := &taskPendingCounts{ScrapeIssues: issues.Total, UpdatedAt: time.Now()}
-		for status, count := range rechecks.Counts {
-			if status != "done" {
-				next.Rechecks += count
-			}
-		}
+		next := &taskPendingCounts{Rechecks: rechecks, ScrapeIssues: issues, UpdatedAt: time.Now()}
 		cached.Store(next)
 		return next, nil
 	}

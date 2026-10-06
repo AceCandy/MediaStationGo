@@ -77,7 +77,15 @@ func TestTaskPendingCountsCache(t *testing.T) {
 		return out
 	}
 	var queries atomic.Int32
-	count := func(*gorm.DB) { queries.Add(1) }
+	// 任务页数量统计不依赖变更明细表。
+	if err := db.Migrator().DropTable(&model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{}); err != nil {
+		t.Fatal(err)
+	}
+	count := func(tx *gorm.DB) {
+		if !tx.DryRun {
+			queries.Add(1)
+		}
+	}
 	if err := db.Callback().Query().Before("gorm:query").Register("count_pending_queries", count); err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +97,8 @@ func TestTaskPendingCountsCache(t *testing.T) {
 		t.Fatalf("first=%+v", first)
 	}
 	queryCount := queries.Load()
-	if queryCount == 0 {
-		t.Fatal("cold load did not query")
+	if queryCount != 2 {
+		t.Fatalf("cold load queries=%d, want 2 (pending rechecks and scrape count)", queryCount)
 	}
 	if err := db.Model(&model.TMDbRecheckJob{}).Where("metadata_id = ?", "episode").Update("status", "done").Error; err != nil {
 		t.Fatal(err)

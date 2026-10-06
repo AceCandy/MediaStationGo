@@ -50,6 +50,15 @@ func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pa
 	return s.ListMediaVisible(ctx, libraryID, page, pageSize, MediaVisibility{IncludeNSFW: true})
 }
 
+// CountScrapeIssues 仅统计有效媒体库中的失败与未匹配文件，不读取问题明细。
+func (s *MediaService) CountScrapeIssues(ctx context.Context) (int64, error) {
+	var total int64
+	err := s.repo.DB.WithContext(ctx).Table("media AS m").
+		Joins("JOIN libraries AS l ON l.id = m.library_id AND l.deleted_at IS NULL").
+		Where("m.scrape_status IN ('error', 'no_match')").Count(&total).Error
+	return total, err
+}
+
 func (s *MediaService) ListScrapeIssues(ctx context.Context, libraryID, keyword string, statuses []string, page, pageSize int) (MediaScrapeIssuePage, error) {
 	if page < 1 {
 		page = 1

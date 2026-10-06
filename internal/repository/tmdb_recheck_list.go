@@ -127,6 +127,14 @@ func (r *MetadataRepository) SummarizeTMDbRechecks(ctx context.Context) (TMDbRec
 	return out, err
 }
 
+// CountPendingTMDbRechecks 仅统计仍有关联文件的未完成待办，跳过已完成任务及变更明细统计。
+func (r *MetadataRepository) CountPendingTMDbRechecks(ctx context.Context) (int64, error) {
+	jobs := r.db.WithContext(ctx).Table("tm_db_recheck_jobs").Select("metadata_id, status").Where("status <> 'done'")
+	var total int64
+	err := r.db.WithContext(ctx).Raw("SELECT COALESCE(SUM(n), 0)::bigint FROM ("+tmdbRecheckCountsSQL+") counts", jobs, jobs).Scan(&total).Error
+	return total, err
+}
+
 // ListTMDbRechecks 按剧名、季号和集号排序后分页，不改变后台复查调度顺序。
 func (r *MetadataRepository) ListTMDbRechecks(ctx context.Context, status, keyword string, page, size int) (TMDbRecheckPage, error) {
 	return r.listTMDbRechecks(ctx, status, keyword, page, size, true)

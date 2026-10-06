@@ -6,11 +6,54 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
+
+func TestCountScrapeIssuesMatchesListWithoutReadingDetails(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repository.New(db))
+	for _, id := range []string{"active", "deleted"} {
+		if err := db.Create(&model.Library{Base: model.Base{ID: id}, Name: id, Type: "movie"}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Delete(&model.Library{}, "id = ?", "deleted").Error; err != nil {
+		t.Fatal(err)
+	}
+	for i, row := range []model.Media{
+		{LibraryID: "active", ScrapeStatus: "error"},
+		{LibraryID: "active", ScrapeStatus: "no_match"},
+		{LibraryID: "active", ScrapeStatus: "matched"},
+		{LibraryID: "deleted", ScrapeStatus: "error"},
+		{LibraryID: "missing", ScrapeStatus: "no_match"},
+	} {
+		row.Path = "/count/" + string(rune('a'+i))
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := svc.ListScrapeIssues(t.Context(), "", "", nil, 1, 1)
+	if err != nil || page.Total != 2 {
+		t.Fatalf("list=%+v err=%v", page, err)
+	}
+	queries := 0
+	if err := db.Callback().Query().After("gorm:query").Register("check_scrape_count_only", func(tx *gorm.DB) {
+		queries++
+		if !strings.Contains(tx.Statement.SQL.String(), "count(*)") {
+			t.Errorf("unexpected detail query: %s", tx.Statement.SQL.String())
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	count, err := svc.CountScrapeIssues(t.Context())
+	if err != nil || count != page.Total || queries != 1 {
+		t.Fatalf("count=%d want=%d queries=%d err=%v", count, page.Total, queries, err)
+	}
+}
 
 func TestListScrapeIssuesFiltersAndSanitizesReasons(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
