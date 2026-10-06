@@ -1091,3 +1091,40 @@ HLS 按完整媒体清单时长校验并持久化，网页差异记录警告；�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 205: 统一作品日期排序并修复播放器首页展示
+<!-- trellis-session: v=2 fp=c71a202b454311f1 -->
+
+**Date**: 2026-10-07
+**Task**: 统一作品日期排序并修复播放器首页展示
+**Branch**: `main`
+
+### Summary
+
+DateCreated 作品排序统一复用最新入库时间，NextUp 固定空响应，混合类型电影库分流修复；代码、测试、规范及接口目录已提交归档。
+
+### Main Changes
+
+- 普通、NFO、红果、黄果 AI 的作品 DateCreated 排序统一使用 latest_media_added_at，展示日期及季集行为保持。
+- NextUp 所有别名固定空列表，保留认证及用户权限；Resume 和 Web 下一集行为保留。
+- SenPlayer 混合 Movie/Series 请求按目标库类型分流，电影库正常展示。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7be1022` | fix(emby): 统一作品日期排序并修复首页栏目和电影库展示 |
+
+### Testing
+
+- [OK] 后端排序、权限、分页、两种计数模式、季集层级和 NextUp/Resume/Web 回归通过；红果 60 万文件执行计划通过。
+- [OK] Web lint/build、浏览器目录交互与响应式/可访问性检查、独立复核、git diff --check 通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 本轮未部署、重启或推送；更新服务后验证 SenPlayer 栏目隐藏效果和实际耗时。

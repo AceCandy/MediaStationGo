@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 204
-- **Last Active**: 2026-10-06
+- **Total Sessions**: 205
+- **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1093 | Active |
+| `journal-3.md` | ~1130 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 205 | 2026-10-07 | 统一作品日期排序并修复播放器首页展示 | `7be1022` | `main` |
 | 204 | 2026-10-06 | 红果仅支持剧集与 SenPlayer 库分页 | `65e3002` | `main` |
 | 203 | 2026-10-06 | 黄果 HLS 时长校验与安全诊断 | `0437c76` | `main` |
 | 202 | 2026-10-06 | 黄果下载目录调整与现有作品迁移 | `789ceb3` | `main` |
