@@ -340,9 +340,6 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 			return "", 0, err
 		}
 	}
-	if media.ExpectedDuration > 0 && (p.Duration < media.ExpectedDuration-2 || p.Duration > media.ExpectedDuration+2) {
-		return "", 0, errors.New("HLS 时长与分集资料不一致，可能仅为试看")
-	}
 	var total int64
 	var manifest strings.Builder
 	manifest.WriteString("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:3600\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")

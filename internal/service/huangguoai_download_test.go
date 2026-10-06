@@ -122,7 +122,7 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	service.run(ctx, *transfer)
 	var current model.HuangGuoAIDownload
 	db.Where("id=?", transfer.ID).Take(&current)
-	if current.Status != "waiting_verify" || current.RawSize == 0 {
+	if current.Status != "waiting_verify" || current.RawSize == 0 || current.Duration != 2 {
 		t.Fatal("not handed to verifier", current.Status)
 	}
 	if got := readHuangGuoDownloadTask(t, service, "51"); got.Status != TaskStatusRunning || got.Metrics["remaining"] != 1 {

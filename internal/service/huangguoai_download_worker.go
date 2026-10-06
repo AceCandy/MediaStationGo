@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,11 @@ import (
 )
 
 var errHuangGuoAIWaitingVerify = errors.New("黄果 AI 等待独立校验")
+
+// huangGuoAIDownloadError 仅标记来源客户端和媒体校验器已脱敏的错误，底层数据库错误不可公开。
+type huangGuoAIDownloadError struct{ error }
+
+func (e huangGuoAIDownloadError) Unwrap() error { return e.error }
 
 func validHuangGuoAIStage(path, id string) bool {
 	parts := strings.Split(filepath.ToSlash(path), "/")
@@ -71,21 +77,25 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 		s.Wake()
 		return
 	}
+	safeErr := err
+	if err != nil {
+		safeErr = errors.New("黄果 AI 下载未完成")
+		var publicErr huangGuoAIDownloadError
+		if errors.As(err, &publicErr) {
+			safeErr = fmt.Errorf("黄果 AI 下载未完成：%s", publicErr.error)
+		}
+	}
+	if parent.Err() != nil {
+		safeErr = context.Canceled
+	}
 	if err != nil {
 		status := "failed"
 		if parent.Err() != nil {
 			status = "queued"
 		}
 		writeCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(writeCtx, row.ID, row.LeaseToken, map[string]any{"status": status, "error": "下载未完成，详情见任务状态", "lease_token": "", "lease_until": nil, "raw_size": row.RawSize, "sha256": row.SHA256, "verified_size": row.VerifiedSize, "staging_path": row.StagingPath})
+		_ = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(writeCtx, row.ID, row.LeaseToken, map[string]any{"status": status, "error": safeErr.Error(), "lease_token": "", "lease_until": nil, "raw_size": row.RawSize, "sha256": row.SHA256, "verified_size": row.VerifiedSize, "staging_path": row.StagingPath})
 		stop()
-	}
-	safeErr := err
-	if err != nil {
-		safeErr = errors.New("黄果 AI 下载未完成")
-	}
-	if parent.Err() != nil {
-		safeErr = context.Canceled
 	}
 	task.Finish(safeErr, TaskUpdate{Message: map[bool]string{true: "文件已完成并发布，等待整理入库", false: "文件未发布，等待重试"}[err == nil]})
 	s.Wake()
@@ -135,7 +145,7 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 				row.RawSize = 0
 				row.StagingPath = ""
 			}
-			return err
+			return huangGuoAIDownloadError{err}
 		}
 		file, e := root.Open(row.StagingPath)
 		if e != nil {
@@ -175,11 +185,14 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 	}
 	media, err := s.catalog.client.Resolve(ctx, row.SourceID, row.Episode)
 	if err != nil {
-		return err
+		return huangGuoAIDownloadError{err}
 	}
-	input, _, err := s.catalog.client.Download(ctx, media, filepath.Join(row.Root, stage), func(n int64) { bytes.Store(n) })
+	input, duration, err := s.catalog.client.Download(ctx, media, filepath.Join(row.Root, stage), func(n int64) { bytes.Store(n) })
 	if err != nil {
-		return err
+		return huangGuoAIDownloadError{err}
+	}
+	if duration > 0 && math.Abs(duration-media.ExpectedDuration) > 2 {
+		task.Update(TaskUpdate{Details: []string{fmt.Sprintf("⚠️ 网页时长 %.3f 秒，清单时长 %.3f 秒，按清单校验当前源；正片内容完整性需另行确认", media.ExpectedDuration, duration)}})
 	}
 	rel, err := filepath.Rel(row.Root, input)
 	if err != nil || !filepath.IsLocal(rel) || filepath.Dir(rel) != stage {
@@ -215,6 +228,10 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 	row.StagingPath = ready
 	row.RawSize = info.Size()
 	row.Duration = media.ExpectedDuration
+	if duration > 0 {
+		// HLS 按完整媒体清单核对最终文件，直连 MP4 继续使用网页时长。
+		row.Duration = duration
+	}
 	if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "waiting_verify", "raw_size": row.RawSize, "duration": row.Duration, "staging_path": ready, "lease_token": "", "lease_until": nil, "bytes": row.RawSize, "total_bytes": row.RawSize}); err != nil {
 		row.RawSize = 0
 		row.StagingPath = ""

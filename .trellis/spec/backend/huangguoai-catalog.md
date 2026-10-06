@@ -36,6 +36,11 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   or visible-file authorization. Admin role never bypasses profile adult locks.
 - Download re-resolves media per attempt; credentials, keys and signed media URLs
   stay transient. Verify duration and complete decode before no-overwrite publish.
+  For HLS, persist the complete media playlist duration returned by `Download`
+  and compare the final file against it. A difference over 2 seconds from page
+  metadata produces a numeric-only warning, not a rejection. Direct MP4 retains
+  page-duration verification. Complete current-source transfer does not establish
+  that the upstream supplied the complete story; retain that warning explicitly.
   Completed output and scanner ingestion are separate stages.
 - New download work directories use the fixed source category labels `AI短剧`,
   `AI漫剧`, `AI换脸`, `AI魔改`, then 64 letter buckets `aa` through `hh`:
@@ -65,6 +70,8 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
 | Missing classification/true episode | Pending metadata, no invented projection |
 | Disabled source scan | Keep old bindings; defer new binding |
 | Preview/unknown duration/unsupported encryption | Fail safely, no completed file |
+| Complete HLS differs from page duration | Warn; verify final file against playlist duration and fully decode |
+| Missing ENDLIST/failed or incomplete segment/file duration mismatch/decode failure | Fail safely, no completed file |
 | Lost lease/cancel/publish collision | No overwrite or another attempt's deletion |
 | Completed auto-mark predecessor | Preserve position, timestamps and events |
 
@@ -126,8 +133,20 @@ whole episode queues; never truncate a work's counts by the selected status.
 - Each episode/stage writes a log-only handle, without execution rows or active/
   recent tracker entries. Names use source ID and episode number; source titles,
   title-bearing paths and raw upstream errors never enter summaries or logs.
+  Only sanitized `Resolve`, `Download` and media-verification errors receive the
+  private `huangGuoAIDownloadError` marker. Persist the same safe diagnostic in the
+  download row and task log; unmarked database/other errors remain generic.
+  URL-only redaction is insufficient for arbitrary errors containing titles,
+  credentials or filesystem paths.
 - `TestHuangGuoAIDownloadWorkTaskLifecycle` covers Movie/Series, supplement,
   mixed states, retry/cancel, recovery, concurrency and cross-system identity.
   `TestHuangGuoAIDownloadSummaryFailureKeepsPublicationAndLogs` verifies publication
   despite missing summary storage and safe diagnostics including upstream errors.
   The transfer/verify/publish integration test asserts both stages share one task.
+  `TestHuangGuoAIDownloadHLSCompletenessAndDuration` verifies playlist duration
+  survives persistence/reclaim, metadata mismatch warns and publishes, incomplete
+  playlists/segments fail, and incorrect file duration or decode failure never
+  publishes. `TestHuangGuoAIDownloadUnexpectedErrorsRemainPrivate` injects an
+  unmarked persistence error to verify that neither row diagnostics nor task logs
+  expose its private text. Never discard `Download`'s duration and later verify an
+  HLS output against page metadata.
