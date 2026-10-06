@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/huangguoai-catalog.md","reason":"Download completeness, duration and safe diagnostics"}
+{"file":".trellis/spec/backend/session-and-transfer-safety.md","reason":"No-overwrite transfer and isolated PostgreSQL tests"}
