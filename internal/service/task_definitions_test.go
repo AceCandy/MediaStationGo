@@ -134,6 +134,8 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 	}
 	want := map[string]bool{
 		TaskKindHongGuoSupplement:                true,
+		TaskKindHongGuoSync:                      true,
+		TaskKindHongGuoRank:                      true,
 		TaskDefinitionOrganize:                   true,
 		TaskDefinitionLibraryScan:                true,
 		TaskDefinitionPeopleBackfill:             true,

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -25,7 +26,7 @@ type HongGuoDownloadSummary struct {
 	Cancelled     int64  `json:"cancelled"`
 }
 
-func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status string) ([]HongGuoDownloadSummary, int64, error) {
+func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status, keyword string) ([]HongGuoDownloadSummary, int64, error) {
 	rows := []HongGuoDownloadSummary{}
 	filter := ""
 	args := []any{}
@@ -39,6 +40,17 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 			args = append(args, status)
 		}
 		filter = `WHERE EXISTS (SELECT 1 FROM hongguo_downloads d WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" AND ` + condition + `)`
+	}
+	keyword = strings.TrimSpace(keyword)
+	if keyword != "" {
+		if filter == "" {
+			filter = "WHERE "
+		} else {
+			filter += " AND "
+		}
+		filter += "(w.title ILIKE ? OR w.source_id = ?)"
+		pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(keyword) + "%"
+		args = append(args, pattern, keyword)
 	}
 	args = append(args, (page-1)*50)
 	// 同一份候选同时用于计数和分页，避免重复探测每部作品；空位置由首任务查询排除。

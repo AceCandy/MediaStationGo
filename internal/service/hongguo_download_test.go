@@ -92,7 +92,7 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 	if err := s.repo.DB.Create(&other).Error; err != nil {
 		t.Fatal(err)
 	}
-	works, total, err := s.ListWorks(ctx, 1, "")
+	works, total, err := s.ListWorks(ctx, 1, "", "")
 	if err != nil || total != 2 || len(works) != 2 {
 		t.Fatalf("works: %v %d %v", works, total, err)
 	}
@@ -128,7 +128,7 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 	if err := s.repo.DB.First(&otherAfter, "id = ?", other.ID).Error; err != nil || otherAfter.Status != "failed" {
 		t.Fatal("other work changed")
 	}
-	works, _, err = s.ListWorks(ctx, 1, "")
+	works, _, err = s.ListWorks(ctx, 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,11 +145,11 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	works, total, err = s.ListWorks(ctx, 2, "")
+	works, total, err = s.ListWorks(ctx, 2, "", "")
 	if err != nil || total != 52 || len(works) != 2 {
 		t.Fatalf("work pagination: %d %d %v", len(works), total, err)
 	}
-	works, total, err = s.ListWorks(ctx, 1, "failed")
+	works, total, err = s.ListWorks(ctx, 1, "failed", "")
 	if err != nil || total != 2 || len(works) != 2 {
 		t.Fatalf("failed filter before pagination: %+v %d %v", works, total, err)
 	}
@@ -158,14 +158,14 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 			t.Fatalf("filter lost full-work summary: %+v", item)
 		}
 	}
-	works, total, err = s.ListWorks(ctx, 2, "failed")
+	works, total, err = s.ListWorks(ctx, 2, "failed", "")
 	if err != nil || total != 2 || len(works) != 0 {
 		t.Fatalf("filtered second page: %+v %d %v", works, total, err)
 	}
 	if err := s.repo.DB.Model(&model.HongGuoDownload{}).Where("status = ?", "failed").Update("status", "queued").Error; err != nil {
 		t.Fatal(err)
 	}
-	works, total, err = s.ListWorks(ctx, 1, "failed")
+	works, total, err = s.ListWorks(ctx, 1, "failed", "")
 	if err != nil || total != 0 || len(works) != 0 {
 		t.Fatalf("resolved failures remain visible: %+v %d %v", works, total, err)
 	}

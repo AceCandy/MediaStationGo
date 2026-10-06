@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { Download } from 'lucide-react'
 import { huangguoaiAPI, type HuangGuoAIDownload, type HuangGuoAIDownloadConfig, type HuangGuoAIDownloadWork } from '../api/huangguoai'
 import { ModalShell } from '../components/ModalShell'
 import { DownloadProgress } from '../components/DownloadProgress'
@@ -14,11 +15,12 @@ export function HuangGuoAIDownloadSpace() {
   const page = Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 1000000 ? rawPage : 1
   const rawStatus = params.get('status') ?? 'downloading'
   const status = labels[rawStatus] ? rawStatus : ''
+  const keyword = (params.get('keyword') ?? '').trim()
+  const [search, setSearch] = useState(keyword)
+  useEffect(() => { setSearch(keyword) }, [keyword])
   const [config, setConfig] = useState<HuangGuoAIDownloadConfig | null>(null)
-  const [enabled, setEnabled] = useState<boolean | null>(null)
   const [configError, setConfigError] = useState(false)
-  const [statusError, setStatusError] = useState(false)
-  const [result, setResult] = useState<{ items: HuangGuoAIDownloadWork[]; total: number; page: number; status: string } | null>(null)
+  const [result, setResult] = useState<{ items: HuangGuoAIDownloadWork[]; total: number; page: number; status: string; keyword: string } | null>(null)
   const [error, setError] = useState(false)
   const [retry, setRetry] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -27,22 +29,21 @@ export function HuangGuoAIDownloadSpace() {
   const closeSettings = () => { setSettings(false); settingsButton.current?.focus() }
   const active = useRef(true)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
-  useEffect(() => { const next = new URLSearchParams(params); next.set('page', String(page)); next.set('status', status); if (next.toString() !== params.toString()) setParams(next, { replace: true }) }, [params, setParams, page, status])
+  useEffect(() => { const next = new URLSearchParams(params); next.set('page', String(page)); next.set('status', status); if (keyword) next.set('keyword', keyword); else next.delete('keyword'); if (next.toString() !== params.toString()) setParams(next, { replace: true }) }, [params, setParams, page, status, keyword])
   useEffect(() => {
     const controller = new AbortController()
-    void huangguoaiAPI.status(controller.signal).then(data => { if (!controller.signal.aborted) { setEnabled(data.enabled); setStatusError(false) } }).catch(() => { if (!controller.signal.aborted) setStatusError(true) })
     void huangguoaiAPI.downloadConfig(controller.signal).then(data => { if (!controller.signal.aborted) { setConfig(data); setConfigError(false) } }).catch(() => { if (!controller.signal.aborted) setConfigError(true) })
     return () => controller.abort()
   }, [retry])
   useEffect(() => {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let loading = false
     const load = async () => { if (controller.signal.aborted || document.hidden || loading) return; loading = true; clearTimeout(timer)
-      try { const data = await huangguoaiAPI.downloadWorks(page, status, controller.signal); if (!controller.signal.aborted) { if (page > 1 && data.total <= (page - 1) * 50) setParams(previous => { const next = new URLSearchParams(previous); next.set('page', String(Math.max(1, Math.ceil(data.total / 50)))); return next }, { replace: true }); setResult({ ...data, page, status }); setError(false) } } catch { if (!controller.signal.aborted) setError(true) }
+      try { const data = await huangguoaiAPI.downloadWorks(page, status, keyword, controller.signal); if (!controller.signal.aborted) { if (page > 1 && data.total <= (page - 1) * 50) setParams(previous => { const next = new URLSearchParams(previous); next.set('page', String(Math.max(1, Math.ceil(data.total / 50)))); return next }, { replace: true }); setResult({ ...data, page, status, keyword }); setError(false) } } catch { if (!controller.signal.aborted) setError(true) }
       finally { loading = false; if (!controller.signal.aborted && !document.hidden) timer = setTimeout(() => void load(), 5000) }
     }
     const visible = () => { clearTimeout(timer); if (!document.hidden) void load() }; document.addEventListener('visibilitychange', visible); void load()
     return () => { controller.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', visible) }
-  }, [page, status, retry, setParams])
+  }, [page, status, keyword, retry, setParams])
   const perform = async (id: string, action: 'retry' | 'cancel', work = false) => {
     if (busy) return
     setBusy(true)
@@ -58,21 +59,28 @@ export function HuangGuoAIDownloadSpace() {
     } catch { if (active.current) toast.error('操作失败，旧执行尚未退出时请稍后重试') }
     finally { if (active.current) setBusy(false) }
   }
-  const toggleEnabled = async () => { if (busy || enabled === null) return; setBusy(true); try { await huangguoaiAPI.setEnabled(!enabled); if (active.current) setEnabled(!enabled) } catch { if (active.current) toast.error('来源开关保存失败') } finally { if (active.current) setBusy(false) } }
   const navigate = (changes: Record<string, string>) => { const next = new URLSearchParams(params); for (const [key, value] of Object.entries(changes)) next.set(key, value); setParams(next) }
   return <section className="space-y-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-semibold">黄果 AI 下载</h1><div className="flex flex-wrap gap-2"><button ref={settingsButton} className="btn-outline" onClick={() => setSettings(true)}>设置</button><button className="btn-outline" onClick={() => setRetry(v => v + 1)}>刷新</button></div></div>
-    <div className="flex flex-wrap items-center gap-3 text-sm"><span>来源{enabled === null ? '状态读取中' : enabled ? '已启用' : '已停用'}</span><button className="btn-outline" disabled={busy || enabled === null} onClick={() => void toggleEnabled()}>{enabled ? '停用来源' : '启用来源'}</button></div>
+    <div className="flex flex-wrap items-center gap-3">
+      <form role="search" aria-label="搜索下载作品" className="flex min-w-0 flex-1 basis-64 items-center gap-2" onSubmit={event => { event.preventDefault(); const value = search.trim(); setSearch(value); navigate({ keyword: value, page: '1' }) }}>
+        <input type="search" aria-label="搜索作品" placeholder="搜索作品名称或 ID" className="input-field min-w-0 flex-1" value={search} onChange={event => setSearch(event.target.value)} />
+        <button className="btn-outline" type="submit">搜索</button>
+        {(search || keyword) && <button className="btn-outline" type="button" onClick={() => { setSearch(''); navigate({ keyword: '', page: '1' }) }}>清空搜索</button>}
+      </form>
+      <div className="flex items-center gap-2 text-sm"><span>作品状态</span><Select className="input-field min-w-44" aria-label="黄果AI下载状态" value={status} onChange={value => navigate({ status: value, page: '1' })}><option value="">全部状态</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></div>
+      <div className="flex flex-wrap items-center gap-2"><Link className="btn-primary" to="/discover?system=huangguoai">去发现下载</Link><button className="btn-outline" onClick={() => setRetry(v => v + 1)}>刷新</button><button ref={settingsButton} className="btn-outline" onClick={() => setSettings(true)}>设置</button></div>
+    </div>
     {config && !config.root && <p className="text-sm text-ink-50">尚未设置下载目录，请点击“设置”配置。</p>}
-    <p className="text-sm text-ink-50">下载完成后需整理并扫描到黄果 AI 媒体库。完成记录不代表文件已入库。</p>
-    {(error || configError || statusError) && <p role="alert">下载信息读取失败 <button className="btn-outline" onClick={() => setRetry(v => v + 1)}>重试</button></p>}
+    {(error || configError) && <p role="alert">下载信息读取失败 <button className="btn-outline" onClick={() => setRetry(v => v + 1)}>重试</button></p>}
     <section className="space-y-3" aria-label="黄果AI下载任务">
-      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">作品任务</h2><Link className="btn-outline" to="/discover?system=huangguoai">去黄果 AI 发现下载</Link></div>
-      <div className="flex flex-wrap items-center gap-2 text-sm"><span>作品状态</span><Select className="input-field min-w-44" aria-label="黄果AI下载状态" value={status} onChange={value => navigate({ status: value, page: '1' })}><option value="">全部状态</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></div>
-      {!result || result.page !== page || result.status !== status ? <p role="status">读取下载队列…</p> : <>
+      {!result || result.page !== page || result.status !== status || result.keyword !== keyword ? <p role="status">读取下载队列…</p> : <>
         {result.items.map(work => <HuangGuoAIDownloadWork key={work.source_id} {...{ work, busy, perform, refresh: retry }} />)}
-        {result.items.length === 0 && <p className="text-ink-50">当前状态暂无下载任务。从黄果 AI 发现打开作品详情后发起下载。</p>}
-        <div className="flex flex-wrap items-center gap-3"><button className="btn-outline" disabled={page === 1} onClick={() => navigate({ page: String(page - 1) })}>上一页</button><span>第 {page} 页 · 共 {result.total} 部</span><button className="btn-outline" disabled={page * 50 >= result.total} onClick={() => navigate({ page: String(page + 1) })}>下一页</button></div>
+        {!error && result.items.length === 0 && <div className="card flex min-h-64 flex-col items-center justify-center gap-4 px-4 py-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-500"><Download size={24} aria-hidden="true" /></div>
+          <div className="space-y-2"><h3 className="font-semibold">{keyword ? '没有找到匹配的下载作品' : status === 'downloading' ? '暂无正在下载的作品' : status ? '当前状态暂无下载作品' : '还没有下载任务'}</h3><p className="text-sm text-ink-50">{keyword ? '请尝试其他作品名称或 ID，或清空搜索后查看。' : status ? '可以查看全部任务，或前往发现页添加下载。' : '从发现页打开作品详情，即可发起下载。'}</p></div>
+          <div className="flex flex-wrap justify-center gap-2">{status && <button className="btn-outline" onClick={() => navigate({ status: '', page: '1' })}>查看全部</button>}<Link className="btn-primary" to="/discover?system=huangguoai">去发现下载</Link></div>
+        </div>}
+        {result.total > 0 && <div className="flex flex-wrap items-center gap-3"><button className="btn-outline" disabled={page === 1} onClick={() => navigate({ page: String(page - 1) })}>上一页</button><span>第 {page} 页 · 共 {result.total} 部</span><button className="btn-outline" disabled={page * 50 >= result.total} onClick={() => navigate({ page: String(page + 1) })}>下一页</button></div>}
       </>}
     </section>
     {settings && config && <HuangGuoAIDownloadSettings initial={config} onClose={closeSettings} onSaved={() => { closeSettings(); setRetry(v => v + 1); toast.success('下载设置已保存') }} />}

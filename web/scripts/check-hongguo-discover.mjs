@@ -166,6 +166,7 @@ try {
   assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname.endsWith('/works/90001/refresh'))`))
   assert.ok(evaluate(`!document.querySelector('[role="dialog"]').innerText.match(/收藏|刷新资料|下载空间/)`))
   assert.ok(evaluate(`document.querySelector('[role="dialog"]').innerText.includes('下载已更新分集')`))
+  assert.ok(!evaluate(`document.querySelector('[role="dialog"]').innerText.includes('演职员')`))
   assert.ok(evaluate(`document.querySelector('[aria-label="设置作品分类"]') === null`))
   assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname.endsWith('/works/90001/favorite'))`))
   browser('network', 'unroute', `${base}/api/catalogs/hongguo/works/90001`)

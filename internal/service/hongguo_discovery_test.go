@@ -22,8 +22,8 @@ func hongGuoRankTestPage(label, id string) string {
 	return fmt.Sprintf(`<html><body><ol aria-label=%q><li><article><img src="https://example.invalid/rank"><h2 id="rank-title-%s">榜单摘要</h2></article></li></ol><nav aria-label="榜单分页"></nav></body></html>`, label, id)
 }
 
-// 仅验证发现任务；事件刷新由独立的唤醒测试覆盖。
-func runHongGuoDiscoveryOnly(ctx context.Context, s *HongGuoService) (refreshQueued bool, err error) {
+// 仅验证摘要任务；事件刷新由独立的唤醒测试覆盖。
+func runHongGuoSummaryOnly(ctx context.Context, s *HongGuoService, kind string) (refreshQueued bool, err error) {
 	s.runMu.Lock()
 	defer func() {
 		s.mu.Lock()
@@ -32,7 +32,7 @@ func runHongGuoDiscoveryOnly(ctx context.Context, s *HongGuoService) (refreshQue
 		s.mu.Unlock()
 		s.runMu.Unlock()
 	}()
-	err = s.Run(ctx, TaskKindHongGuoSync, "")
+	err = s.Run(ctx, kind, "")
 	return
 }
 
@@ -49,9 +49,9 @@ func TestHongGuoDiscoveryScansUntilCategoryEnd(t *testing.T) {
 		wantNext      int
 		wantError     string
 	}{
-		{name: "past_20_pages_in_all_categories", start: 1, wantRequests: 82, wantRows: 1800, wantNext: 1},
-		{name: "partial_page_is_completion", start: 1, partial: true, wantRequests: 7, wantRows: 24, wantNext: 1},
-		{name: "saved_next_page_404_is_completion", start: 14, notFoundPage: 14, previousItems: 8, wantRequests: 8, wantRows: 8, wantNext: 1},
+		{name: "past_20_pages_in_all_categories", start: 1, wantRequests: 78, wantRows: 1800, wantNext: 1},
+		{name: "partial_page_is_completion", start: 1, partial: true, wantRequests: 3, wantRows: 24, wantNext: 1},
+		{name: "saved_next_page_404_is_completion", start: 14, notFoundPage: 14, previousItems: 8, wantRequests: 4, wantRows: 8, wantNext: 1},
 		{name: "middle_404_is_failure", start: 14, notFoundPage: 14, previousItems: 24, wantRequests: 2, wantRows: 0, wantNext: 14, wantError: "HTTP 404"},
 		{name: "first_page_404_is_failure", start: 1, notFoundPage: 1, wantRequests: 1, wantRows: 0, wantNext: 1, wantError: "HTTP 404"},
 		{name: "repeated_page_is_not_completion", start: 1, repeat: true, wantRequests: 2, wantRows: 24, wantNext: 2, wantError: "分页未推进"},
@@ -88,16 +88,6 @@ func TestHongGuoDiscoveryScansUntilCategoryEnd(t *testing.T) {
 					}
 				}
 				if categoryIndex < 0 {
-					for _, rank := range hongguo.Ranks {
-						if r.URL.Path == "/rank/"+rank.Key {
-							idPage := 1
-							if tc.notFoundPage > 1 {
-								idPage = tc.notFoundPage - 1
-							}
-							body := hongGuoRankTestPage(rank.Label, fmt.Sprintf("1%05d00", idPage))
-							return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
-						}
-					}
 					t.Fatalf("unexpected request: %s", r.URL.Path)
 				}
 				if categoryIndex == 0 && page == tc.notFoundPage {
@@ -126,7 +116,7 @@ func TestHongGuoDiscoveryScansUntilCategoryEnd(t *testing.T) {
 				body := `_ROUTER_DATA={"loaderData":{"category_page":{"recommendList":[` + strings.Join(items, ",") + `]}}}`
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 			})})
-			_, err = runHongGuoDiscoveryOnly(ctx, s)
+			_, err = runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoSync)
 			if tc.wantError == "" && err != nil || tc.wantError != "" && (err == nil || !strings.Contains(err.Error(), tc.wantError)) {
 				t.Fatalf("result: %v", err)
 			}
@@ -198,7 +188,7 @@ func TestHongGuoDiscoveryDefersDetailsAndResumes(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})})
-	queued, err := runHongGuoDiscoveryOnly(ctx, s)
+	queued, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoSync)
 	if err == nil {
 		t.Fatal("failed page accepted")
 	}
@@ -226,10 +216,10 @@ func TestHongGuoDiscoveryDefersDetailsAndResumes(t *testing.T) {
 	restarted := NewHongGuoService(repos, s.tasks, nil, t.TempDir())
 	restarted.client = s.client
 	t.Cleanup(restarted.Wait)
-	if _, err := runHongGuoDiscoveryOnly(ctx, restarted); err != nil {
+	if _, err := runHongGuoSummaryOnly(ctx, restarted, TaskKindHongGuoSync); err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 7 || paths[0] != "/category/real-drama?page=2" {
+	if len(paths) != 3 || paths[0] != "/category/real-drama?page=2" {
 		t.Fatalf("did not resume: %v", paths)
 	}
 	// 超过一批，验证刷新任务会分页补齐，而不是一天只能入库 100 部。
@@ -255,7 +245,7 @@ func TestHongGuoDiscoveryDefersDetailsAndResumes(t *testing.T) {
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("completed remained pending: %v %v", pending, err)
 	}
-	if _, err := runHongGuoDiscoveryOnly(ctx, s); err != nil {
+	if _, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoSync); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Run(ctx, TaskKindHongGuoRefresh, ""); err != nil {
@@ -316,7 +306,7 @@ func TestHongGuoDiscoveryIncrementalReachesSecondPage(t *testing.T) {
 		body := `_ROUTER_DATA={"loaderData":{"category_page":{"recommendList":[` + strings.Join(items, ",") + `]}}}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})})
-	if _, err := runHongGuoDiscoveryOnly(ctx, service); err != nil {
+	if _, err := runHongGuoSummaryOnly(ctx, service, TaskKindHongGuoSync); err != nil {
 		t.Fatal(err)
 	}
 	if len(requests) < 2 || requests[0] != "/category/real-drama" || requests[1] != "/category/real-drama?page=2" {
@@ -375,7 +365,7 @@ func TestHongGuoDiscoveryIncrementalRejectsRepeatedPage(t *testing.T) {
 		body := `_ROUTER_DATA={"loaderData":{"category_page":{"recommendList":[` + strings.Join(items, ",") + `]}}}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})})
-	if _, err := runHongGuoDiscoveryOnly(ctx, service); err == nil || !strings.Contains(err.Error(), "分页未推进") {
+	if _, err := runHongGuoSummaryOnly(ctx, service, TaskKindHongGuoSync); err == nil || !strings.Contains(err.Error(), "分页未推进") {
 		t.Fatalf("expected pagination error, got %v", err)
 	}
 	state, err := repos.HongGuo.SyncState(ctx, "real-drama")
@@ -419,10 +409,10 @@ func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 		body := `_ROUTER_DATA={"loaderData":{"category_page":{"recommendList":[` + strings.Join(items, ",") + `]}}}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})})
-	if _, err := runHongGuoDiscoveryOnly(ctx, s); err != nil {
+	if _, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoSync); err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 7 || requests[0] != "/category/real-drama" {
+	if len(requests) != 3 || requests[0] != "/category/real-drama" {
 		t.Fatalf("requests=%v", requests)
 	}
 	log, err := tasks.ReadDefinitionLog(TaskKindHongGuoSync, "", 0)
@@ -433,10 +423,6 @@ func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 		"ℹ️ 红果分类 real-drama 增量扫描至第 1 页，已追平上次检查点",
 		"ℹ️ 红果分类 comic-drama 第 1 页共 2 项，少于每页 24 项，目录已到末页并重置检查点",
 		"ℹ️ 红果分类 ai-drama 第 1 页共 2 项，少于每页 24 项，目录已到末页并重置检查点",
-		"ℹ️ 红果热播榜已按官网名次更新，共 1 项",
-		"ℹ️ 真人剧热播榜已按官网名次更新，共 1 项",
-		"ℹ️ AI剧热播榜已按官网名次更新，共 1 项",
-		"ℹ️ 漫剧热播榜已按官网名次更新，共 1 项",
 	} {
 		if count := strings.Count(log.Content, notice); count != 1 {
 			t.Fatalf("notice %q count=%d log=%q", notice, count, log.Content)
@@ -446,11 +432,78 @@ func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "200").Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("new discovery count=%d err=%v", count, err)
 	}
-	if _, err := runHongGuoDiscoveryOnly(ctx, s); err != nil {
+	if _, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoSync); err != nil {
 		t.Fatal(err)
 	}
 	page, err := tasks.ListSystem(model.TaskSystemHongGuo, 1, 1)
 	if err != nil || len(page.Items) != 1 || page.Items[0].Metrics["new"] != 0 || page.Items[0].Metrics["processed"] != 0 || !strings.Contains(page.Items[0].Message, "本次新增 0 项") {
 		t.Fatalf("repeat discovery counted old rank or category entries: %+v %v", page, err)
+	}
+}
+
+func TestHongGuoRanksRunIndependentlyAndPreserveFailedRank(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	repos := repository.New(db)
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
+	s := NewHongGuoService(repos, tasks, nil, t.TempDir())
+	t.Cleanup(s.Wait)
+	fail := false
+	requests := 0
+	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		requests++
+		for _, rank := range hongguo.Ranks {
+			if r.URL.Path == "/rank/"+rank.Key {
+				if fail {
+					return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header), Request: r}, nil
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(hongGuoRankTestPage(rank.Label, "97001"))), Header: make(http.Header), Request: r}, nil
+			}
+		}
+		t.Fatalf("ranking task fetched non-ranking data: %s", r.URL.Path)
+		return nil, nil
+	})})
+	queued, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoRank)
+	if err != nil || !queued || requests != len(hongguo.Ranks) {
+		t.Fatalf("rank execution: queued=%v requests=%d err=%v", queued, requests, err)
+	}
+	page, err := tasks.ListSystem(model.TaskSystemHongGuo, 1, 10)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Kind != TaskKindHongGuoRank || page.Items[0].Status != TaskStatusCompleted || page.Items[0].Metrics["new"] != 1 {
+		t.Fatalf("separate rank history: %+v %v", page, err)
+	}
+	log, err := tasks.ReadDefinitionLog(TaskKindHongGuoRank, "", 0)
+	if err != nil || !strings.Contains(log.Content, "红果热播榜已按官网名次更新，共 1 项") {
+		t.Fatalf("rank log missing: %+v %v", log, err)
+	}
+	if _, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoRank); err != nil {
+		t.Fatal(err)
+	}
+	page, err = tasks.ListSystem(model.TaskSystemHongGuo, 1, 1)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Metrics["new"] != 0 {
+		t.Fatalf("repeat rank counted old summaries: %+v %v", page, err)
+	}
+	fail = true
+	if _, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoRank); err == nil {
+		t.Fatal("failed ranking fetch accepted")
+	}
+	var entries []model.HongGuoRankEntry
+	if err := db.Find(&entries).Error; err != nil || len(entries) != len(hongguo.Ranks) {
+		t.Fatalf("failed fetch replaced previous rankings: %+v %v", entries, err)
+	}
+	for _, entry := range entries {
+		if entry.SourceID != "97001" || entry.Position != 1 {
+			t.Fatalf("previous rank changed: %+v", entry)
+		}
+	}
+	var states int64
+	if err := db.Model(&model.HongGuoSyncState{}).Count(&states).Error; err != nil || states != 0 {
+		t.Fatalf("rank task changed category checkpoints: %d %v", states, err)
 	}
 }

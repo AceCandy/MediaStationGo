@@ -20,10 +20,10 @@ try {
  route('catalogs/huangguoai/search?*', {items:items.slice(0,2),has_more:false})
  route('catalogs/huangguoai/status', {enabled:true})
  route('catalogs/huangguoai/works/71/episodes?*',{items:[{id:'ep1',number:1},{id:'ep3',number:3}],total:2})
- route('catalogs/huangguoai/works/71/media?*',{items:[],total:0})
+ route('catalogs/huangguoai/works/71/media?*',{items:null,total:0})
  route('catalogs/huangguoai/works/71/state',{favorite:false})
  route('catalogs/huangguoai/works/71',items[0])
- route('catalogs/huangguoai/works?*page=1&page_size=20', {items:items.slice(0,20),total:52})
+ route('catalogs/huangguoai/works?*page=1&page_size=10', {items:items.slice(0,10),total:52})
  route('catalogs/huangguoai/works?*page=1&page_size=50', {items:items.slice(0,50),total:52})
  route('catalogs/huangguoai/works?*page=2&page_size=50', {items:items.slice(49),total:52})
  route('catalogs/huangguoai/downloads/config',{root:'/synthetic/download',temporary_dir:'/synthetic/download/downloading',output_dir:'/synthetic/download/completed',concurrency:2,verification_concurrency:2})
@@ -69,8 +69,9 @@ try {
   }`)
  browser('find','role','button','click','--name','查看合成作品0','--exact')
  wait(`document.querySelector('[role="dialog"]')?.innerText.includes('合成简介') || document.body.innerText.includes('页面加载失败')`); assert.ok(evaluate(`!document.body.innerText.includes('页面加载失败')`))
- assert.ok(evaluate(`document.querySelector('[role="dialog"]').innerText.includes('第 3 集')`))
+ assert.ok(evaluate(`!document.querySelector('[role="dialog"]').innerText.includes('已确认分集') && !document.querySelector('[role="dialog"]').innerText.includes('本地文件')`))
  assert.ok(!evaluate(`document.querySelector('[role="dialog"]').innerText.includes('收藏作品')`))
+ assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r => ['media', 'episodes', 'state'].some(type => new URL(r.name).pathname.endsWith('/works/71/' + type)))`))
  for(const theme of ['light','dark']) {
   evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
   for(const width of [390,640,768,1024,1440]) {

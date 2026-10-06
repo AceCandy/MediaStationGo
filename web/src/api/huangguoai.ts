@@ -29,7 +29,7 @@ export const huangguoaiAPI = {
   setEnabled: (enabled: boolean) => api.put(`${root}/status`, { enabled }),
   enqueue: (source_id: string) => api.post<{ added: number }>(`${root}/downloads`, { source_id }).then(r => r.data),
   downloads: (page: number, signal?: AbortSignal) => api.get<{ items: HuangGuoAIDownload[]; total: number }>(`${root}/downloads`, { params: { page }, signal }).then(r => r.data),
-  downloadWorks: (page: number, status: string, signal?: AbortSignal) => api.get<{ items: HuangGuoAIDownloadWork[]; total: number }>(`${root}/downloads/works`, { params: { page, status }, signal }).then(r => r.data),
+  downloadWorks: (page: number, status: string, keyword: string, signal?: AbortSignal) => api.get<{ items: HuangGuoAIDownloadWork[]; total: number }>(`${root}/downloads/works`, { params: { page, status, keyword: keyword || undefined }, signal }).then(r => r.data),
   downloadEpisodes: (id: string, page: number, signal?: AbortSignal) => api.get<{ items: HuangGuoAIDownload[]; total: number }>(`${root}/downloads/works/${encodeURIComponent(id)}/episodes`, { params: { page }, signal }).then(r => r.data),
   downloadWorkAction: (id: string, action: 'retry' | 'cancel') => api.post<{ updated: number }>(`${root}/downloads/works/${encodeURIComponent(id)}/${action}`).then(r => r.data),
   downloadConfig: (signal?: AbortSignal) => api.get<HuangGuoAIDownloadConfig>(`${root}/downloads/config`, { signal }).then(r => r.data),

@@ -16,6 +16,7 @@ import (
 
 const (
 	TaskKindHongGuoSync    = "hongguo_sync"
+	TaskKindHongGuoRank    = "hongguo_rank"
 	TaskKindHongGuoRefresh = "hongguo_refresh"
 	TaskKindHongGuoArtwork = "hongguo_artwork"
 	TaskKindHongGuoAlbum   = "hongguo_album"
@@ -37,10 +38,12 @@ type HongGuoService struct {
 	runMu             sync.Mutex
 	artworkMu         sync.Mutex
 	discoveryMu       sync.Mutex
+	rankMu            sync.Mutex
 	mu                sync.Mutex
 	cancel            context.CancelFunc
 	artworkCancel     context.CancelFunc
 	discoveryCancel   context.CancelFunc
+	rankCancel        context.CancelFunc
 	closed            bool
 	refreshRequested  bool
 	autoRefreshCancel context.CancelFunc
@@ -85,6 +88,9 @@ func (s *HongGuoService) Cancel() {
 	if s.discoveryCancel != nil {
 		s.discoveryCancel()
 	}
+	if s.rankCancel != nil {
+		s.rankCancel()
+	}
 }
 
 // Wait 在容器取消后等待来源任务退出，防止关闭数据库时仍在写入。
@@ -104,6 +110,9 @@ func (s *HongGuoService) Wait() {
 	if s.discoveryCancel != nil {
 		s.discoveryCancel()
 	}
+	if s.rankCancel != nil {
+		s.rankCancel()
+	}
 	s.mu.Unlock()
 	s.runMu.Lock()
 	s.runMu.Unlock()
@@ -111,6 +120,8 @@ func (s *HongGuoService) Wait() {
 	s.artworkMu.Unlock()
 	s.discoveryMu.Lock()
 	s.discoveryMu.Unlock()
+	s.rankMu.Lock()
+	s.rankMu.Unlock()
 }
 
 // Run 的 sourceID 非空时只刷新指定作品，否则执行有界维护批次。
@@ -119,6 +130,8 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 	switch kind {
 	case TaskKindHongGuoSync:
 		name = "红果作品发现"
+	case TaskKindHongGuoRank:
+		name = "红果排行榜刷新"
 	case TaskKindHongGuoRefresh:
 		name = "红果资料刷新"
 	case TaskKindHongGuoArtwork:
@@ -137,6 +150,8 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 		runMu, activeCancel = &s.artworkMu, &s.artworkCancel
 	} else if kind == TaskKindHongGuoSync {
 		runMu, activeCancel = &s.discoveryMu, &s.discoveryCancel
+	} else if kind == TaskKindHongGuoRank {
+		runMu, activeCancel = &s.rankMu, &s.rankCancel
 	}
 	if !runMu.TryLock() {
 		return ErrHongGuoRunning
@@ -223,8 +238,12 @@ func (s *HongGuoService) runLocked(ctx context.Context, kind, sourceID, name str
 		task.Update(TaskUpdate{Message: message, Details: []string{detail}, Metrics: metrics()})
 	}
 	switch kind {
-	case TaskKindHongGuoSync:
-		err = s.discover(ctx, func(ids []string) {
+	case TaskKindHongGuoSync, TaskKindHongGuoRank:
+		collect := s.discover
+		if kind == TaskKindHongGuoRank {
+			collect = s.refreshRanks
+		}
+		err = collect(ctx, func(ids []string) {
 			processed += int64(len(ids))
 			newCount += int64(len(ids))
 			details := make([]string, 0, len(ids))
@@ -256,7 +275,7 @@ func (s *HongGuoService) runLocked(ctx context.Context, kind, sourceID, name str
 		finishErr = context.Canceled
 	}
 	message := fmt.Sprintf("本次处理 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred)
-	if kind == TaskKindHongGuoSync {
+	if kind == TaskKindHongGuoSync || kind == TaskKindHongGuoRank {
 		message = fmt.Sprintf("本次新增 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred)
 	} else if kind == TaskKindHongGuoRefresh {
 		message = fmt.Sprintf("本次处理 %d 项：新作品补齐 %d、资料更新 %d、无变动 %d；失败 %d、暂缓 %d", processed, newCount, updatedCount, unchangedCount, failed, deferred)
@@ -398,6 +417,11 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]string), no
 			}
 		}
 	}
+	return nil
+}
+
+// refreshRanks 独立更新榜单，每个榜单完整拉取成功后才替换旧数据。
+func (s *HongGuoService) refreshRanks(ctx context.Context, report func([]string), notice func(string)) error {
 	for _, rank := range hongguo.Ranks {
 		works := []hongguo.Work{}
 		seen := map[string]bool{}

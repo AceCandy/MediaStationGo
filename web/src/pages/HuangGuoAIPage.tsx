@@ -5,7 +5,7 @@ import { huangguoaiAPI, huangGuoCategories, huangGuoRanks, type HuangGuoAIWork }
 import { imageURL } from '../api/client'
 import { HuangGuoAIDetailModal } from './HuangGuoAIDetailModal'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
-import { CatalogRankingHeader, CatalogRankingRow, CatalogRankingPagination } from '../components/CatalogRanking'
+import { CatalogRankingHeader, CatalogRankingRow } from '../components/CatalogRanking'
 
 export function HuangGuoAIPage() {
   const [params, setParams] = useSearchParams()
@@ -15,7 +15,7 @@ export function HuangGuoAIPage() {
   const section = rank || params.get('section') === 'rank' ? 'rank' : 'category'
   const keyword = (params.get('keyword') ?? '').slice(0, 200)
   const rawPage = Number(params.get('page') ?? 1)
-  const page = !keyword && Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 10000 ? rawPage : 1
+  const page = !keyword && section !== 'rank' && Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 10000 ? rawPage : 1
   const id = /^\d+$/.test(params.get('id') ?? '') ? params.get('id')! : ''
   useEffect(() => {
     const next = new URLSearchParams(params)
@@ -29,7 +29,7 @@ export function HuangGuoAIPage() {
 
 function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigate }: { section: 'category' | 'rank'; category: string; rank: string; keyword: string; page: number; id: string; navigate: (changes: Record<string, string>) => void }) {
   const ranking = section === 'rank' && !keyword
-  const pageSize = ranking ? 20 : 50
+  const pageSize = ranking ? 10 : 50
   const [rows, setRows] = useState<HuangGuoAIWork[]>([])
   const [total, setTotal] = useState(0)
   const [localHasMore, setLocalHasMore] = useState(false)
@@ -62,14 +62,14 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
         if (!controller.signal.aborted) {
           setRows(current => mergeWorks(catalogPage === page ? [] : current, data.items))
           setTotal(data.total)
-          setLocalHasMore(catalogPage * pageSize < data.total)
+          setLocalHasMore(catalogPage * pageSize < data.total && (!ranking || data.items.length === pageSize))
         }
       } catch { if (!controller.signal.aborted) setError(true) }
       finally { if (!controller.signal.aborted) setLocalLoading(false) }
     }
     setLocalLoading(true); setError(false); void load()
     return () => controller.abort()
-  }, [keyword, category, rank, page, catalogPage, retry, pageSize])
+  }, [keyword, category, rank, page, catalogPage, retry, pageSize, ranking])
   useEffect(() => {
     if (!keyword) return
     const controller = new AbortController()
@@ -89,14 +89,14 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
   }
   useEffect(() => {
     const target = loadMoreRef.current
-    if (ranking || !target || id || loading || !canLoadMore) return
+    if (!target || id || loading || !canLoadMore) return
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) {
         observer.disconnect()
         if (localHasMore && !error && catalogPage < 10000) { setLocalLoading(true); setCatalogPage(v => v + 1) }
         if (remoteHasMore && !remoteError && remotePage < 10000) { setRemoteLoading(true); setRemotePage(v => v + 1) }
       }
-    }, { rootMargin: '320px' })
+    }, { rootMargin: ranking ? '0px' : '320px' })
     observer.observe(target)
     return () => observer.disconnect()
   }, [id, loading, error, remoteError, hasMore, catalogPage, remotePage, localHasMore, remoteHasMore, ranking, canLoadMore])
@@ -116,13 +116,12 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
     {!ranking && <p className="text-sm text-ink-50">{keyword ? `官网 + 本地资料 · 已显示 ${visibleRows.length} 部（去重）` : `本地目录 · 共 ${total} 部 · 已显示 ${visibleRows.length} 部`}</p>}
     {remoteError && <p role="alert" className="text-sm text-red-500">官网搜索失败，已保留本地和已加载结果。<button className="btn-outline ml-2" onClick={() => setRemoteRetry(v => v + 1)}>重试官网搜索</button></p>}
     {error && <p role="alert" className="text-sm text-red-500">资料读取失败，已保留现有结果。<button className="btn-outline ml-2" onClick={() => setRetry(v => v + 1)}>重试加载</button></p>}
-    {loading && visibleRows.length === 0 ? <p role="status">加载黄果 AI 资料…</p> : ranking ? <ol className="space-y-3" aria-label="黄果AI排行榜">{visibleRows.map((work, index) => <CatalogRankingRow key={`${work.source_id}:${work.artwork_id}`} work={work} position={(page - 1) * pageSize + index + 1} artworkURL={work.artwork_id ? imageURL(huangguoaiAPI.artwork(work.artwork_id)) : ''} metadata={[huangGuoCategories.find(([key]) => key === work.source_category)?.[1], ...(work.tags ?? []), work.kind === 'movie' ? '电影' : work.hydrated ? `确认 ${work.confirmed_episode_count} 集` : '集数待确认'].filter(Boolean).join(' · ')} rankLabel={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} onOpen={() => navigate({ id: work.source_id })} />)}</ol> : <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map(work => <HuangGuoAICard key={`${work.source_id}:${work.artwork_id}`} work={work} onOpen={() => navigate({ id: work.source_id })} />)}</div>}
+    {loading && visibleRows.length === 0 ? <p role="status">加载黄果 AI 资料…</p> : ranking ? <ol className="space-y-3" aria-label="黄果AI排行榜">{visibleRows.map((work, index) => <CatalogRankingRow key={`${work.source_id}:${work.artwork_id}`} work={work} position={index + 1} artworkURL={work.artwork_id ? imageURL(huangguoaiAPI.artwork(work.artwork_id)) : ''} metadata={[huangGuoCategories.find(([key]) => key === work.source_category)?.[1], ...(work.tags ?? []), work.kind === 'movie' ? '电影' : work.hydrated ? `确认 ${work.confirmed_episode_count} 集` : '集数待确认'].filter(Boolean).join(' · ')} rankLabel={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} onOpen={() => navigate({ id: work.source_id })} />)}</ol> : <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map(work => <HuangGuoAICard key={`${work.source_id}:${work.artwork_id}`} work={work} onOpen={() => navigate({ id: work.source_id })} />)}</div>}
     {!loading && !error && !remoteError && visibleRows.length === 0 && <p className="py-12 text-center text-ink-50">暂无作品。管理员可在任务中心运行作品发现、资料刷新和榜单刷新。</p>}
-    {!ranking && <div ref={loadMoreRef} data-testid="huangguoai-load-more" className="h-px" aria-hidden="true" />}
+    <div ref={loadMoreRef} data-testid="huangguoai-load-more" className="h-px" aria-hidden="true" />
     {loading && visibleRows.length > 0 && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
-    {!ranking && !loading && canLoadMore && <button className="btn-outline" onClick={loadMore}>加载更多</button>}
-    {!ranking && !loading && !error && !remoteError && !hasMore && visibleRows.length > 0 && <p className="py-3 text-center text-xs text-ink-50">当前结果已加载完</p>}
-    {ranking && <CatalogRankingPagination page={page} total={total} loading={loading} failed={error} onChange={value => navigate({ page: String(value), id: '' })} />}
+    {!loading && canLoadMore && <button className="btn-outline" onClick={loadMore}>加载更多</button>}
+    {!loading && !error && !remoteError && !hasMore && visibleRows.length > 0 && <p className="py-3 text-center text-xs text-ink-50">当前结果已加载完</p>}
     {id && <HuangGuoAIDetailModal key={id} sourceID={id} summary={visibleRows.find(row => row.source_id === id)} onClose={() => navigate({ id: '' })} />}
   </section>
 }

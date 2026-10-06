@@ -7,6 +7,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/huangguoai"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"gorm.io/gorm"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,7 @@ func validHuangGuoAIDownloadStatus(status string) bool {
 }
 
 // Works 作品级分页，状态筛选先限定作品，汇总保留该作品全部分集。
-func (s *HuangGuoAIDownloadService) Works(ctx context.Context, page int, status string) ([]HuangGuoAIDownloadWorkSummary, int64, error) {
+func (s *HuangGuoAIDownloadService) Works(ctx context.Context, page int, status, keyword string) ([]HuangGuoAIDownloadWorkSummary, int64, error) {
 	rows := []HuangGuoAIDownloadWorkSummary{}
 	var total int64
 	if page < 1 || page > 1000000 || !validHuangGuoAIDownloadStatus(status) {
@@ -45,6 +46,10 @@ func (s *HuangGuoAIDownloadService) Works(ctx context.Context, page int, status 
 		q := tx.Table("huangguoai_download_works w").Where("EXISTS (SELECT 1 FROM huangguoai_downloads d WHERE d.source_id=w.source_id)")
 		if status != "" {
 			q = q.Where("EXISTS (SELECT 1 FROM huangguoai_downloads d WHERE d.source_id=w.source_id AND d.status=?)", status)
+		}
+		if keyword = strings.TrimSpace(keyword); keyword != "" {
+			pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(keyword) + "%"
+			q = q.Where("w.title ILIKE ? OR w.source_id = ?", pattern, keyword)
 		}
 		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 			return err

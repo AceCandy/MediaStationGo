@@ -167,7 +167,7 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 			if _, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "94001", Title: "并行测试", EpisodeCount: 1, CoverURL: "https://example.com/poster.png", Snapshot: []byte(`{}`)}); err != nil {
 				t.Fatal(err)
 			}
-			started := make(chan struct{}, 3)
+			started := make(chan struct{}, 4)
 			client := &http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
 				started <- struct{}{}
 				<-r.Context().Done()
@@ -179,8 +179,8 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 			s := NewHongGuoService(repos, tasks, images, t.TempDir())
 			s.client = hongguo.NewClient(client)
 			t.Cleanup(s.Wait)
-			finished := make(chan error, 3)
-			for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork} {
+			finished := make(chan error, 4)
+			for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork, TaskKindHongGuoRank} {
 				id := ""
 				if kind == TaskKindHongGuoRefresh {
 					id = "94001"
@@ -194,7 +194,7 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 					t.Fatal("task did not start")
 				}
 			}
-			for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork} {
+			for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork, TaskKindHongGuoRank} {
 				if err := s.Run(ctx, kind, ""); !errors.Is(err, ErrHongGuoRunning) {
 					t.Fatalf("duplicate %s accepted: %v", kind, err)
 				}
@@ -209,7 +209,7 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 			case "shutdown":
 				s.Wait()
 			}
-			for range 3 {
+			for range 4 {
 				select {
 				case err := <-finished:
 					if !errors.Is(err, context.Canceled) {
@@ -220,7 +220,7 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 				}
 			}
 			page, err := tasks.ListSystem(model.TaskSystemHongGuo, 1, 10)
-			if err != nil || len(page.Items) != 3 {
+			if err != nil || len(page.Items) != 4 {
 				t.Fatalf("parallel task history: %+v %v", page, err)
 			}
 			for _, task := range page.Items {
@@ -233,10 +233,10 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// 已取消的上下文无需联网，也能验证三组锁在结束后都已释放。
+			// 已取消的上下文无需联网，也能验证四组锁在结束后都已释放。
 			canceled, cancel := context.WithCancel(ctx)
 			cancel()
-			for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork} {
+			for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork, TaskKindHongGuoRank} {
 				err := s.Run(canceled, kind, "")
 				if stop == "shutdown" {
 					if err == nil || err.Error() != "红果服务已关闭" {

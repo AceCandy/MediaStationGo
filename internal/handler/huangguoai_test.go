@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -82,6 +83,37 @@ func TestHuangGuoAIHTTPAdultAndProfileBoundary(t *testing.T) {
 	}
 	request("GET", "/works", "", 200)
 	request("GET", "/downloads/works", "", 200)
+	for _, path := range []string{"/works/71/media", "/works/71/media?page=2"} {
+		res := httptest.NewRecorder()
+		r.ServeHTTP(res, httptest.NewRequest("GET", "/api/catalogs/huangguoai"+path, nil))
+		var result struct {
+			Items json.RawMessage `json:"items"`
+			Total int64           `json:"total"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil || res.Code != 200 || string(result.Items) != "[]" || result.Total != 0 {
+			t.Fatalf("empty media page %s: status=%d body=%s err=%v", path, res.Code, res.Body.String(), err)
+		}
+	}
+	if err = db.Create(&[]model.HuangGuoAIDownloadWork{{SourceID: "71", Title: "Special 100%_"}, {SourceID: "72", Title: "Other"}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Create(&[]model.HuangGuoAIDownload{{SourceID: "71", Episode: 1, Status: "failed"}, {SourceID: "71", Episode: 2, Status: "completed"}, {SourceID: "72", Episode: 1, Status: "cancelled"}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		query string
+		total int64
+	}{{"keyword=special&status=failed", 1}, {"keyword=special&status=cancelled", 0}, {"keyword=%25", 1}, {"keyword=missing", 0}, {"keyword=72", 1}} {
+		res := httptest.NewRecorder()
+		r.ServeHTTP(res, httptest.NewRequest("GET", "/api/catalogs/huangguoai/downloads/works?"+tt.query, nil))
+		var result struct {
+			Items []service.HuangGuoAIDownloadWorkSummary `json:"items"`
+			Total int64                                   `json:"total"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil || res.Code != 200 || result.Total != tt.total || int64(len(result.Items)) != tt.total {
+			t.Fatalf("%s: status=%d body=%s err=%v", tt.query, res.Code, res.Body.String(), err)
+		}
+	}
 	for _, path := range []string{"/works", "/works/71", "/works/71/media", "/works/71/state", "/artwork/synthetic", "/downloads/works", "/downloads/config", "/status"} {
 		request("GET", path, profile.ID, 404)
 	}

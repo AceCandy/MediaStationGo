@@ -103,5 +103,8 @@ func (r *MediaViewRepository) HuangGuoAIMediaPage(ctx context.Context, id string
 		return nil, 0, err
 	}
 	rows, err := r.huangGuoAIViewsByIDs(ctx, ids, filter)
+	if err == nil && rows == nil {
+		rows = []model.MediaView{}
+	}
 	return rows, count, err
 }

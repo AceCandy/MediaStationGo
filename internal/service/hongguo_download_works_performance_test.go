@@ -70,7 +70,7 @@ func TestHongGuoDownloadWorkCandidatesPreserveResults(t *testing.T) {
 					Group("source_id").Order("MIN(created_at) DESC, source_id").Scan(&want).Error; err != nil {
 					t.Fatal(err)
 				}
-				got, total, err := s.ListWorks(context.Background(), page, status)
+				got, total, err := s.ListWorks(context.Background(), page, status, "")
 				if err != nil || total != wantTotal || !slices.Equal(got, want) {
 					t.Fatalf("page=%d status=%q total=%d want=%d rows=%v want=%v err=%v", page, status, total, wantTotal, got, want, err)
 				}
@@ -141,7 +141,7 @@ func TestHongGuoDownloadWorkPagePlan(t *testing.T) {
 				}
 			}
 			queries = nil
-			rows, total, err := s.ListWorks(t.Context(), 1, status)
+			rows, total, err := s.ListWorks(t.Context(), 1, status, "")
 			wantTotal, wantRows := int64(3000), 50
 			if empty {
 				wantTotal, wantRows = 0, 0

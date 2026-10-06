@@ -90,6 +90,12 @@ Keep ordinary poster URLs stable and use `refresh=1` only for explicit recommend
 - Appending preserves selection and does not remount the feed. Explicit repeat-search/refresh restarts search-local page 1 and both sources; category/rank refresh retains its existing URL-page semantics. Query/account remount aborts obsolete reads. Local pagination remains a live catalog view, not a frozen snapshot; catalog mutations can change membership/order between pages. No official pagination or additional import/refresh task is fabricated by local pagination.
 - `web/scripts/check-hongguo-search.mjs` verifies source overlap, hydrated precedence in both directions, >50 matches, independent errors/retries, no skipped failed page, no repeated official search on scroll, selection preservation, empty sources, explicit refresh, stale-response exclusion and responsive source notices.
 
+- Fileless or castless works remain valid discovery details: hide empty cast
+  sections instead of showing a placeholder. HuangGuo AI details show work
+  metadata and download actions, without confirmed-episode/local-file sections
+  or requests to load those sections. Verify cast-present and cast-empty HongGuo
+  fixtures plus HuangGuo AI poster clicks in their browser checks.
+
 - Visual parity means shared presentation components, not merely `ModalShell`: use `DiscoverModalHeader`, `DiscoverArtworkPanel`, `MetadataFacts`, `MetadataTags`, `MetadataOverview` and `MediaCredits`, with the same `lg:grid-cols-[260px_1fr]` layout. Keep synopsis, tags and credits in the metadata column. Preserve the HongGuo launch-date label; do not invent runtime, country, language or backdrop data. Verify rendered screenshots as well as interaction tests when changing this layout.
 
 - `HongGuoPage` keeps its list mounted when URL `id` changes; only `HongGuoDetailModal` is keyed by the source ID. Closing removes `id` and legacy `media_page`, preserving filters and loaded rows. Detail requests abort on close or identity change.
@@ -200,43 +206,44 @@ HongGuo and HuangGuo AI ranking presentation in their discovery pages.
 ### 2. Signatures
 `hongguoAPI.list(keyword, sourceCategory, category, rank, page, signal?, pageSize = 50)`;
 `huangguoaiAPI.list({ keyword, category, tag, rank, page, page_size? }, signal?)`.
-The existing works endpoints accept `page_size=20`; omitted client size stays 50.
+The existing works endpoints accept `page_size=10`; omitted client size stays 50.
 
 ### 3. Contracts
-Ranking mode without a keyword uses shared `CatalogRankingHeader/Row/Pagination`,
-20-item URL pages, no scroll observer, and ordinal `(page - 1) * 20 + index + 1`.
-Keep upstream response order; no fabricated heat values or daily-update claims.
-Page changes replace rows and abort obsolete reads; detail ID changes preserve rows.
-Hover and keyboard focus reveal poster/synopsis using CSS transitions; reduced
-motion disables meaningful animation. Missing artwork/synopsis uses a placeholder.
-Header mount scrolls to its start on page/rank changes; below desktop widths,
-copy and rank buttons occupy separate rows so headings cannot be squeezed. Category/search grids keep
-50-item incremental loading and existing source/search semantics. HongGuo retains
-administrator multiselect and disables pending works in selection mode.
+Ranking mode without a keyword uses shared `CatalogRankingHeader/Row`, with
+10-item incremental loading and continuous ordinal `index + 1`. Start the local
+cursor at one, canonicalize legacy URL pages to one, and keep the cursor out of
+the URL. Preserve upstream order and deduplicate appended rows by source ID.
+The bottom observer loads one batch at a time and pauses while details are open.
+Rank changes and refresh reset rows and abort obsolete reads; detail ID changes
+preserve rows. Hover and keyboard focus reveal poster/synopsis using CSS
+transitions; reduced motion disables meaningful animation. Missing artwork or
+synopsis uses a placeholder. Header mount scrolls to its start on rank changes.
+Below desktop widths, copy and rank buttons occupy separate rows. Category/search
+grids keep 50-item incremental loading and existing source/search semantics.
+HongGuo ranking has no multiselect; category/search administrator selection remains.
 
 ### 4. Validation & Error Matrix
-Initial/failing loads disable next-page navigation; previous page remains available
-when a failed page is greater than one. Retry requests the same URL page. A final
-partial/empty page disables next. Rank changes reset to page one. Old responses
-cannot overwrite a new rank/page. Verify settled responsive layout after resize
-animations; global reduced-motion CSS uses an effectively zero 0.01ms duration.
+Failed continuation preserves loaded rows and retries the same batch. Partial or
+empty final batches stop continuation. Switching ranks resets to batch one;
+obsolete responses cannot append to the new rank. Verify settled responsive
+layout after resize animations; reduced-motion duration is effectively zero.
 
 ### 5. Good / Base / Bad Cases
-Good: 43 results appear as 20/20/3, ranked 01–20/21–40/41–43.
-Base: fewer than 20 results have no next page. Bad: scrolling appends another
-ranking page, or a global API-size change makes search pagination skip results.
+Good: 43 results append as 10/10/10/10/3, ranked 01–43.
+Base: fewer than 10 results need no continuation. Bad: changing global API size
+causes category/search feeds to skip results.
 
 ### 6. Tests Required
-Run `node scripts/check-catalog-rankings.mjs` from `web` against local Vite on 4179
-(or `DISCOVER_TEST_URL`). Synthetic data covers paging, retry/cancellation,
-continuous ordinals, no prefetch, hover/focus, reduced motion, detail preservation,
-HongGuo selection, artwork failure, category regression and responsive themes.
-Also run existing HongGuo discovery/search and HuangGuo AI checks, lint and build.
+Run `node scripts/check-catalog-rankings.mjs` against local Vite (`DISCOVER_TEST_URL`).
+Synthetic data covers scroll loading, retry/cancellation, continuous ordinals,
+hover/focus, reduced motion, detail preservation, absent ranking selection,
+artwork failure, category regression and responsive themes. Also run HongGuo
+discovery/search/batch and HuangGuo AI checks, lint and build.
 
 ### 7. Wrong vs Correct
-Wrong: change every list request to 20 and retain a 50-item has-more calculation.
-Correct: only ranking pages pass 20 explicitly; category/search keep their default
-50 and calculate continuation with their actual requested size.
+Wrong: change every list request to 10 and retain a 50-item has-more calculation.
+Correct: only rankings pass 10; category/search keep 50 and continuation uses the
+actual requested size.
 
 
 ## Scenario: HuangGuo AI Unified Search

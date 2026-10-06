@@ -80,7 +80,7 @@ func TestHongGuoDownloadWorksStatusFilterHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := []model.HongGuoDownload{{SourceID: "123", Episode: 1, Status: "failed"}, {SourceID: "123", Episode: 2, Status: "completed"}, {SourceID: "456", Episode: 1, Status: "cancelled"}}
-	if err := db.Create(&[]model.HongGuoDownloadWork{{SourceID: "123"}, {SourceID: "456"}}).Error; err != nil {
+	if err := db.Create(&[]model.HongGuoDownloadWork{{SourceID: "123", Title: "Special 100%_"}, {SourceID: "456", Title: "Other"}}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&rows).Error; err != nil {
@@ -93,7 +93,7 @@ func TestHongGuoDownloadWorksStatusFilterHTTP(t *testing.T) {
 		query  string
 		status int
 		total  int64
-	}{{"", 200, 2}, {"?status=completed", 200, 1}, {"?status=failed", 200, 1}, {"?status=invalid", 400, 0}} {
+	}{{"", 200, 2}, {"?status=completed", 200, 1}, {"?status=failed", 200, 1}, {"?status=invalid", 400, 0}, {"?keyword=special&status=failed", 200, 1}, {"?keyword=special&status=cancelled", 200, 0}, {"?keyword=%25", 200, 1}, {"?keyword=missing", 200, 0}, {"?keyword=456", 200, 1}} {
 		w := httptest.NewRecorder()
 		engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/catalogs/hongguo/downloads/works"+tt.query, nil))
 		if w.Code != tt.status {

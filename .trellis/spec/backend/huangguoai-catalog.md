@@ -41,6 +41,11 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   into ordinary libraries before file transfer. Auto-mark preserves completed rows.
 - Work qualification/counting precedes pagination; hydrate only current-page
   files. Scope node work IDs before joins; SQL LIMIT alone does not bound scans.
+- A successful `/works/:sourceID/media` page with no visible files returns
+  `items: []`, including empty and out-of-range pages. Do not serialize nil
+  slices as `null`; assert the HTTP payload for empty pages. Discover details
+  show work metadata and download actions only, without local file/confirmed
+  episode sections or their media, episode and favorite-state requests.
 
 ## 4. Validation & Error Matrix
 

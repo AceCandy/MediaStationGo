@@ -152,7 +152,7 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		}
 	}
 	if s.hongguo != nil {
-		for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork, TaskKindHongGuoAlbum} {
+		for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork, TaskKindHongGuoAlbum, TaskKindHongGuoRank} {
 			interval := 24 * time.Hour
 			if kind == TaskKindHongGuoArtwork {
 				interval = time.Hour

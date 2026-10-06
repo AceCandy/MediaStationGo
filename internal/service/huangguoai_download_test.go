@@ -166,7 +166,7 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	if err = service.Action(ctx, retransmit.ID, "cancel"); err != nil {
 		t.Fatal(err)
 	}
-	works, total, err := service.Works(ctx, 1, "completed")
+	works, total, err := service.Works(ctx, 1, "completed", "")
 	if err != nil || total != 1 || len(works) != 1 || works[0].Completed != 1 {
 		t.Fatal("work status aggregates", total, err)
 	}
@@ -291,7 +291,7 @@ func TestHuangGuoAIDownloadWorkStatusCounts(t *testing.T) {
 		}
 	}
 	service := NewHuangGuoAIDownloadService(repository.New(db), nil, nil)
-	rows, total, err := service.Works(context.Background(), 1, "downloading")
+	rows, total, err := service.Works(context.Background(), 1, "downloading", "")
 	if err != nil || total != 1 || len(rows) != 1 {
 		t.Fatal("filtered works", total, err)
 	}
@@ -299,7 +299,7 @@ func TestHuangGuoAIDownloadWorkStatusCounts(t *testing.T) {
 	if row.Total != 8 || row.Completed != 1 || row.Failed != 1 || row.Cancelled != 1 || row.Queued != 1 || row.Downloading != 1 || row.WaitingVerify != 1 || row.Verifying != 1 || row.Publishing != 1 || row.Active != 4 || row.Bytes != 8192 {
 		t.Fatalf("counts: %+v", row)
 	}
-	rows, total, err = service.Works(context.Background(), 2, "")
+	rows, total, err = service.Works(context.Background(), 2, "", "")
 	if err != nil || total != 1 || len(rows) != 0 {
 		t.Fatal("page boundary", total, err)
 	}

@@ -205,6 +205,12 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   positions but never count old IDs as new. Insert eligibility is determined
   by the committed database insert within the summary/checkpoint or rank
   transaction, not by the upstream page length.
+- `hongguo_sync` scans category discovery only. `hongguo_rank` independently
+  refreshes official ranks, with its own execution history, logs, mutex and
+  cancellation. Its scheduler settings are `hongguo.hongguo_rank.enabled` and
+  `hongguo.hongguo_rank.interval_seconds` (enabled by default, 24 hours), matching
+  the HuangGuo AI ranking task. Category scheduling and checkpoints are unchanged.
+  Both paths retain summary persistence and event-triggered detail hydration.
 - Official ranks come from `/rank/hot-drama`, `/rank/hot-real-drama`,
   `/rank/hot-ai-drama`, and `/rank/hot-comic-drama`. Parse the server-rendered
   ordered list and `rel=next`; follow at most `MaxRankPage=100` pages. Replace

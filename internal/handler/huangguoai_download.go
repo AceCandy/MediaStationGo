@@ -28,7 +28,7 @@ func registerHuangGuoAIDownloadRoutes(authed *gin.RouterGroup, svc *service.Cont
 			c.Status(400)
 			return
 		}
-		rows, total, e := svc.HuangGuoAIDownloads.Works(c.Request.Context(), page, c.Query("status"))
+		rows, total, e := svc.HuangGuoAIDownloads.Works(c.Request.Context(), page, c.Query("status"), c.Query("keyword"))
 		if e != nil {
 			c.Status(400)
 			return

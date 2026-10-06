@@ -15,7 +15,6 @@
   transition: border-color 280ms, box-shadow 280ms;
 }
 
-.ranking-row:disabled { opacity: 0.5; }
 .ranking-position { flex: 0 0 64px; font-size: 30px; }
 .ranking-poster {
   flex-shrink: 0;
@@ -35,7 +34,7 @@
   opacity: 0;
   transition: grid-template-rows 280ms, opacity 280ms;
 }
-.ranking-row:is(:hover, :focus-visible), .ranking-row-selected {
+.ranking-row:is(:hover, :focus-visible) {
   border-color: var(--app-accent);
   box-shadow: 0 0 20px var(--app-accent-soft);
 }

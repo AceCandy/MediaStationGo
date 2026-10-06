@@ -70,6 +70,16 @@ Viewer composition state is URL owned:
   restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
 - Download Space: absent `status` defaults to `downloading`; explicit `status=` selects all states. Keep the explicit empty value when selecting all so reload and pagination do not revert to the default. Existing named status links retain their selection.
+- Download Space keeps one source switch; do not repeat the selected navigation
+  title or add a separate task heading. Search, work status and management actions
+  share one toolbar and wrap on narrow screens. `keyword` searches all works of
+  the current source by title or exact source ID before pagination, intersecting
+  the status filter. Submit or clear resets page to 1; reload/back restores search,
+  and switching sources clears it. Requests and visible results include keyword
+  in their identity; abort stale requests. Empty filtered lists offer `查看全部`, resetting
+  page to 1 and preserving explicit `status=`; hide work pagination when total is
+  zero. Empty states must not replace request failures. Verify both sources and
+  dark/light responsive layouts with `check-download-space.mjs`.
 - Discover: `system=catalog|hongguo|huangguoai`, default `catalog`; mount only the selected
   catalog and rebuild it on user/profile changes. `/hongguo` is a guarded
   replace redirect to `/discover`, preserving query parameters and setting
@@ -244,8 +254,9 @@ tags remain metadata display only. Search starts both cursors at page one, ignor
 category/rank filters, and retries each failed source independently. Category/search feeds start at the canonical URL
 page, append one 50-item page at a time on scroll (or the accessible load-more
 control), deduplicate by source ID, and retry a failed page without discarding
-prior cards. Rankings instead use 20-item URL pages and the shared animated
-`CatalogRanking` list; never append ranking pages or automatically prefetch them. Opening details keeps
+prior cards. Rankings use 10-item scroll batches and the shared animated `CatalogRanking`
+list. Canonicalize legacy URL pages to one, append with continuous ordinals, and
+stop after the final batch; switching ranks aborts and resets continuation. Opening details keeps
 loaded rows mounted; query/access changes abort old reads. Never reinterpret
 source-reported episode counts as confirmed downloadable episodes.
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { Download } from 'lucide-react'
 import { hongguoDownloadsAPI, type DownloadConfig, type HongGuoDownload, type HongGuoDownloadWork } from '../api/hongguoDownloads'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
 import { ModalShell } from '../components/ModalShell'
@@ -19,7 +20,7 @@ export function DownloadSpacePage() {
   const [params, setParams] = useSearchParams()
   const source = params.get('source') === 'huangguoai' ? 'huangguoai' : 'hongguo'
   useEffect(() => { if (params.getAll('source').length > 1 || (params.has('source') && params.get('source') !== source)) { const next = new URLSearchParams(params); next.set('source', source); setParams(next, { replace: true }) } }, [params, setParams, source])
-  return <div className="space-y-5"><nav className="tab-list" aria-label="下载来源">{[['hongguo', '红果短剧'], ['huangguoai', '黄果 AI']].map(([value, label]) => <button key={value} className="tab-item" aria-pressed={source === value} onClick={() => { const next = new URLSearchParams(params); next.set('source', value); next.delete('page'); next.delete('status'); next.delete('id'); setParams(next) }}>{label}</button>)}</nav>{source === 'huangguoai' ? <HuangGuoAIDownloadSpace key={`${key}:huangguoai`} /> : <DownloadSpaceContent key={`${key}:hongguo`} />}</div>
+  return <div className="space-y-5"><nav className="tab-list" aria-label="下载来源">{[['hongguo', '红果短剧'], ['huangguoai', '黄果 AI']].map(([value, label]) => <button key={value} className="tab-item" aria-pressed={source === value} onClick={() => { const next = new URLSearchParams(params); next.set('source', value); next.delete('page'); next.delete('status'); next.delete('id'); next.delete('keyword'); setParams(next) }}>{label}</button>)}</nav>{source === 'huangguoai' ? <HuangGuoAIDownloadSpace key={`${key}:huangguoai`} /> : <DownloadSpaceContent key={`${key}:hongguo`} />}</div>
 }
 
 function DownloadSpaceContent() {
@@ -28,6 +29,9 @@ function DownloadSpaceContent() {
   const page = Number.isInteger(raw) && raw >= 1 && raw <= 1000000 ? raw : 1
   const rawStatus = params.get('status') ?? 'downloading'
   const status = statuses.includes(rawStatus as HongGuoDownload['status']) ? rawStatus as HongGuoDownload['status'] : ''
+  const keyword = (params.get('keyword') ?? '').trim()
+  const [search, setSearch] = useState(keyword)
+  useEffect(() => { setSearch(keyword) }, [keyword])
   const [config, setConfig] = useState<DownloadConfig | null>(null)
   const [root, setRoot] = useState('')
   const [concurrency, setConcurrency] = useState('')
@@ -37,7 +41,7 @@ function DownloadSpaceContent() {
   const [priority, setPriority] = useState('')
   const dirty = root !== (config?.root ?? '') || concurrency !== String(config?.concurrency ?? '') || verificationConcurrency !== String(config?.verification_concurrency ?? '') || fullVerification !== (config?.full_verification ?? true) || hardwareVerification !== (config?.hardware_verification ?? false) || priority !== (config?.priority ?? '')
   const [configError, setConfigError] = useState('')
-  const [result, setResult] = useState<{ page: number; status: string; items: HongGuoDownloadWork[]; total: number } | null>(null)
+  const [result, setResult] = useState<{ page: number; status: string; keyword: string; items: HongGuoDownloadWork[]; total: number } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsButton = useRef<HTMLButtonElement>(null)
   const closeSettings = () => { setSettingsOpen(false); settingsButton.current?.focus() }
@@ -48,9 +52,9 @@ function DownloadSpaceContent() {
   const active = useRef(true)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
   useEffect(() => {
-    if (raw === page && params.getAll('page').length <= 1 && rawStatus === status && params.getAll('status').length === 1) return
-    const next = new URLSearchParams(params); next.set('page', String(page)); next.set('status', status); setParams(next, { replace: true })
-  }, [params, setParams, raw, page, rawStatus, status])
+    if (raw === page && params.getAll('page').length <= 1 && rawStatus === status && params.getAll('status').length === 1 && (params.get('keyword') ?? '') === keyword && params.getAll('keyword').length <= 1) return
+    const next = new URLSearchParams(params); next.set('page', String(page)); next.set('status', status); if (keyword) next.set('keyword', keyword); else next.delete('keyword'); setParams(next, { replace: true })
+  }, [params, setParams, raw, page, rawStatus, status, keyword])
   useEffect(() => {
     const controller = new AbortController()
     void hongguoDownloadsAPI.config(controller.signal).then((value) => {
@@ -67,12 +71,12 @@ function DownloadSpaceContent() {
       clearTimeout(timer)
       loading = true
       try {
-        const value = await hongguoDownloadsAPI.works(page, status, controller.signal)
+        const value = await hongguoDownloadsAPI.works(page, status, keyword, controller.signal)
         if (!controller.signal.aborted) {
           if (page > 1 && value.total <= (page - 1) * 50) {
             setParams((previous) => { const next = new URLSearchParams(previous); next.set('page', String(Math.max(1, Math.ceil(value.total / 50)))); return next }, { replace: true })
           }
-          setResult({ ...value, page, status }); setError('')
+          setResult({ ...value, page, status, keyword }); setError('')
         }
       } catch (err) { if (!controller.signal.aborted) setError(message(err)) }
       loading = false
@@ -82,7 +86,7 @@ function DownloadSpaceContent() {
     document.addEventListener('visibilitychange', onVisibility)
     void load()
     return () => { controller.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
-  }, [page, status, refresh, setParams])
+  }, [page, status, keyword, refresh, setParams])
   const perform = async (id: string, action: 'cancel' | 'retry' | 'work') => {
     if (busy) return
     setBusy(id)
@@ -98,9 +102,14 @@ function DownloadSpaceContent() {
   }
   const goPage = (value: number) => { const next = new URLSearchParams(params); next.set('page', String(value)); setParams(next) }
   return <div className="space-y-6">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <nav aria-label="下载来源" className="tab-list"><button type="button" aria-pressed="true" className="tab-item">红果短剧</button></nav>
-      <div className="flex flex-wrap gap-2"><HongGuoDownloadActions /><button ref={settingsButton} className="btn-outline" onClick={() => { setRoot(config?.root ?? ''); setConcurrency(String(config?.concurrency ?? '')); setVerificationConcurrency(String(config?.verification_concurrency ?? '')); setFullVerification(config?.full_verification ?? true); setHardwareVerification(config?.hardware_verification ?? false); setPriority(config?.priority ?? ''); setSettingsOpen(true) }}>设置</button></div>
+    <div className="flex flex-wrap items-center gap-3">
+      <form role="search" aria-label="搜索下载作品" className="flex min-w-0 flex-1 basis-64 items-center gap-2" onSubmit={event => { event.preventDefault(); const value = search.trim(); setSearch(value); const next = new URLSearchParams(params); if (value) next.set('keyword', value); else next.delete('keyword'); next.set('page', '1'); setParams(next) }}>
+        <input type="search" aria-label="搜索作品" placeholder="搜索作品名称或 ID" className="input-field min-w-0 flex-1" value={search} onChange={event => setSearch(event.target.value)} />
+        <button className="btn-outline" type="submit">搜索</button>
+        {(search || keyword) && <button className="btn-outline" type="button" onClick={() => { setSearch(''); const next = new URLSearchParams(params); next.delete('keyword'); next.set('page', '1'); setParams(next) }}>清空搜索</button>}
+      </form>
+      <div className="flex items-center gap-2 text-sm"><span>作品状态</span><Select aria-label="作品状态" className="input-field min-w-44" value={status} onChange={(value) => { const next = new URLSearchParams(params); next.set('status', value); next.set('page', '1'); setParams(next) }}><option value="">全部状态</option>{statuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</Select></div>
+      <div className="flex flex-wrap items-center gap-2"><Link className="btn-primary" to="/discover?system=hongguo">去发现下载</Link><HongGuoDownloadActions /><button ref={settingsButton} className="btn-outline" onClick={() => { setRoot(config?.root ?? ''); setConcurrency(String(config?.concurrency ?? '')); setVerificationConcurrency(String(config?.verification_concurrency ?? '')); setFullVerification(config?.full_verification ?? true); setHardwareVerification(config?.hardware_verification ?? false); setPriority(config?.priority ?? ''); setSettingsOpen(true) }}>设置</button></div>
     </div>
     {config && !config.root && <p className="text-sm text-ink-50">尚未设置下载目录，请点击“设置”配置。</p>}
     {settingsOpen && <ModalShell ariaLabel="红果下载设置" maxWidth="max-w-xl" className="max-h-[85dvh] overflow-y-auto p-5" onClose={busy === 'config' || dirty ? undefined : closeSettings}>
@@ -136,13 +145,15 @@ function DownloadSpaceContent() {
       <p className="text-sm text-ink-50">临时目录和完成目录需在同一文件系统。项目不判断云盘上传结果，不自动清理已完成视频。</p>
     </section></ModalShell>}
     <section className="space-y-3" aria-label="红果下载任务">
-      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">作品任务</h2><Link className="btn-outline" to="/discover?system=hongguo">去红果发现下载</Link></div>
-      <div className="flex items-center gap-2 text-sm"><span>整剧状态</span><Select aria-label="整剧状态" className="input-field min-w-44" value={status} onChange={(value) => { const next = new URLSearchParams(params); next.set('status', value); next.set('page', '1'); setParams(next) }}><option value="">全部状态</option>{statuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</Select></div>
       {error && <p role="alert">{error}</p>}
-      {result?.page !== page || result.status !== status ? <p role="status">加载中…</p> : <>
-        {result.items.length === 0 && <p className="text-ink-50">{status ? '暂无含所选状态分集的剧集。' : '暂无下载任务。从红果发现打开作品详情后发起下载。'}</p>}
+      {result?.page !== page || result.status !== status || result.keyword !== keyword ? <p role="status">加载中…</p> : <>
+        {!error && result.items.length === 0 && <div className="card flex min-h-64 flex-col items-center justify-center gap-4 px-4 py-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-500"><Download size={24} aria-hidden="true" /></div>
+          <div className="space-y-2"><h3 className="font-semibold">{keyword ? '没有找到匹配的下载作品' : status === 'downloading' ? '暂无正在下载的作品' : status ? '当前状态暂无下载作品' : '还没有下载任务'}</h3><p className="text-sm text-ink-50">{keyword ? '请尝试其他作品名称或 ID，或清空搜索后查看。' : status ? '可以查看全部任务，或前往发现页添加下载。' : '从发现页打开作品详情，即可发起下载。'}</p></div>
+          <div className="flex flex-wrap justify-center gap-2">{status && <button className="btn-outline" onClick={() => { const next = new URLSearchParams(params); next.set('status', ''); next.set('page', '1'); setParams(next) }}>查看全部</button>}<Link className="btn-primary" to="/discover?system=hongguo">去发现下载</Link></div>
+        </div>}
         {result.items.map((work) => <DownloadWork key={work.source_id} work={work} refresh={refresh} busy={busy} perform={perform} />)}
-        <div className="flex flex-wrap items-center gap-3"><button className="btn-outline" disabled={page <= 1} onClick={() => goPage(page - 1)}>上一页</button><span>第 {page} 页 · 共 {result.total} 部</span><button className="btn-outline" disabled={page * 50 >= result.total} onClick={() => goPage(page + 1)}>下一页</button></div>
+        {result.total > 0 && <div className="flex flex-wrap items-center gap-3"><button className="btn-outline" disabled={page <= 1} onClick={() => goPage(page - 1)}>上一页</button><span>第 {page} 页 · 共 {result.total} 部</span><button className="btn-outline" disabled={page * 50 >= result.total} onClick={() => goPage(page + 1)}>下一页</button></div>}
       </>}
     </section>
   </div>

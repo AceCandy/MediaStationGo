@@ -386,3 +386,24 @@ func TestSchedulerTaskTrigger(t *testing.T) {
 		t.Fatalf("manual trigger = %q, want %q", got, TaskTriggerManual)
 	}
 }
+
+func TestSchedulerRegistersIndependentHongGuoRanks(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	scheduler.hongguo = &HongGuoService{}
+	scheduler.Start(t.Context())
+	defer scheduler.Stop()
+	want := map[string]bool{TaskKindHongGuoSync: false, TaskKindHongGuoRank: true}
+	for _, job := range scheduler.jobs {
+		enabled, ok := want[job.name]
+		if !ok {
+			continue
+		}
+		if job.enabled != enabled || job.interval != 24*time.Hour || job.enabledKey != "hongguo."+job.name+".enabled" || job.intervalKey != "hongguo."+job.name+".interval_seconds" {
+			t.Fatalf("independent schedule: %+v", job)
+		}
+		delete(want, job.name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing schedules: %v", want)
+	}
+}

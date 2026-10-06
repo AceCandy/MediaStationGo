@@ -66,7 +66,7 @@ export function HongGuoDetailModal({ sourceID, summary, enabled, onClose, onCate
             </div>
             <MetadataOverview overview={detail.overview || '暂无简介'} />
             <MetadataTags label="类型流派" values={detail.tags} primary />
-            {credits.length ? <MediaCredits credits={credits} /> : <p className="text-sm text-[var(--app-muted)]">暂无演职员资料</p>}
+            <MediaCredits credits={credits} />
         <div className="flex flex-wrap items-center gap-3">
           {admin && <><HongGuoDownloadButton sourceID={sourceID} enabled={enabled} />
             {(!detail.source_category || detail.source_category === 'other') && <Select aria-label="设置作品分类" className="input-field w-36" value={detail.source_category || 'other'} disabled={busy} onChange={(category) => void update(async () => { await hongguoAPI.setSourceCategory(sourceID, category); if (active.current) { setDetail({ ...detail, source_category: category }); onCategorySaved(category) } }, '分类已保存')}><option value="other" disabled>其它</option><option value="real-drama">真人剧</option><option value="comic-drama">漫剧</option><option value="ai-drama">AI剧</option></Select>}
