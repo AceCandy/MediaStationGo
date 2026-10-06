@@ -10,6 +10,9 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 - Cache and in-flight keys are `mediaID + "\x00" + userAgent`; the default TTL is one hour.
 - `player_request_logs.response_body text NOT NULL DEFAULT ''` stores only sanitized failed-response content.
 - `PlayerRequestLogItem.response_body` exposes the field to the admin player-log page.
+- `player_request_logs.serial_no bigint NOT NULL` uses the shared PostgreSQL
+  `player_request_logs_serial_no_seq`; the admin DTO exposes `serial_no` as a
+  decimal string to preserve integers beyond JavaScript's safe range.
 - Web 与 Emby 视频流路径中的 `id` 是 concrete `media.id`，已加载的 `*model.Media` 通过 `ServeMedia` 直接播放。
 
 ## 3. Contracts
@@ -21,6 +24,16 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 - Before caching a remote target, GET the redirect chain with the same player User-Agent and `Range: bytes=0-0`, without player credentials or a cookie jar. Accept only final HTTP 200/206 with one readable byte; close the body without buffering media. Cache the validated final URL.
 - A target-validation HTTP 403 permits up to two fresh source resolutions (three attempts total). Other validation failures are not retried and must not trigger the source-500 local fallback. Resolution, validation and retries share the existing 15-second context budget; cancellation releases the in-flight entry and never caches a failure.
 - Player request `body` remains the sanitized request body. `response_body` is populated only for status 400 or greater.
+- Log serial numbers are stable across months, pagination and filters. The
+  sequence permits gaps and follows allocation order, not request time or commit
+  order. Keep the UUID/time partition primary key and existing list order.
+  The transactional schema migration serializes with an advisory lock and adds
+  the column with a volatile `nextval` default, assigning historical partition
+  rows once. Never reset the sequence or renumber existing rows on startup.
+  This first upgrade rewrites historical partitions and can hold a table lock;
+  test it in an isolated schema, never execute a production migration as a check.
+  Admin desktop/mobile lists and details show the same number; details can copy
+  it without conversion to a JavaScript Number.
 - Failed response content is capped at 64 KiB and uses the same sensitive JSON-field redaction as request bodies.
 - Non-JSON content containing a sensitive field marker is replaced as a whole instead of persisted verbatim.
 - Successful, redirect, and media-byte responses never persist response content.
@@ -67,6 +80,9 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 - Assert target 403 recovery/exhaustion, non-403 failure without retries or local fallback, empty-body rejection, one-byte reads, redirect-chain validation, and cancellation cleanup.
 - Assert only 4xx/5xx bodies are captured, sensitive JSON fields are redacted, oversized bodies use the truncation marker, and client responses remain unchanged.
 - Assert PostgreSQL migration adds `response_body` idempotently and canceled Emby video streams return 499.
+- Assert historical partitions get distinct positive serial numbers, repeated
+  migrations preserve them, new rows continue the sequence, and GORM/service
+  reads preserve the number as a decimal JSON string beyond 2^53.
 
 ## 7. Wrong vs Correct
 

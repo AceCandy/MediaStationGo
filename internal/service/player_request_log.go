@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 type PlayerRequestLogItem struct {
 	ID           string              `json:"id"`
+	SerialNo     string              `json:"serial_no"`
 	RequestedAt  time.Time           `json:"requested_at"`
 	Method       string              `json:"method"`
 	Route        string              `json:"route"`
@@ -92,7 +94,7 @@ func (s *PlayerRequestLogService) List(ctx context.Context, filter PlayerRequest
 	items := make([]PlayerRequestLogItem, len(rows))
 	for i, row := range rows {
 		items[i] = PlayerRequestLogItem{
-			ID: row.ID, RequestedAt: row.RequestedAt, Method: row.Method, Route: row.Route,
+			ID: row.ID, SerialNo: strconv.FormatInt(row.SerialNo, 10), RequestedAt: row.RequestedAt, Method: row.Method, Route: row.Route,
 			Status: row.Status, DurationMS: row.DurationMS, IP: row.IP, Body: row.Body, ResponseBody: row.ResponseBody,
 			PathParams: row.PathParams, Headers: row.Headers, Query: row.Query,
 		}

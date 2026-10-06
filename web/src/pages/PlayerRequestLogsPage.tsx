@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, RefreshCw, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { useSearchParams } from 'react-router-dom'
 
 import { adminAPI, type PlayerRequestLog, type PlayerRequestLogPage } from '../api/admin'
@@ -27,6 +28,14 @@ function statusClass(status: number): string {
 }
 
 function LogDetails({ log, onClose }: { log: PlayerRequestLog; onClose: () => void }) {
+  async function copySerialNo() {
+    try {
+      await navigator.clipboard.writeText(log.serial_no)
+      toast.success('已复制流水号')
+    } catch {
+      toast.error('复制失败')
+    }
+  }
   const sections = [
     ['Body', log.body],
     ['错误响应', log.response_body],
@@ -41,6 +50,7 @@ function LogDetails({ log, onClose }: { log: PlayerRequestLog; onClose: () => vo
         <button type="button" className="icon-btn" aria-label="关闭" title="关闭" onClick={onClose}><X size={18} /></button>
       </header>
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+        <div><dt className="text-ink-50">流水号</dt><dd className="mt-1 flex items-center gap-2 font-mono text-ink-600"><span className="break-all">{log.serial_no || '-'}</span>{log.serial_no && <button type="button" className="icon-btn !h-8 !w-8 shrink-0" aria-label="复制流水号" title="复制流水号" onClick={() => void copySerialNo()}><Copy size={15} /></button>}</dd></div>
         <div><dt className="text-ink-50">时间</dt><dd className="mt-1 text-ink-600">{new Date(log.requested_at).toLocaleString()}</dd></div>
         <div><dt className="text-ink-50">状态 / 耗时</dt><dd className="mt-1 text-ink-600">{log.status} · {log.duration_ms} ms</dd></div>
         <div><dt className="text-ink-50">来源 IP</dt><dd className="mt-1 font-mono text-ink-600">{log.ip || '-'}</dd></div>
@@ -129,8 +139,8 @@ export function PlayerRequestLogsPage() {
       <section className="glass-panel !p-0">
         {loading && !data ? <p className="py-12 text-center text-ink-50">加载中...</p> : error ? <p className="py-12 text-center text-red-500">{error}</p> : rows.length === 0 ? <p className="py-12 text-center text-ink-50">当前条件下暂无播放器请求。</p> : (
           <>
-            <div className="hidden overflow-x-auto lg:block"><table className="data-table min-w-[900px]"><thead><tr><th>时间</th><th>方法</th><th>路由</th><th>状态</th><th>耗时</th><th>IP</th></tr></thead><tbody>{rows.map((log) => <tr key={`${log.id}-${log.requested_at}`} className="cursor-pointer" tabIndex={0} onClick={() => setSelected(log)} onKeyDown={(event) => { if (event.key === 'Enter') setSelected(log) }}><td className="whitespace-nowrap">{new Date(log.requested_at).toLocaleString()}</td><td className="font-mono">{log.method}</td><td className="max-w-md break-all font-mono text-xs">{log.route}</td><td><span className={statusClass(log.status)}>{log.status}</span></td><td>{log.duration_ms} ms</td><td className="font-mono text-xs">{log.ip || '-'}</td></tr>)}</tbody></table></div>
-            <div className="divide-y divide-[var(--app-border)] lg:hidden">{rows.map((log) => <button type="button" key={`${log.id}-${log.requested_at}`} className="block w-full p-4 text-left" onClick={() => setSelected(log)}><div className="flex items-center justify-between gap-3"><span className="font-mono text-sm font-semibold text-ink-600">{log.method}</span><span className={statusClass(log.status)}>{log.status}</span></div><p className="mt-2 break-all font-mono text-xs text-ink-600">{log.route}</p><p className="mt-2 text-xs text-ink-50">{new Date(log.requested_at).toLocaleString()} · {log.duration_ms} ms · {log.ip || '-'}</p></button>)}</div>
+            <div className="hidden overflow-x-auto lg:block"><table className="data-table min-w-[900px]"><thead><tr><th>流水号</th><th>时间</th><th>方法</th><th>路由</th><th>状态</th><th>耗时</th><th>IP</th></tr></thead><tbody>{rows.map((log) => <tr key={`${log.id}-${log.requested_at}`} className="cursor-pointer" tabIndex={0} onClick={() => setSelected(log)} onKeyDown={(event) => { if (event.key === 'Enter') setSelected(log) }}><td className="whitespace-nowrap font-mono text-xs">{log.serial_no || '-'}</td><td className="whitespace-nowrap">{new Date(log.requested_at).toLocaleString()}</td><td className="font-mono">{log.method}</td><td className="max-w-md break-all font-mono text-xs">{log.route}</td><td><span className={statusClass(log.status)}>{log.status}</span></td><td>{log.duration_ms} ms</td><td className="font-mono text-xs">{log.ip || '-'}</td></tr>)}</tbody></table></div>
+            <div className="divide-y divide-[var(--app-border)] lg:hidden">{rows.map((log) => <button type="button" key={`${log.id}-${log.requested_at}`} className="block w-full p-4 text-left" onClick={() => setSelected(log)}><div className="flex items-center justify-between gap-3"><span className="font-mono text-sm font-semibold text-ink-600">{log.method}</span><span className={statusClass(log.status)}>{log.status}</span></div><p className="mt-2 break-all font-mono text-xs text-ink-50">流水号 {log.serial_no || '-'}</p><p className="mt-2 break-all font-mono text-xs text-ink-600">{log.route}</p><p className="mt-2 text-xs text-ink-50">{new Date(log.requested_at).toLocaleString()} · {log.duration_ms} ms · {log.ip || '-'}</p></button>)}</div>
           </>
         )}
       </section>

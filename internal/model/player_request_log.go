@@ -10,7 +10,9 @@ import (
 // PlayerRequestLog 保存播放器兼容 API 的脱敏请求信息。
 // requested_at 同时是 PostgreSQL 月分区键，因此与 id 组成复合主键。
 type PlayerRequestLog struct {
-	ID           string              `gorm:"primaryKey;type:varchar(36)" json:"id"`
+	ID string `gorm:"primaryKey;type:varchar(36)" json:"id"`
+	// SerialNo 是跨月稳定的日志编号，由数据库序列分配，允许空号。
+	SerialNo     int64               `gorm:"not null;default:nextval('player_request_logs_serial_no_seq')" json:"serial_no,string"`
 	RequestedAt  time.Time           `gorm:"primaryKey;not null" json:"requested_at"`
 	Method       string              `gorm:"size:16;not null" json:"method"`
 	Route        string              `gorm:"type:text;not null" json:"route"`

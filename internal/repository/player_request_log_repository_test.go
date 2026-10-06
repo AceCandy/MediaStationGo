@@ -31,6 +31,9 @@ func TestPlayerRequestLogRepositoryUsesMonthlyPartitionsAndFilters(t *testing.T)
 		if err := repo.Create(t.Context(), &rows[i]); err != nil {
 			t.Fatal(err)
 		}
+		if rows[i].SerialNo <= 0 || (i > 0 && rows[i].SerialNo <= rows[i-1].SerialNo) {
+			t.Fatalf("invalid generated serial number: %d", rows[i].SerialNo)
+		}
 	}
 	status := 200
 	got, total, err := repo.List(t.Context(), PlayerRequestLogQuery{
@@ -43,6 +46,9 @@ func TestPlayerRequestLogRepositoryUsesMonthlyPartitionsAndFilters(t *testing.T)
 	}
 	if total != 1 || len(got) != 1 || got[0].Route != rows[0].Route || got[0].Body != rows[0].Body || got[0].PathParams["id"][0] != "user-1" {
 		t.Fatalf("result total=%d rows=%#v", total, got)
+	}
+	if got[0].SerialNo != rows[0].SerialNo {
+		t.Fatalf("serial number changed on read: %d -> %d", rows[0].SerialNo, got[0].SerialNo)
 	}
 	for _, partition := range []string{"player_request_logs_2026_01", "player_request_logs_2026_02"} {
 		var exists bool

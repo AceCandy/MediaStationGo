@@ -64,6 +64,7 @@ export interface PlaybackStatsResult {
 
 export interface PlayerRequestLog {
   id: string
+  serial_no: string
   requested_at: string
   method: string
   route: string

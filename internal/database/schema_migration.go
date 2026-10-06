@@ -338,8 +338,13 @@ func purgeRetiredMediaRecycleRows(db *gorm.DB) error {
 }
 
 func ensurePlayerRequestLogSchema(db *gorm.DB) error {
-	for _, stmt := range []string{
-		`CREATE TABLE IF NOT EXISTS player_request_logs (
+	return db.Transaction(func(tx *gorm.DB) error {
+		// 串行化多实例的序列与分区迁移，避免重复初始化。
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext('player_request_logs_schema'))`).Error; err != nil {
+			return err
+		}
+		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS player_request_logs (
 	id varchar(36) NOT NULL,
 	requested_at timestamptz NOT NULL,
 	method varchar(16) NOT NULL,
@@ -354,17 +359,23 @@ func ensurePlayerRequestLogSchema(db *gorm.DB) error {
 	response_body text NOT NULL DEFAULT '',
 	PRIMARY KEY (id, requested_at)
 ) PARTITION BY RANGE (requested_at)`,
-		`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS body text NOT NULL DEFAULT ''`,
-		`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS response_body text NOT NULL DEFAULT ''`,
-		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_requested_at ON player_request_logs (requested_at DESC, id DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_method_time ON player_request_logs (method, requested_at DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_status_time ON player_request_logs (status, requested_at DESC)`,
-	} {
-		if err := db.Exec(stmt).Error; err != nil {
-			return err
+			`CREATE SEQUENCE IF NOT EXISTS player_request_logs_serial_no_seq AS bigint`,
+			// nextval 默认值同时为历史分区补号；重复迁移不重置序列或已有编号。
+			`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS serial_no bigint NOT NULL DEFAULT nextval('player_request_logs_serial_no_seq')`,
+			`ALTER SEQUENCE player_request_logs_serial_no_seq OWNED BY player_request_logs.serial_no`,
+			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_serial_no ON player_request_logs (serial_no)`,
+			`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS body text NOT NULL DEFAULT ''`,
+			`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS response_body text NOT NULL DEFAULT ''`,
+			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_requested_at ON player_request_logs (requested_at DESC, id DESC)`,
+			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_method_time ON player_request_logs (method, requested_at DESC)`,
+			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_status_time ON player_request_logs (status, requested_at DESC)`,
+		} {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
 		}
-	}
-	return EnsurePlayerRequestLogPartitions(db, time.Now().UTC())
+		return EnsurePlayerRequestLogPartitions(tx, time.Now().UTC())
+	})
 }
 
 // EnsurePlayerRequestLogPartitions 幂等创建指定月份及下一月份的日志分区。
