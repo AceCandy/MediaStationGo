@@ -18,6 +18,9 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 
 // globalItemsWithCount 让数组型 Latest 复用全局资格与分页，不额外计算作品总数。
 func (e *EmbyService) globalItemsWithCount(ctx context.Context, p ItemsParams, count bool, latestWorks ...bool) (map[string]any, bool, error) {
+	if containsOnlyFavoriteItemTypes(globalItemKinds(p)) && !containsEmbyFilter(p.Filters, "IsResumable") {
+		p = workDateSortParams(p)
+	}
 	if p.ParentID != "" || containsOnlyFolderItemTypes(p.IncludeItemTypes) || (strings.TrimSpace(p.SearchTerm) == "" && !p.Recursive && len(p.IncludeItemTypes) == 0 && len(p.Filters) == 0) {
 		return nil, false, nil
 	}

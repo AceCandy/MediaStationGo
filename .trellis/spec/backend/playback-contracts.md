@@ -23,7 +23,8 @@ per-user, per-metadata history state but playback events are append-only.
 - `playback_histories` is unique on active `(user_id, metadata_id)`;
   `playback_events` is unique on active `(user_id, session_id, metadata_id)`.
 - Web continuation is `GET /api/watch-history/continue`. Emby `/Items/Resume`
-  returns resume-or-next; `/Shows/NextUp` returns next-only; `/Items?Filters=IsResumable`
+  returns resume-or-next; `/Shows/NextUp` returns the fixed compatibility envelope
+  `{"Items":[],"TotalRecordCount":0,"StartIndex":0}` without querying continuations; `/Items?Filters=IsResumable`
   remains resume-only (also user-scoped, lowercase, and `/emby` variants).
 - `playback.auto_mark_previous_episodes` is an administrator setting, default
   false, edited through the existing single-key settings API.
@@ -81,7 +82,11 @@ per-user, per-metadata history state but playback events are append-only.
   recently watched Episode; Movies and items without a Series group by their own
   logical identity. HongGuo groups by its source work or official album and
   never merges with canonical media by title.
-- Web continuation, Emby Resume and NextUp share `HistoryRepository.Continuations`
+- HTTP NextUp (all aliases, including SeriesId requests) always returns the empty
+  envelope after route authentication/authorization. It ignores paging/filter fields.
+  The following NextUp rules describe the retained internal `NextUpItems` service,
+  not the public HTTP endpoint; Web and Resume retain their current behavior.
+- Web continuation, Emby Resume and internal NextUp share `HistoryRepository.Continuations`
   via `ContinuationWeb`, `ContinuationResume` and `ContinuationNextUp` modes.
   Prefer the latest visible resumable episode; without a resumable episode,
   advance from the furthest completed coordinate to the first later visible,
@@ -235,13 +240,14 @@ per-user, per-metadata history state but playback events are append-only.
 | `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
 | Position below 60 seconds for duration > ten minutes, or below 20 seconds otherwise | Successful no-op for automatic progress |
 | Several incomplete Episodes belong to one visible Series | Continue watching returns only the most recently watched Episode; full history keeps every Episode |
-| Completed season, later visible unplayed episode | Web, Emby Resume and NextUp return the same logical Episode |
-| Incomplete episode in a started group | Web resumes it; NextUp omits the group; Resume semantics remain unchanged |
-| Watched episode replayed past recording threshold | Played remains true; Resume shows new position; NextUp omits the group |
-| Deleted long file, shorter visible replacement already finished | Effective Played=true and resume=0; season and NextUp use the corrected state |
+| Completed season, later visible unplayed episode | Web, Emby Resume and internal NextUp return the same logical Episode |
+| Incomplete episode in a started group | Web resumes it; internal NextUp omits the group; Resume semantics remain unchanged |
+| Watched episode replayed past recording threshold | Played remains true; Resume shows new position; internal NextUp omits the group |
+| Deleted long file, shorter visible replacement already finished | Effective Played=true and resume=0; season and internal NextUp use the corrected state |
 | Missing replacement duration or no visible replacement | Do not infer completion from stale duration |
 | No history, all completed, or no visible successor | No next-episode recommendation |
-| NextUp offset beyond final page | Empty Items with the exact unchanged TotalRecordCount |
+| HTTP NextUp with any offset or SeriesId | Fixed empty Items, TotalRecordCount=0 and StartIndex=0 |
+| Internal NextUp offset beyond final page | Empty Items with the exact unchanged TotalRecordCount |
 | Invisible media | Request is rejected; no history or event is written |
 | Auto-mark off or progress incomplete | No earlier episode is changed |
 | Auto-mark on and progress completed | Only visible earlier episodes in the same season are completed; failures roll back the progress transaction |
@@ -305,7 +311,8 @@ per-user, per-metadata history state but playback events are append-only.
   generic estimates can still trigger JIT under skewed user distributions: record
   it separately, and never claim a scoped empty-result timing proves global latency.
 - `TestNextUpRoutesAndWebContinuation` and `TestEmbyTargetUserRequired` cover
-  all route aliases, current-user and cross-user access and nested Web markers.
+  all route aliases, empty HTTP NextUp, unchanged Resume, current-user and cross-user access and nested Web markers.
+  `TestNextUpEmptyWithoutService` verifies the fixed response without a service or database.
   Run `node scripts/check-history-presentation.mjs` and
   `node scripts/check-nextup.mjs` from `web` (the latter uses a local preview,
   mocked APIs and an isolated browser) for target links and catalog behavior.

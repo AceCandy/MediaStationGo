@@ -125,7 +125,7 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 	for _, sortBy := range []string{"SortName", "DateCreated", "DateLastContentAdded", "DateLastContentAdded,DateCreated,SortName"} {
 		p := ItemsParams{UserID: "viewer", ParentID: lib.ID, Recursive: true, IncludeItemTypes: []string{"Series", "Movie", "Video", "MusicVideo", "MusicAlbum"}, Limit: 1, SortBy: sortBy, SortOrder: "Descending"}
 		want := standalone
-		if strings.HasPrefix(sortBy, "DateLastContentAdded") {
+		if sortBy == "DateCreated" || strings.HasPrefix(sortBy, "DateLastContentAdded") {
 			want = groupID
 		}
 		for offset := 0; offset < 3; offset++ {
@@ -251,6 +251,129 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 	}
 }
 
+// DateCreated 按作品最新入库时间排序，候选不能为排序读取全库文件。
+func TestHongGuoLibraryDateCreatedPlan(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"library", "hidden"} {
+		if err := db.Create(&model.Library{Base: model.Base{ID: id}, Name: id, Type: model.LibraryTypeHongGuo, Path: "/test/" + id}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, sql := range []string{
+		`INSERT INTO hongguo_works (id,source_id,kind,title,related_album_id,season_index,refreshed_at)
+SELECT 'work-'||n,n::text,'series','Title '||n,((n-1)/2+1)::text,(n-1)%2+1,now() FROM generate_series(1,6000) n`,
+		`INSERT INTO hongguo_episodes (id,work_id,number)
+SELECT 'episode-'||n||'-'||e,'work-'||n,e FROM generate_series(1,4000) n CROSS JOIN generate_series(1,10) e`,
+		`INSERT INTO media (id,library_id,catalog_source,lookup_catalog_id,path,episode_num,created_at)
+SELECT 'file-'||n||'-'||e,'library','hongguo',n::text,'/test/'||n||'/'||e,e,TIMESTAMPTZ '2026-01-01 00:00:00+00'+n*INTERVAL '1 second'+e*INTERVAL '1 day'
+FROM generate_series(1,4000) n CROSS JOIN generate_series(1,10) e`,
+		`INSERT INTO hongguo_media_bindings (media_id,work_id,episode_id)
+SELECT 'file-'||n||'-'||e,'work-'||n,'episode-'||n||'-'||e FROM generate_series(1,4000) n CROSS JOIN generate_series(1,10) e`,
+		// 另一个库的更早文件不得改变本库首张卡片的日期。
+		`INSERT INTO media (id,library_id,catalog_source,lookup_catalog_id,path,episode_num,created_at)
+VALUES ('hidden-file','hidden','hongguo','3999','/hidden',1,TIMESTAMPTZ '2000-01-01 00:00:00+00')`,
+		`INSERT INTO hongguo_media_bindings (media_id,work_id,episode_id) VALUES ('hidden-file','work-3999','episode-3999-1')`,
+		// 最早文件仍是 2026 年，但新增文件使第一部作品排到最前。
+		`UPDATE media SET created_at=TIMESTAMPTZ '2099-01-01 00:00:00+00' WHERE id='file-1-10'`,
+		`ANALYZE hongguo_works`, `ANALYZE media`, `ANALYZE hongguo_media_bindings`, `ANALYZE hongguo_episodes`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
+	e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	var candidateSQL string
+	var candidateVars []any
+	if err := db.Callback().Row().After("gorm:row").Register("test:date-created", func(tx *gorm.DB) {
+		sql := tx.Statement.SQL.String()
+		if strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") {
+			candidateSQL = sql
+			candidateVars = append([]any(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, skipCount := range []bool{false, true} {
+		for _, offset := range []int{0, 30, 1999, 2000} {
+			got, err := e.Items(t.Context(), ItemsParams{UserID: "viewer", ParentID: "library", Recursive: true, IncludeItemTypes: []string{"Series"}, SortBy: "DateCreated,SortName", SortOrder: "Descending", Limit: 30, StartIndex: offset, SkipTotalRecordCount: skipCount})
+			if err != nil {
+				t.Fatal(err)
+			}
+			items := got["Items"].([]map[string]any)
+			wantLen := 30
+			if offset == 1999 {
+				wantLen = 1
+			}
+			if offset == 2000 {
+				wantLen = 0
+			}
+			if len(items) != wantLen {
+				t.Fatalf("offset=%d count=%v length=%d", offset, !skipCount, len(items))
+			}
+			for i, item := range items {
+				group := 2001 - offset - i
+				if offset+i == 0 {
+					group = 1
+				}
+				if want := fmt.Sprintf("hg-group-%d", group); item["Id"] != want {
+					t.Fatalf("offset=%d got=%v want=%s", offset, item["Id"], want)
+				}
+				firstWork := group*2 - 1
+				wantDate := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC).Add(time.Duration(firstWork) * time.Second)
+				if item["DateCreated"] != formatEmbyDateTime(wantDate) {
+					t.Fatalf("offset=%d date=%v want=%s", offset, item["DateCreated"], formatEmbyDateTime(wantDate))
+				}
+			}
+			if !skipCount && got["TotalRecordCount"] != int64(2000) {
+				t.Fatalf("total=%v", got["TotalRecordCount"])
+			}
+		}
+	}
+	if candidateSQL == "" {
+		t.Fatal("DateCreated candidate query not captured")
+	}
+	if strings.Contains(candidateSQL, "MIN(m.created_at)") {
+		t.Fatal("DateCreated still aggregates file dates")
+	}
+	var raw []byte
+	if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+candidateSQL, candidateVars...).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var plans []struct {
+		Plan          map[string]any
+		ExecutionTime float64 `json:"Execution Time"`
+	}
+	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("invalid plan: %v", err)
+	}
+	var inspect func(map[string]any)
+	inspect = func(node map[string]any) {
+		if node["Relation Name"] == "media" || node["Relation Name"] == "hongguo_media_bindings" {
+			rows, _ := node["Actual Rows"].(float64)
+			loops, _ := node["Actual Loops"].(float64)
+			if rows*loops > 0 {
+				t.Fatalf("DateCreated candidates read files: relation=%v rows=%v loops=%v", node["Relation Name"], rows, loops)
+			}
+		}
+		children, _ := node["Plans"].([]any)
+		for _, child := range children {
+			inspect(child.(map[string]any))
+		}
+	}
+	inspect(plans[0].Plan)
+	t.Logf("4000 works / 40000 files DateCreated candidate execution: %.2fms", plans[0].ExecutionTime)
+}
+
 func TestHongGuoLibraryPagePlan(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -374,6 +497,9 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 		queries = nil
 		p := ItemsParams{UserID: "viewer", ParentID: "library", Recursive: true, IncludeItemTypes: []string{"Series", "Movie", "Video", "MusicVideo", "MusicAlbum"}, Limit: 3, SortBy: "DateLastContentAdded,DateCreated,SortName", SortOrder: "Descending"}
 		want := "hg-group-2000"
+		if mode == "date" {
+			p.SortBy = "DateCreated,SortName"
+		}
 		if mode == "title" {
 			p.SortBy, p.SortOrder, want = "SortName", "Ascending", "hg-group-1"
 		}
@@ -772,7 +898,7 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 			want = 1
 		}
 		assertEmbyUnplayedCount(t, item, want)
-		for _, sort := range []struct{ field, column string }{{"SortName", "title"}, {"DateCreated", "created_at"}, {"DateLastContentAdded", "latest_at"}} {
+		for _, sort := range []struct{ field, column string }{{"SortName", "title"}, {"DateCreated", "latest_at"}, {"DateLastContentAdded", "latest_at"}} {
 			for _, filter := range []string{"", "IsPlayed", "IsUnplayed"} {
 				p := ItemsParams{UserID: user, ParentID: libs[0].ID, Limit: 2, SortBy: sort.field, SortOrder: "Descending", Fields: []string{"BasicSyncInfo"}}
 				q := e.hongGuoNodes(ctx, user, libs[0].ID).Where("parent_id = ''")

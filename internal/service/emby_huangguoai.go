@@ -136,6 +136,10 @@ func (e *EmbyService) huangGuoAIHierarchyItems(ctx context.Context, p ItemsParam
 		}
 		libraryID = lib.ID
 	}
+	if libraryID != "" && !containsEmbyFilter(p.Filters, "IsResumable") &&
+		(containsOnlyFavoriteItemTypes(p.IncludeItemTypes) || len(p.IncludeItemTypes) == 0 && !p.Recursive || containsEmbyFilter(p.Filters, "IsFavorite")) {
+		p = workDateSortParams(p)
+	}
 	if libraryID != "" && hongGuoLibraryPageSupported(p) {
 		result, err := e.huangGuoAILibraryItems(ctx, p)
 		return result, true, err
@@ -229,6 +233,7 @@ func (e *EmbyService) huangGuoAIGlobalCandidates(ctx context.Context, p ItemsPar
 
 // huangGuoAILibraryItems 先按作品分页，再加载当前页文件与状态。
 func (e *EmbyService) huangGuoAILibraryItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	p = workDateSortParams(p)
 	base := p
 	base.Filters = nil
 	if len(base.IncludeItemTypes) == 0 {

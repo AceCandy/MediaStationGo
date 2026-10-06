@@ -276,6 +276,10 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		}
 		p.IncludeItemTypes = kinds
 	}
+	if libraryID != "" && !containsEmbyFilter(p.Filters, "IsResumable") &&
+		(containsOnlyFavoriteItemTypes(p.IncludeItemTypes) || len(p.IncludeItemTypes) == 0 && !p.Recursive || containsEmbyFilter(p.Filters, "IsFavorite")) {
+		p = workDateSortParams(p)
+	}
 	if libraryID != "" && !local && hongGuoLibraryPageSupported(p) {
 		items, total, err := e.hongGuoLibraryItems(ctx, p, !p.SkipTotalRecordCount)
 		return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, err

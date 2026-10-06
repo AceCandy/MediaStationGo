@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,8 +63,15 @@ func TestNextUpRoutesAndWebContinuation(t *testing.T) {
 				}
 				TotalRecordCount int
 			}
-			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != 200 || result.TotalRecordCount != 1 || len(result.Items) != 1 || result.Items[0].ID != "next" {
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != 200 {
 				t.Fatalf("%s%s: status=%d body=%s err=%v", prefix, path, response.Code, response.Body.String(), err)
+			}
+			if strings.Contains(strings.ToLower(path), "nextup") {
+				if result.TotalRecordCount != 0 || result.Items == nil || len(result.Items) != 0 {
+					t.Fatalf("%s%s: NextUp must be empty, body=%s", prefix, path, response.Body.String())
+				}
+			} else if result.TotalRecordCount != 1 || len(result.Items) != 1 || result.Items[0].ID != "next" {
+				t.Fatalf("%s%s: Resume changed, body=%s", prefix, path, response.Body.String())
 			}
 		}
 	}
@@ -108,6 +116,24 @@ func TestNextUpRoutesAndWebContinuation(t *testing.T) {
 		}
 		if (want == "" && len(page.Items) != 0) || (want != "" && (len(page.Items) != 1 || page.Items[0].ID != want)) {
 			t.Fatalf("mixed page %d: %+v want %s", index, page, want)
+		}
+	}
+}
+
+func TestNextUpEmptyWithoutService(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/Shows/NextUp", embyNextUpHandler(nil))
+	for _, query := range []string{"", "?SeriesId=series&StartIndex=12&Limit=30"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/Shows/NextUp"+query, nil))
+		var result map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s err=%v", response.Code, response.Body.String(), err)
+		}
+		items, ok := result["Items"].([]any)
+		if !ok || len(items) != 0 || result["TotalRecordCount"] != float64(0) || result["StartIndex"] != float64(0) {
+			t.Fatalf("unexpected NextUp response: %s", response.Body.String())
 		}
 	}
 }

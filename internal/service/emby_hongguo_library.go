@@ -124,19 +124,14 @@ func (e *EmbyService) hongGuoLibraryLatestWorks(ctx context.Context, p ItemsPara
 
 // hongGuoLibraryItems 在作品粒度排序分页，只为页内作品展开详情；Latest 不计总数。
 func (e *EmbyService) hongGuoLibraryItems(ctx context.Context, p ItemsParams, count bool) ([]map[string]any, int64, error) {
+	p = workDateSortParams(p)
 	db := e.repo.DB.WithContext(ctx)
 	sort := primarySupportedEmbySort(p.SortBy, false)
-	dateAggregate := ""
-	if sort == "datecreated" {
-		dateAggregate = "MIN"
-	}
 	baseParams := p
 	baseParams.Filters = nil
 	order := "title"
 	if sort == "random" {
 		order = embyRandomOrder(p, "id")
-	} else if sort == "datecreated" {
-		order = "created_at"
 	} else if sort == "datelastcontentadded" {
 		order = "latest_at"
 	}
@@ -148,7 +143,7 @@ func (e *EmbyService) hongGuoLibraryItems(ctx context.Context, p ItemsParams, co
 		}
 		works = e.hongGuoLibraryLatestWorks(ctx, baseParams)
 	} else {
-		scoped, albums, _ := e.hongGuoWorkScope(ctx, baseParams, dateAggregate)
+		scoped, albums, _ := e.hongGuoWorkScope(ctx, baseParams, "")
 		works = db.Table("(?) scoped", scoped.Where("w.latest_at IS NOT NULL")).
 			Select("id,kind,title,MIN(created_at) AS created_at,MAX(latest_at) AS latest_at,ARRAY_AGG(work_id) AS work_ids").
 			Group("id,kind,title")

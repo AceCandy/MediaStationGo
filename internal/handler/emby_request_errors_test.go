@@ -56,7 +56,6 @@ func TestEmbyBrowseRequestErrors(t *testing.T) {
 		{"/Items/Resume", "/Items/Resume", embyResumeItemsHandler(svc)},
 		{"/Items/Latest", "/Items/Latest", embyLatestItemsHandler(svc)},
 		{"/Shows/:id/Seasons", "/Shows/series/Seasons", embyShowSeasonsHandler(svc)},
-		{"/Shows/NextUp", "/Shows/NextUp", embyNextUpHandler(svc)},
 		{"/Shows/:id/Episodes", "/Shows/series/Episodes", embyShowEpisodesHandler(svc)},
 		{"/Shows/:id/Episodes", "/Shows//Episodes?SeasonId=season", embyShowEpisodesHandler(svc)},
 	} {

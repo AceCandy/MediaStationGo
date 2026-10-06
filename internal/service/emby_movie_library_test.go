@@ -7,6 +7,40 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
+func TestEmbyLibraryMixedTypesRespectLibraryType(t *testing.T) {
+	svc := newTestEmbyService(t)
+	for _, libraryType := range []string{"movie", "tv"} {
+		lib := model.Library{Name: libraryType, Type: libraryType, Path: "/test/" + libraryType, Enabled: true}
+		if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+			t.Fatal(err)
+		}
+		file := model.Media{LibraryID: lib.ID, Title: "Test work", Path: lib.Path + "/work.mkv"}
+		wantType := "Movie"
+		if libraryType == "tv" {
+			file.SeriesID, file.SeasonNum, file.EpisodeNum = "mixed-types-show", 1, 1
+			wantType = "Series"
+		}
+		if err := svc.repo.DB.Create(&file).Error; err != nil {
+			t.Fatal(err)
+		}
+		for _, skipCount := range []bool{false, true} {
+			out, err := svc.Items(t.Context(), ItemsParams{
+				ParentID: lib.ID, Recursive: true,
+				IncludeItemTypes: []string{"Series", "Movie", "Video", "MusicVideo", "MusicAlbum"},
+				SortBy:           "DateLastContentAdded,DateCreated,SortName", SortOrder: "Descending",
+				Limit: 20, SkipTotalRecordCount: skipCount,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			items := out["Items"].([]map[string]any)
+			if len(items) != 1 || items[0]["Type"] != wantType || items[0]["ParentId"] != lib.ID {
+				t.Fatalf("library=%s skipCount=%v: mixed types returned %#v", libraryType, skipCount, out)
+			}
+		}
+	}
+}
+
 func TestEmbyMovieLibrarySeasonNumbersStayMovies(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "动画电影", Path: `/media/movies/animation`, Type: "Movie", Enabled: true}

@@ -170,7 +170,7 @@ func TestEmbyFileDateSortQualifiesOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, favorite := range []bool{false, true} {
-				for _, order := range []string{"", "DateCreated", "PremiereDate"} {
+				for _, order := range []string{"", "PremiereDate"} {
 					for _, direction := range []string{"Ascending", "Descending"} {
 						for _, skip := range []bool{false, true} {
 							for _, offset := range []int{0, 3, 10, 500} {

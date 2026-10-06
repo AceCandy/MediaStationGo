@@ -8,12 +8,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// nfoLibraryItems 保留 NFO 原排序与状态规则，只为当前页加载展示节点。
+// nfoLibraryItems 按作品排序分页并保留状态规则，只为当前页加载展示节点。
 func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count bool) ([]map[string]any, int64, error) {
+	p = workDateSortParams(p)
 	db := e.repo.DB.WithContext(ctx)
 	filter := e.mediaQueryFilter(ctx, p.UserID)
-	dateSort := !embyRandomSort(p) && strings.Contains(strings.ToLower(p.SortBy), "datecreated")
-	latest := !count && !dateSort && strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") && strings.EqualFold(p.SortOrder, "Descending")
+	latest := !count && strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") && strings.EqualFold(p.SortOrder, "Descending")
 	played := containsEmbyFilter(p.Filters, "IsPlayed")
 	unplayed := containsEmbyFilter(p.Filters, "IsUnplayed")
 	q := db.Table("(?) AS candidates", e.repo.MediaView.NFOWorkCandidates(ctx, p.UserID, p.ParentID, filter, false))
@@ -31,9 +31,6 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 	if metadataSort != "" {
 		columns += ", " + metadataSort
 	}
-	if dateSort {
-		columns += ", created_at"
-	}
 	if embyRandomSort(p) {
 		columns += ", " + embyRandomOrder(p, "id") + " AS random_order"
 	}
@@ -47,8 +44,6 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 		order = "random_order"
 	} else if metadataSort != "" {
 		order = metadataSort
-	} else if dateSort {
-		order = "created_at"
 	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
 		order = "latest_at"
 	}

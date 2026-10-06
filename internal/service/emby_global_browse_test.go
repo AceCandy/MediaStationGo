@@ -60,7 +60,7 @@ func assertGlobalBrowsePlan(t *testing.T, e *EmbyService) {
 	}
 	t.Cleanup(func() { _ = db.Callback().Row().Remove("test:global-plan") })
 	p := ItemsParams{UserID: "viewer", Recursive: true, IncludeItemTypes: []string{"Movie", "Series"}, Filters: []string{"IsUnplayed"}, Limit: 20, Fields: []string{"BasicSyncInfo"}}
-	for _, sortBy := range []string{"", "SortName", "DateLastContentAdded", "Random"} {
+	for _, sortBy := range []string{"", "SortName", "DateCreated", "DateLastContentAdded", "Random"} {
 		p.SortBy, queries = sortBy, nil
 		page, handled, err := e.hongGuoGlobalItems(t.Context(), p)
 		if err != nil || !handled || len(queries) != 2 || page["TotalRecordCount"] != int64(2000) || len(page["Items"].([]map[string]any)) != 20 {
@@ -245,8 +245,12 @@ func assertGlobalBrowseMatchesHierarchy(t *testing.T, e *EmbyService, user strin
 		if mode.filter != "" {
 			p.Filters = []string{mode.filter}
 		}
+		reference := p
+		if mode.sort == "DateCreated" && containsOnlyFavoriteItemTypes(globalItemKinds(p)) {
+			reference.SortBy = "DateLastContentAdded"
+		}
 		var expected []string
-		if err := originalGlobalBrowseCandidates(t, e, p).Order(globalItemsOrder(p)).Pluck("id", &expected).Error; err != nil {
+		if err := originalGlobalBrowseCandidates(t, e, reference).Order(globalItemsOrder(reference)).Pluck("id", &expected).Error; err != nil {
 			t.Fatal(err)
 		}
 		for _, offset := range []int{0, 2, len(expected), len(expected) + 1} {
@@ -367,8 +371,12 @@ func TestEmbyGlobalWorkDirectBindingsPreserveGroups(t *testing.T) {
 	for _, sortBy := range []string{"SortName", "DateCreated", "DateLastContentAdded", "CommunityRating"} {
 		for _, filter := range []string{"", "IsPlayed", "IsUnplayed"} {
 			p := ItemsParams{UserID: "viewer", IncludeItemTypes: []string{"Movie", "Series"}, SortBy: sortBy, Filters: []string{filter}}
+			reference := p
+			if sortBy == "DateCreated" {
+				reference.SortBy = "DateLastContentAdded"
+			}
 			var want, got []string
-			if err := originalGlobalBrowseCandidates(t, e, p).Order(globalItemsOrder(p)).Pluck("id", &want).Error; err != nil {
+			if err := originalGlobalBrowseCandidates(t, e, reference).Order(globalItemsOrder(reference)).Pluck("id", &want).Error; err != nil {
 				t.Fatal(err)
 			}
 			result, _, err := e.globalItemsWithCount(t.Context(), p, true)

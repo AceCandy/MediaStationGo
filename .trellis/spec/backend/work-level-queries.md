@@ -8,6 +8,14 @@
 
 ## 2. Signatures
 
+- Ordinary library Items requests that include both Movie and Series without
+  Episode must dispatch by the selected library: episodic libraries keep Series
+  cards, while movie libraries retain the Movie query. The mere presence of
+  Series in a mixed client request must not force a movie library into the
+  Series-only path. Source-specific handlers and global browsing retain their
+  existing dispatch. `TestEmbyLibraryMixedTypesRespectLibraryType` covers the
+  actual SenPlayer type/sort parameters in both total-count modes.
+
 - Emby `Items(ctx, ItemsParams)`：`ParentID`、`IncludeItemTypes`、`Filters`、`SortBy/SortOrder`、`StartIndex/Limit` 和 `Fields` 决定查询需求；内部 `SkipTotalRecordCount` 零值保留准确计数。HTTP `/Items` 默认跳过准确计数，但始终返回数字 `TotalRecordCount`：分页多取一个合格结果，有结果时返回 `StartIndex + 取得数量` 的已知下界，空页为 0；显式 `EnableTotalRecordCount=true` 保留原准确计数。
 - Emby `LatestItems(ctx, userID, parentID, limit, isPlayed, fields...)`：最近添加数组，不对外返回总数；内部也不应仅为复用计数列表而额外计算总数。
 - Web `ListLibraryMetadataPage` ordinary movies/Series and `ListRecentLogicalWorks` use persisted global work time. Ordinary movie/Series pages order by `latest_media_added_at DESC NULLS LAST, id DESC`; representative file and Part rules remain unchanged. Other library sorts retain their existing semantics.
@@ -17,7 +25,7 @@
 ## 3. Contracts
 
 1. Movie/Series 请求优先从作品及其持久库归属产生轻量候选。不能只为判断“有文件”或取得作品 ID，先展开全库 Media、季集、版本和展示关联后去重。
-2. Latest file time serves only its matching sort. NFO DateCreated uses the item's first `created_at`; other sources retain existing DateCreated/release/playback ordering. Web movie library cards explicitly use work latest time, not the representative-version date. A non-null latest time alone does not prove visibility.
+2. Emby Movie/Series work lists across ordinary, NFO, HongGuo and HuangGuo AI treat explicit DateCreated as an alias of DateLastContentAdded, using persisted `latest_media_added_at` (album MAX across all valid members). This includes library, global, favorite and person work pages. Preserve each entrypoint's direction defaults, stable ties, permissions, count mode and returned DateCreated field; Season/Episode and resumable lists retain their file/state order. Web movie cards use work latest time. A non-null latest time alone does not prove visibility.
 3. Maintained library membership may replace redundant file existence checks. Ordinary unfiltered leaf works and HongGuo intersect membership with parent/allowed minus hidden libraries; NULL retains exact fallback for browse consumers. `/Items/Counts` deliberately excludes unknown/empty membership and uses maintained NFO time without file probes after the approved initialization. NFO library candidates use their own library_id and non-null latest time: normal ingestion transactionally creates same-library items and bindings. Missing-field predicates and effective state still read necessary files. Ordinary episode hierarchy/path qualification runs after the candidate batch, not while enumerating it. Global album time/title never shrink to visible members.
 4. User/library permissions, file predicates and effective played filters precede the final page, not necessarily the raw candidate batch LIMIT. Adult restrictions are library-only; item/metadata/binding NSFW fields and predicates no longer exist. Preserve ordinary pre-group episode filtering and never treat partially scoped ancestors as complete container state.
 5. 启用计数时，筛选后只统计逻辑候选，并保留越界页准确总数。不需要总数的请求不计数。状态/特殊资格取页先按作品字段取 max(50, limit) 个逻辑候选，再筛选，不足继续补取，StartIndex 只跳过合格结果；红果先归并卡片。`WorkBatchPage` 用只读可重复读快照处理计数和补取；精确计数可能处理全体资格，但不能加载全库展示数据。普通剧集计数对非空入库时间候选复用原文件 EXISTS，找到首个合格分集即停；空时间候选保留一次受限文件扫描，避免逐个探测空目录。两支互斥，时间只选执行策略，不能代替层级、文件或状态资格。
@@ -87,8 +95,9 @@ candidates after selection. Refill and dates share the same read-only snapshot.
 Ordinary library work-list entrypoints normalize omitted SortBy, DateCreated and
 DateLastContentAdded to global persisted work time; omitted direction is descending,
 explicit Ascending remains valid. Apply this only at media-library Movie/Series
-list entrypoints, never globally in metadataOrderSQL/seriesOrderSQL: Episode
-hierarchy, global browse, Resume and external catalogs retain their contracts.
+list entrypoints; explicit DateCreated is also normalized at work-only global
+and source-library entries. Do not normalize globally in the shared sort parser:
+Episode hierarchy, Resume and non-date sorts retain their contracts.
 Mixed movie libraries also read candidate work time for these sorts and use
 EXISTS for their original Movie/path-qualified Series eligibility, rather than
 aggregating release/file dates. Name, rating and production-year mixed sorts read
@@ -98,7 +107,7 @@ retain their existing total contracts. Ordinary library Series rating uses the
 Series field without changing global/hierarchy sort helpers.
 
 Ordinary `metadataWorkPage` / `seriesWorkPage` remaining file-date sorts (global
-default/DateCreated and explicit PremiereDate when their original order contains
+default and explicit PremiereDate when their original order contains
 `MAX(media.created_at)`) materialize candidates and exact eligibility once in
 one statement, then call `workCandidatePage(..., countTotal)` for page selection.
 Do not rerun the full file-date aggregate for every candidate refill. Preserve
@@ -113,7 +122,8 @@ and COALESCE(year,0) within the work scope. Only tied candidates aggregate their
 original scoped file dates: unique primary/secondary keys cannot be ordered by
 file time. Ineligible candidates may cause extra tie work but never omit a
 necessary tie. Preserve the scoped file-time and ID order for ties, including
-missing dates/years; global defaults and DateCreated retain their original plans.
+missing dates/years; global defaults retain their original plans. Explicit work
+DateCreated uses persisted work latest time without file-date aggregation.
 `TestEmbyLibrarySortPlans` captures real 120-item movie/Series queries over 4,000
 works/80,000 files: name ordering takes one batch; distinct release/year candidates
 must avoid all-file date aggregation. Compare plans and service timings separately.
@@ -223,7 +233,7 @@ change those tie windows or convert directly bound ordinary Series media to fold
 ## 5. Good / Base / Bad Cases
 
 - Good：Movie/Series 候选按请求筛选排序，分页后仅为选中作品生成详情；Latest 复用资格规则但不计总数。
-- Base：DateCreated 必须按原文件范围计算时，只生成所需排序值，不顺带统计封面角标或展开全层级。
+- Base：季集的文件日期排序或上映日期并列排序必须读取文件时，只生成必要值，不顺带展开全层级。
 - Bad: removing only the JSON total while still executing the full count query, or changing every dedicated handler's defaults through the shared parser.
 - Bad：某 APP 调用 Latest 已优化，另一个 APP 调用 Items 却重复实现全库文件展开；或为复用最快路径而改变后者排序/层级。
 
@@ -295,3 +305,18 @@ Fields, count-off and unified latest DESC NULLS LAST / id DESC ordering.
 Library/hierarchy Latest and general Items keep their existing type/origin
 contracts. `TestGlobalLatestWorksAcrossSourcesAndPlayback` covers identity,
 visibility, versions, mixed/ordinary-only catalogs and state transitions.
+
+### DateCreated work-sort alias
+
+`workDateSortParams` normalizes the primary supported DateCreated sort to
+DateLastContentAdded only at work-list entries. Do not rewrite the shared parser
+or item DateCreated payloads. HongGuo library requests reuse
+`hongGuoLibraryLatestWorks`: candidate sorting must not aggregate full-library
+file dates. Page details still compute their real display dates and episode states.
+`TestHongGuoLibraryDateCreatedPlan` uses conflicting first/latest dates, both
+count modes, page boundaries and an actual PostgreSQL candidate plan.
+`TestNFOLibraryCreatedAtSortUsesWorkLatestTime`, `TestEmbyLibraryWorkTimeSort`
+and `TestHuangGuoAIEmbyPlaybackHierarchyAndPermissions` verify work order while
+retaining DateCreated payload semantics. Multi-field tests must put DateCreated
+first (for example `DateCreated,SortName`): `DateLastContentAdded,DateCreated`
+only exercises the first supported key. Native player latency remains a separate check.

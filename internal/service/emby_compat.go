@@ -248,7 +248,15 @@ func (e *EmbyService) items(ctx context.Context, p ItemsParams) (map[string]any,
 	}
 
 	if containsItemType(p.IncludeItemTypes, "Series") && !containsItemType(p.IncludeItemTypes, "Episode") {
-		return e.seriesItemsForLibrary(ctx, p.ParentID, p)
+		if !containsItemType(p.IncludeItemTypes, "Movie") || p.ParentID == "" {
+			return e.seriesItemsForLibrary(ctx, p.ParentID, p)
+		}
+		// 混合类型按目标库分流，电影库不能因包含 Series 而只查剧集。
+		if episodic, err := e.libraryIsEpisodic(ctx, p.ParentID); err != nil {
+			return nil, err
+		} else if episodic {
+			return e.seriesItemsForLibrary(ctx, p.ParentID, p)
+		}
 	}
 
 	// 电影库的「常规浏览」(未指定 IncludeItemTypes): 电影库里偶尔混入按

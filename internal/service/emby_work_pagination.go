@@ -102,6 +102,9 @@ SELECT COALESCE(page.id,'') AS id, totals.total FROM (`+totals+`) totals LEFT JO
 
 // metadataWorkPage 保留单项版本资格和排序；只有文件依赖的排序才读取作品内日期/标题。
 func (e *EmbyService) metadataWorkPage(ctx context.Context, files *gorm.DB, p ItemsParams, membershipOnly bool) ([]model.MediaView, int64, error) {
+	if containsOnlyFavoriteItemTypes(globalItemKinds(p)) {
+		p = workDateSortParams(p)
+	}
 	db := e.repo.DB.WithContext(ctx)
 	q := e.orderedWorkLibraryScope(ctx, db.Table("metadata_items recent"), "recent", p, nil)
 	scope := files.Session(&gorm.Session{}).Where("media.metadata_id=recent.id")
@@ -161,6 +164,7 @@ SELECT b.id, b.ordinal FROM work_batch b JOIN qualified q ON q.ordinal=b.ordinal
 
 // seriesWorkPage 与 Latest 同样先选作品，保留原分集资格、作品筛选及文件日期排序。
 func (e *EmbyService) seriesWorkPage(ctx context.Context, files *gorm.DB, p ItemsParams, start, limit int) ([]embySeriesGroup, int64, error) {
+	p = workDateSortParams(p)
 	db := e.repo.DB.WithContext(ctx)
 	q := e.applySeriesPageFilters(ctx, db.Table("metadata_items scope_series").Where("scope_series.kind='series'"), p)
 	q = e.orderedWorkLibraryScope(ctx, q, "scope_series", p, nil)

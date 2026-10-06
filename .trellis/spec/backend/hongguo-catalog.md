@@ -553,7 +553,8 @@ Do not restrict global album time to the requested library or store album
 membership on its first season. Other candidate sorts retain their existing scope.
 Only final-page member IDs reach hydration. Keep global
 album timestamps and fileless representative seasons outside the visibility scope.
-DateLastContentAdded uses this work time; DateCreated retains MIN. Unrelated NFO presence cannot choose a different
+DateLastContentAdded and work-list DateCreated both use this persisted work time;
+returned DateCreated retains the earliest visible file date. Unrelated NFO presence cannot choose a different
 library-scoped HongGuo Latest implementation. Bind page work IDs before detail
 file lookup; do not expand the entire library into series/season/episode nodes.
 HongGuo supports Series/Season/Episode containers and leaves only; Views and
@@ -594,8 +595,9 @@ state UNION (observed with 60,000 rows); verify actual state visits. Materialize
 the batch's qualified IDs once before joining them back to candidates, otherwise
 the same EXISTS may execute once per join pair. Do not repeatedly scan an
 ungrouped materialized user-state set per work.
-DateCreated still aggregates eligible
-file dates; neither path is a constant-time listing or a search-index path.
+Work-list DateCreated aliases DateLastContentAdded and does not aggregate file
+dates for candidate sorting. Required qualification and current-page hydration
+remain; neither path is a constant-time listing or a search-index path.
 
 After the approved album supplement, normal Movie/Series candidates and Web
 library/recent pages omit series with empty album IDs or nonpositive seasons.

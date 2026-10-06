@@ -3,8 +3,10 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"gorm.io/gorm"
@@ -75,6 +77,35 @@ func TestEmbyLibraryWorkTimeSort(t *testing.T) {
 				}
 			}); err != nil {
 				t.Fatal(err)
+			}
+			if mode != "mixed" {
+				svc.visibilityCache = map[string]embyVisibilityCacheEntry{svc.repo.ReadCacheKey() + "work-viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{lib.ID}}, expiresAt: time.Now().Add(time.Hour)}}
+				kind := "Movie"
+				if mode == "tv" {
+					kind = "Series"
+				}
+				for _, direction := range []string{"Ascending", "Descending"} {
+					for _, skip := range []bool{false, true} {
+						p := ItemsParams{UserID: "work-viewer", Recursive: true, IncludeItemTypes: []string{kind}, SortBy: "DateLastContentAdded", SortOrder: direction, Limit: 1, SkipTotalRecordCount: skip}
+						latest, err := svc.Items(t.Context(), p)
+						if err != nil {
+							t.Fatal(err)
+						}
+						p.SortBy = "DateCreated,SortName"
+						created, err := svc.Items(t.Context(), p)
+						if err != nil || !reflect.DeepEqual(created, latest) {
+							t.Fatalf("global DateCreated differs from work latest: direction=%s skip=%v err=%v", direction, skip, err)
+						}
+						want := "b"
+						if direction == "Ascending" {
+							want = "a"
+						}
+						items := created["Items"].([]map[string]any)
+						if len(items) != 1 || items[0]["Id"] != want {
+							t.Fatalf("global work sort: want=%s items=%v", want, items)
+						}
+					}
+				}
 			}
 			for _, sortBy := range []string{"", "DateCreated", "DateLastContentAdded"} {
 				for _, count := range []bool{true, false} {

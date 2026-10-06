@@ -90,8 +90,10 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
   latest-media time. DateCreated aliases DateLastContentAdded for these work
   lists; omitted direction is descending, explicit Ascending is honored. Name,
   rating and explicit PremiereDate retain their corresponding sorts. This does
-  not change returned DateCreated fields, global browsing, Episode hierarchy,
-  Resume, NFO or HongGuo ordering. Keep the Items SortBy catalog description in sync.
+  not change returned DateCreated fields, Episode hierarchy or Resume. Explicit
+  DateCreated also aliases DateLastContentAdded in ordinary/NFO/HongGuo/HuangGuo AI
+  work-only global, library, favorite and person lists, retaining each entrypoint's
+  direction defaults; mixed Episode/Season global queries retain file-date sorting. Keep the Items SortBy catalog description in sync.
 - Items Random uses one internal seed across refill batches and bypasses ordinary
   whole-page caching. Work candidates do not need file-date aggregation for this
   sort; file/state eligibility still applies. Independent requests can reshuffle,

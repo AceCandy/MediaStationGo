@@ -131,9 +131,10 @@ confirmed there are no existing NFO libraries.
   直接使用条目库归属和有效文件汇总，不再重复查询文件归属/存在性；正常入库事务建立同库条目、层级和绑定。全部已看等价于不存在未看可见文件，
   必须复用 `PlaybackStates` 的有效状态，不能只读原始 completed。按分集身份关联状态以保留 Latest 的有界索引探测；不要把集合型已看 UNION 直接套入短页查询，十万文件计划曾因此扫描全部用户状态。
   沿季通过 LATERAL/`OFFSET 0` 定位分集，防止相关查询反复扫描分集目录。
-  Only requested played filters compute candidate states. DateCreated uses
-  `nfo_items.created_at` in both library and global candidates; no file-date
-  aggregate is needed. Only state qualification reads root/season/episode files;
+  Only requested played filters compute candidate states. Work-list DateCreated
+  sorting aliases DateLastContentAdded and uses `nfo_items.latest_media_added_at`
+  in library/global/favorite pages; payload DateCreated remains first item creation.
+  No file-date aggregate is needed for this sorting. Only state qualification reads root/season/episode files;
   simple candidates read the item table. Missing-poster/title filters retain the
   full view predicate. Global items with uninitialized latest time retain exact fallback.
 - 指定库 Latest 不计算作品总数；普通列表越界页仍返回准确总数。

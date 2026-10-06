@@ -10,6 +10,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -61,6 +62,39 @@ func TestHuangGuoAIEmbyPlaybackHierarchyAndPermissions(t *testing.T) {
 		}
 		if len(page["Items"].([]map[string]any)) != 2 {
 			t.Fatal("work count", page)
+		}
+	}
+	// 旧作品新增一集后按最新入库排序，但展示日期仍取最早文件时间。
+	first := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, update := range []struct {
+		id   string
+		date time.Time
+	}{{files[0].ID, first}, {files[1].ID, first.AddDate(20, 0, 0)}, {files[2].ID, first.AddDate(1, 0, 0)}} {
+		if err := db.Exec("UPDATE media SET created_at=? WHERE id=?", update.date, update.id).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, parent := range []string{lib.ID, ""} {
+		for _, direction := range []string{"Ascending", "Descending"} {
+			for _, skip := range []bool{false, true} {
+				p := ItemsParams{UserID: "viewer", ParentID: parent, Recursive: true, IncludeItemTypes: []string{"Movie", "Series"}, SortBy: "DateLastContentAdded", SortOrder: direction, Limit: 1, SkipTotalRecordCount: skip}
+				latest, err := e.Items(ctx, p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p.SortBy = "DateCreated,SortName"
+				created, err := e.Items(ctx, p)
+				if err != nil || !reflect.DeepEqual(created, latest) {
+					t.Fatalf("DateCreated alias parent=%s direction=%s skip=%v err=%v", parent, direction, skip, err)
+				}
+				items := created["Items"].([]map[string]any)
+				if len(items) != 1 {
+					t.Fatalf("empty work page: %v", created)
+				}
+				if direction == "Descending" && (items[0]["Id"] != "hga-group-71" || items[0]["DateCreated"] != formatEmbyDateTime(first)) {
+					t.Fatalf("work latest order/display date: %v", items)
+				}
+			}
 		}
 	}
 	series, err := e.Item(ctx, "hga-group-71", "viewer")

@@ -156,9 +156,7 @@ func TestNFOLibraryPagingMatchesHierarchy(t *testing.T) {
 					q = q.Where("NOT played")
 				}
 				order := "title DESC"
-				if sortBy == "DateCreated" {
-					order = "created_at DESC"
-				} else if sortBy == "DateLastContentAdded" {
+				if sortBy == "DateCreated" || sortBy == "DateLastContentAdded" {
 					order = "latest_at DESC NULLS LAST"
 				}
 				var old []hongGuoNode
@@ -207,7 +205,7 @@ func TestNFOLibraryPagingMatchesHierarchy(t *testing.T) {
 	}
 }
 
-func TestNFOLibraryCreatedAtUsesFirstItemCreation(t *testing.T) {
+func TestNFOLibraryCreatedAtSortUsesWorkLatestTime(t *testing.T) {
 	e := nfoBrowseFixture(t, 2, 1)
 	db, ctx := e.repo.DB, t.Context()
 	first := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
@@ -227,9 +225,9 @@ func TestNFOLibraryCreatedAtUsesFirstItemCreation(t *testing.T) {
 	for _, parent := range []string{"library-nfo", ""} {
 		for _, descending := range []bool{false, true} {
 			p := ItemsParams{UserID: "viewer", ParentID: parent, Recursive: true, IncludeItemTypes: []string{"Series"}, SortBy: "DateCreated", Limit: 1}
-			want, date := "nfo-show-1", first
+			want, date := "nfo-show-2", second
 			if descending {
-				p.SortOrder, want, date = "Descending", "nfo-show-2", second
+				p.SortOrder, want, date = "Descending", "nfo-show-1", first
 			}
 			page, err := e.Items(ctx, p)
 			if err != nil {

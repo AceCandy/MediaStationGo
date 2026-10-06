@@ -117,6 +117,14 @@ func primarySupportedEmbySort(sortBy string, resumeFilter bool) string {
 	return strings.ToLower(strings.TrimSpace(firstCSVValue(sortBy)))
 }
 
+// workDateSortParams 作品列表的 DateCreated 排序复用持久化的最新入库时间，不改变展示日期。
+func workDateSortParams(p ItemsParams) ItemsParams {
+	if primarySupportedEmbySort(p.SortBy, false) == "datecreated" {
+		p.SortBy = "DateLastContentAdded"
+	}
+	return p
+}
+
 // libraryWorkSortParams 将媒体库作品的默认和入库排序统一为全局作品时间。
 func libraryWorkSortParams(p ItemsParams) ItemsParams {
 	switch primarySupportedEmbySort(p.SortBy, false) {
