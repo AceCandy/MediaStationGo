@@ -1,0 +1,5 @@
+{"file": "docs/huangguoai-design.md", "reason": "approved full source design"}
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "independent catalog boundaries"}
+{"file": ".trellis/spec/backend/work-level-queries.md", "reason": "candidate and pagination plans"}
+{"file": ".trellis/spec/backend/playback-contracts.md", "reason": "user state and playback isolation"}
+{"file": ".trellis/spec/frontend/routing-and-loading-contracts.md", "reason": "URL and session bounded loading"}
