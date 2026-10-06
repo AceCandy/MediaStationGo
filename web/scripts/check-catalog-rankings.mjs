@@ -33,6 +33,9 @@ try {
   assert.equal(evaluate(`document.querySelector('.ranking-position').textContent`),'01')
   assert.ok(evaluate(`document.querySelector('.ranking-row').innerText.includes('8.3分')&&document.querySelector('.ranking-row').innerText.includes('已下载')`))
   assert.ok(evaluate(`document.querySelectorAll('.ranking-row')[2].innerText.includes('待补齐')`))
+  assert.equal(evaluate(`document.querySelectorAll('.ranking-poster [data-catalog-downloaded]').length`),1)
+  assert.equal(evaluate(`document.querySelector('[data-catalog-downloaded]').textContent`),'↓ 已下载')
+  assert.equal(evaluate(`document.querySelectorAll('.ranking-row')[1].querySelector('[data-catalog-downloaded]')`),null)
   assert.ok(evaluate(`!!document.querySelector('[data-testid="${source}-load-more"]')`))
   assert.equal(evaluate(`document.querySelector('nav[aria-label="排行榜分页"]')`),null)
   wait(`!document.querySelectorAll('.ranking-row')[1].querySelector('img')`)
@@ -52,6 +55,7 @@ try {
     wait(`[...document.querySelectorAll('.ranking-row')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState!=='running'))`)
     assert.ok(evaluate(`document.documentElement.scrollWidth<=innerWidth`),`${source}/${theme}/${width} overflow`)
     assert.ok(evaluate(`document.querySelector('.ranking-row').scrollWidth<=document.querySelector('.ranking-row').clientWidth`),`${source}/${theme}/${width} row overflow`)
+    assert.ok(evaluate(`(()=>{const poster=document.querySelector('.ranking-poster'),badge=poster.querySelector('[data-catalog-downloaded]');const p=poster.getBoundingClientRect(),b=badge.getBoundingClientRect();return p.width===0||(b.width>0&&b.left>=p.left&&b.right<=p.right&&b.top>=p.top&&b.bottom<=p.bottom)})()`),`${source}/${theme}/${width} poster badge outside poster`)
     if(width===390) {
      assert.ok(evaluate(`document.querySelector('.ranking-header').firstElementChild.getBoundingClientRect().width>280`),`${source}/${theme} squeezed heading`)
      assert.ok(evaluate(`document.querySelector('.ranking-header h2').getBoundingClientRect().height<=72`),`${source}/${theme} unreadable heading`)
@@ -94,5 +98,5 @@ try {
   evaluate(`window.holdRankPage=false`);scrollMore();wait(`document.querySelectorAll('.ranking-row').length===20`)
   click('分类');wait(`document.querySelectorAll('button[aria-label^="查看合成榜单作品"]').length===43&&!document.querySelector('.ranking-row')`)
  }
- console.log('排行榜检查通过：10条下滑续载/连续排名/无分页、失败重试/旧响应隔离、hover与键盘展开/减少动效、详情保留、红果榜单无多选、分类回归、暗亮主题与手机布局。')
+ console.log('排行榜检查通过：10条下滑续载/连续排名/无分页、失败重试/旧响应隔离、海报已下载徽标/hover与键盘展开/减少动效、详情保留、红果榜单无多选、分类回归、暗亮主题与手机布局。')
 } finally {browser('close')}

@@ -23,8 +23,9 @@ export function CatalogRankingRow({ work, position, artworkURL, metadata, rankLa
   return <li>
     <button type="button" className="ranking-row" onClick={onOpen} aria-label={`查看${work.title}`}>
       <span className="ranking-position tabular-nums font-bold text-gold-500">{String(position).padStart(2, '0')}</span>
-      <span className="ranking-poster" aria-hidden="true">
+      <span className="ranking-poster relative" aria-hidden="true">
         {artworkURL && !failed ? <img src={artworkURL} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} /> : <span className="flex h-full items-center justify-center bg-gray-100 text-ink-50"><Film size={28} /></span>}
+        {work.downloaded && <span data-catalog-downloaded className="absolute bottom-3 left-2 rounded-md bg-emerald-700/90 px-1 py-1 text-[10px] font-semibold text-white backdrop-blur xl:px-2 xl:text-xs" title="存在已完成的分集下载记录，不代表全剧下载完成、文件仍在或已入库">↓ 已下载</span>}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block break-words text-base font-semibold text-ink-600 sm:text-lg">{work.title}</span>

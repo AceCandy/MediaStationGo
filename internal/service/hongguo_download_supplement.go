@@ -7,8 +7,8 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// HongGuoDownloadSupplementResult 区分实际新增作品、分集和未入队候选，不承诺下载完成。
-type HongGuoDownloadSupplementResult struct {
+// DownloadSupplementResult 区分实际新增作品、分集和未入队候选，不承诺下载完成。
+type DownloadSupplementResult struct {
 	Requested  int `json:"requested"`
 	Candidates int `json:"candidates"`
 	Works      int `json:"works"`
@@ -18,8 +18,8 @@ type HongGuoDownloadSupplementResult struct {
 }
 
 // Supplement 仅选取本地资料齐全且从未入队的源作品；不抓资料、不重试旧任务。
-func (s *HongGuoDownloadService) Supplement(ctx context.Context, count int) (HongGuoDownloadSupplementResult, error) {
-	result := HongGuoDownloadSupplementResult{Requested: count}
+func (s *HongGuoDownloadService) Supplement(ctx context.Context, count int) (DownloadSupplementResult, error) {
+	result := DownloadSupplementResult{Requested: count}
 	if count < 1 || count > 100 {
 		return result, errors.New("每次补充下载数量须为 1–100 部")
 	}

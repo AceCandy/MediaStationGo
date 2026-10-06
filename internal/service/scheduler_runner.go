@@ -76,13 +76,13 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enab
 	interval := time.Duration(intervalSeconds) * time.Second
 	count := j.count
 	if len(counts) > 0 {
-		if name != TaskKindHongGuoSupplement || len(counts) != 1 || counts[0] < 1 || counts[0] > 100 {
+		if j.countKey == "" || len(counts) != 1 || counts[0] < 1 || counts[0] > 100 {
 			s.mu.Unlock()
 			return ErrSchedulerCountInvalid
 		}
 		count = counts[0]
 	}
-	enabledKey, intervalKey := j.enabledKey, j.intervalKey
+	enabledKey, intervalKey, countKey := j.enabledKey, j.intervalKey, j.countKey
 	s.mu.Unlock()
 
 	if s.repo == nil || s.repo.DB == nil {
@@ -94,8 +94,8 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enab
 			enabledKey:  strconv.FormatBool(enabled),
 			intervalKey: strconv.FormatInt(intervalSeconds, 10),
 		}
-		if name == TaskKindHongGuoSupplement {
-			values[hongGuoSupplementCountKey] = strconv.Itoa(count)
+		if countKey != "" {
+			values[countKey] = strconv.Itoa(count)
 		}
 		for key, value := range values {
 			if err := tx.Save(&model.Setting{Key: key, Value: value, UpdatedAt: now}).Error; err != nil {

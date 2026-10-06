@@ -40,6 +40,7 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 	builder.c.HuangGuoAI = NewHuangGuoAIService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir)
 	builder.c.HuangGuoAIDownloads = NewHuangGuoAIDownloadService(repos, builder.c.HuangGuoAI, builder.c.Tasks)
 	builder.c.Scheduler.huangguoai = builder.c.HuangGuoAI
+	builder.c.Scheduler.SetHuangGuoAIDownloads(builder.c.HuangGuoAIDownloads)
 	builder.c.HongGuo = NewHongGuoService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir)
 	builder.c.HongGuoDownloads = NewHongGuoDownloadService(repos, builder.c.HongGuo, builder.c.Tasks)
 	builder.c.HongGuoDanmu = NewHongGuoDanmuService(repos.HongGuo, builder.c.APIConfig, log)

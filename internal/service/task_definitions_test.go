@@ -133,6 +133,7 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
+		TaskKindHuangGuoAISupplement:             true,
 		TaskKindHongGuoSupplement:                true,
 		TaskKindHongGuoSync:                      true,
 		TaskKindHongGuoRank:                      true,

@@ -85,6 +85,13 @@ Keep ordinary poster URLs stable and use `refresh=1` only for explicit recommend
 
 ## HongGuo catalog dialogs
 
+- Both HongGuo and HuangGuo AI ranking rows display the same green `↓ 已下载`
+  badge inside their poster as category cards. Keep the metadata-row text so the
+  state remains readable when the ranking poster is collapsed. Use the existing
+  `downloaded` flag (at least one completed episode record); do not infer whole-work
+  completion or file existence. `check-catalog-rankings.mjs` asserts both sources,
+  absence for undownloaded works and poster containment across themes/widths.
+
 - HongGuo discovery search composes two existing requests: official `search(keyword)` once per explicit search, and local `list(keyword,'','','',page)` with page size 50, starting at page 1 regardless of legacy URL page. Scroll and local retry never repeat the official request. Separate controllers and retry counters retain successful results when either source fails; failed local pages cannot advance until retried successfully. Disconnect the observer before incrementing, and pause it during loading/errors/detail dialogs.
 - Merge by source ID with official first-seen order and hydrated metadata precedence; do not downgrade a canonical work to a pending summary. Show the number of deduplicated displayed cards, explicitly label official first-screen plus collected local data, and never imply the count covers all upstream hits. Local queries include title substrings or exact source IDs and pending summaries, independent of category/rank when keyword search is active. Category saves update both displayed sources.
 - Appending preserves selection and does not remount the feed. Explicit repeat-search/refresh restarts search-local page 1 and both sources; category/rank refresh retains its existing URL-page semantics. Query/account remount aborts obsolete reads. Local pagination remains a live catalog view, not a frozen snapshot; catalog mutations can change membership/order between pages. No official pagination or additional import/refresh task is fabricated by local pagination.

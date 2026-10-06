@@ -23,14 +23,15 @@ const TaskKindHuangGuoAIDownload = "huangguoai_download"
 
 // HuangGuoAIDownloadService owns two independent pools: network transfer and full local verification.
 type HuangGuoAIDownloadService struct {
-	repo    *repository.Container
-	catalog *HuangGuoAIService
-	tasks   *TaskTrackerService
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	closed  bool
-	wg      sync.WaitGroup
-	wake    chan struct{}
+	repo         *repository.Container
+	catalog      *HuangGuoAIService
+	tasks        *TaskTrackerService
+	mu           sync.Mutex
+	cancel       context.CancelFunc
+	closed       bool
+	wg           sync.WaitGroup
+	wake         chan struct{}
+	supplementMu sync.Mutex
 }
 type HuangGuoAIDownloadConfig struct {
 	Root                    string `json:"root"`
@@ -165,6 +166,11 @@ func huangGuoAIDownloadDirectory(category, title, id string) (string, error) {
 }
 
 func (s *HuangGuoAIDownloadService) Enqueue(ctx context.Context, id string) (int, error) {
+	return s.enqueue(ctx, id, false)
+}
+
+// enqueue 的 onlyNew 模式只接收从未入队的作品，普通手动入队仍可补入新分集。
+func (s *HuangGuoAIDownloadService) enqueue(ctx context.Context, id string, onlyNew bool) (int, error) {
 	if !huangguoai.ValidID(id) {
 		return 0, errors.New("作品 ID 无效")
 	}
@@ -191,6 +197,15 @@ func (s *HuangGuoAIDownloadService) Enqueue(ctx context.Context, id string) (int
 		if work.ProjectionError != "" {
 			return errors.New("该作品存在分类冲突，暂不下载")
 		}
+		if onlyNew {
+			var existing int64
+			if err := tx.Model(&model.HuangGuoAIDownload{}).Where("source_id = ?", id).Count(&existing).Error; err != nil {
+				return err
+			}
+			if existing > 0 {
+				return nil
+			}
+		}
 		var episodes []model.HuangGuoAIEpisode
 		if e := tx.Where("work_id = ?", work.ID).Order("number").Limit(10001).Find(&episodes).Error; e != nil {
 			return e
@@ -206,8 +221,12 @@ func (s *HuangGuoAIDownloadService) Enqueue(ctx context.Context, id string) (int
 			return err
 		}
 		placement := model.HuangGuoAIDownloadWork{SourceID: id, Title: work.Title, Root: cfg.Root, Directory: dir}
-		if e := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&placement).Error; e != nil {
-			return e
+		created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&placement)
+		if created.Error != nil {
+			return created.Error
+		}
+		if onlyNew && created.RowsAffected == 0 {
+			return nil
 		}
 		if e := tx.Where("source_id = ?", id).Take(&placement).Error; e != nil {
 			return e

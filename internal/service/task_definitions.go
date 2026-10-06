@@ -60,6 +60,7 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISupplement, Name: "黄果 AI 补充下载", Description: "按本地发现时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISupplement}, schedulerJob: TaskKindHuangGuoAISupplement},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIDownload, Name: "黄果 AI 视频下载", Description: "完整校验后发布到下载目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIDownload}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISync, Name: "黄果 AI 作品发现", Description: "分页扫描四类作品，保存摘要与断点", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISync}, schedulerJob: TaskKindHuangGuoAISync},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIRefresh, Name: "黄果 AI 资料刷新", Description: "补齐新作品，重试失败资料，刷新未完结作品", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIRefresh}, schedulerJob: TaskKindHuangGuoAIRefresh},

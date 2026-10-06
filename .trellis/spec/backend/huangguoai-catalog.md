@@ -150,3 +150,63 @@ whole episode queues; never truncate a work's counts by the selected status.
   unmarked persistence error to verify that neither row diagnostics nor task logs
   expose its private text. Never discard `Download`'s duration and later verify an
   HLS output against page metadata.
+
+## Scheduled new-work download supplement
+
+### 1. Scope / Trigger
+
+Task Center owns `huangguoai_download_supplement`; Download Space owns per-work
+download progress. Supplement acquires new works, not episode catch-up.
+
+### 2. Signatures
+
+`POST /api/tasks/definitions/huangguoai_download_supplement/run` accepts `{count}`.
+The existing schedule endpoint accepts `{enabled,interval_seconds,count}`.
+Settings use `huangguoai.download_supplement.enabled`, `.interval_seconds`, `.count`.
+
+### 3. Contracts
+
+Defaults: disabled, 86400 seconds, 10 works. Counts are integers in 1–100;
+manual counts never change the saved schedule. Persist all schedule values in
+one transaction; omitted count preserves the current value. HongGuo uses its
+own independent keys and retains its existing candidate ordering.
+
+Select canonical works with a valid source ID/category-kind pair, no projection
+error, and 1–10000 confirmed episodes. Movies require only confirmed episode 1.
+Any download placement or episode history excludes a work regardless of status.
+Order by discovery `created_at` descending, falling back to canonical work
+`created_at`, then work creation time and ID. Raw `source_created_at` is not a
+verified release timestamp. The work-row lock, episode-history recheck and
+first-placement conflict guard prevent concurrent duplicate acquisition.
+Ordinary manual enqueue still adds newly confirmed episodes to existing works.
+
+Return actual candidate/work/episode/skipped/failed metrics. Per-work failures
+preserve other committed works and fail the round. Do not hydrate, retry old
+failures or refill short rounds. Scheduler Stop cancels and joins manual and
+periodic runs. Supplement logs contain safe aggregate counts, never work titles.
+
+### 4. Validation & Error Matrix
+
+Non-admin -> 401/403. Invalid/fractional count or run body over 4 KiB -> 400.
+Disabled source/missing root -> recorded background failure; no candidates ->
+successful empty round. Overlapping runs -> rejection, not a second admission.
+
+### 5. Good / Base / Bad Cases
+
+Good: add two new series and retain failed/completed predecessors. Base: fewer
+candidates than requested. Bad: treat a failed predecessor as never downloaded.
+
+### 6. Tests Required
+
+`TestHuangGuoAIDownloadSupplement*` covers filtering, first-discovery ordering,
+legacy history, repeated/concurrent enqueue and ordinary manual catch-up.
+`TestHuangGuoAISupplement*` checks defaults, config restoration, source isolation,
+manual/periodic triggers, partial failures and joined shutdown. Run with isolated
+PostgreSQL and race detection; the shared `TestHongGuoSupplementTaskHTTP` and
+`web/scripts/check-hongguo-supplement-task.mjs` exercise both source task keys.
+
+### 7. Wrong vs Correct
+
+Wrong: cast raw source-date text or use task logs to select new downloads.
+Correct: use local first-discovery time and authoritative download history,
+then reuse the existing download transaction with the only-new guard.

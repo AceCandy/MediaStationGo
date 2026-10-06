@@ -22,24 +22,25 @@ import (
 
 // SchedulerService runs the periodic jobs.
 type SchedulerService struct {
-	log              *zap.Logger
-	repo             *repository.Container
-	scanner          *ScannerService
-	organizer        *OrganizerService
-	organizePipeline *OrganizePipelineService
-	scraper          *ScraperService
-	device           *DeviceService
-	hub              *Hub
-	tasks            *TaskTrackerService
-	huangguoai       *HuangGuoAIService
-	hongguo          *HongGuoService
-	hongguoDownloads *HongGuoDownloadService
-	runCtx           context.Context
-	runCancel        context.CancelFunc
-	runWG            sync.WaitGroup
-	stopParent       func() bool
-	started          bool
-	now              func() time.Time
+	log               *zap.Logger
+	repo              *repository.Container
+	scanner           *ScannerService
+	organizer         *OrganizerService
+	organizePipeline  *OrganizePipelineService
+	scraper           *ScraperService
+	device            *DeviceService
+	hub               *Hub
+	tasks             *TaskTrackerService
+	huangguoai        *HuangGuoAIService
+	hongguo           *HongGuoService
+	hongguoDownloads  *HongGuoDownloadService
+	huangguoDownloads *HuangGuoAIDownloadService
+	runCtx            context.Context
+	runCancel         context.CancelFunc
+	runWG             sync.WaitGroup
+	stopParent        func() bool
+	started           bool
+	now               func() time.Time
 
 	mu         sync.Mutex
 	scheduleMu sync.Mutex
@@ -62,6 +63,11 @@ func (s *SchedulerService) SetTaskTracker(tasks *TaskTrackerService) {
 // SetHongGuoDownloads 在启动调度前注入补充下载服务。
 func (s *SchedulerService) SetHongGuoDownloads(downloads *HongGuoDownloadService) {
 	s.hongguoDownloads = downloads
+}
+
+// SetHuangGuoAIDownloads 在启动调度前注入黄果补充下载服务。
+func (s *SchedulerService) SetHuangGuoAIDownloads(downloads *HuangGuoAIDownloadService) {
+	s.huangguoDownloads = downloads
 }
 
 func (s *SchedulerService) SetOrganizePipeline(pipeline *OrganizePipelineService) {
@@ -87,6 +93,7 @@ type scheduledJob struct {
 	reset         chan struct{}
 	configVersion uint64
 	count         int
+	countKey      string
 	lastRun       time.Time
 	lastErr       string
 	running       bool
@@ -161,16 +168,10 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		}
 	}
 	if s.hongguoDownloads != nil {
-		job := s.configuredJob(ctx, TaskKindHongGuoSupplement, "hongguo.download_supplement.enabled", "hongguo.download_supplement.interval_seconds", false, 24*time.Hour, s.jobHongGuoSupplement)
-		job.count = 10
-		if s.repo != nil && s.repo.Setting != nil {
-			if value, err := s.repo.Setting.Get(ctx, hongGuoSupplementCountKey); err == nil {
-				if count, err := strconv.Atoi(value); err == nil && count >= 1 && count <= 100 {
-					job.count = count
-				}
-			}
-		}
-		s.jobs = append(s.jobs, job)
+		s.jobs = append(s.jobs, s.configuredSupplementJob(ctx, TaskKindHongGuoSupplement, "hongguo.download_supplement", s.jobHongGuoSupplement))
+	}
+	if s.huangguoDownloads != nil {
+		s.jobs = append(s.jobs, s.configuredSupplementJob(ctx, TaskKindHuangGuoAISupplement, "huangguoai.download_supplement", s.jobHuangGuoAISupplement))
 	}
 	for _, j := range s.jobs {
 		delay := j.interval
@@ -180,6 +181,20 @@ func (s *SchedulerService) Start(ctx context.Context) {
 			s.loopWithInitialDelay(s.runCtx, j, delay)
 		}()
 	}
+}
+
+// configuredSupplementJob 复用两来源的默认数量及独立配置，避免修改一方影响另一方。
+func (s *SchedulerService) configuredSupplementJob(ctx context.Context, kind, prefix string, run func(context.Context) error) *scheduledJob {
+	job := s.configuredJob(ctx, kind, prefix+".enabled", prefix+".interval_seconds", false, 24*time.Hour, run)
+	job.count, job.countKey = 10, prefix+".count"
+	if s.repo != nil && s.repo.Setting != nil {
+		if value, err := s.repo.Setting.Get(ctx, job.countKey); err == nil {
+			if count, err := strconv.Atoi(value); err == nil && count >= 1 && count <= 100 {
+				job.count = count
+			}
+		}
+	}
+	return job
 }
 
 func (s *SchedulerService) configuredJob(

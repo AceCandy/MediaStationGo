@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings,
 
 import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
 import { tasksAPI, type BackgroundTask, type StartupStatus, type TaskDefinition, type TaskLog, type TaskPendingCounts, type TaskSystem } from '../api/tasks'
-import { HongGuoSupplementDialog } from './HongGuoSupplementDialog'
+import { DownloadSupplementDialog } from './DownloadSupplementDialog'
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
@@ -281,7 +281,7 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
   const [unit, setUnit] = useState<ScheduleUnit>(initialUnit)
   const [value, setValue] = useState(String(config.interval_seconds / scheduleUnits[initialUnit].seconds))
   const [saving, setSaving] = useState(false)
-  const supplement = definition.key === 'hongguo_download_supplement'
+  const supplement = definition.key === 'hongguo_download_supplement' || definition.key === 'huangguoai_download_supplement'
   const [count, setCount] = useState(String(config.count ?? 10))
   const [error, setError] = useState('')
   const unitSeconds = scheduleUnits[unit].seconds
@@ -693,7 +693,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 
   const run = async (definition: TaskDefinition) => {
 		if (!ready || runPending.current || running || definition.current_state === 'running') return
-		if (definition.key === 'hongguo_download_supplement') {
+		if (definition.key === 'hongguo_download_supplement' || definition.key === 'huangguoai_download_supplement') {
 			supplementTrigger.current = document.activeElement as HTMLElement
 			setSupplementDefinition(definition)
 			return
@@ -762,7 +762,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable ready={ready} definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
-      {ready && supplementDefinition && <HongGuoSupplementDialog initialCount={supplementDefinition.schedule_config?.count ?? 10} onClose={closeSupplement} onStarted={() => { toast.success('补充下载任务已启动，请查看本轮日志'); void refresh().catch(() => setLoadError(true)) }} />}
+      {ready && supplementDefinition && <DownloadSupplementDialog definition={supplementDefinition} onClose={closeSupplement} onStarted={() => { toast.success('补充下载任务已启动，请查看本轮日志'); void refresh().catch(() => setLoadError(true)) }} />}
       {ready && scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}
       {pendingDefinition?.key === 'tmdb_episode_metadata_recheck' && <TMDbRecheckPanel onClose={closePending} />}
       {pendingDefinition?.action === 'media_scrape' && <ScrapeIssuesPanel libraries={libraries} onClose={closePending} />}

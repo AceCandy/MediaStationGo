@@ -124,7 +124,7 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 		if !requireTasksReady(c, svc) {
 			return
 		}
-		if key == service.TaskKindHongGuoSupplement {
+		if key == service.TaskKindHongGuoSupplement || key == service.TaskKindHuangGuoAISupplement {
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
 			var request struct {
 				Count int `json:"count"`
@@ -137,7 +137,7 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 				c.JSON(503, gin.H{"error": "调度服务不可用"})
 				return
 			}
-			if !handleSchedulerRunResult(c, svc.Scheduler.RunHongGuoSupplementNowAsync(c.Request.Context(), request.Count)) {
+			if !handleSchedulerRunResult(c, svc.Scheduler.RunDownloadSupplementNowAsync(c.Request.Context(), key, request.Count)) {
 				return
 			}
 			c.JSON(202, gin.H{"status": "queued"})
