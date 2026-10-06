@@ -1128,3 +1128,25 @@ DateCreated 作品排序统一复用最新入库时间，NextUp 固定空响应�
 ### Next Steps
 
 - 本轮未部署、重启或推送；更新服务后验证 SenPlayer 栏目隐藏效果和实际耗时。
+
+
+## Session 206: 黄果补充下载与榜单海报标示
+<!-- trellis-session: v=2 fp=104d8866ca6fdb04 -->
+
+**Date**: 2026-10-07
+**Task**: 黄果补充下载与榜单海报标示
+**Branch**: `main`
+
+### Summary
+
+新增黄果手动及定时补充下载，复用任务数量配置与执行汇总；红果和黄果榜单海报显示已下载。隔离 PostgreSQL 定向及 race 回归、Web lint/build、两来源合成浏览器检查与独立复核通过。任务已归档，其他并行修改保留；尚未部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bce1847` | feat(download): 补充黄果 AI 下载任务并显示榜单下载标示 |
+
+### Status
+
+[OK] **Completed**
