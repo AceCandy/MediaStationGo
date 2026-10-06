@@ -1,0 +1,31 @@
+{
+  "id": "tasks-definitions-loading",
+  "name": "tasks-definitions-loading",
+  "title": "任务页加载性能优化",
+  "description": "任务页打开体系子页和轮询只取任务定义及状态，通过 definitions_only=1 跳过无用的历史分页与总数查询，保留默认接口行为。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-06",
+  "completedAt": "2026-10-06",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "fafd711",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/handler/tasks.go",
+    "internal/handler/tasks_test.go",
+    "web/src/api/tasks.ts",
+    "web/src/pages/TasksPage.tsx"
+  ],
+  "notes": "后端针对性测试、前端 lint 和构建通过；独立复核通过。未部署，未进行改后在线计时；具体任务历史查询性能不在本次范围。",
+  "meta": {}
+}
