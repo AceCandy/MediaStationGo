@@ -817,3 +817,37 @@ Web普通剧库及Emby普通电影、剧集、混合电影库统一按作品最�
 ### Next Steps
 
 - 按归档validation记录进行实际部署与实机验收；本轮没有推送远端或部署。
+
+
+## Session 196: 任务页加载性能优化
+<!-- trellis-session: v=2 fp=a4af56058a17c0ef -->
+
+**Date**: 2026-10-06
+**Task**: 任务页加载性能优化
+**Branch**: `main`
+
+### Summary
+
+任务页仅请求任务定义及状态，跳过无用历史分页查询；保留普通任务接口行为。
+
+### Main Changes
+
+- 前后端接通 definitions_only=1；新增状态保留与默认分页兼容回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fafd711` | perf(tasks): 跳过任务页无用的历史分页查询 |
+
+### Testing
+
+- [OK] 后端 TestTasksHandler 相关测试、前端 lint 与生产构建、独立复核及 diff 检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未部署；运行服务更新后需复测页面耗时。具体任务历史查询性能未优化。
