@@ -274,3 +274,7 @@ Verify production-sized read-only query timings separately from player HTTP QA.
 
 Wrong: call `hongGuoNodes` and aggregate its complete display projection.
 Correct: count work rows under library visibility and count Media rows separately.
+
+## Exact progress extension
+
+The catalog includes separate read/write semantics for `/Users/:userId/Items/:id/PlaybackProgress`, token-authenticated under both root and `/emby`, with no lowercase aliases. Document complete snapshots, optional GET MediaSourceId, mandatory POST ExpectedRevision/MediaSourceId/PositionTicks/RunTimeTicks/Played, millisecond ticks, explicit zero/false, 400/401/403/404/409 and no event generation. Use `:id` consistently with the registered Gin sibling routes.

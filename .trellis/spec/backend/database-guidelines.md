@@ -826,3 +826,7 @@ otherwise retain exact qualification. State filters always remain effective.
 <!-- Database-related mistakes your team has made -->
 
 (To be filled by the team)
+
+## Playback progress revision invariant
+
+`AutoMigrate` installs `playback_progress_revisions` and the four state-table triggers via `EnsurePlaybackProgressRevisionTriggers`. State and revision must share one transaction. Keep the state→revision lock order for CAS and ordinary writes; never lock revision first. DELETE retains revision tombstones; changes to logical identity increment both old and new identities. No historical backfill is required (initial revision zero). See [exact progress contract](progress-sync-contracts.md) and the real-PostgreSQL revision/concurrent-first-write tests.

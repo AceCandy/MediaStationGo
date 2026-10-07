@@ -843,6 +843,28 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     ],
   },
   {
+    id: 'playback-progress-snapshot', category: '播放状态', name: '准确进度同步（扩展）',
+    description: 'MediaStationGo 扩展。读取有效断点与版本；条件写入准确的零/短进度和已看位，不删除历史、不新增统计事件。普通自动回报门槛不变。版本冲突必须重新处理，不能自动覆盖。',
+    methods: ['GET', 'POST'], path: '/Users/:userId/Items/:id/PlaybackProgress',
+    auth: 'token', support: 'implemented',
+    parameters: [
+      tokenHeader,
+      { name: 'userId', type: 'string', location: 'path', required: true, description: '用户 ID；非管理员只能操作自己。' },
+      { name: 'id', type: 'string', location: 'path', required: true, description: '可见电影或单集，不能是容器。' },
+      { name: 'MediaSourceId', type: 'string', location: 'query', description: 'GET 可选的具体文件。POST 在 JSON 中必须提供与条目一致的文件 ID。' },
+      { name: 'ExpectedRevision', type: 'string', location: 'body', description: 'POST 必填：GET 返回的十进制 Revision；不接受无条件覆盖。' },
+      { name: 'PositionTicks', type: 'number', location: 'body', description: 'POST 必填：毫秒精度的 100ns 断点，包含零。' },
+      { name: 'RunTimeTicks', type: 'number', location: 'body', description: 'POST 必填：正时长，必须与已知具体文件时长一致。' },
+      { name: 'Played', type: 'boolean', location: 'body', description: 'POST 必填：独立的已看位，false 不等于缺省。' },
+    ],
+    responses: [
+      { status: '200', contentType: 'application/json', description: 'MediaSourceId、PositionTicks、RunTimeTicks、Played、Revision（字符串）；POST 返回实际提交的新版本。' },
+      { status: '400 / 401 / 403 / 404', contentType: 'application/json', description: '参数无效、未认证、跨用户禁止或条目/版本不可见。' },
+      { status: '409', contentType: 'application/json', description: '进度已变化，事务回滚，没有覆盖新状态。' },
+      { status: '500', contentType: 'application/json', description: '数据库读取或提交失败。' },
+    ],
+  },
+  {
     id: 'session-playing',
     category: '播放状态',
     name: '开始播放',

@@ -219,6 +219,8 @@ func registerEmbyAuthenticatedProgressRoutes(auth *gin.RouterGroup, svc *service
 	auth.POST("/Sessions/Playing", embyPlayingProgressHandler(svc))
 	auth.POST("/Sessions/Playing/Progress", embyPlayingProgressHandler(svc))
 	auth.POST("/Sessions/Playing/Stopped", embyPlayingProgressHandler(svc))
+	auth.GET("/Users/:userId/Items/:id/PlaybackProgress", embyProgressSnapshotHandler(svc))
+	auth.POST("/Users/:userId/Items/:id/PlaybackProgress", embyProgressSnapshotHandler(svc))
 }
 
 func registerEmbyAuthenticatedUserDataRoutes(auth *gin.RouterGroup, svc *service.Container) {

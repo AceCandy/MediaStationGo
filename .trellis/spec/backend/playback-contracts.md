@@ -480,3 +480,5 @@ Wrong: fill emptyUserData with a constant zero or add per-poster history queries
 Correct: project a distinct conditional count from the existing container aggregate.
 Wrong: give every CollectionFolder `UnplayedItemCount: 0`.
 Correct: omit the uncomputed library statistic while retaining real Series/Season counts.
+
+Exact cross-server state updates use the separate [PlaybackProgress synchronization contract](progress-sync-contracts.md).
