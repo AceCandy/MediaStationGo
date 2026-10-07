@@ -1392,3 +1392,25 @@ Fixed series-only HongGuo count fixtures, album payload identity and the visible
 ### Status
 
 [OK] **Completed**
+
+
+## Session 215: Pagination regressions repaired and archived
+<!-- trellis-session: v=2 fp=6eee473cc69ebdee -->
+
+**Date**: 2026-10-07
+**Task**: Pagination regressions repaired and archived
+**Branch**: `main`
+
+### Summary
+
+Corrected the ordinary Series favorite regression to assert one count and one page query with strict shape checks. Bounded HongGuo download summaries to page sources using correlated aggregation and preserved short-circuit status qualification. Custom/generic PostgreSQL plans visit 8000 rows without status, 11000 per fixed status and zero for empty status under unchanged gates. Targeted race regressions, semantic oracle, HTTP checks, vet and independent review passed. Full service suite and production plans were not run. User authorized commit/archive; unrelated parallel work was excluded. No push or deployment.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8faac7f` | fix(pagination): 修正剧集回归断言并限制红果下载汇总范围 |
+
+### Status
+
+[OK] **Completed**
