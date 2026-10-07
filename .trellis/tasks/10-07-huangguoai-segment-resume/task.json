@@ -1,0 +1,29 @@
+{
+  "id": "huangguoai-segment-resume",
+  "name": "huangguoai-segment-resume",
+  "title": "黄果下载失败后复用成功分片",
+  "description": "保存可校验分片进度，跨任务重试安全复用，保留完整媒体校验",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-07",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "按用户指令提交并归档代码与验证记录；尚未部署、重启或修改生产队列，生产实际效果待部署后验证。",
+  "meta": {
+    "deployment_status": "not_deployed",
+    "archive_scope": "verified_code_delivery"
+  }
+}

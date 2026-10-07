@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/huangguoai"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/google/uuid"
 )
@@ -164,6 +165,10 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 		}
 		return s.publish(ctx, *row, root, target)
 	}
+	media, err := s.catalog.client.Resolve(ctx, row.SourceID, row.Episode)
+	if err != nil {
+		return huangGuoAIDownloadError{err}
+	}
 	oldStage := row.StagingPath
 	stage := filepath.Join("downloading", row.ID+"-"+row.LeaseToken)
 	if err = root.MkdirAll(stage, 0700); err != nil {
@@ -176,19 +181,33 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 		}
 	}()
 	ready := filepath.Join(stage, "ready.mp4")
-	if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"staging_path": ready}); err != nil {
-		return err
-	}
-	row.StagingPath = ready
+	previous := ""
 	if validHuangGuoAIStage(oldStage, row.ID) && filepath.Dir(oldStage) != stage {
-		_ = root.RemoveAll(filepath.Dir(oldStage))
+		if info, e := root.Lstat(filepath.Dir(oldStage)); e == nil && info.IsDir() {
+			previous = filepath.Join(row.Root, filepath.Dir(oldStage))
+		}
 	}
-	media, err := s.catalog.client.Resolve(ctx, row.SourceID, row.Episode)
+	bytes.Store(0)
+	input, duration, err := s.catalog.client.DownloadResuming(ctx, media, filepath.Join(row.Root, stage), previous, func(n int64) { bytes.Store(n) }, func() error {
+		// 新快照已持久化后才交接数据库路径，复制失败或取消仍保留旧检查点。
+		if e := syncDownloadStage(root, stage); e != nil {
+			return e
+		}
+		if e := s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"staging_path": ready}); e != nil {
+			return e
+		}
+		row.StagingPath = ready
+		if previous != "" {
+			_ = root.RemoveAll(filepath.Dir(oldStage))
+		}
+		return nil
+	})
 	if err != nil {
-		return huangGuoAIDownloadError{err}
-	}
-	input, duration, err := s.catalog.client.Download(ctx, media, filepath.Join(row.Root, stage), func(n int64) { bytes.Store(n) })
-	if err != nil {
+		var resumable huangguoai.HLSResumeError
+		retain = errors.As(err, &resumable)
+		if retain {
+			task.Update(TaskUpdate{Details: []string{"已保留完整分片，重试时核对清单后复用"}})
+		}
 		return huangGuoAIDownloadError{err}
 	}
 	if duration > 0 && math.Abs(duration-media.ExpectedDuration) > 2 {

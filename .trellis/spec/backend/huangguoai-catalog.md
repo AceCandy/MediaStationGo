@@ -243,6 +243,69 @@ nonfinite video durations even when the container duration matches. The opt-in
 `TestHuangGuoAIDownloadHLSLive` checks real transfer, reclaim, full decode and
 publication using an isolated PostgreSQL schema and test-cleaned media.
 
+## Cross-attempt HLS segment resume
+
+### 1. Scope / Trigger
+
+HuangGuo download transport failures and explicit retry. Complete-file verification
+and publication retain their existing independent leases and checks.
+
+### 2. Signatures
+
+`Client.DownloadResuming(ctx, media, dir, previousDir, progress, checkpoint)`;
+`HLSResumeError` marks a failed transfer with complete cached segments.
+`segment-NNNNNN.ts|m4s.resume` contains only `Identity`, `Size`, `SHA256`.
+Use existing `staging_path`; no schema or public API changes.
+
+### 3. Contracts
+
+Use a private directory for each lease. Copy previous complete regular files with
+exclusive writes and verify size/digest; never share writable files or hard links.
+Identity hashes the resolved playlist (URLs/ranges/order/sequence/IV), Referer,
+and freshly downloaded generation-specific keys and maps. Signed URL changes
+conservatively invalidate cache. No URL, signature or key plaintext in records.
+Before switching `staging_path`, finish copying, sync records/files and stage plus
+its parent, then run the fenced checkpoint callback; only afterward retire old
+stage. Copy/cancel/checkpoint failures retain the previous database path.
+Each completed segment gets a synced record before progress is reported. Reused
+bytes count once toward progress and the total-media limit. A failed transfer
+retains only segments/records; keys/maps/manifests are removed. Successful transfer
+or merge failure exits resume mode; independent decode/duration failures cannot
+reuse suspect data. Existing `Download` remains non-resuming for other callers.
+
+### 4. Validation & Error Matrix
+
+- Missing/corrupt record, nonregular/truncated/corrupt file -> download again.
+- Changed playlist/key/map -> invalidate affected cache conservatively.
+- HLS changes to direct MP4 -> discard obsolete HLS cache; direct transfer has no
+  segment resume, including when the new direct response is incomplete.
+- Snapshot storage failure/cancel/checkpoint failure -> retain old checkpoint.
+- Partial transfer with complete segments -> `HLSResumeError`; no publication.
+- Media-size limit or merge/verification failure -> discard current cache.
+
+### 5. Good / Base / Bad Cases
+
+Good: first two segments survive failed third, new lease requests only missing
+segments. Base: no records in historical failed stage -> full download. Bad:
+skip by filename alone, strip signed URL query parameters, or advance database
+path before the new snapshot is durable.
+
+### 6. Tests Required
+
+`TestDownloadHLSResumeAcrossAttempts` checks unchanged reuse, sequence/key/map
+changes, same-size corruption, truncation, missing records, symlinks and accounting.
+`TestDownloadHLSResumeCancellationAndMergeFailure` checks joined blocked sibling,
+partial cleanup and non-resumable merge failure. `TestHLSResumeSnapshotCheckpoint`
+checks snapshot-before-checkpoint, cancellation, collision and safe diagnostics.
+`TestHuangGuoAIDownloadResumeRetryAndPublish` uses isolated PostgreSQL and synthetic
+HLS for failure/retry/new lease, intermediate Resolve failure, reuse, complete
+handoff, strict independent verification/publication and final cleanup.
+
+### 7. Wrong vs Correct
+
+Wrong: update the task path, delete previous stage, then begin snapshot copying.
+Correct: copy and persist the snapshot first; commit the fenced task path next.
+
 ## Scheduled new-work download supplement
 
 ### 1. Scope / Trigger

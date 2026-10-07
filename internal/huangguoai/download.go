@@ -3,7 +3,9 @@ package huangguoai
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -284,6 +286,10 @@ func attributes(s string) (map[string]string, error) {
 // Download fetches every resource through the guarded client, then uses only local inputs in FFmpeg.
 // The caller owns the private attempt directory and must remove it on every exit path.
 func (c *Client) Download(ctx context.Context, media Media, dir string, progress func(int64)) (string, float64, error) {
+	return c.download(ctx, media, dir, progress, nil)
+}
+
+func (c *Client) download(ctx context.Context, media Media, dir string, progress func(int64), cache *hlsResumeCache) (string, float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	if !hongguo.ValidDownloadURL(media.URL) {
@@ -297,6 +303,9 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 	prefix, _ := reader.Peek(7)
 	input := filepath.Join(dir, "input.mp4")
 	if string(prefix) != "#EXTM3U" {
+		if cache != nil {
+			cache.keep = false
+		}
 		defer resp.Body.Close()
 		f, e := os.OpenFile(input, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if e != nil {
@@ -343,6 +352,15 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 		}
 	}
 	var total int64
+	identityHash := sha256.New()
+	if cache != nil {
+		// URL、范围、顺序、IV和媒体序列均参与摘要，原文只驻留内存。
+		identity, _ := json.Marshal(struct {
+			Playlist Playlist
+			Referer  string
+		}{p, media.Referer})
+		identityHash.Write(identity)
+	}
 	var manifest strings.Builder
 	manifest.WriteString("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:3600\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
 	keys := map[int]string{}
@@ -366,9 +384,19 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 				}
 				total += n
 				if total > maxMediaBytes {
+					if cache != nil {
+						cache.keep = false
+					}
 					return "", 0, errors.New("媒体超出大小限制")
 				}
 				maps[*segment.Map] = name
+				if cache != nil {
+					_, hash, e := hlsFileDigest(filepath.Join(dir, name), maxSegmentBytes)
+					if e != nil {
+						return "", 0, e
+					}
+					identityHash.Write([]byte(hash))
+				}
 			}
 			if name != previousMap {
 				fmt.Fprintf(&manifest, "#EXT-X-MAP:URI=\"%s\"\n", name)
@@ -387,6 +415,13 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 					return "", 0, fmt.Errorf("HLS 第 %d 个分片密钥长度无效", i+1)
 				}
 				keys[segment.KeyGeneration] = name
+				if cache != nil {
+					_, hash, e := hlsFileDigest(filepath.Join(dir, name), 16)
+					if e != nil {
+						return "", 0, e
+					}
+					identityHash.Write([]byte(hash))
+				}
 			}
 			iv := segment.IV
 			if iv == "" {
@@ -405,6 +440,27 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 		fmt.Fprintf(&manifest, "#EXTINF:%.6f,\n%s\n", segment.Duration, name)
 	}
 	manifest.WriteString("#EXT-X-ENDLIST\n")
+	identity := hex.EncodeToString(identityHash.Sum(nil))
+	cached := make([]int64, len(paths))
+	if cache != nil {
+		if err := cache.prune(paths); err != nil {
+			return "", 0, err
+		}
+		var validated int64
+		for i, path := range paths {
+			if err := ctx.Err(); err != nil {
+				return "", 0, err
+			}
+			cached[i], err = cache.reuse(filepath.Base(path), identity)
+			if err != nil {
+				return "", 0, err
+			}
+			if cached[i] > 0 {
+				validated++
+			}
+		}
+		cache.complete.Store(validated)
+	}
 	// 分片完成顺序不影响本地清单；失败时取消同组请求并等待其停止写盘。
 	transferCtx, cancelTransfer := context.WithCancel(ctx)
 	defer cancelTransfer()
@@ -425,7 +481,19 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 				i := next
 				next++
 				mu.Unlock()
-				n, err := c.fetchResource(transferCtx, p.Segments[i].Resource, media.Referer, paths[i], maxSegmentBytes)
+				n := cached[i]
+				var err error
+				if n == 0 {
+					n, err = c.fetchResource(transferCtx, p.Segments[i].Resource, media.Referer, paths[i], maxSegmentBytes)
+					if err == nil && cache != nil {
+						_, hash, e := hlsFileDigest(paths[i], maxSegmentBytes)
+						if e != nil || cache.save(filepath.Base(paths[i]), hlsSegmentRecord{Identity: identity, Size: n, SHA256: hash}) != nil {
+							err = errors.New("HLS 分片缓存持久化失败")
+						} else {
+							cache.complete.Add(1)
+						}
+					}
+				}
 				mu.Lock()
 				if err != nil && transferErr == nil {
 					transferErr = fmt.Errorf("HLS 第 %d/%d 个分片下载失败：%w", i+1, len(p.Segments), err)
@@ -433,6 +501,9 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 				if transferErr == nil {
 					total += n
 					if total > maxMediaBytes {
+						if cache != nil {
+							cache.keep = false
+						}
 						transferErr = errors.New("媒体超出大小限制")
 					} else if progress != nil {
 						progress(total)
@@ -453,6 +524,10 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 	}
 	if err := ctx.Err(); err != nil {
 		return "", 0, err
+	}
+	if cache != nil {
+		// 完整传输后的合并/媒体错误不得复用可疑分片。
+		cache.keep = false
 	}
 	input = filepath.Join(dir, "input.m3u8")
 	if os.WriteFile(input, []byte(manifest.String()), 0600) != nil {
