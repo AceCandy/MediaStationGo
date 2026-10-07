@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 209
+- **Total Sessions**: 211
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1259 | Active |
+| `journal-3.md` | ~1301 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 211 | 2026-10-07 | Exact progress sync locally committed and archived | `d5e4dfd` | `main` |
+| 210 | 2026-10-07 | Exact progress synchronization implementation | - | `main` |
 | 209 | 2026-10-07 | 黄果 AI HLS 合并及前置音频校验修复 | `81e1927` | `main` |
 | 208 | 2026-10-07 | 修复已观看条目的重播进度百分比 | `7e93a7a` | `main` |
 | 207 | 2026-10-07 | 播放器日志稳定流水号与慢请求诊断 | `f7d499d` | `main` |

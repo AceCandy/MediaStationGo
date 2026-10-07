@@ -1257,3 +1257,45 @@ DateCreated 作品排序统一复用最新入库时间，NextUp 固定空响应�
 ### Next Steps
 
 - 部署新版本后重试失败集；生产服务和原下载队列尚未操作。
+
+
+## Session 210: Exact progress synchronization implementation
+<!-- trellis-session: v=2 fp=8acb50b0d56f6cf6 -->
+
+**Date**: 2026-10-07
+**Task**: Exact progress synchronization implementation
+**Branch**: `main`
+
+### Summary
+
+Versioned snapshot API and four-source revision triggers implemented; scoped real PostgreSQL, HTTP client integration and playback regressions passed. Expanded complete regression is not fully green. Awaiting local commit approval; no deployment.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 211: Exact progress sync locally committed and archived
+<!-- trellis-session: v=2 fp=df2c8b2195f4472a -->
+
+**Date**: 2026-10-07
+**Task**: Exact progress sync locally committed and archived
+**Branch**: `main`
+
+### Summary
+
+Approved work commit and current task archive completed. No push or deployment. Scoped PostgreSQL/playback/HTTP tests passed; expanded whole-service regression not fully green. Device validation remains deferred.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d5e4dfd` | feat(emby): 增加准确进度快照与版本条件同步 |
+
+### Status
+
+[OK] **Completed**
