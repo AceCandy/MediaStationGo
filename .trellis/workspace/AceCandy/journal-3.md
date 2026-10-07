@@ -1414,3 +1414,41 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 216: 黄果下载分类、恢复与分片并发交付
+<!-- trellis-session: v=2 fp=9c30d13275c115e6 -->
+
+**Date**: 2026-10-07
+**Task**: 黄果下载分类、恢复与分片并发交付
+**Branch**: `main`
+
+### Summary
+
+完成电影与剧集下载区分、保留全音轨的合并恢复和主入口双分片下载，记录备用与混合线路实测，按用户指令提交并归档两项任务；尚未部署生产。
+
+### Main Changes
+
+- 电影按作品文件名保存，剧集保留季集路径，历史任务路径不迁移。
+- 有限音轨与时间戳恢复保留严格校验；每任务最多两片并行，失败取消并等待全部下载退出。
+- 备用及主备用混合测速没有证实稳定额外加速收益，未实施备用轮询。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f7357ef` | fix(huangguoai): 按电影和剧集区分下载路径与展示 |
+| `318b490` | fix(huangguoai): 恢复合并异常并支持双分片下载 |
+
+### Testing
+
+- [OK] 先前隔离PostgreSQL类型、绑定、分页和下载回归、Web检查及浏览器验证通过。
+- [OK] 新增分片并发源包全量race通过8.751秒；真实多片合并及全部音视频解码通过，service编译、vet和独立复核通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 定位实际运行服务并部署提交版本；验证生产整片吞吐与长期失败率，不放宽损坏源的发布校验。
