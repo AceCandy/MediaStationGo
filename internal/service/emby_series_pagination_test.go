@@ -531,8 +531,12 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("favorite-only page changed: %#v, %v", result, err)
 	}
 	favoriteQueries := append([]string(nil), reads.queries...)
-	if len(favoriteQueries) != 1 {
+	// DateCreated 使用作品入库时间；准确计数和页内资格分别执行一次。
+	if len(favoriteQueries) != 2 {
 		t.Fatalf("favorite count/page queries = %d", len(favoriteQueries))
+	}
+	if !strings.Contains(favoriteQueries[0], "SELECT COUNT(*) FROM") || !strings.Contains(favoriteQueries[1], "LEFT JOIN qualified") {
+		t.Fatalf("favorite count/page query shape changed: %v", favoriteQueries)
 	}
 	for _, query := range favoriteQueries {
 		if !strings.Contains(query, "WITH work_batch AS MATERIALIZED") || !strings.Contains(query, "favorites.metadata_id = scope_series.id") {

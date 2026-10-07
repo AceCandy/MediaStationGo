@@ -39,7 +39,8 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 		default:
 			args = append(args, status)
 		}
-		filter = `WHERE EXISTS (SELECT 1 FROM hongguo_downloads d WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" AND ` + condition + `)`
+		// 保留逐作品短路探测，避免状态半连接展开全部匹配分集或先探测空状态的时间。
+		filter = `WHERE EXISTS (SELECT 1 FROM hongguo_downloads d WHERE d.source_id COLLATE "C" = w.source_id COLLATE "C" AND ` + condition + ` OFFSET 0)`
 	}
 	keyword = strings.TrimSpace(keyword)
 	if keyword != "" {
@@ -56,6 +57,7 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 	// 同一份候选同时用于计数和分页，避免重复探测每部作品；空位置由首任务查询排除。
 	// 排序仍取当前最早任务，分集清理后不能用位置创建时间替代。
 	// 来源 ID 以字节匹配对应索引，页面的来源 ID 排序保留数据库原排序规则。
+	// 页内逐作品汇总，避免 IN 子查询被规划为全任务表扫描；空页不读取分集。
 	query := `WITH download_candidates AS MATERIALIZED (
 	SELECT w.source_id, first_task.created_at FROM hongguo_download_works w
 	JOIN LATERAL (SELECT created_at FROM hongguo_downloads d
@@ -63,7 +65,8 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 	), paged_sources AS (
 	SELECT source_id FROM download_candidates ORDER BY created_at DESC, source_id LIMIT 50 OFFSET ?
 	), summaries AS (
-	SELECT source_id, MAX(title) AS title, COUNT(*) AS total, MIN(created_at) AS first_task_at,
+	SELECT page.source_id, summary.* FROM paged_sources page
+	JOIN LATERAL (SELECT MAX(title) AS title, COUNT(*) AS total, MIN(created_at) AS first_task_at,
 	COUNT(*) FILTER (WHERE status = 'queued') AS queued,
 	COUNT(*) FILTER (WHERE status = 'downloading') AS downloading,
 	COUNT(*) FILTER (WHERE status = 'verifying') AS verifying,
@@ -72,7 +75,7 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 	COUNT(*) FILTER (WHERE status = 'completed') AS completed,
 	COUNT(*) FILTER (WHERE status = 'failed') AS failed,
 	COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled
-	FROM hongguo_downloads WHERE source_id IN (SELECT source_id FROM paged_sources) GROUP BY source_id
+	FROM hongguo_downloads WHERE source_id COLLATE "C" = page.source_id COLLATE "C") summary ON TRUE
 	), totals AS (SELECT COUNT(*) AS work_total FROM download_candidates)
 	SELECT summaries.*, totals.work_total FROM totals LEFT JOIN summaries ON TRUE
 	ORDER BY summaries.first_task_at DESC, summaries.source_id`
