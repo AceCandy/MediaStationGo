@@ -1335,3 +1335,38 @@ Approved work commit and current task archive completed. No push or deployment. 
 ### Next Steps
 
 - 尚未重启后端或验证截图中的真实两集；源站持续返回残缺数据仍会安全失败。
+
+
+## Session 213: 目录删除监听告警与重试修复
+<!-- trellis-session: v=2 fp=0342ea7065e52677 -->
+
+**Date**: 2026-10-07
+**Task**: 目录删除监听告警与重试修复
+**Branch**: `main`
+
+### Summary
+
+正常删除子目录成功排队核验后停止误告警和目录重试，保留离线保护与核验失败重试；提交并归档。
+
+### Main Changes
+
+- 仅修改目录事件处理分支及回归测试，校验可访问根目录包含事件路径。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ab8d01` | fix(watcher): 修复目录删除后的误告警与重试 |
+
+### Testing
+
+- [OK] 临时 PostgreSQL 16 隔离 schema 实际运行 16 项 TestWatcher/TestRemovePath 测试通过，git diff --check 通过；完成独立复核。
+- [OK] 未执行全量测试或部署验证；临时数据库容器已关闭并删除。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署更新后的程序使修复生效。
