@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 213
+- **Total Sessions**: 214
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1372 | Active |
+| `journal-3.md` | ~1394 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 214 | 2026-10-07 | MSGo regression repair and archive | `91f26de` | `main` |
 | 213 | 2026-10-07 | 目录删除监听告警与重试修复 | `7ab8d01` | `main` |
 | 212 | 2026-10-07 | 黄果 HLS 分片重试与传输诊断 | `6460f85` | `main` |
 | 211 | 2026-10-07 | Exact progress sync locally committed and archived | `d5e4dfd` | `main` |

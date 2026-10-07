@@ -1370,3 +1370,25 @@ Approved work commit and current task archive completed. No push or deployment. 
 ### Next Steps
 
 - 部署更新后的程序使修复生效。
+
+
+## Session 214: MSGo regression repair and archive
+<!-- trellis-session: v=2 fp=a65a872911864adf -->
+
+**Date**: 2026-10-07
+**Task**: MSGo regression repair and archive
+**Branch**: `main`
+
+### Summary
+
+Fixed series-only HongGuo count fixtures, album payload identity and the visible task count. Reused the outer source-work join in PlaybackStates, reducing hydration work reads from 5240 to 940 while preserving orphan histories. Targeted race checks, full handler/repository regressions, vet and independent review passed. Full service regression was not completed; ordinary Series query-count and HongGuo download-page plan failures were reproduced on clean HEAD and remain outside this repair. User authorized commit/archive; no push or deployment.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `91f26de` | fix(emby): 修正红果回归夹具并减少播放状态重复查询 |
+
+### Status
+
+[OK] **Completed**
