@@ -15,8 +15,9 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   retain numeric source IDs as strings, never UUIDs or display IDs.
 - Display IDs: Movie `hga-work-UUID`, Series `hga-group-sourceID`, virtual S01
   `hga-season-workUUID`, Episode `hga-episode-episodeUUID`.
-- Path tag: `[huangguoai-sourceID]` in the work directory or legacy filename;
-  episode filenames use `S01Exxx.mp4`. Movie keeps episode 1 internally.
+- Path tag: `[huangguoai-sourceID]` in the work directory or filename. New Movie
+  downloads use `<work>/<work>.mp4`; Series use `Season 01/S01Exxx.mp4`.
+  Movie keeps episode 1 internally. Existing download paths are never rewritten.
   Shared library `/series` returns mixed Movie/Series work cards.
 - Settings: `huangguoai.enabled`, `huangguoai.download_root`, source-specific
   scheduler keys. See download config service for current supported keys.
@@ -67,12 +68,17 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
 - New download work directories use the fixed source category labels `AI短剧`,
   `AI漫剧`, `AI换脸`, `AI魔改`, then 64 letter buckets `aa` through `hh`:
   CRC32 IEEE(sourceID) modulo 64, encoded as two base-8 letters `a` through `h`.
-  Layout: `<category>/<bucket>/<title> [huangguoai-ID]/Season 01/S01Exxx.mp4`.
+  Series layout: `<category>/<bucket>/<title> [huangguoai-ID]/Season 01/S01Exxx.mp4`.
+  Movie layout: `<category>/<bucket>/<title> [huangguoai-ID]/<title> [huangguoai-ID].mp4`.
   Missing source categories reject enqueue. Existing placements remain stable;
   moving historical files and download paths is a coordinated operational action,
   never an automatic startup migration. Scanner/organizer identity uses full paths.
 - Public Media keeps `metadata_id IS NULL`. Source library scans skip ordinary
-  metadata/sidecars. Organizers retain tag/S01 and reject moving bound source files
+  metadata/sidecars. Movie binding accepts no season/episode coordinates or legacy
+  S01E001, and always binds the real internal episode 1; other coordinates reject.
+  Series still require actual S01 coordinates. Organizers retain the source tag,
+  confirm coordinate-free Movies through canonical work kind without classification
+  conflict, and preserve legacy S01 paths. They reject moving bound source files
   into ordinary libraries before file transfer. Auto-mark preserves completed rows.
 - Work qualification/counting precedes pagination; hydrate only current-page
   files. Scope node work IDs before joins; SQL LIMIT alone does not bound scans.
@@ -131,9 +137,23 @@ projection branches through Web/Emby and shared playback state.
 Discover `downloaded` means at least one completed download record, not all
 episodes complete, current file existence or ingestion. Hydrate this flag in one
 batch scoped to the current list/search rows; details use the same helper.
+Download work summaries include `kind: movie|series|""` from canonical works,
+joined after work pagination. Missing work metadata keeps the download visible
+with empty kind; UI uses neutral task labels. Movies show Movie/部/正片; Series
+show Series/集/E-number. Retry/cancel messages use generic download-task wording.
+
 Download work summaries expose each processing phase count in addition to the
 compatible aggregate `active`. Filter and page works before aggregating their
 whole episode queues; never truncate a work's counts by the selected status.
+`TestHuangGuoAIDownloadKindPathsAndLegacyRetry` covers all four category paths
+and stable historical paths on re-enqueue/retry.
+`TestHuangGuoAIMovieBindingWithoutEpisodeCoordinates` covers coordinate-free
+Movie binding, legacy first files, invalid Movie coordinates and strict Series
+binding. The transfer/verify/publish test binds its downloaded Movie through
+scanner construction. `TestHuangGuoAIOrganizeMovieWithoutCoordinates` rejects
+unconfirmed/series/conflicting coordinate-free files and retains Movie identity.
+`check-huangguoai.mjs` covers mixed download labels and Movie details.
+
 `TestHuangGuoAIListDownloadedBadge` and
 `TestHuangGuoAIDownloadWorkStatusCounts` verify these projections in PostgreSQL.
 

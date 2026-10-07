@@ -68,7 +68,7 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 		}
 	}()
 	// Source titles do not enter task logs; IDs are enough to diagnose queue failures.
-	task := s.tasks.startLogOnly(TaskKindHuangGuoAIDownload, fmt.Sprintf("黄果 AI 下载 %s 第 %d 集", row.SourceID, row.Episode), TaskUpdate{Stage: row.Status})
+	task := s.tasks.startLogOnly(TaskKindHuangGuoAIDownload, fmt.Sprintf("黄果 AI 下载 %s（任务 %d）", row.SourceID, row.Episode), TaskUpdate{Stage: row.Status})
 	err := s.execute(ctx, &row, &bytes, task)
 	close(finished)
 	<-joined

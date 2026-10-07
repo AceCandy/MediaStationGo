@@ -151,8 +151,24 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 	if err != nil || !bytes.Equal(output, data) {
 		t.Fatal("output content changed", err)
 	}
-	if filepath.ToSlash(current.RelativePath) != "AI魔改/gd/Synthetic [huangguoai-51]/Season 01/S01E001.mp4" {
+	if filepath.ToSlash(current.RelativePath) != "AI魔改/gd/Synthetic [huangguoai-51]/Synthetic [huangguoai-51].mp4" {
 		t.Fatal("unexpected output path", current.RelativePath)
+	}
+	// 实际下载产物走扫描构建和来源绑定后必须投影为电影。
+	lib := model.Library{Name: "Synthetic", Type: model.LibraryTypeHuangGuoAI, Path: filepath.Join(root, "completed")}
+	if err := db.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "completed", current.RelativePath)
+	season, episode := scanEpisodeNumbers(&lib, path)
+	scanner := &ScannerService{repo: repos, log: zap.NewNop()}
+	media := scanner.buildLocalScanMedia(localScanMediaInput{lib: &lib, path: path, ext: ".mp4", parsedSeason: season, parsedEpisode: episode})
+	if err := repos.Media.Upsert(ctx, media); err != nil {
+		t.Fatal(err)
+	}
+	view, err := repos.MediaView.FindByID(ctx, media.ID)
+	if err != nil || view == nil || view.MetadataKind != "movie" || view.SeriesID != "" || media.SeasonNum != 0 || media.EpisodeNum != 0 {
+		t.Fatalf("downloaded movie not bound as Movie: %+v %v", view, err)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "downloading"))
 	if err != nil || len(entries) != 0 {
@@ -206,7 +222,7 @@ func TestHuangGuoAIDownloadTransferVerifyPublishAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	works, total, err := service.Works(ctx, 1, "completed", "")
-	if err != nil || total != 1 || len(works) != 1 || works[0].Completed != 1 {
+	if err != nil || total != 1 || len(works) != 1 || works[0].Completed != 1 || works[0].Kind != "movie" {
 		t.Fatal("work status aggregates", total, err)
 	}
 	// Idle pools observe cancellation and join promptly.
@@ -316,7 +332,10 @@ func TestHuangGuoAIDownloadWorkStatusCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&model.HuangGuoAIDownloadWork{}, &model.HuangGuoAIDownload{}); err != nil {
+	if err = db.AutoMigrate(&model.HuangGuoAIWork{}, &model.HuangGuoAIDownloadWork{}, &model.HuangGuoAIDownload{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.HuangGuoAIWork{SourceID: "1", SourceCategory: "ai-duanju", Kind: "series", Title: "Synthetic"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	work := model.HuangGuoAIDownloadWork{SourceID: "1", Title: "Synthetic", Root: "/synthetic", Directory: "one"}
@@ -335,11 +354,98 @@ func TestHuangGuoAIDownloadWorkStatusCounts(t *testing.T) {
 		t.Fatal("filtered works", total, err)
 	}
 	row := rows[0]
-	if row.Total != 8 || row.Completed != 1 || row.Failed != 1 || row.Cancelled != 1 || row.Queued != 1 || row.Downloading != 1 || row.WaitingVerify != 1 || row.Verifying != 1 || row.Publishing != 1 || row.Active != 4 || row.Bytes != 8192 {
+	if row.Kind != "series" || row.Total != 8 || row.Completed != 1 || row.Failed != 1 || row.Cancelled != 1 || row.Queued != 1 || row.Downloading != 1 || row.WaitingVerify != 1 || row.Verifying != 1 || row.Publishing != 1 || row.Active != 4 || row.Bytes != 8192 {
 		t.Fatalf("counts: %+v", row)
 	}
 	rows, total, err = service.Works(context.Background(), 2, "", "")
 	if err != nil || total != 1 || len(rows) != 0 {
 		t.Fatal("page boundary", total, err)
+	}
+}
+
+func TestHuangGuoAIDownloadKindPathsAndLegacyRetry(t *testing.T) {
+	s := newHuangGuoDownloadTaskTestService(t)
+	if err := s.repo.DB.AutoMigrate(model.HuangGuoAIModels()...); err != nil {
+		t.Fatal(err)
+	}
+	for index, category := range []string{"ai-huanlian", "ai-mogai", "ai-duanju", "ai-manju"} {
+		id := strconv.Itoa(100 + index)
+		summary := huangguoai.Summary{SourceID: id, Category: category, Title: "Synthetic"}
+		if err := s.repo.HuangGuoAI.RegisterSummaries(t.Context(), []huangguoai.Summary{summary}); err != nil {
+			t.Fatal(err)
+		}
+		episodes := []huangguoai.Episode{{Number: 1, PagePath: "/video/" + id + "/"}}
+		if huangguoai.Kind(category) == "series" {
+			episodes = append(episodes, huangguoai.Episode{Number: 2, PagePath: "/video/" + id + "/ep-2/"})
+		}
+		if _, _, err := s.repo.HuangGuoAI.SaveDetail(t.Context(), huangguoai.Work{Summary: summary, Episodes: episodes}); err != nil {
+			t.Fatal(err)
+		}
+		if count, err := s.Enqueue(t.Context(), id); err != nil || count != len(episodes) {
+			t.Fatalf("enqueue: %d %v", count, err)
+		}
+		rows, _, err := s.Episodes(t.Context(), id, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			season, episode := parseStandardEpisode(row.RelativePath)
+			if huangguoai.Kind(category) == "movie" {
+				if season != 0 || episode != 0 || filepath.Base(row.RelativePath) != filepath.Base(filepath.Dir(row.RelativePath))+".mp4" {
+					t.Fatalf("movie path: %s", row.RelativePath)
+				}
+			} else if season != 1 || episode != row.Episode {
+				t.Fatalf("series path: %s", row.RelativePath)
+			}
+		}
+		// 模拟历史失败任务；重复入队和重试不能改写它的路径。
+		legacy := rows[0].RelativePath
+		if huangguoai.Kind(category) == "movie" {
+			legacy = filepath.Join(filepath.Dir(legacy), "Season 01", "S01E001.mp4")
+		}
+		if err := s.repo.DB.Model(&rows[0]).Updates(map[string]any{"relative_path": legacy, "status": "failed"}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count, err := s.Enqueue(t.Context(), id); err != nil || count != 0 {
+			t.Fatalf("duplicate: %d %v", count, err)
+		}
+		if err := s.Action(t.Context(), rows[0].ID, "retry"); err != nil {
+			t.Fatal(err)
+		}
+		var saved model.HuangGuoAIDownload
+		if err := s.repo.DB.Where("id=?", rows[0].ID).Take(&saved).Error; err != nil || saved.RelativePath != legacy || saved.Status != "queued" {
+			t.Fatalf("legacy retry changed path: %+v %v", saved, err)
+		}
+	}
+	works, _, err := s.Works(t.Context(), 1, "", "")
+	if err != nil || len(works) != 4 {
+		t.Fatalf("mixed summary: %v", err)
+	}
+	for _, work := range works {
+		if work.Kind != huangguoai.Kind(map[string]string{"100": "ai-huanlian", "101": "ai-mogai", "102": "ai-duanju", "103": "ai-manju"}[work.SourceID]) {
+			t.Fatalf("wrong summary kind: %+v", work)
+		}
+	}
+}
+
+func TestHuangGuoAIOrganizeMovieWithoutCoordinates(t *testing.T) {
+	db := newServiceTestDB(t, &model.HuangGuoAIWork{})
+	for _, work := range []model.HuangGuoAIWork{{SourceID: "1", Kind: "movie", SourceCategory: "ai-mogai", Title: "Synthetic"}, {SourceID: "2", Kind: "series", SourceCategory: "ai-duanju", Title: "Synthetic"}, {SourceID: "3", Kind: "movie", SourceCategory: "ai-mogai", Title: "Synthetic", ProjectionError: "category_kind_conflict"}} {
+		if err := db.Create(&work).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	o := &OrganizerService{repo: repository.New(db)}
+	for _, id := range []string{"1", "2", "3", "4"} {
+		target, err := o.buildOrganizeTargetPath(t.Context(), organizeTargetInput{Root: t.TempDir(), Title: "Synthetic", Source: "/source/Synthetic [huangguoai-" + id + "].mp4", Ext: ".mp4"})
+		if id != "1" {
+			if err == nil {
+				t.Fatalf("unconfirmed movie accepted: %s", id)
+			}
+			continue
+		}
+		if err != nil || target.EpisodeTag != "" || filepath.Base(target.Path) != "Synthetic [huangguoai-1].mp4" || filepath.Base(target.Dir) != "Synthetic [huangguoai-1]" {
+			t.Fatalf("movie organized as series: %+v %v", target, err)
+		}
 	}
 }

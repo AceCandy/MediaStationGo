@@ -15,7 +15,7 @@ export interface HuangGuoAIUserCard {
 }
 export interface HuangGuoAIDownload { id: string; source_id: string; title: string; episode: number; status: 'downloading' | 'verifying' | 'publishing' | 'waiting_verify' | 'queued' | 'completed' | 'failed' | 'cancelled'; bytes: number; total_bytes: number; attempts: number; error: string; relative_path: string }
 export interface HuangGuoAIDownloadConfig { root: string; temporary_dir: string; output_dir: string; concurrency: number; verification_concurrency: number }
-export interface HuangGuoAIDownloadWork { source_id: string; title: string; total: number; completed: number; failed: number; active: number; downloading: number; waiting_verify: number; verifying: number; publishing: number; queued: number; cancelled: number; bytes: number }
+export interface HuangGuoAIDownloadWork { source_id: string; title: string; kind: 'movie' | 'series' | ''; total: number; completed: number; failed: number; active: number; downloading: number; waiting_verify: number; verifying: number; publishing: number; queued: number; cancelled: number; bytes: number }
 const root = '/catalogs/huangguoai'
 export const huangguoaiAPI = {
   list: (params: { keyword: string; category: string; tag: string; rank: string; page: number; page_size?: number }, signal?: AbortSignal) => api.get<{ items: HuangGuoAIWork[]; total: number }>(`${root}/works`, { params: { ...params, page_size: params.page_size ?? 50 }, signal }).then(r => r.data),

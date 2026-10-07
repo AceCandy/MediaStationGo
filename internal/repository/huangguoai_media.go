@@ -29,7 +29,7 @@ func (r *MediaRepository) upsertHuangGuoAIMedia(ctx context.Context, m *model.Me
 	})
 }
 
-// bindHuangGuoAIMedia requires the original source ID and S01 coordinates, including movies' first file.
+// 电影按源 ID 绑定内部首条媒体；剧集必须提供真实 S01 坐标。
 func bindHuangGuoAIMedia(tx *gorm.DB, m *model.Media) error {
 	// 停用只阻止新绑定，保留既有文件与用户记录的身份。
 	var enabled string
@@ -58,14 +58,18 @@ func bindHuangGuoAIMedia(tx *gorm.DB, m *model.Media) error {
 	if work.ProjectionError != "" {
 		return pending("来源分类冲突，暂停绑定")
 	}
-	if m.SeasonNum != 1 || m.EpisodeNum < 1 {
-		return pending("黄果 AI 文件必须使用 S01Exxx 坐标")
-	}
-	if work.Kind == model.MetadataKindMovie && m.EpisodeNum != 1 {
-		return pending("黄果 AI 电影仅匹配首集文件")
+	number := m.EpisodeNum
+	if work.Kind == model.MetadataKindMovie {
+		// 无季集的电影文件与历史 S01E001 文件都对应内部第 1 条记录。
+		if (m.SeasonNum != 0 || m.EpisodeNum != 0) && (m.SeasonNum != 1 || m.EpisodeNum != 1) {
+			return pending("黄果 AI 电影仅匹配正片或历史 S01E001 文件")
+		}
+		number = 1
+	} else if m.SeasonNum != 1 || m.EpisodeNum < 1 {
+		return pending("黄果 AI 剧集文件必须使用 S01Exxx 坐标")
 	}
 	var episode model.HuangGuoAIEpisode
-	err = tx.Where("work_id = ? AND number = ?", work.ID, m.EpisodeNum).Take(&episode).Error
+	err = tx.Where("work_id = ? AND number = ?", work.ID, number).Take(&episode).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return pending("黄果 AI 资料没有对应真实集号")
 	}

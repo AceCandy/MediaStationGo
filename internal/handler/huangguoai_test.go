@@ -94,6 +94,9 @@ func TestHuangGuoAIHTTPAdultAndProfileBoundary(t *testing.T) {
 			t.Fatalf("empty media page %s: status=%d body=%s err=%v", path, res.Code, res.Body.String(), err)
 		}
 	}
+	if err = db.Create(&[]model.HuangGuoAIWork{{SourceID: "71", Kind: "series", SourceCategory: "ai-duanju", Title: "Series"}, {SourceID: "72", Kind: "movie", SourceCategory: "ai-mogai", Title: "Movie"}}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err = db.Create(&[]model.HuangGuoAIDownloadWork{{SourceID: "71", Title: "Special 100%_"}, {SourceID: "72", Title: "Other"}}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +115,15 @@ func TestHuangGuoAIHTTPAdultAndProfileBoundary(t *testing.T) {
 		}
 		if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil || res.Code != 200 || result.Total != tt.total || int64(len(result.Items)) != tt.total {
 			t.Fatalf("%s: status=%d body=%s err=%v", tt.query, res.Code, res.Body.String(), err)
+		}
+		for _, item := range result.Items {
+			want := "series"
+			if item.SourceID == "72" {
+				want = "movie"
+			}
+			if item.Kind != want {
+				t.Fatalf("wrong JSON kind: %+v", item)
+			}
 		}
 	}
 	for _, path := range []string{"/works", "/works/71", "/works/71/media", "/works/71/state", "/artwork/synthetic", "/downloads/works", "/downloads/config", "/status"} {

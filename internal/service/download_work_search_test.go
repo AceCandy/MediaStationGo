@@ -19,7 +19,7 @@ func TestDownloadWorkSearchBeforePagination(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := db.AutoMigrate(&model.HongGuoDownloadWork{}, &model.HongGuoDownload{}, &model.HuangGuoAIDownloadWork{}, &model.HuangGuoAIDownload{}); err != nil {
+			if err := db.AutoMigrate(&model.HongGuoDownloadWork{}, &model.HongGuoDownload{}, &model.HuangGuoAIWork{}, &model.HuangGuoAIDownloadWork{}, &model.HuangGuoAIDownload{}); err != nil {
 				t.Fatal(err)
 			}
 			for i := 1; i <= 55; i++ {
@@ -71,6 +71,9 @@ func TestDownloadWorkSearchBeforePagination(t *testing.T) {
 					var items []HuangGuoAIDownloadWorkSummary
 					items, total, err = NewHuangGuoAIDownloadService(repo, nil, nil).Works(context.Background(), tt.page, tt.status, tt.keyword)
 					for _, item := range items {
+						if item.Kind != "" {
+							t.Fatal("missing work classification was invented")
+						}
 						rows = append(rows, HongGuoDownloadSummary{SourceID: item.SourceID, Total: item.Total, Failed: item.Failed, Completed: item.Completed})
 					}
 				}

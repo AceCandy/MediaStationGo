@@ -40,6 +40,9 @@ func readHuangGuoDownloadTask(t *testing.T, s *HuangGuoAIDownloadService, id str
 	if err := s.repo.DB.First(&row, "id = ?", repository.HuangGuoAIDownloadTaskID(id)).Error; err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(row.Message, "集") {
+		t.Fatal("download task assumed series type")
+	}
 	if row.System != model.TaskSystemHuangGuoAI || row.SourcePath != "huangguoai://"+id {
 		t.Fatalf("identity: %+v", row)
 	}
@@ -212,7 +215,7 @@ func TestHuangGuoAIDownloadSummaryFailureKeepsPublicationAndLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	log, err := s.tasks.ReadDefinitionLog(TaskKindHuangGuoAIDownload, "", 10000)
-	if err != nil || !strings.Contains(log.Content, "125 第 1 集") || !strings.Contains(log.Content, "文件已完成并发布") || strings.Contains(log.Content, "private-title") {
+	if err != nil || !strings.Contains(log.Content, "125（任务 1）") || !strings.Contains(log.Content, "文件已完成并发布") || strings.Contains(log.Content, "private-title") {
 		t.Fatalf("safe logs: %v %s", err, log.Content)
 	}
 	// 上游异常可能带签名 URL 和敏感信息，日志只能保留固定安全错误。

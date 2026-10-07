@@ -233,7 +233,11 @@ func (s *HuangGuoAIDownloadService) enqueue(ctx context.Context, id string, only
 		}
 		rows := make([]model.HuangGuoAIDownload, 0, len(episodes))
 		for _, ep := range episodes {
-			rows = append(rows, model.HuangGuoAIDownload{SourceID: id, Episode: ep.Number, Title: placement.Title, Root: placement.Root, RelativePath: filepath.Join(placement.Directory, "Season 01", fmt.Sprintf("S01E%03d.mp4", ep.Number)), Status: "queued"})
+			relativePath := filepath.Join(placement.Directory, "Season 01", fmt.Sprintf("S01E%03d.mp4", ep.Number))
+			if work.Kind == model.MetadataKindMovie {
+				relativePath = filepath.Join(placement.Directory, filepath.Base(placement.Directory)+".mp4")
+			}
+			rows = append(rows, model.HuangGuoAIDownload{SourceID: id, Episode: ep.Number, Title: placement.Title, Root: placement.Root, RelativePath: relativePath, Status: "queued"})
 		}
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&rows, 100)
 		added = int(result.RowsAffected)

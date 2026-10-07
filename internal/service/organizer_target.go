@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/huangguoai"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 type organizeTargetInput struct {
@@ -42,19 +43,29 @@ func (o *OrganizerService) buildOrganizeTargetPath(ctx context.Context, in organ
 		ext = "." + ext
 	}
 
-	// 独立来源必须保留源标签及 S01 坐标，避免整理后落入旧刮削。
+	// 独立来源保留源标签；无季集电影需由作品资料确认类型。
 	if strings.Contains(strings.ToLower(in.Source), "[huangguoai-") {
 		id, err := huangguoai.PathID(in.Source)
 		if err != nil {
 			return organizeTargetPath{}, err
 		}
-		season, episode := parseStandardEpisode(in.Source)
-		if season != 1 || episode < 1 {
-			return organizeTargetPath{}, fmt.Errorf("黄果 AI 整理需要 S01Exxx 坐标")
-		}
 		tag := fmt.Sprintf("[huangguoai-%s]", id)
 		if !strings.Contains(strings.ToLower(title), strings.ToLower(tag)) {
 			title += " " + tag
+		}
+		season, episode := parseStandardEpisode(in.Source)
+		if season == 0 && episode == 0 && o.repo != nil {
+			var work model.HuangGuoAIWork
+			if err := o.repo.DB.WithContext(ctx).Select("kind", "projection_error").Where("source_id = ?", id).Take(&work).Error; err != nil {
+				return organizeTargetPath{}, fmt.Errorf("黄果 AI 整理无法确认作品类型")
+			}
+			if work.Kind == model.MetadataKindMovie && work.ProjectionError == "" {
+				dst := filepath.Join(root, title, title+ext)
+				return organizeTargetPath{Dir: filepath.Dir(dst), Path: dst}, nil
+			}
+		}
+		if season != 1 || episode < 1 {
+			return organizeTargetPath{}, fmt.Errorf("黄果 AI 剧集整理需要 S01Exxx 坐标")
 		}
 		episodeTag := fmt.Sprintf("S01E%03d", episode)
 		dst := filepath.Join(root, title, "Season 01", title+" - "+episodeTag+ext)

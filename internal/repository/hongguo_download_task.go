@@ -98,6 +98,10 @@ func refreshDownloadWorkTask(ctx context.Context, db *gorm.DB, sourceID, system 
 				counts.Completed, counts.Total, counts.Failed, counts.Pending, counts.Cancelled),
 			Metrics: string(metrics),
 		}
+		if system == model.TaskSystemHuangGuoAI {
+			task.Message = fmt.Sprintf("下载任务：完成 %d/%d，失败 %d，待处理 %d，取消 %d",
+				counts.Completed, counts.Total, counts.Failed, counts.Pending, counts.Cancelled)
+		}
 		// 恢复/补集清空终态结束时间；首次开始时间始终保留。
 		if err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "id"}},

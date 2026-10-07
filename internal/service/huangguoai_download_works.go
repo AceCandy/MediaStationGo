@@ -14,6 +14,7 @@ import (
 type HuangGuoAIDownloadWorkSummary struct {
 	SourceID      string `json:"source_id"`
 	Title         string `json:"title"`
+	Kind          string `json:"kind"`
 	Total         int64  `json:"total"`
 	Completed     int64  `json:"completed"`
 	Failed        int64  `json:"failed"`
@@ -55,7 +56,7 @@ func (s *HuangGuoAIDownloadService) Works(ctx context.Context, page int, status,
 			return err
 		}
 		pageWorks := q.Select("w.*").Order("w.created_at DESC,w.source_id").Offset((page - 1) * 50).Limit(50)
-		return tx.Table("(?) w", pageWorks).Joins("JOIN huangguoai_downloads d ON d.source_id=w.source_id").Select(`w.source_id,w.title,COUNT(*) AS total,COUNT(*) FILTER (WHERE d.status='completed') AS completed,COUNT(*) FILTER (WHERE d.status='failed') AS failed,COUNT(*) FILTER (WHERE d.status IN ('downloading','verifying','publishing','waiting_verify')) AS active,COUNT(*) FILTER (WHERE d.status='downloading') AS downloading,COUNT(*) FILTER (WHERE d.status='waiting_verify') AS waiting_verify,COUNT(*) FILTER (WHERE d.status='verifying') AS verifying,COUNT(*) FILTER (WHERE d.status='publishing') AS publishing,COUNT(*) FILTER (WHERE d.status='queued') AS queued,COUNT(*) FILTER (WHERE d.status='cancelled') AS cancelled,SUM(d.bytes) AS bytes`).Group("w.source_id,w.title,w.created_at").Order("w.created_at DESC,w.source_id").Scan(&rows).Error
+		return tx.Table("(?) w", pageWorks).Joins("LEFT JOIN huangguoai_works catalog ON catalog.source_id=w.source_id").Joins("JOIN huangguoai_downloads d ON d.source_id=w.source_id").Select(`w.source_id,w.title,COALESCE(catalog.kind,'') AS kind,COUNT(*) AS total,COUNT(*) FILTER (WHERE d.status='completed') AS completed,COUNT(*) FILTER (WHERE d.status='failed') AS failed,COUNT(*) FILTER (WHERE d.status IN ('downloading','verifying','publishing','waiting_verify')) AS active,COUNT(*) FILTER (WHERE d.status='downloading') AS downloading,COUNT(*) FILTER (WHERE d.status='waiting_verify') AS waiting_verify,COUNT(*) FILTER (WHERE d.status='verifying') AS verifying,COUNT(*) FILTER (WHERE d.status='publishing') AS publishing,COUNT(*) FILTER (WHERE d.status='queued') AS queued,COUNT(*) FILTER (WHERE d.status='cancelled') AS cancelled,SUM(d.bytes) AS bytes`).Group("w.source_id,w.title,w.created_at,catalog.kind").Order("w.created_at DESC,w.source_id").Scan(&rows).Error
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	return rows, total, err
 }

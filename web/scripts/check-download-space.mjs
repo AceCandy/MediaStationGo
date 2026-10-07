@@ -179,7 +179,7 @@ try {
   route('play-profiles', [])
   route('catalogs/hongguo/downloads/config', config)
   for (const source of ['hongguo', 'huangguoai']) {
-    const work = { source_id: '123', title: '搜索定位作品', total: 2, failed: 1, completed: 1, downloading: 0, queued: 0, cancelled: 0, waiting_verify: 0, verifying: 0, publishing: 0 }
+    const work = { source_id: '123', kind: 'series', title: '搜索定位作品', total: 2, failed: 1, completed: 1, downloading: 0, queued: 0, cancelled: 0, waiting_verify: 0, verifying: 0, publishing: 0 }
     route(`catalogs/${source}/downloads/works?page=2*keyword=needle*`, { items: [{ ...work, source_id: '456', title: '搜索结果第二页' }], total: 51 })
     route(`catalogs/${source}/downloads/works?*keyword=needle*`, { items: [work], total: 51 })
   }

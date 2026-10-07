@@ -50,10 +50,10 @@ export function HuangGuoAIDownloadSpace() {
     try {
       if (work) {
         const value = await huangguoaiAPI.downloadWorkAction(id, action)
-        if (active.current) toast.success(action === 'retry' ? `已重新入队 ${value.updated} 集` : `已取消 ${value.updated} 集未完成任务`)
+        if (active.current) toast.success(action === 'retry' ? `已重新入队 ${value.updated} 个下载任务` : `已取消 ${value.updated} 个未完成下载任务`)
       } else {
         await huangguoaiAPI.downloadAction(id, action)
-        if (active.current) toast.success(action === 'retry' ? '分集已重新入队' : '分集下载已取消')
+        if (active.current) toast.success(action === 'retry' ? '下载任务已重新入队' : '下载任务已取消')
       }
       if (active.current) setRetry(v => v + 1)
     } catch { if (active.current) toast.error('操作失败，旧执行尚未退出时请稍后重试') }
@@ -110,7 +110,7 @@ function HuangGuoAIDownloadSettings({ initial, onClose, onSaved }: { initial: Hu
       <label className="block">下载存储根目录<input autoFocus required disabled={busy} className="input-field mt-2 w-full" value={config.root} onChange={event => setConfig({ ...config, root: event.target.value })} /></label>
       <label className="block">并发下载数量<input required disabled={busy} type="number" min={1} max={10} step={1} className="input-field mt-2 w-full" value={config.concurrency} onChange={event => setConfig({ ...config, concurrency: Number(event.target.value) })} /></label>
       <label className="block">并发校验数量<input required disabled={busy} type="number" min={1} max={20} step={1} className="input-field mt-2 w-full" value={config.verification_concurrency} onChange={event => setConfig({ ...config, verification_concurrency: Number(event.target.value) })} /></label>
-      <p className="text-sm text-ink-50">下载与校验分别使用并发名额。保存后动态生效，调低不会中断正在处理的分集。完成完整解码校验后才发布文件。</p>
+      <p className="text-sm text-ink-50">下载与校验分别使用并发名额。保存后动态生效，调低不会中断正在处理的下载。完成完整解码校验后才发布文件。</p>
       {initial.root && <dl className="space-y-2 text-sm"><div><dt className="text-ink-50">临时下载目录 · 不要备份</dt><dd className="break-all">{initial.temporary_dir}</dd></div><div><dt className="text-ink-50">完成输出目录 · 只备份此目录</dt><dd className="break-all">{initial.output_dir}</dd></div></dl>}
       <p className="text-sm text-ink-50">临时目录和完成目录需在同一文件系统。修改根目录只影响首次下载的新作品，已有作品补集沿用原位置。项目不判断云盘上传结果，不自动清理已完成视频。</p>
       {error && <p role="alert">{error}</p>}
@@ -119,6 +119,10 @@ function HuangGuoAIDownloadSettings({ initial, onClose, onSaved }: { initial: Hu
   </ModalShell>
 }
 function HuangGuoAIDownloadWork({ work, refresh, busy, perform }: { work: HuangGuoAIDownloadWork; refresh: number; busy: boolean; perform: (id: string, action: 'retry' | 'cancel', work?: boolean) => Promise<void> }) {
+  const movie = work.kind === 'movie'
+  const series = work.kind === 'series'
+  const unit = movie ? '部' : series ? '集' : '个任务'
+  const itemLabel = movie ? '电影' : series ? '分集' : '下载项'
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [data, setData] = useState<{ items: HuangGuoAIDownload[]; total: number; page: number } | null>(null)
@@ -145,32 +149,32 @@ function HuangGuoAIDownloadWork({ work, refresh, busy, perform }: { work: HuangG
   }, [open, page, refresh, retry, work.source_id])
   return <article className="card relative space-y-2 p-3 sm:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <button className="min-h-11 w-full min-w-0 flex-none break-words sm:w-auto sm:flex-1 text-left font-semibold focus-visible:outline-brand-500" aria-expanded={open} aria-controls={`hga-episodes-${work.source_id}`} onClick={() => setOpen(v => !v)}>{open ? '▾' : '▸'} {work.title}</button>
+      <button className="min-h-11 w-full min-w-0 flex-none break-words sm:w-auto sm:flex-1 text-left font-semibold focus-visible:outline-brand-500" aria-expanded={open} aria-controls={`hga-episodes-${work.source_id}`} onClick={() => setOpen(v => !v)}>{open ? '▾' : '▸'} {work.title}</button><span className="text-xs text-ink-50">{movie ? '电影' : series ? '剧集' : '未分类'}</span>
       {work.total > 0 && work.completed === work.total && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600" title="当前已创建的下载任务全部完成">✅ 全部完成</span>}
-      {work.failed + work.cancelled > 0 && <button className="btn-outline" disabled={busy} onClick={() => void perform(work.source_id, 'retry', true)}>重试失败及取消集</button>}
+      {work.failed + work.cancelled > 0 && <button className="btn-outline" disabled={busy} onClick={() => void perform(work.source_id, 'retry', true)}>重试失败及取消任务</button>}
       {work.completed < work.total && <button className="btn-outline" disabled={busy} onClick={() => void perform(work.source_id, 'cancel', true)}>取消未完成</button>}
     </div>
-    <div className="flex flex-wrap items-center gap-2 text-xs"><span>完成 {work.completed}/{work.total} 集</span>{(Object.keys(statusLabels) as HuangGuoAIDownload['status'][]).filter(status => work[status] > 0).map(status => <span key={status} className={`rounded-full px-2 py-1 ${statusColors[status]}`}>{statusLabels[status]} {work[status]}</span>)}</div>
+    <div className="flex flex-wrap items-center gap-2 text-xs"><span>完成 {work.completed}/{work.total} {unit}</span>{(Object.keys(statusLabels) as HuangGuoAIDownload['status'][]).filter(status => work[status] > 0).map(status => <span key={status} className={`rounded-full px-2 py-1 ${statusColors[status]}`}>{statusLabels[status]} {work[status]}</span>)}</div>
     <DownloadProgress label="作品完成进度" value={work.completed} total={work.total} />
     <div id={`hga-episodes-${work.source_id}`} hidden={!open} className="border-l-2 border-brand-500/30 pl-3">
-      {error && <p role="alert">分集读取失败 <button className="btn-outline" onClick={() => setRetry(v => v + 1)}>重试加载</button></p>}
-      {open && (data?.page !== page ? <p role="status">加载分集…</p> : <>
+      {error && <p role="alert">{itemLabel}读取失败 <button className="btn-outline" onClick={() => setRetry(v => v + 1)}>重试加载</button></p>}
+      {open && (data?.page !== page ? <p role="status">加载{itemLabel}…</p> : <>
         {data.items.map(row => <div key={row.id} data-download-episode={row.episode} className="relative border-b border-ink-100/10">
           <div className="flex min-h-11 items-center gap-2 text-xs">
-            <Link className="shrink-0 py-3 font-semibold" to={`/discover?system=huangguoai&id=${encodeURIComponent(work.source_id)}`}>E{String(row.episode).padStart(3, '0')}</Link>
+            <Link className="shrink-0 py-3 font-semibold" to={`/discover?system=huangguoai&id=${encodeURIComponent(work.source_id)}`}>{movie ? '正片' : series ? `E${String(row.episode).padStart(3, '0')}` : '下载项'}</Link>
             <span className="hidden min-w-0 flex-1 truncate text-ink-50 sm:block" title={row.relative_path}>{row.relative_path}</span>
             <span className={`shrink-0 rounded px-1.5 py-1 ${statusColors[row.status]}`}>{statusLabels[row.status]}</span>
             {row.status === 'downloading' && <span className="shrink-0 tabular-nums text-ink-50">{row.total_bytes > 0 ? `${Math.max(0, Math.min(100, Math.floor(row.bytes * 100 / row.total_bytes)))}%` : `${(row.bytes / 1048576).toFixed(1)} MB`}</span>}
-            <details className="relative ml-auto shrink-0"><summary className="cursor-pointer px-2 py-3 text-ink-50" aria-label={`查看第 ${row.episode} 集任务详情`}>详情</summary><div className="absolute right-0 top-full z-10 max-h-80 w-64 max-w-[70vw] space-y-2 overflow-y-auto rounded-lg border border-ink-100/10 bg-[var(--app-bg)] p-3 shadow-xl">
+            <details className="relative ml-auto shrink-0"><summary className="cursor-pointer px-2 py-3 text-ink-50" aria-label={series ? `查看第 ${row.episode} 集任务详情` : `查看${itemLabel}任务详情`}>详情</summary><div className="absolute right-0 top-full z-10 max-h-80 w-64 max-w-[70vw] space-y-2 overflow-y-auto rounded-lg border border-ink-100/10 bg-[var(--app-bg)] p-3 shadow-xl">
               <p className="break-all">{row.relative_path || '输出路径尚未记录'}</p><p>尝试次数：{row.attempts}</p>
               <p>已下载 {(row.bytes / 1048576).toFixed(1)} MB{row.total_bytes > 0 ? ` / ${(row.total_bytes / 1048576).toFixed(1)} MB` : ' · 总大小未知'}</p>
               {row.error && <p className="break-words text-red-500">{row.error}</p>}
             </div></details>
-            {['failed', 'cancelled'].includes(row.status) ? <button className="shrink-0 px-2 py-3 font-semibold text-brand-500 disabled:opacity-50" disabled={busy} onClick={() => void perform(row.id, 'retry')}>重试</button> : row.status !== 'completed' && <button className="shrink-0 px-2 py-3 text-ink-50 disabled:opacity-50" aria-label={`取消第 ${row.episode} 集下载`} disabled={busy} onClick={() => void perform(row.id, 'cancel')}>取消下载</button>}
+            {['failed', 'cancelled'].includes(row.status) ? <button className="shrink-0 px-2 py-3 font-semibold text-brand-500 disabled:opacity-50" disabled={busy} onClick={() => void perform(row.id, 'retry')}>重试</button> : row.status !== 'completed' && <button className="shrink-0 px-2 py-3 text-ink-50 disabled:opacity-50" aria-label={series ? `取消第 ${row.episode} 集下载` : `取消${itemLabel}下载`} disabled={busy} onClick={() => void perform(row.id, 'cancel')}>取消下载</button>}
           </div>
-          {row.status === 'downloading' && <DownloadProgress label="分集下载进度" value={row.bytes} total={row.total_bytes} />}
+          {row.status === 'downloading' && <DownloadProgress label={`${itemLabel}下载进度`} value={row.bytes} total={row.total_bytes} />}
         </div>)}
-        {data.total > 50 && <div className="flex flex-wrap items-center gap-3 pt-3"><button className="btn-outline" disabled={page === 1} onClick={() => setPage(v => v - 1)}>上一页分集</button><span>分集第 {page} 页 · 共 {data.total} 集</span><button className="btn-outline" disabled={page * 50 >= data.total} onClick={() => setPage(v => v + 1)}>下一页分集</button></div>}
+        {data.total > 50 && <div className="flex flex-wrap items-center gap-3 pt-3"><button className="btn-outline" disabled={page === 1} onClick={() => setPage(v => v - 1)}>上一页{itemLabel}</button><span>{itemLabel}第 {page} 页 · 共 {data.total} {unit}</span><button className="btn-outline" disabled={page * 50 >= data.total} onClick={() => setPage(v => v + 1)}>下一页{itemLabel}</button></div>}
       </>)}
     </div>
   </article>

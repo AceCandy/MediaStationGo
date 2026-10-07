@@ -238,3 +238,62 @@ func TestHuangGuoAIListDownloadedBadge(t *testing.T) {
 		t.Fatal("stale badge", err)
 	}
 }
+
+func TestHuangGuoAIMovieBindingWithoutEpisodeCoordinates(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	repos := New(db)
+	lib := model.Library{Name: "Synthetic", Type: model.LibraryTypeHuangGuoAI, Path: "/synthetic"}
+	if err := db.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, category := range []string{"ai-huanlian", "ai-mogai", "ai-duanju", "ai-manju"} {
+		id := map[string]string{"ai-huanlian": "11", "ai-mogai": "12", "ai-duanju": "13", "ai-manju": "14"}[category]
+		summary := huangguoai.Summary{SourceID: id, Category: category, Title: "Synthetic"}
+		if err := repos.HuangGuoAI.RegisterSummaries(t.Context(), []huangguoai.Summary{summary}); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := repos.HuangGuoAI.SaveDetail(t.Context(), huangguoai.Work{Summary: summary, Episodes: []huangguoai.Episode{{Number: 1, PagePath: "/video/" + id + "/"}, {Number: 2, PagePath: "/video/" + id + "/ep-2/"}}}); err != nil {
+			t.Fatal(err)
+		}
+		for _, coordinates := range [][2]int{{0, 0}, {1, 1}, {1, 2}, {2, 1}} {
+			media := model.Media{LibraryID: lib.ID, Path: "/synthetic/" + category + "/" + strings.Repeat("x", coordinates[0]+1) + strings.Repeat("y", coordinates[1]+1) + " [huangguoai-" + id + "].mp4", CatalogSource: model.TaskSystemHuangGuoAI, LookupCatalogID: id, SeasonNum: coordinates[0], EpisodeNum: coordinates[1]}
+			if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+				t.Fatal(err)
+			}
+			var binding model.HuangGuoAIMediaBinding
+			err := db.Where("media_id=?", media.ID).Take(&binding).Error
+			movie := huangguoai.Kind(category) == "movie"
+			wantBound := coordinates == [2]int{1, 1} || (movie && coordinates == [2]int{0, 0}) || (!movie && coordinates == [2]int{1, 2})
+			if !wantBound {
+				if err != gorm.ErrRecordNotFound || media.ScrapeStatus != "source_pending" {
+					t.Fatalf("invalid coordinates bound: category=%s coordinates=%v err=%v", category, coordinates, err)
+				}
+				continue
+			}
+			var episode model.HuangGuoAIEpisode
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Where("id=?", binding.EpisodeID).Take(&episode).Error; err != nil {
+				t.Fatal(err)
+			}
+			if movie && episode.Number != 1 {
+				t.Fatal("movie bound to non-first record")
+			}
+			view, err := repos.MediaView.FindByID(t.Context(), media.ID)
+			wantKind := "episode"
+			if movie {
+				wantKind = "movie"
+			}
+			if err != nil || view == nil || view.MetadataKind != wantKind {
+				t.Fatalf("wrong projected kind: %+v %v", view, err)
+			}
+		}
+	}
+}
