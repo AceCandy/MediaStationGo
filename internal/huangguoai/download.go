@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
@@ -346,6 +347,7 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 	manifest.WriteString("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:3600\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
 	keys := map[int]string{}
 	maps := map[Resource]string{}
+	paths := make([]string, len(p.Segments))
 	previousMap := ""
 	for i, segment := range p.Segments {
 		if err := ctx.Err(); err != nil {
@@ -363,6 +365,9 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 					return "", 0, fmt.Errorf("HLS 第 %d 个分片初始化资源失败：%w", i+1, e)
 				}
 				total += n
+				if total > maxMediaBytes {
+					return "", 0, errors.New("媒体超出大小限制")
+				}
 				maps[*segment.Map] = name
 			}
 			if name != previousMap {
@@ -396,32 +401,66 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 			extension = ".m4s"
 		}
 		name := fmt.Sprintf("segment-%06d%s", i, extension)
-		n, e := c.fetchResource(ctx, segment.Resource, media.Referer, filepath.Join(dir, name), maxSegmentBytes)
-		if e != nil {
-			return "", 0, fmt.Errorf("HLS 第 %d/%d 个分片下载失败：%w", i+1, len(p.Segments), e)
-		}
-		total += n
-		if total > maxMediaBytes {
-			return "", 0, errors.New("媒体超出大小限制")
-		}
-		if progress != nil {
-			progress(total)
-		}
+		paths[i] = filepath.Join(dir, name)
 		fmt.Fprintf(&manifest, "#EXTINF:%.6f,\n%s\n", segment.Duration, name)
 	}
 	manifest.WriteString("#EXT-X-ENDLIST\n")
+	// 分片完成顺序不影响本地清单；失败时取消同组请求并等待其停止写盘。
+	transferCtx, cancelTransfer := context.WithCancel(ctx)
+	defer cancelTransfer()
+	var mu sync.Mutex
+	var workers sync.WaitGroup
+	var transferErr error
+	next := 0
+	for worker := 0; worker < 2; worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				mu.Lock()
+				if next == len(p.Segments) || transferCtx.Err() != nil {
+					mu.Unlock()
+					return
+				}
+				i := next
+				next++
+				mu.Unlock()
+				n, err := c.fetchResource(transferCtx, p.Segments[i].Resource, media.Referer, paths[i], maxSegmentBytes)
+				mu.Lock()
+				if err != nil && transferErr == nil {
+					transferErr = fmt.Errorf("HLS 第 %d/%d 个分片下载失败：%w", i+1, len(p.Segments), err)
+				}
+				if transferErr == nil {
+					total += n
+					if total > maxMediaBytes {
+						transferErr = errors.New("媒体超出大小限制")
+					} else if progress != nil {
+						progress(total)
+					}
+				}
+				if transferErr != nil {
+					cancelTransfer()
+					mu.Unlock()
+					return
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	workers.Wait()
+	if transferErr != nil {
+		return "", 0, transferErr
+	}
+	if err := ctx.Err(); err != nil {
+		return "", 0, err
+	}
 	input = filepath.Join(dir, "input.m3u8")
 	if os.WriteFile(input, []byte(manifest.String()), 0600) != nil {
 		return "", 0, errors.New("无法保存本地 HLS 清单")
 	}
-	output := filepath.Join(dir, "output.mp4")
-	// 部分源的画面晚于音频出现，需要扩大输入探测范围才能取得视频尺寸。
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file,crypto", "-allowed_extensions", "ALL", "-probesize", "30000000", "-analyzeduration", "30000000", "-i", input, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-n", output)
-	if _, err := cmd.Output(); err != nil {
-		if ctx.Err() != nil {
-			return "", 0, ctx.Err()
-		}
-		return "", 0, hlsMergeError(err)
+	output, err := mergeHLS(ctx, input, dir, p.Duration)
+	if err != nil {
+		return "", 0, err
 	}
 	return output, p.Duration, nil
 }
@@ -442,6 +481,8 @@ func hlsMergeError(err error) error {
 			return errors.New("HLS 合并失败：暂存文件权限不足")
 		case strings.Contains(stderr, "dimensions not set"):
 			return errors.New("HLS 合并失败：未识别到视频尺寸")
+		case hlsAudioParametersMissing(err):
+			return errors.New("HLS 合并失败：音轨缺少有效采样率")
 		case strings.Contains(stderr, "Invalid data found when processing input"):
 			return errors.New("HLS 合并失败：分片或密钥无法解析")
 		default:

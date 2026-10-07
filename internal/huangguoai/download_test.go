@@ -86,6 +86,7 @@ func TestHLSMergeErrorKeepsDiagnosticsPrivate(t *testing.T) {
 	}
 	for _, tt := range []struct{ stderr, want string }{
 		{"dimensions not set", "未识别到视频尺寸"},
+		{"sample rate not set", "音轨缺少有效采样率"},
 		{"No space left on device", "存储空间不足"},
 		{"Permission denied", "暂存文件权限不足"},
 		{"Invalid data found when processing input", "分片或密钥无法解析"},

@@ -55,8 +55,32 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   validate `Content-Range` on successful range responses, not error responses.
   Public diagnostics contain only resource sequence numbers,
   fixed categories, byte counts and attempt counts; never raw errors or URLs.
+- HLS transfers prepare shared maps and generation-specific keys in playlist
+  order, then download at most two segments concurrently per task. Keep local
+  filenames and manifest order based on original segment indices, including
+  IV/media-sequence and discontinuities. Serialize cumulative progress callbacks
+  and count each completed segment once; retain existing map/segment byte
+  accounting. A terminal transfer error cancels the sibling and joins both
+  workers before returning, so caller-owned cleanup cannot race with writes.
+  Preserve the first failure and never merge a partial transfer. Both shared
+  map preparation and segment completion enforce the total-media byte limit.
+  This is per-task concurrency; source task concurrency remains independent.
 - Local HLS remux probes up to 30 MB and analyzes up to 30 seconds before stream
   copy, because some sources introduce video after several seconds of audio.
+  Recovery is local and bounded to three fresh, non-overwriting outputs. Only
+  the fixed `sample rate not set` diagnostic enables video-copy/all-audio AAC
+  recovery; disk, permission and invalid-input errors never enable it. Use
+  `-xerror` during audio encoding, then retain the independent complete decode
+  with `-err_detect explode` on the resulting MP4. Applying `explode` while
+  probing these source audio headers can prevent video parameters being found.
+  Audio recovery uses `-copyts -start_at_zero` to keep a common input origin:
+  successful mux/decode and equal track durations alone do not prove alignment.
+  Require the same audio track count and each audio-to-video start offset within
+  0.25 seconds of the input; preserve legitimate leading audio. Only video
+  duration mismatch enables `-dts_delta_threshold 1` remux. `copyts` disables
+  that correction, so combined recovery omits it and must still pass offset
+  checks. Final video duration retains `max(2 seconds, 2%)`; never change the
+  playlist duration, drop corrupt packets/audio, or publish by weakening checks.
   Capture bounded FFmpeg stderr with `Cmd.Output`, then return only fixed error
   categories or the numeric exit code; never persist arbitrary stderr text.
   Persist the private `huangguoai_downloads.hls` flag with transfer handoff so
@@ -207,6 +231,13 @@ track to reproduce the insufficient-probe failure, asserts both output tracks
 and full decode, and checks safe stderr classification through `Download`.
 `TestHLSMergeErrorKeepsDiagnosticsPrivate` covers known and unknown tool errors
 without retaining titles, paths, URLs or credentials.
+`TestHLSMergeRecoversTimestampJump` keeps all frames, fixes a five-second jump,
+preserves authored pauses and rejects a false playlist duration.
+`TestHLSMergeAudioRecoveryPreservesEveryTrack` checks real AAC encoding, both
+audio tracks, combined recovery, leading audio, collision, storage and cancellation.
+`TestHLSMergeRejectsAudioTimingLoss` rejects lost tracks, invalid timing and
+equal-duration outputs with displaced audio; transport-only mocks supply a
+synthetic ffprobe result rather than treating placeholder bytes as real media.
 `TestHuangGuoAIHLSRequiresValidVideoDuration` rejects missing, invalid and
 nonfinite video durations even when the container duration matches. The opt-in
 `TestHuangGuoAIDownloadHLSLive` checks real transfer, reclaim, full decode and

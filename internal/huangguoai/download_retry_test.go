@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -169,12 +170,18 @@ func TestFetchResourceCancellationAndExistingFile(t *testing.T) {
 
 func TestDownloadHLSRetryPreservesCompletedSegments(t *testing.T) {
 	tools := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tools, "ffprobe"), []byte("#!/bin/sh\nprintf '{\"streams\":[{\"duration\":\"2\"}]}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(tools, "ffmpeg"), []byte("#!/bin/sh\nfor output; do :; done\nprintf synthetic > \"$output\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", tools+string(os.PathListSeparator)+os.Getenv("PATH"))
 	calls := map[string]int{}
+	var callsMu sync.Mutex
 	c := NewClient(&http.Client{Transport: downloadTestTransport(func(req *http.Request) (*http.Response, error) {
+		callsMu.Lock()
+		defer callsMu.Unlock()
 		calls[req.URL.Path]++
 		body := []byte("ok")
 		if req.URL.Path == "/input.m3u8" {
