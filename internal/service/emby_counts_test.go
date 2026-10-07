@@ -81,15 +81,22 @@ func TestEmbyItemCountsWorksAndAllFiles(t *testing.T) {
 			}
 		}
 	}
-	for _, source := range []string{"ordinary", "nfo", "hongguo", "huangguoai"} {
+	for _, source := range []string{"ordinary", "nfo", "huangguoai"} {
 		addWork(source, "movie", "visible", visible.ID, 2)
 		addWork(source, "series", "visible", visible.ID, 2)
 		addWork(source, "movie", "hidden", hidden.ID, 1)
 		addWork(source, "movie", "fileless", visible.ID, 0)
 	}
+	// 红果仅支持剧集，仍覆盖隐藏作品与无文件作品。
+	addWork("hongguo", "series", "visible", visible.ID, 2)
+	addWork("hongguo", "series", "hidden", hidden.ID, 1)
+	addWork("hongguo", "series", "fileless", visible.ID, 0)
 	// 同一作品在另一媒体库也有版本：作品仍只计一次，文件按库分别计数。
 	for _, source := range []string{"ordinary", "hongguo", "huangguoai"} {
 		workID := source + "-movie-visible"
+		if source == "hongguo" {
+			workID = source + "-series-visible"
+		}
 		m := model.Media{PermanentBase: model.PermanentBase{ID: source + "-cross-library"}, LibraryID: hidden.ID, Path: "/synthetic/" + source + "-cross-library.mp4", CatalogSource: source}
 		if source == "ordinary" {
 			m.CatalogSource, m.MetadataID = "", workID
@@ -127,10 +134,10 @@ func TestEmbyItemCountsWorksAndAllFiles(t *testing.T) {
 			series     int
 			files      int64
 		}{
-			{"all", MediaVisibility{IncludeNSFW: true}, 8, 5, 25},
-			{"allowed", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true, AllowedLibraryIDs: []string{visible.ID}}, 4, 5, 18},
-			{"hidden", MediaVisibility{IncludeNSFW: true, HiddenLibraryIDs: []string{hidden.ID}}, 4, 5, 18},
-			{"other", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true, AllowedLibraryIDs: []string{hidden.ID}}, 7, 0, 7},
+			{"all", MediaVisibility{IncludeNSFW: true}, 6, 6, 23},
+			{"allowed", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true, AllowedLibraryIDs: []string{visible.ID}}, 3, 5, 16},
+			{"hidden", MediaVisibility{IncludeNSFW: true, HiddenLibraryIDs: []string{hidden.ID}}, 3, 5, 16},
+			{"other", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true, AllowedLibraryIDs: []string{hidden.ID}}, 5, 2, 7},
 			{"intersection", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true, AllowedLibraryIDs: []string{visible.ID}, HiddenLibraryIDs: []string{visible.ID}}, 0, 0, 0},
 			{"locked", MediaVisibility{IncludeNSFW: true, LibraryRestricted: true}, 0, 0, 0},
 		} {

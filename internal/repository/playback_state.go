@@ -51,10 +51,9 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 		files = files.Joins("JOIN huangguoai_works w ON w.source_id=h.source_id").Joins("JOIN huangguoai_episodes ep ON ep.work_id=w.id AND ep.number=h.episode_number").Joins("JOIN huangguoai_media_bindings b ON b.media_id=m.id AND b.work_id=w.id AND b.episode_id=ep.id").Where("m.catalog_source='huangguoai' AND w.projection_error=''")
 	case "hongguo":
 		table, fields = "hongguo_user_states", "h.user_id,h.source_id,h.episode_number,h.favorite,h.updated_at"
-		// 先按作品和集号定位替代版本。
-		files = files.Joins("JOIN hongguo_works w ON w.source_id = h.source_id").
-			Joins("JOIN hongguo_episodes ep ON ep.work_id = w.id AND ep.number = h.episode_number").
-			Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id AND b.work_id = w.id AND b.episode_id = ep.id").
+		// 当前文件与替代版本共用外层作品关联，避免逐版本重复读取作品表。
+		files = files.Joins("JOIN hongguo_episodes ep ON ep.work_id = playback_work.id AND ep.number = h.episode_number").
+			Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id AND b.work_id = playback_work.id AND b.episode_id = ep.id").
 			Where("m.catalog_source = 'hongguo'")
 	default:
 		files = files.Joins("JOIN metadata_items i ON i.id = m.metadata_id").Where("m.metadata_id = h.metadata_id")
@@ -68,8 +67,12 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 		Select("m.id, CASE WHEN COALESCE(m.part_group_key,'') = '' THEN COALESCE(probe.duration_ms,0) ELSE 0 END AS duration_ms").
 		Order("(BTRIM(COALESCE(m.strm_url,'')) <> ''), COALESCE(probe.width,0) DESC, COALESCE(probe.size_bytes,0) DESC, m.created_at DESC, m.id DESC").Limit(1)
 	reached := "(replacement.duration_ms > 0 AND " + position + " >= CASE WHEN replacement.duration_ms < 600000 THEN GREATEST(replacement.duration_ms - 30000,0) ELSE replacement.duration_ms * 9 / 10 END)"
-	q := db.Table(table+" AS h").Where("h.user_id = ?", userID).
-		Joins("LEFT JOIN LATERAL (?) AS replacement ON TRUE", replacement).
+	q := db.Table(table+" AS h").Where("h.user_id = ?", userID)
+	if source == "hongguo" {
+		// 保留失去作品资料的历史；没有匹配作品时不推导替代版本。
+		q = q.Joins("LEFT JOIN hongguo_works playback_work ON playback_work.source_id = h.source_id")
+	}
+	q = q.Joins("LEFT JOIN LATERAL (?) AS replacement ON TRUE", replacement).
 		Select(fields + ", h.watched_at, h.resume_position_ms, COALESCE(replacement.id,h.media_id) AS media_id," +
 			" CASE WHEN " + reached + " THEN 0 ELSE " + position + " END AS position_ms," +
 			" COALESCE(replacement.duration_ms,h.duration_ms) AS duration_ms," +

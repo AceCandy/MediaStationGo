@@ -82,7 +82,7 @@ func TestEmbyGlobalPayloadsParallel(t *testing.T) {
 					db, _ := e.repo.DB.DB()
 					db.SetMaxOpenConns(1)
 				}
-				ids := []string{"nfo-local", "ordinary", "hg-work-source", "ordinary"}
+				ids := []string{"nfo-local", "ordinary", "hg-group-101", "ordinary"}
 				var items []map[string]any
 				var loadErr error
 				done := make(chan struct{})

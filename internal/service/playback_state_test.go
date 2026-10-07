@@ -154,6 +154,11 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 				t.Fatal(err)
 			}
 			checkProjection("viewer", repository.MediaQueryFilter{}, false, 1)
+			if source == "hongguo" {
+				// 作品资料缺失时仍返回历史，但不能用其它作品的版本推导完成。
+				create(&model.HongGuoUserState{UserID: "orphan-user", SourceID: "missing-work", EpisodeNumber: 1, MediaID: "removed", PositionMs: 1_440_000, DurationMs: 3_900_000})
+				checkProjection("orphan-user", repository.MediaQueryFilter{}, false, 1)
+			}
 			eventTable := map[string]string{"legacy": "playback_events", "nfo": "nfo_playback_events", "hongguo": "hongguo_playback_events"}[source]
 			var events int64
 			if err := db.Table(eventTable).Where("user_id = ?", "viewer").Count(&events).Error; err != nil {

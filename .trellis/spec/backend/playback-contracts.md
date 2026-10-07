@@ -59,6 +59,13 @@ per-user, per-metadata history state but playback events are append-only.
   or multipart replacement cannot infer completion. Do not rewrite snapshots or
   events on reads, and never downgrade a completed mark. A deleted source's late
   Emby report must not resolve to a different file and overwrite progress.
+  HongGuo resolves the unique source work once in the outer state query with
+  `LEFT JOIN hongguo_works playback_work ON playback_work.source_id=h.source_id`.
+  Current-file and replacement checks reuse `playback_work.id`; joining works
+  separately inside both checks repeats catalog scans per history row. Preserve
+  orphan history rows and never infer their completion from another work.
+  `TestPlaybackStateReplayAndDeletedVersion` covers orphan projection;
+  `TestHongGuoPageNodesPreservePayloadsAndBoundWorkReads` retains actual read/JIT bounds.
 - Bulk work candidates that only need completed identities use `CompletedPlaybackStates`.
   Explicit completed marks form one branch; non-completed positive resume states
   use the unchanged `PlaybackStates` replacement/threshold projection in the other.
