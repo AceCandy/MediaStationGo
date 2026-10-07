@@ -10,6 +10,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -127,7 +128,8 @@ func TestWatcherRecoversMovedDirectoryAndDeletedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fw.Close()
-	w := NewWatcherService(zap.NewNop(), repos, scanner, NewTaskTrackerService(zap.NewNop(), nil))
+	logCore, logs := observer.New(zap.WarnLevel)
+	w := NewWatcherService(zap.New(logCore), repos, scanner, NewTaskTrackerService(zap.NewNop(), nil))
 	w.watcher = fw
 	dir := filepath.Join(root, "moved")
 	file := filepath.Join(dir, "movie.mkv")
@@ -150,6 +152,12 @@ func TestWatcherRecoversMovedDirectoryAndDeletedFiles(t *testing.T) {
 	w.processBatch(t.Context(), []duePath{{path: dir, libraryID: lib.ID, directory: true}})
 	if _, ok := w.pending[file]; !ok {
 		t.Fatal("directory removal did not queue old media")
+	}
+	if _, ok := w.pending[dir]; ok {
+		t.Fatal("deleted directory was requeued for traversal")
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("normal directory removal logged warnings: %+v", logs.All())
 	}
 	w.processBatch(t.Context(), []duePath{{path: file, libraryID: lib.ID}})
 	if countMedia(t, repos) != 0 {

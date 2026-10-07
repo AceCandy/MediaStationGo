@@ -170,3 +170,24 @@ func TestWatcherBatchRequeuesSidecarsWhenLibraryQueryFails(t *testing.T) {
 		}
 	}
 }
+
+func TestWatcherRequeuesDeletedDirectoryWhenMediaQueryFails(t *testing.T) {
+	scanner, repos := newScannerTestEnv(t)
+	lib := model.Library{Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Callback().Query().Before("gorm:query").Register("test:fail-media-query", func(tx *gorm.DB) {
+		if tx.Statement.Table == "media" {
+			tx.AddError(errors.New("forced media query failure"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := NewWatcherService(zap.NewNop(), repos, scanner, nil)
+	dir := filepath.Join(lib.Path, "deleted")
+	w.processBatch(t.Context(), []duePath{{path: dir, libraryID: lib.ID, directory: true}})
+	if pending := w.pending[dir]; !pending.directory || pending.attempts != 1 {
+		t.Fatalf("failed deletion reconciliation was not requeued: %+v", w.pending)
+	}
+}

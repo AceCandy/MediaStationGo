@@ -372,13 +372,19 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 		libraries[lib.ID] = lib
 	}
 	for _, d := range directories {
-		if lib, ok := libraries[d.libraryID]; !ok || !lib.Enabled {
+		lib, ok := libraries[d.libraryID]
+		if !ok || !lib.Enabled {
 			continue
 		}
 		if err := w.queueDirectory(ctx, d); err != nil {
 			if _, statErr := os.Stat(d.path); os.IsNotExist(statErr) {
 				if missingErr := w.queueMissingDirectory(ctx, d); missingErr != nil {
 					w.log.Warn("watch missing directory reconciliation failed", zap.Error(missingErr))
+				} else if root, rootErr := w.scanner.localLibraryRootForPath(ctx, &lib, d.path); rootErr == nil {
+					// 子目录删除已排队核验；根目录离线时仍重试，以恢复监听。
+					if rootPath, info, rootErr := resolveAccessibleMappedPath(root.Path); rootErr == nil && info.IsDir() && pathBelongsToRoot(d.path, rootPath) {
+						continue
+					}
 				}
 			}
 			w.log.Warn("watch directory reconciliation failed", zap.String("path", d.path), zap.Error(err))
