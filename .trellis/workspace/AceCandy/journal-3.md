@@ -1452,3 +1452,25 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 定位实际运行服务并部署提交版本；验证生产整片吞吐与长期失败率，不放宽损坏源的发布校验。
+
+
+## Session 217: 黄果下载跨任务分片复用
+<!-- trellis-session: v=2 fp=304fe263ad8c48a2 -->
+
+**Date**: 2026-10-08
+**Task**: 黄果下载跨任务分片复用
+**Branch**: `main`
+
+### Summary
+
+失败重试复用经清单和内容摘要核对的完整分片；每租约独立目录，快照持久化后交接数据库路径，密钥与初始化资源重新获取，完整媒体校验和无覆盖发布不变。源包race、隔离PostgreSQL的重试/校验/发布及电影路径与绑定回归、vet通过；临时数据库已关闭，代码未部署，生产队列未修改。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d646fe` | feat(huangguoai): 重试时复用已完成分片 |
+
+### Status
+
+[OK] **Completed**
