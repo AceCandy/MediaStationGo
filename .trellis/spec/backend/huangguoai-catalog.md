@@ -44,6 +44,16 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   page-duration verification. Complete current-source transfer does not establish
   that the upstream supplied the complete story; retain that warning explicitly.
   Completed output and scanner ingestion are separate stages.
+- HLS resources (segments, maps and keys) retry transient request/read failures,
+  short bodies and HTTP 408/429/500/502/503/504 at most three times, with
+  cancellation-aware 1/2-second waits. Keep completed resources during retries;
+  exclusively create each attempt file and remove only its failed partial file.
+  Unwrap `url.Error` before classifying `net.Error`; the wrapper alone is not
+  evidence of a transient network failure. Range/protocol, size and disk errors
+  fail immediately. Transient HTTP status handling precedes range validation;
+  validate `Content-Range` on successful range responses, not error responses.
+  Public diagnostics contain only resource sequence numbers,
+  fixed categories, byte counts and attempt counts; never raw errors or URLs.
 - Local HLS remux probes up to 30 MB and analyzes up to 30 seconds before stream
   copy, because some sources introduce video after several seconds of audio.
   Capture bounded FFmpeg stderr with `Cmd.Output`, then return only fixed error
@@ -165,6 +175,12 @@ whole episode queues; never truncate a work's counts by the selected status.
   HLS output against page metadata. Leading audio is preserved and allowed only
   for HLS, the flag survives independent claim, and direct MP4/HongGuo retain
   their stricter container-duration behavior.
+
+`TestFetchResourceRetry`, `TestFetchResourceCancellationAndExistingFile`,
+`TestFetchResourceHTTPRetryClassification` and
+`TestDownloadHLSRetryPreservesCompletedSegments` verify bounded recovery,
+failed-file cleanup, cancellation during read/backoff, no overwrite, unchanged
+range/headers, key/map recovery and progress without double counting.
 
 `TestDownloadHLSDelayedVideoParameters` uses a synthetic late-starting video
 track to reproduce the insufficient-probe failure, asserts both output tracks

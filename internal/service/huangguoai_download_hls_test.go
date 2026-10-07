@@ -129,8 +129,8 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 	}{
 		{name: "page_duration_mismatch", duration: 6, end: true, status: 200},
 		{name: "unfinished_playlist", duration: 6, status: 200, failure: "HLS 未提供完整 VOD 结束证据"},
-		{name: "missing_segment", duration: 6, end: true, status: 404, failure: "HLS 资源 HTTP 404"},
-		{name: "short_segment", duration: 6, end: true, status: 200, short: true, failure: "HLS 资源传输不完整"},
+		{name: "missing_segment", duration: 6, end: true, status: 404, failure: "HLS 第 1/1 个分片下载失败：HLS 资源 HTTP 404"},
+		{name: "short_segment", duration: 6, end: true, status: 200, short: true, failure: "HLS 资源长度不足"},
 		{name: "file_duration_mismatch", duration: 12, end: true, status: 200, failure: "视频时长与来源不一致"},
 		{name: "decode_failure", duration: 6, end: true, status: 200, decodeFail: true, failure: "音视频解码校验失败"},
 		{name: "leading_audio_allowed", duration: 6, end: true, status: 200, delayed: true},

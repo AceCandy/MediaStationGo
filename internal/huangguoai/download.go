@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -359,7 +360,7 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 				name = fmt.Sprintf("map-%04d.mp4", len(maps))
 				n, e := c.fetchResource(ctx, *segment.Map, media.Referer, filepath.Join(dir, name), maxSegmentBytes)
 				if e != nil {
-					return "", 0, e
+					return "", 0, fmt.Errorf("HLS 第 %d 个分片初始化资源失败：%w", i+1, e)
 				}
 				total += n
 				maps[*segment.Map] = name
@@ -374,8 +375,11 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 			if name == "" {
 				name = fmt.Sprintf("key-%04d.bin", len(keys))
 				n, e := c.fetchResource(ctx, Resource{URL: segment.KeyURL}, media.Referer, filepath.Join(dir, name), 16)
-				if e != nil || n != 16 {
-					return "", 0, errors.New("HLS 密钥读取失败")
+				if e != nil {
+					return "", 0, fmt.Errorf("HLS 第 %d 个分片密钥读取失败：%w", i+1, e)
+				}
+				if n != 16 {
+					return "", 0, fmt.Errorf("HLS 第 %d 个分片密钥长度无效", i+1)
 				}
 				keys[segment.KeyGeneration] = name
 			}
@@ -394,7 +398,7 @@ func (c *Client) Download(ctx context.Context, media Media, dir string, progress
 		name := fmt.Sprintf("segment-%06d%s", i, extension)
 		n, e := c.fetchResource(ctx, segment.Resource, media.Referer, filepath.Join(dir, name), maxSegmentBytes)
 		if e != nil {
-			return "", 0, e
+			return "", 0, fmt.Errorf("HLS 第 %d/%d 个分片下载失败：%w", i+1, len(p.Segments), e)
 		}
 		total += n
 		if total > maxMediaBytes {
@@ -447,13 +451,37 @@ func hlsMergeError(err error) error {
 	return errors.New("HLS 合并失败：FFmpeg 无法启动")
 }
 
+// 分片、初始化资源和密钥共用有限重试；已完成资源不会重新获取。
 func (c *Client) fetchResource(ctx context.Context, r Resource, referer, path string, max int64) (int64, error) {
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		n, retry, err := c.fetchResourceOnce(ctx, r, referer, path, max)
+		if err == nil || !retry || attempt == 3 {
+			if err != nil && retry {
+				err = fmt.Errorf("%w（已尝试 %d 次）", err, attempt)
+			}
+			return n, err
+		}
+		timer := time.NewTimer(time.Duration(attempt) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return 0, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// 仅临时请求或读取故障允许重试，存储及协议错误立即失败。
+func (c *Client) fetchResourceOnce(ctx context.Context, r Resource, referer, path string, max int64) (n int64, retry bool, err error) {
 	if !hongguo.ValidDownloadURL(r.URL) || strings.ContainsAny(referer, "\r\n") {
-		return 0, errors.New("HLS 资源地址无效")
+		return 0, false, errors.New("HLS 资源地址无效")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", r.URL, nil)
 	if err != nil {
-		return 0, errors.New("HLS 请求无效")
+		return 0, false, errors.New("HLS 请求无效")
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 	req.Header.Set("Referer", referer)
@@ -463,32 +491,64 @@ func (c *Client) fetchResource(ctx context.Context, r Resource, referer, path st
 	resp, err := c.http.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return 0, ctx.Err()
+			return 0, false, ctx.Err()
 		}
-		return 0, errors.New("HLS 资源网络请求失败")
+		// http.Client 包装的 url.Error 本身也实现 net.Error，需检查底层错误。
+		var requestErr *url.Error
+		if errors.As(err, &requestErr) {
+			err = requestErr.Err
+		}
+		var network net.Error
+		retry = errors.As(err, &network) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+		return 0, retry, errors.New("HLS 资源网络请求失败")
 	}
 	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return 0, true, fmt.Errorf("HLS 资源 HTTP %d", resp.StatusCode)
+	}
 	if r.Length > 0 {
 		var start, end, size int64
 		if resp.StatusCode != http.StatusPartialContent || func() bool {
 			_, e := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &size)
 			return e != nil || resp.Header.Get("Content-Range") != fmt.Sprintf("bytes %d-%d/%d", start, end, size)
 		}() || start != r.Offset || end != r.Offset+r.Length-1 || size <= end {
-			return 0, errors.New("HLS 字节范围响应无效")
+			return 0, false, errors.New("HLS 字节范围响应无效")
 		}
 		max = r.Length
 	} else if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("HLS 资源 HTTP %d", resp.StatusCode)
+		return 0, false, fmt.Errorf("HLS 资源 HTTP %d", resp.StatusCode)
+	}
+	if resp.ContentLength > max {
+		return 0, false, errors.New("HLS 资源超出大小限制")
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return 0, errors.New("无法创建 HLS 暂存文件")
+		return 0, false, errors.New("无法创建 HLS 暂存文件")
 	}
+	defer func() {
+		if err != nil {
+			if e := os.Remove(path); e != nil {
+				retry = false
+				err = errors.New("HLS 失败暂存文件清理失败")
+			}
+		}
+	}()
 	n, copyErr := io.Copy(f, io.LimitReader(resp.Body, max+1))
 	syncErr := f.Sync()
 	closeErr := f.Close()
-	if copyErr != nil || syncErr != nil || closeErr != nil || n > max || (r.Length > 0 && n != r.Length) || (resp.ContentLength >= 0 && n != resp.ContentLength) {
-		return 0, errors.New("HLS 资源传输不完整")
+	var writeErr *os.PathError
+	switch {
+	case errors.As(copyErr, &writeErr) || syncErr != nil || closeErr != nil:
+		return 0, false, errors.New("HLS 资源写盘失败")
+	case ctx.Err() != nil:
+		return 0, false, ctx.Err()
+	case n > max:
+		return 0, false, errors.New("HLS 资源超出大小限制")
+	case copyErr != nil:
+		return 0, true, errors.New("HLS 资源读取中断")
+	case (r.Length > 0 && n != r.Length) || (resp.ContentLength >= 0 && n != resp.ContentLength):
+		return 0, true, fmt.Errorf("HLS 资源长度不足：收到 %d 字节", n)
 	}
-	return n, nil
+	return n, false, nil
 }
