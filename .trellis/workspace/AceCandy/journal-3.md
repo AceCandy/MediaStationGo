@@ -1299,3 +1299,39 @@ Approved work commit and current task archive completed. No push or deployment. 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 212: 黄果 HLS 分片重试与传输诊断
+<!-- trellis-session: v=2 fp=3a6b94ee99efcf1a -->
+
+**Date**: 2026-10-07
+**Task**: 黄果 HLS 分片重试与传输诊断
+**Branch**: `main`
+
+### Summary
+
+完成有限分片重试与安全诊断，保留完整性校验，已提交并归档。
+
+### Main Changes
+
+- 分片、初始化资源和密钥最多尝试三次，退避可取消，保留已完成分片。
+- 区分读取、长度、大小及写盘失败，诊断包含分片序号，不包含私密源信息。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6460f85` | fix(huangguoai): 增加 HLS 分片重试与安全传输诊断 |
+
+### Testing
+
+- [OK] 客户端全部测试带竞态检查通过；服务层三项回归使用隔离 PostgreSQL 16 通过，临时容器已删除。
+- [OK] go vet、git diff --check 和独立只读复核完成。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未重启后端或验证截图中的真实两集；源站持续返回残缺数据仍会安全失败。
