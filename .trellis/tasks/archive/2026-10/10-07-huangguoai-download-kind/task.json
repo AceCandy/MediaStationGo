@@ -1,0 +1,29 @@
+{
+  "id": "huangguoai-download-kind",
+  "name": "huangguoai-download-kind",
+  "title": "黄果下载按电影与剧集区分",
+  "description": "按既有分类分别生成电影和剧集下载路径，并在下载空间使用正确类型和单位，兼容历史任务与扫描绑定",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-07",
+  "completedAt": "2026-10-07",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "f7357ef8358e91ce031e07a2a0983efd05841d2b",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "按用户指令提交并归档代码与验证记录；尚未部署、重启或修改生产队列，生产运行效果作为后续交接事项。",
+  "meta": {
+    "deployment_status": "not_deployed",
+    "archive_scope": "verified_code_delivery"
+  }
+}
