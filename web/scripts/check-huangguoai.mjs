@@ -192,11 +192,23 @@ try {
   browser('set','viewport',String(width),'900')
   assert.ok(evaluate(`document.documentElement.scrollWidth<=innerWidth`),`review ${width} overflow`)
  }
- evaluate(`window.reviewCalls=[];window.reviewAccepted=false;window.confirm=()=>window.reviewAccepted;const original=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(body){window.reviewCalls.push({body});return original.call(this,body)}`)
+ evaluate(`window.reviewCalls=[];window.confirm=()=>{throw new Error('不应使用浏览器原生确认')};const original=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(body){window.reviewCalls.push({body});return original.call(this,body)}`)
  browser('find','role','button','click','--name','保留并发布','--exact')
+ wait(`document.querySelector('[role="dialog"][aria-label="确认保留并发布"]') !== null`)
+ assert.ok(evaluate(`document.querySelector('[role="dialog"] button.btn-primary').textContent==='确认保留并发布'`))
+ for(const theme of ['light','dark']) {
+  evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
+  for(const width of [390,640,768,1440]) {
+   browser('set','viewport',String(width),'900')
+   assert.ok(evaluate(`document.documentElement.scrollWidth<=innerWidth`),`review dialog ${theme}/${width} overflow`)
+  }
+ }
+ browser('click','[role="dialog"] button.btn-outline')
+ wait(`document.querySelector('[role="dialog"]') === null`)
  assert.equal(evaluate(`window.reviewCalls.filter(c=>c.body?.includes('review_token')).length`),0)
- evaluate(`window.reviewAccepted=true`)
  browser('find','role','button','click','--name','保留并发布','--exact')
+ wait(`document.querySelector('[role="dialog"]') !== null`)
+ browser('click','[role="dialog"] button.btn-primary')
  wait(`window.reviewCalls.some(c=>c.body?.includes('review_token'))`)
  assert.deepEqual(evaluate(`JSON.parse(window.reviewCalls.find(c=>c.body?.includes('review_token')).body)`),{review_token:'synthetic-review-version'})
  browser('find','role','button','click','--name','关闭试播','--exact')

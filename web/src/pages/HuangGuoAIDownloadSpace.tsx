@@ -7,6 +7,7 @@ import { ModalShell } from '../components/ModalShell'
 import { DownloadProgress } from '../components/DownloadProgress'
 import { statusLabels as baseStatusLabels, statusColors as baseStatusColors } from '../utils/downloadStatus'
 import { Select } from '../components/Select'
+import { confirmAction } from '../components/confirmAction'
 
 import { huangGuoAIReviewURL } from '../api/client'
 
@@ -50,9 +51,9 @@ export function HuangGuoAIDownloadSpace() {
   }, [page, status, keyword, retry, setParams])
   const perform = async (id: string, action: 'retry' | 'cancel' | 'confirm', work = false, reviewToken = '') => {
     if (busy) return
-    if (action === 'confirm' && !window.confirm('严格校验未通过。请确认已检查画面、声音和内容完整性；保留校验警告并发布，之后可整理入库。是否继续？')) return
     setBusy(true)
     try {
+      if (action === 'confirm' && (!await confirmAction({ title: '确认保留并发布', message: '严格校验未通过。请确认已检查画面、声音和内容完整性；保留校验警告并发布，之后可整理入库。是否继续？', confirmText: '确认保留并发布', danger: false }) || !active.current)) return
       if (work && action !== 'confirm') {
         const value = await huangguoaiAPI.downloadWorkAction(id, action)
         if (active.current) toast.success(action === 'retry' ? `已重新入队 ${value.updated} 个下载任务` : `已取消 ${value.updated} 个未完成下载任务`)
