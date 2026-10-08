@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 220
+- **Total Sessions**: 221
 - **Last Active**: 2026-10-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1570 | Active |
+| `journal-3.md` | ~1592 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 221 | 2026-10-09 | 常规人物关联作品搜索 | `4d37367` | `main` |
 | 220 | 2026-10-09 | 黄果下载候选人工确认 | `2d2c227` | `main` |
 | 219 | 2026-10-08 | 统一收藏默认排序 | `76fe886` | `main` |
 | 218 | 2026-10-08 | Emby API 缓存设计归档 | `c09ba55` | `main` |

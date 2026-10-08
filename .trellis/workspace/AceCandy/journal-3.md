@@ -1568,3 +1568,25 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 221: 常规人物关联作品搜索
+<!-- trellis-session: v=2 fp=df49618e381020fe -->
+
+**Date**: 2026-10-09
+**Task**: 常规人物关联作品搜索
+**Branch**: `main`
+
+### Summary
+
+支持姓名与原名关联作品搜索、人物头像精确查询、OpenSearch 完整分页及数据库复核回退。相关数据库回归、路由检查、Web lint/build 和接口目录浏览器检查通过。未验证真实 OpenSearch、播放器或生产规模性能；部署需完成普通索引重建。用户已授权提交归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4d37367` | feat(emby): 支持常规人物关联作品搜索及完整分页 |
+
+### Status
+
+[OK] **Completed**
