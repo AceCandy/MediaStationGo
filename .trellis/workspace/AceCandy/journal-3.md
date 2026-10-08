@@ -1546,3 +1546,25 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 部署后确认 NFO 时间列启动迁移及客户端默认收藏展示。
+
+
+## Session 220: 黄果下载候选人工确认
+<!-- trellis-session: v=2 fp=f39072ad458eab02 -->
+
+**Date**: 2026-10-09
+**Task**: 黄果下载候选人工确认
+**Branch**: `main`
+
+### Summary
+
+完整传输但严格校验失败的文件保留为待人工确认；管理员试播与版本摘要核对后显式发布，保留警告和确认记录；重试取消清理及权限边界覆盖。隔离 PostgreSQL race 回归、Go vet、Web lint/build、合成浏览器检查通过，独立复核完成。任务已归档，未推送、未部署，未修改生产队列。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d2c227` | feat(downloads): 保留校验失败候选并支持人工确认发布 |
+
+### Status
+
+[OK] **Completed**
