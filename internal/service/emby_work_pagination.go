@@ -109,6 +109,10 @@ func (e *EmbyService) metadataWorkPage(ctx context.Context, files *gorm.DB, p It
 	q := e.orderedWorkLibraryScope(ctx, db.Table("metadata_items recent"), "recent", p, nil)
 	scope := files.Session(&gorm.Session{}).Where("media.metadata_id=recent.id")
 	order := metadataOrderSQL(p, false)
+	if primarySupportedEmbySort(p.SortBy, false) == "favoriteadded" {
+		q = q.Joins("JOIN (?) favorite_order ON favorite_order.metadata_id=recent.id", e.favoriteAdditionTimes(ctx, p.UserID))
+		order = "favorite_order.created_at DESC, recent.id DESC"
+	}
 	fileDateSort := strings.Contains(order, "MAX(media.created_at)")
 	if fileDateSort || strings.Contains(order, "media.scan_title") {
 		stats := scope.Session(&gorm.Session{})
@@ -171,6 +175,10 @@ func (e *EmbyService) seriesWorkPage(ctx context.Context, files *gorm.DB, p Item
 	scope := files.Session(&gorm.Session{}).Where(`emby_metadata.parent_id IN (
 SELECT id FROM metadata_items WHERE parent_id=scope_series.id AND kind='season')`)
 	order := seriesOrderSQL(p)
+	if primarySupportedEmbySort(p.SortBy, false) == "favoriteadded" {
+		q = q.Joins("JOIN (?) favorite_order ON favorite_order.metadata_id=scope_series.id", e.favoriteAdditionTimes(ctx, p.UserID))
+		order = "favorite_order.created_at DESC, scope_series.id DESC"
+	}
 	if p.ParentID != "" && primarySupportedEmbySort(p.SortBy, false) == "communityrating" {
 		dir := "ASC"
 		if strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {

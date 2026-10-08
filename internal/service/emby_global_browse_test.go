@@ -163,7 +163,7 @@ func assertGlobalFavoriteBrowsePlan(t *testing.T, e *EmbyService) {
 		t.Fatal(err)
 	}
 	defer db.Callback().Row().Remove("test:global-favorite-plan")
-	for _, sortBy := range []string{"DateLastContentAdded,SortName", "SortName", "DateCreated"} {
+	for _, sortBy := range []string{"", "DateLastContentAdded,SortName", "SortName", "DateCreated"} {
 		queries = nil
 		p := ItemsParams{UserID: "viewer", Recursive: true, IncludeItemTypes: []string{"Series"}, Filters: []string{"IsFavorite"},
 			SortBy: sortBy, SortOrder: "Descending", Limit: 30, Fields: []string{"BasicSyncInfo"}}

@@ -9,6 +9,8 @@ import (
 // Media 提供文件事实，外层字段覆盖同名的旧展示字段并来自共享元数据。
 type MediaView struct {
 	Media
+	// FavoriteAddedAt 仅供收藏列表跨来源排序，不对外展示。
+	FavoriteAddedAt time.Time `gorm:"-" json:"-"`
 	// LatestMediaAddedAt 仅投影作品的最新现存文件时间，不改变文件 CreatedAt。
 	LatestMediaAddedAt *time.Time `json:"latest_media_added_at,omitempty"`
 	// CatalogCreatedAt 投影 NFO 条目首次创建时间，不覆盖文件 CreatedAt。

@@ -113,7 +113,7 @@ SELECT n.id, n.resume_key, n.kind, n.title, n.parent_id, n.season_number, n.epis
  MAX(CASE WHEN n.kind = 'Episode' THEN m.created_at WHEN n.kind = 'Season' THEN w.latest_media_added_at
  ELSE `+repository.HongGuoLatestMediaAddedSQL+` END) AS latest_at,
  MAX(s.watched_at) AS played_at,
- BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite,
+ BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite, MAX(f.updated_at) AS favorite_at,
  BOOL_AND(COALESCE(s.completed,FALSE)) AS played, MAX(COALESCE(s.position_ms,0)) AS position_ms,
  CASE WHEN n.id LIKE 'hg-group-%%' THEN '' ELSE MIN(w.source_id) END AS source_id,
  CASE WHEN n.id LIKE 'hg-group-%%' THEN '' ELSE MIN(w.overview) END AS overview,
@@ -351,6 +351,8 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	order := "title"
 	if embyRandomSort(p) {
 		order = embyRandomOrder(p, "id")
+	} else if primarySupportedEmbySort(p.SortBy, false) == "favoriteadded" {
+		order = "favorite_at"
 	} else if strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
 		order = "created_at"
 	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
@@ -362,7 +364,7 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		order += " DESC"
 	}
 	var nodes []hongGuoNode
-	if !resumeFilter && !embyRandomSort(p) {
+	if !resumeFilter && !embyRandomSort(p) && primarySupportedEmbySort(p.SortBy, false) != "favoriteadded" {
 		q = q.Order("season_number, episode_number")
 	}
 	if err := q.Order(order).Order("id").Limit(p.Limit).Offset(p.StartIndex).Scan(&nodes).Error; err != nil {

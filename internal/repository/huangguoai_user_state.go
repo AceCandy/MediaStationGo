@@ -94,7 +94,10 @@ func (r *HuangGuoAIRepository) Favorite(ctx context.Context, userID, id string, 
 		return state.Favorite, err
 	}
 	state.Favorite = *value
-	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"favorite", "updated_at"})}).Create(&state).Error
+	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}}, DoUpdates: clause.Assignments(map[string]any{
+		"favorite":   gorm.Expr("EXCLUDED.favorite"),
+		"updated_at": gorm.Expr("CASE WHEN huangguoai_favorites.favorite = EXCLUDED.favorite THEN huangguoai_favorites.updated_at ELSE EXCLUDED.updated_at END"),
+	})}).Create(&state).Error
 	return state.Favorite, err
 }
 func (r *HuangGuoAIRepository) MarkPreviousEpisodes(ctx context.Context, userID, id string, episode int, filter MediaQueryFilter) error {

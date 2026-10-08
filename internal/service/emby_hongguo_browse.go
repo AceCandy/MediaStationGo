@@ -165,6 +165,8 @@ func filterGlobalItems(q *gorm.DB, p ItemsParams) *gorm.DB {
 func globalItemsOrder(p ItemsParams) string {
 	order, direction := "release_date", "DESC"
 	switch primarySupportedEmbySort(p.SortBy, containsEmbyFilter(p.Filters, "IsResumable")) {
+	case "favoriteadded":
+		return "favorite_at DESC NULLS LAST, id DESC"
 	case "random":
 		return embyRandomOrder(p, "id") + ", id"
 	case "sortname", "name":

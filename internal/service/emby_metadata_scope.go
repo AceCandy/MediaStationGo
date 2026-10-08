@@ -12,6 +12,12 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+// favoriteAdditionTimes 按作品汇总收藏时间，避免重复收藏行放大候选和分页总数。
+func (e *EmbyService) favoriteAdditionTimes(ctx context.Context, userID string) *gorm.DB {
+	return e.repo.DB.WithContext(ctx).Model(&model.Favorite{}).
+		Where("user_id = ?", userID).Select("metadata_id, MAX(created_at) AS created_at").Group("metadata_id")
+}
+
 // metadataPage applies count, ordering, and pagination to logical works before
 // loading their visible playable versions.
 func (e *EmbyService) metadataPage(ctx context.Context, q *gorm.DB, userID, order string, start, limit int) ([]model.MediaView, int64, error) {

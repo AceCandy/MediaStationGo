@@ -71,6 +71,14 @@ NULL::text AS origin_id,NULL::text[] AS work_ids,'nfo' AS source`)
 		combined = db.Raw("? UNION ALL ?", combined, local)
 	}
 	q := filterGlobalItems(db.Table("(?) combined", combined), base)
+	if primarySupportedEmbySort(p.SortBy, false) == "favoriteadded" {
+		q = db.Table("(?) combined", q.Select(`combined.*, CASE source
+WHEN 'legacy' THEN (SELECT MAX(f.created_at) FROM favorites f WHERE f.metadata_id=combined.id AND f.user_id=? AND f.deleted_at IS NULL)
+WHEN 'nfo' THEN (SELECT f.favorite_added_at FROM nfo_user_states f WHERE f.item_id=SUBSTRING(combined.id FROM 5) AND f.user_id=? AND f.favorite)
+WHEN 'hongguo' THEN (SELECT MAX(f.updated_at) FROM hongguo_favorites f JOIN hongguo_works w ON f.item_id=`+repository.HongGuoFavoriteIdentitySQL+` WHERE w.id::text=ANY(combined.work_ids) AND f.user_id=? AND f.favorite)
+WHEN 'huangguoai' THEN (SELECT MAX(f.updated_at) FROM huangguoai_favorites f JOIN huangguoai_works w ON w.source_id=f.source_id WHERE w.id::text=ANY(combined.work_ids) AND f.user_id=? AND f.favorite)
+END AS favorite_at`, p.UserID, p.UserID, p.UserID, p.UserID))
+	}
 	order := globalItemsOrder(p) + ", source, origin_id NULLS FIRST"
 	// work_batch 只携带资格所需身份；筛选和排序仍使用原字段，避免排序全部展示资料。
 	return q.Select("id,kind,source,origin_id,work_ids,ROW_NUMBER() OVER (ORDER BY " + order + ") AS ordinal").Order(order)

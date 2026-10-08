@@ -62,7 +62,7 @@ func (e *EmbyService) huangGuoAINodes(ctx context.Context, userID, libraryID str
 	states := repository.PlaybackStates(ctx, e.repo.DB, "huangguoai", userID, e.mediaQueryFilter(ctx, userID))
 	return e.repo.DB.WithContext(ctx).Table("(?) nodes", e.repo.DB.Raw(`SELECT n.id,n.kind,n.title,n.parent_id,n.season_number,n.episode_number,
  MIN(v.id) AS media_id,MIN(v.created_at) AS created_at,MAX(v.latest_media_added_at) AS latest_at,
- MAX(s.watched_at) AS played_at,BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite,
+ MAX(s.watched_at) AS played_at,BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite,MAX(f.updated_at) AS favorite_at,
  BOOL_AND(COALESCE(s.completed,FALSE)) AS played,MAX(COALESCE(s.position_ms,0)) AS position_ms,
  MIN(v.source_id) AS source_id,MIN(v.overview) AS overview,MIN(v.tags::text) AS tags,MAX(v.rating) AS rating,
  COUNT(DISTINCT v.episode_id) AS episode_count,
@@ -184,6 +184,8 @@ func (e *EmbyService) huangGuoAIHierarchyItems(ctx context.Context, p ItemsParam
 	}
 	order := "title"
 	switch primarySupportedEmbySort(p.SortBy, false) {
+	case "favoriteadded":
+		order = "favorite_at"
 	case "datecreated":
 		order = "created_at"
 	case "datelastcontentadded":
@@ -199,7 +201,12 @@ func (e *EmbyService) huangGuoAIHierarchyItems(ctx context.Context, p ItemsParam
 		order += " DESC"
 	}
 	var nodes []hongGuoNode
-	if err := q.Order("season_number,episode_number").Order(order).Offset(p.StartIndex).Limit(p.Limit).Scan(&nodes).Error; err != nil {
+	if primarySupportedEmbySort(p.SortBy, false) != "favoriteadded" {
+		q = q.Order("season_number,episode_number")
+	} else {
+		order += " NULLS LAST, id DESC"
+	}
+	if err := q.Order(order).Offset(p.StartIndex).Limit(p.Limit).Scan(&nodes).Error; err != nil {
 		return nil, true, err
 	}
 	items, err := e.huangGuoAIPayloads(ctx, nodes, p.UserID, p.Fields)

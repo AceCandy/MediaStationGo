@@ -95,7 +95,10 @@ func hongGuoFavorite(db *gorm.DB, userID, itemID string, favorite *bool) (bool, 
 		return state.Favorite, err
 	}
 	state.Favorite = *favorite
-	err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "item_id"}}, DoUpdates: clause.AssignmentColumns([]string{"favorite", "updated_at"})}).Create(&state).Error
+	err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "item_id"}}, DoUpdates: clause.Assignments(map[string]any{
+		"favorite":   gorm.Expr("EXCLUDED.favorite"),
+		"updated_at": gorm.Expr("CASE WHEN hongguo_favorites.favorite = EXCLUDED.favorite THEN hongguo_favorites.updated_at ELSE EXCLUDED.updated_at END"),
+	})}).Create(&state).Error
 	return state.Favorite, err
 }
 

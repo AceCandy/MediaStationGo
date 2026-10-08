@@ -360,8 +360,9 @@ WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id A
 		Where("f.user_id = ? AND f.deleted_at IS NULL", userID)
 	base = applyMediaViewFilter(base, filter)
 	type favoriteCard struct {
-		MediaID    string `gorm:"column:media_id"`
-		MetadataID string `gorm:"column:metadata_id"`
+		MediaID           string `gorm:"column:media_id"`
+		MetadataID        string `gorm:"column:metadata_id"`
+		FavoriteCreatedAt time.Time
 	}
 	var cards []favoriteCard
 	ranked := base.Select("m.id AS media_id, f.metadata_id, f.id AS favorite_id, f.created_at AS favorite_created_at, ROW_NUMBER() OVER (PARTITION BY f.id ORDER BY m.created_at DESC, m.id DESC) AS favorite_rank")
@@ -372,10 +373,12 @@ WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id A
 	ids := make([]string, 0, len(cards))
 	metadataIDs := make([]string, 0, len(cards))
 	metadataByMedia := make(map[string]string, len(cards))
+	addedByMedia := make(map[string]time.Time, len(cards))
 	for _, card := range cards {
 		ids = append(ids, card.MediaID)
 		metadataIDs = append(metadataIDs, card.MetadataID)
 		metadataByMedia[card.MediaID] = card.MetadataID
+		addedByMedia[card.MediaID] = card.FavoriteCreatedAt
 	}
 	views, err := r.FindByIDs(ctx, ids, filter)
 	if err != nil || len(views) == 0 {
@@ -388,6 +391,7 @@ WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id A
 	out := views[:0]
 	for _, view := range views {
 		if presentation, ok := presentations[metadataByMedia[view.ID]]; ok {
+			view.FavoriteAddedAt = addedByMedia[view.ID]
 			applyMetadataSearchPresentation(&view, presentation)
 			if presentation.Kind == model.MetadataKindSeries {
 				view.SeasonID, view.SeasonNum, view.EpisodeNum = "", 0, 0

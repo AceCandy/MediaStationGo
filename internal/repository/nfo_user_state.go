@@ -38,9 +38,17 @@ func (r *NFORepository) SetFavorite(ctx context.Context, userID, itemID, mediaID
 		return ErrFavoriteUnsupportedType
 	}
 	state := model.NFOUserState{UserID: userID, ItemID: itemID, MediaID: mediaID, Favorite: favorite}
+	if favorite {
+		now := time.Now()
+		state.FavoriteAddedAt = &now
+	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "item_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"favorite", "updated_at"}),
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "item_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"favorite":          gorm.Expr("EXCLUDED.favorite"),
+			"updated_at":        gorm.Expr("EXCLUDED.updated_at"),
+			"favorite_added_at": gorm.Expr("CASE WHEN EXCLUDED.favorite AND nfo_user_states.favorite THEN nfo_user_states.favorite_added_at ELSE EXCLUDED.favorite_added_at END"),
+		}),
 	}).Create(&state).Error
 }
 
@@ -148,8 +156,11 @@ func (r *NFORepository) FavoriteCards(ctx context.Context, userID string, filter
 	views := &MediaViewRepository{db: r.db}
 	q := views.nfoViewQuery(ctx, filter).
 		Joins("JOIN nfo_user_states st ON st.item_id = COALESCE(nw.id,ni.id) AND st.user_id = ? AND st.favorite", userID).
-		Select("DISTINCT ON (st.item_id) st.item_id, m.id AS media_id").Order("st.item_id, st.updated_at DESC, m.created_at DESC, m.id DESC")
-	var cards []struct{ ItemID, MediaID string }
+		Select("DISTINCT ON (st.item_id) st.item_id, m.id AS media_id, st.favorite_added_at").Order("st.item_id, m.created_at DESC, m.id DESC")
+	var cards []struct {
+		ItemID, MediaID string
+		FavoriteAddedAt time.Time
+	}
 	if err := q.Scan(&cards).Error; err != nil {
 		return nil, err
 	}
@@ -163,6 +174,7 @@ func (r *NFORepository) FavoriteCards(ctx context.Context, userID string, filter
 			continue
 		}
 		view.ID = card.MediaID
+		view.FavoriteAddedAt = card.FavoriteAddedAt
 		if view.MetadataKind == model.MetadataKindSeries {
 			view.SeriesID, view.SeriesTitle = view.CatalogItemID, view.Title
 		}

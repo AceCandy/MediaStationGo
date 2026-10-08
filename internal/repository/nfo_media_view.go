@@ -139,7 +139,7 @@ MAX(st.watched_at) AS played_at, MAX(COALESCE(st.position_ms,0)) AS position_ms,
 INITCAP(item.kind) AS kind, item.title, COALESCE('nfo-' || item.parent_id,'') AS parent_id,
 item.season_num AS season_number, item.episode_num AS episode_number, ` + playbackFields + `
 item.created_at, item.latest_media_added_at AS latest_at, BOOL_AND(` + completed + `) AS played,
-BOOL_OR(COALESCE(fav.favorite,FALSE)) AS favorite,
+BOOL_OR(COALESCE(fav.favorite,FALSE)) AS favorite, MAX(fav.favorite_added_at) AS favorite_at,
 item.poster_asset_id AS artwork_id, item.overview, item.rating, item.release_date, item.year,
 COUNT(DISTINCT ni.id) AS episode_count,
 COUNT(DISTINCT ni.id) FILTER (WHERE ni.kind = 'episode' AND NOT (` + completed + `)) AS unplayed_item_count`).Group("item.id,COALESCE(nw.id,ni.id)")

@@ -74,6 +74,9 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 		}
 		expression := ""
 		switch key {
+		case "favoriteadded":
+			q = q.Joins("JOIN (?) favorite_order ON favorite_order.metadata_id=candidate.id", e.favoriteAdditionTimes(ctx, p.UserID))
+			expression = "favorite_order.created_at"
 		case "datelastcontentadded":
 			expression = "candidate.latest_media_added_at"
 		case "name", "sortname":

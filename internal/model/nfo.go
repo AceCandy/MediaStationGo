@@ -66,6 +66,9 @@ type NFOUserState struct {
 	ResumePositionMs *int64     `json:"-"`
 	WatchedAt        *time.Time `json:"watched_at,omitempty"`
 	UpdatedAt        time.Time  `json:"updated_at"`
+
+	// FavoriteAddedAt 仅在未收藏状态变为收藏时更新，不随播放进度变化。
+	FavoriteAddedAt *time.Time `json:"-"`
 }
 
 // NFOPlaybackEvent 保留本地条目的播放事实，独立于普通作品事件。

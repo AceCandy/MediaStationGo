@@ -387,6 +387,12 @@ func (p *PlaybackService) ListFavourites(ctx context.Context, userID string, vis
 		}
 		rows = append(rows, local...)
 	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if !rows[i].FavoriteAddedAt.Equal(rows[j].FavoriteAddedAt) {
+			return rows[i].FavoriteAddedAt.After(rows[j].FavoriteAddedAt)
+		}
+		return rows[i].MetadataID > rows[j].MetadataID
+	})
 	return rows, nil
 }
 

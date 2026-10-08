@@ -320,3 +320,26 @@ and `TestHuangGuoAIEmbyPlaybackHierarchyAndPermissions` verify work order while
 retaining DateCreated payload semantics. Multi-field tests must put DateCreated
 first (for example `DateCreated,SortName`): `DateLastContentAdded,DateCreated`
 only exercises the first supported key. Native player latency remains a separate check.
+
+### Favorite addition order
+
+1. **Scope:** Web favorite cards and Emby Items with `IsFavorite` and omitted
+   `SortBy`; explicit client sorts retain their existing semantics.
+2. **Signatures:** ordinary `favorites.created_at`, independent HongGuo/HuangGuo
+   favorite `updated_at`, and nullable `nfo_user_states.favorite_added_at`.
+   `MediaView.FavoriteAddedAt` is an internal, nonpersistent ordering projection.
+3. **Contracts:** newest favorite first, before pagination, with stable identity
+   ties. Repeated true writes retain addition time; false then true records a
+   new time. Playback writes never modify addition time. Web merges ordinary
+   and NFO cards by that time. Startup AutoMigrate only adds the NFO column;
+   there is no historical backfill because existing NFO favorites are absent.
+4. **Validation:** existing visibility, type, count and source identities remain
+   mandatory; failed writes/queries propagate errors rather than empty success.
+5. **Cases:** newly favorited old media leads; ordinary unfavorite/refavorite
+   resets the restored row's created_at; NFO progress leaves ordering unchanged.
+6. **Tests:** `TestFavoriteAddedOrderAcrossSources` checks global/library pages,
+   both count modes, Web merge, explicit sort and repeated/refavorite writes;
+   `TestNFOFavoriteAddedTimeSurvivesPlayback` checks shared-row progress isolation;
+   `TestOrdinarySeriesFavoriteAddedOrder` checks ordinary-only global/library TV.
+7. **Wrong vs correct:** do not sort favorites by work/file import time or the
+   shared NFO playback updated_at; select their source-owned favorite time.

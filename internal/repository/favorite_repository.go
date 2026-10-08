@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -97,6 +98,7 @@ func (r *FavoriteRepository) SetByIdentity(ctx context.Context, userID, metadata
 		"metadata_id": metadataID,
 		"media_id":    mediaID,
 		"deleted_at":  nil,
+		"created_at":  time.Now(),
 	}).Error
 }
 

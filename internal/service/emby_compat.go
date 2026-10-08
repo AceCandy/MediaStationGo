@@ -126,6 +126,9 @@ type embyVisibilityCacheEntry struct {
 // Series -> Season -> Episode so Infuse/Vidhub/SenPlayer stop treating every
 // episode as a separate movie card.
 func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	if containsEmbyFilter(p.Filters, "IsFavorite") && strings.TrimSpace(p.SortBy) == "" {
+		p.SortBy, p.SortOrder = "FavoriteAdded", "Descending"
+	}
 	if p.Limit <= 0 || p.Limit > 500 {
 		p.Limit = 50
 	}
