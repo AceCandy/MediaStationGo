@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端规范索引与检查入口"}
+{"file": ".trellis/spec/backend/work-level-queries.md", "reason": "Items 分发、分页前瞻、排序与缓存契约"}
+{"file": ".trellis/spec/backend/playback-contracts.md", "reason": "用户状态、Web/Emby 写路径及失效"}
+{"file": ".trellis/spec/backend/session-and-transfer-safety.md", "reason": "每次认证和会话撤销不被缓存绕过"}
+{"file": ".trellis/spec/backend/emby-api-catalog-sync.md", "reason": "透明缓存保持播放器协议和 API catalog"}
+{"file": ".trellis/tasks/10-08-emby-item-cache/research/cache-evidence.md", "reason": "已复核的缓存键、权限版本与失效证据"}
+{"file": ".trellis/tasks/10-08-emby-item-cache/research/invalidation-policy.md", "reason": "单实例两层缓存、全局内容/用户状态失效及已核验写入缺口"}
