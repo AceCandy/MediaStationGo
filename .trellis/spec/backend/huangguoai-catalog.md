@@ -36,7 +36,7 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   consumption needs visible bound files; an image can use discovery authorization
   or visible-file authorization. Admin role never bypasses profile adult locks.
 - Download re-resolves media per attempt; credentials, keys and signed media URLs
-  stay transient. Verify duration and complete decode before no-overwrite publish.
+  stay transient. Verify duration and complete decode before automatic no-overwrite publish; explicit administrator acceptance uses the manual review contract below.
   For HLS, persist the complete media playlist duration returned by `Download`
   and compare the first video track duration against it. Preserve all audio,
   including audio starting before video; longer container duration alone is
@@ -80,7 +80,7 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   duration mismatch enables `-dts_delta_threshold 1` remux. `copyts` disables
   that correction, so combined recovery omits it and must still pass offset
   checks. Final video duration retains `max(2 seconds, 2%)`; never change the
-  playlist duration, drop corrupt packets/audio, or publish by weakening checks.
+  playlist duration, drop corrupt packets/audio, or automatically publish by weakening checks.
   Capture bounded FFmpeg stderr with `Cmd.Output`, then return only fixed error
   categories or the numeric exit code; never persist arbitrary stderr text.
   Persist the private `huangguoai_downloads.hls` flag with transfer handoff so
@@ -124,7 +124,8 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
 | Preview/unknown duration/unsupported encryption | Fail safely, no completed file |
 | Complete HLS differs from page duration | Warn; verify video track against playlist duration and fully decode all tracks |
 | HLS video duration matches but audio extends total duration | Preserve all audio; allow after full decode |
-| Missing ENDLIST/failed or incomplete segment/checked duration mismatch/decode failure | Fail safely, no completed file |
+| Missing ENDLIST/failed or incomplete segment | Fail safely, no completed file |
+| Complete retained file fails duration/decode validation | Pending administrator review, no automatic publication |
 | Lost lease/cancel/publish collision | No overwrite or another attempt's deletion |
 | Completed auto-mark predecessor | Preserve position, timestamps and events |
 
@@ -213,7 +214,7 @@ unconfirmed/series/conflicting coordinate-free files and retains Movie identity.
   `TestHuangGuoAIDownloadHLSCompletenessAndDuration` verifies playlist duration
   survives persistence/reclaim, metadata mismatch warns and publishes, incomplete
   playlists/segments fail, and incorrect video duration or decode failure never
-  publishes. `TestHuangGuoAIDownloadUnexpectedErrorsRemainPrivate` injects an
+  automatically publishes. `TestHuangGuoAIDownloadUnexpectedErrorsRemainPrivate` injects an
   unmarked persistence error to verify that neither row diagnostics nor task logs
   expose its private text. Never discard `Download`'s duration and later verify an
   HLS output against page metadata. Leading audio is preserved and allowed only
@@ -365,3 +366,64 @@ PostgreSQL and race detection; the shared `TestHongGuoSupplementTaskHTTP` and
 Wrong: cast raw source-date text or use task logs to select new downloads.
 Correct: use local first-discovery time and authoritative download history,
 then reuse the existing download transaction with the only-new guard.
+
+## Manual review of complete candidates
+
+### 1. Scope / Trigger
+Complete HuangGuo transfers failing independent strict duration/decode validation.
+Transport and remux failures keep existing fail/resume behavior; HongGuo is unchanged.
+
+### 2. Signatures
+- Status `pending_review`; download JSON adds `warning`, `review_token`,
+  `confirmed_by`, `confirmed_at`. Work counts add `pending_review`.
+- `GET /api/catalogs/huangguoai/downloads/:id/preview?review_token=<version>`
+  serves private MP4 with Range; `POST /:id/confirm` body
+  `{ "review_token": "<version>" }` queues publication, response 204.
+- `ReviewFile(ctx,id,token)`, `ConfirmReview(ctx,id,token,userID)`; additive
+  AutoMigrate fields, no historical backfill or deployment from tests.
+
+### 3. Contracts
+Strict validation remains mandatory for ordinary publication. Review candidates
+retain private stage, size and digest but are excluded from both worker claim
+queries. Preview/confirm require current admin role plus adult/profile visibility;
+never create public Media before publication. Preview requires regular file,
+correct size and task-private path without symlink replacement. Confirmation holds
+the row lock, checks candidate version and digest, records actor/time and moves to
+waiting_verify. The publishing worker rechecks digest and existing transaction/lease
+fencing; warning survives completed status. Acceptance is permission to retain a
+known validation failure, not certification of story completeness. Output still
+requires the normal organization/scanner stage to appear in the library.
+Retry/cancel of pending_review removes only its private stage under the row lock
+before clearing the checkpoint. Cleanup failure preserves the row/path for retry;
+a subsequent DB commit failure can leave a missing candidate, which cannot be
+accepted and can be cancelled/retried again. UI trial state includes candidate
+version, so polling a new version closes the old trial.
+
+### 4. Validation & Error Matrix
+- Non-admin -> 403; adult/profile/PIN lock -> 404.
+- Missing/stale/retired/nonregular/size-changed preview -> 404.
+- Invalid confirm body/changed digest/stale token/wrong state -> 400; no publish.
+- Accepted candidate cancelled or lease lost -> no publish or stale status write.
+- Output collision -> preserve existing output, retain warning, fail publication.
+- Cleanup failure -> error and retain recoverable checkpoint.
+
+### 5. Good/Base/Bad Cases
+Good: trial a duration-failed candidate, explicitly accept it and retain warning.
+Base: valid strict output publishes automatically. Bad: claim pending_review merely
+because it has a digest, or confirm a new candidate from an old trial page.
+
+### 6. Tests Required
+`TestHuangGuoAIManualReview` covers retention, excluded claims, stale/modified content,
+acceptance/audit, retry/cancel, cleanup failure recovery, symlinks, cancellation fencing
+and collisions. HTTP adult/profile test covers Range 206, PIN lock, profile lock and
+global disable; route registration covers non-admin preview/confirm denial.
+`check-huangguoai.mjs` checks trial controls, candidate version payload, declined
+confirmation and responsive layout with synthetic APIs. Real source viewing remains
+a separate manual judgment. Inject unexpected database errors at final handoff in
+the privacy test; resume checkpoint errors already have a fixed sanitized category.
+
+### 7. Wrong vs Correct
+Wrong: treat playable samples as a full backup validation pass. Correct: preserve
+strict warning, require explicit acceptance and retain its provenance after publish.
+Rollback to older binaries requires resolving pending_review rows first; never
+automatically delete these candidates or drop audit columns.

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
@@ -108,12 +109,46 @@ func registerHuangGuoAIDownloadRoutes(authed *gin.RouterGroup, svc *service.Cont
 		}
 		c.JSON(202, gin.H{"added": count})
 	})
+	group.GET("/:id/preview", func(c *gin.Context) {
+		if _, err := uuid.Parse(c.Param("id")); err != nil {
+			c.Status(400)
+			return
+		}
+		file, err := svc.HuangGuoAIDownloads.ReviewFile(c.Request.Context(), c.Param("id"), c.Query("review_token"))
+		if err != nil {
+			c.Status(404)
+			return
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			c.Status(404)
+			return
+		}
+		c.Header("Content-Type", "video/mp4")
+		c.Header("Cache-Control", "private, no-store")
+		c.Header("X-Content-Type-Options", "nosniff")
+		http.ServeContent(c.Writer, c.Request, "preview.mp4", info.ModTime(), file)
+	})
 	group.POST("/:id/:action", func(c *gin.Context) {
 		if _, err := uuid.Parse(c.Param("id")); err != nil {
 			c.Status(400)
 			return
 		}
-		if err := svc.HuangGuoAIDownloads.Action(c.Request.Context(), c.Param("id"), c.Param("action")); err != nil {
+		var err error
+		if c.Param("action") == "confirm" {
+			var body struct {
+				ReviewToken string `json:"review_token"`
+			}
+			if c.ShouldBindJSON(&body) != nil {
+				c.Status(400)
+				return
+			}
+			err = svc.HuangGuoAIDownloads.ConfirmReview(c.Request.Context(), c.Param("id"), body.ReviewToken, currentUserID(c))
+		} else {
+			err = svc.HuangGuoAIDownloads.Action(c.Request.Context(), c.Param("id"), c.Param("action"))
+		}
+		if err != nil {
 			c.JSON(400, gin.H{"error": "操作失败，请检查任务状态或稍后重试"})
 			return
 		}

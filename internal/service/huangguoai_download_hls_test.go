@@ -230,7 +230,12 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 					}
 				}
 			} else {
-				if row.Status != "failed" || !strings.Contains(row.Error, tt.failure) || !strings.Contains(log.Content, row.Error) {
+				diagnostic := row.Error
+				expectedStatus := "failed"
+				if row.Warning != "" {
+					expectedStatus, diagnostic = "pending_review", row.Warning
+				}
+				if row.Status != expectedStatus || !strings.Contains(diagnostic, tt.failure) || !strings.Contains(log.Content, diagnostic) {
 					t.Fatalf("failure not diagnosed: %s %s %s", row.Status, row.Error, log.Content)
 				}
 				if _, err := os.Stat(filepath.Join(cfg.Root, "completed", row.RelativePath)); !os.IsNotExist(err) {
@@ -238,7 +243,7 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 				}
 			}
 			for _, private := range []string{"private-title", "secret-value", "https://", cfg.Root} {
-				if strings.Contains(row.Error, private) || strings.Contains(log.Content, private) {
+				if strings.Contains(row.Error, private) || strings.Contains(row.Warning, private) || strings.Contains(log.Content, private) {
 					t.Fatal("sensitive download diagnostic leaked")
 				}
 			}
@@ -262,7 +267,9 @@ func TestHuangGuoAIDownloadUnexpectedErrorsRemainPrivate(t *testing.T) {
 	}
 	var injected atomic.Bool
 	if err := s.repo.DB.Callback().Update().Before("gorm:update").Register("test:private-download-error", func(tx *gorm.DB) {
-		if tx.Statement.Table == "huangguoai_downloads" && !injected.Swap(true) {
+		// 注入最终传输交接，缓存检查点的固定脱敏提示不属于此用例的数据库错误边界。
+		values, _ := tx.Statement.Dest.(map[string]any)
+		if tx.Statement.Table == "huangguoai_downloads" && values["status"] == "waiting_verify" && !injected.Swap(true) {
 			tx.AddError(errors.New("private-title token=secret-value " + cfg.Root))
 		}
 	}); err != nil {

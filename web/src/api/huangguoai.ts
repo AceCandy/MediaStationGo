@@ -13,9 +13,9 @@ export interface HuangGuoAIUserCard {
   source_id: string; title: string; kind: 'movie' | 'series'; media_id: string; episode_number: number
   position_ms: number; duration_ms: number; completed: boolean; updated_at: string
 }
-export interface HuangGuoAIDownload { id: string; source_id: string; title: string; episode: number; status: 'downloading' | 'verifying' | 'publishing' | 'waiting_verify' | 'queued' | 'completed' | 'failed' | 'cancelled'; bytes: number; total_bytes: number; attempts: number; error: string; relative_path: string }
+export interface HuangGuoAIDownload { id: string; source_id: string; title: string; episode: number; status: 'pending_review' | 'downloading' | 'verifying' | 'publishing' | 'waiting_verify' | 'queued' | 'completed' | 'failed' | 'cancelled'; bytes: number; total_bytes: number; attempts: number; error: string; warning: string; review_token: string; confirmed_by: string; confirmed_at: string | null; relative_path: string }
 export interface HuangGuoAIDownloadConfig { root: string; temporary_dir: string; output_dir: string; concurrency: number; verification_concurrency: number }
-export interface HuangGuoAIDownloadWork { source_id: string; title: string; kind: 'movie' | 'series' | ''; total: number; completed: number; failed: number; active: number; downloading: number; waiting_verify: number; verifying: number; publishing: number; queued: number; cancelled: number; bytes: number }
+export interface HuangGuoAIDownloadWork { source_id: string; title: string; kind: 'movie' | 'series' | ''; total: number; completed: number; failed: number; pending_review: number; active: number; downloading: number; waiting_verify: number; verifying: number; publishing: number; queued: number; cancelled: number; bytes: number }
 const root = '/catalogs/huangguoai'
 export const huangguoaiAPI = {
   list: (params: { keyword: string; category: string; tag: string; rank: string; page: number; page_size?: number }, signal?: AbortSignal) => api.get<{ items: HuangGuoAIWork[]; total: number }>(`${root}/works`, { params: { ...params, page_size: params.page_size ?? 50 }, signal }).then(r => r.data),
@@ -34,6 +34,7 @@ export const huangguoaiAPI = {
   downloadWorkAction: (id: string, action: 'retry' | 'cancel') => api.post<{ updated: number }>(`${root}/downloads/works/${encodeURIComponent(id)}/${action}`).then(r => r.data),
   downloadConfig: (signal?: AbortSignal) => api.get<HuangGuoAIDownloadConfig>(`${root}/downloads/config`, { signal }).then(r => r.data),
   saveDownloadConfig: (config: HuangGuoAIDownloadConfig) => api.put(`${root}/downloads/config`, config),
+  confirmDownload: (id: string, review_token: string) => api.post(`${root}/downloads/${encodeURIComponent(id)}/confirm`, { review_token }),
   downloadAction: (id: string, action: 'retry' | 'cancel') => api.post(`${root}/downloads/${encodeURIComponent(id)}/${action}`),
   userCards: (tab: 'favourites' | 'history' | 'continue', page: number, signal?: AbortSignal) => api.get<{ items: HuangGuoAIUserCard[]; total: number }>(`${root}/me`, { params: { tab, page }, signal }).then(r => r.data),
   setFavorite: (id: string, favorite: boolean) => api.put(`${root}/works/${encodeURIComponent(id)}/favorite`, { favorite }),

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
@@ -9,8 +11,12 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +31,8 @@ func TestHuangGuoAIRouteRegistrationAndAdminBoundary(t *testing.T) {
 	}{
 		{"GET", "/api/catalogs/huangguoai/works", "user", 503},
 		{"GET", "/api/catalogs/huangguoai/downloads/works", "user", 403},
+		{"GET", "/api/catalogs/huangguoai/downloads/00000000-0000-0000-0000-000000000001/preview", "user", 403},
+		{"POST", "/api/catalogs/huangguoai/downloads/00000000-0000-0000-0000-000000000001/confirm", "user", 403},
 		{"GET", "/api/catalogs/huangguoai/downloads/works", "admin", 503},
 		{"GET", "/api/catalogs/huangguoai/downloads/works/71/episodes", "admin", 503},
 		{"POST", "/api/catalogs/huangguoai/downloads/works/71/cancel", "admin", 503},
@@ -126,6 +134,51 @@ func TestHuangGuoAIHTTPAdultAndProfileBoundary(t *testing.T) {
 			}
 		}
 	}
+	root := t.TempDir()
+	content := []byte("synthetic-review-content")
+	digest := sha256.Sum256(content)
+	review := model.HuangGuoAIDownload{SourceID: "73", Episode: 1, Root: root, Status: "pending_review", RawSize: int64(len(content)), VerifiedSize: int64(len(content)), SHA256: hex.EncodeToString(digest[:]), ReviewToken: uuid.NewString(), Warning: "Synthetic warning"}
+	if err := db.Create(&review).Error; err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join("downloading", review.ID+"-"+uuid.NewString(), "ready.mp4")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, stage)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, stage), content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&review).Update("staging_path", stage).Error; err != nil {
+		t.Fatal(err)
+	}
+	previewPath := "/downloads/" + review.ID + "/preview?review_token=" + review.ReviewToken
+	req := httptest.NewRequest("GET", "/api/catalogs/huangguoai"+previewPath, nil)
+	req.Header.Set("Range", "bytes=0-8")
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+	if res.Code != 206 || res.Body.String() != string(content[:9]) || res.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("candidate Range: status=%d", res.Code)
+	}
+	request("GET", previewPath, profile.ID, 404)
+	locked := model.PlayProfile{UserID: user.ID, Name: "Locked", AllowAdult: true, RequirePIN: true}
+	if err := db.Create(&locked).Error; err != nil {
+		t.Fatal(err)
+	}
+	request("GET", previewPath, locked.ID, 404)
+	request("POST", "/downloads/"+review.ID+"/confirm", locked.ID, 404)
+	request("POST", "/downloads/"+review.ID+"/confirm", profile.ID, 404)
+	request("GET", "/downloads/"+review.ID+"/preview?review_token=stale", "", 404)
+	confirmReq := httptest.NewRequest("POST", "/api/catalogs/huangguoai/downloads/"+review.ID+"/confirm", strings.NewReader(`{"review_token":"`+review.ReviewToken+`"}`))
+	confirmReq.Header.Set("Content-Type", "application/json")
+	confirmRes := httptest.NewRecorder()
+	r.ServeHTTP(confirmRes, confirmReq)
+	if confirmRes.Code != 204 {
+		t.Fatalf("confirm endpoint status=%d", confirmRes.Code)
+	}
+	if err := db.First(&review, "id=?", review.ID).Error; err != nil || review.Status != "waiting_verify" || review.ConfirmedBy != user.ID || review.Warning == "" {
+		t.Fatal("HTTP confirmation audit", err)
+	}
+
 	for _, path := range []string{"/works", "/works/71", "/works/71/media", "/works/71/state", "/artwork/synthetic", "/downloads/works", "/downloads/config", "/status"} {
 		request("GET", path, profile.ID, 404)
 	}
@@ -136,4 +189,6 @@ func TestHuangGuoAIHTTPAdultAndProfileBoundary(t *testing.T) {
 	}
 	request("GET", "/works", "", 404)
 	request("GET", "/downloads/works", "", 404)
+	request("GET", previewPath, "", 404)
+	request("POST", "/downloads/"+review.ID+"/confirm", "", 404)
 }

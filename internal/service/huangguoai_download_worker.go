@@ -19,6 +19,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var errHuangGuoAIPendingReview = errors.New("黄果 AI 等待人工确认")
+
 var errHuangGuoAIWaitingVerify = errors.New("黄果 AI 等待独立校验")
 
 // huangGuoAIDownloadError 仅标记来源客户端和媒体校验器已脱敏的错误，底层数据库错误不可公开。
@@ -73,6 +75,10 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 	err := s.execute(ctx, &row, &bytes, task)
 	close(finished)
 	<-joined
+	if errors.Is(err, errHuangGuoAIPendingReview) {
+		task.Finish(nil, TaskUpdate{Stage: "pending_review", Message: "校验未通过，文件已保留，等待管理员试播确认"})
+		return
+	}
 	if errors.Is(err, errHuangGuoAIWaitingVerify) {
 		task.Finish(nil, TaskUpdate{Stage: "waiting_verify", Message: "传输完成，等待独立校验"})
 		s.Wake()
@@ -139,14 +145,9 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 			return errors.New("待校验文件缺失或长度不符")
 		}
 		task.Update(TaskUpdate{Stage: "verifying", Message: "正在完整解码并核对时长"})
-		if err = verifyDownloadMedia(ctx, filepath.Join(row.Root, row.StagingPath), row.Duration, true, false, task, nil, row.HLS); err != nil {
-			if ctx.Err() == nil {
-				_ = root.Remove(row.StagingPath)
-				_ = root.Remove(filepath.Dir(row.StagingPath))
-				row.RawSize = 0
-				row.StagingPath = ""
-			}
-			return huangGuoAIDownloadError{err}
+		verificationErr := verifyDownloadMedia(ctx, filepath.Join(row.Root, row.StagingPath), row.Duration, true, false, task, nil, row.HLS)
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		file, e := root.Open(row.StagingPath)
 		if e != nil {
@@ -160,6 +161,19 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 		}
 		row.SHA256 = hex.EncodeToString(digest.Sum(nil))
 		row.VerifiedSize = size
+		if size != row.RawSize {
+			row.SHA256, row.VerifiedSize = "", 0
+			return errors.New("校验文件长度已变更")
+		}
+		if verificationErr != nil {
+			warning := verificationErr.Error()
+			if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "pending_review", "warning": warning, "review_token": uuid.NewString(), "error": "", "sha256": row.SHA256, "verified_size": size, "lease_token": "", "lease_until": nil}); err != nil {
+				row.SHA256, row.VerifiedSize = "", 0
+				return err
+			}
+			task.Update(TaskUpdate{Details: []string{warning}})
+			return errHuangGuoAIPendingReview
+		}
 		if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "publishing", "sha256": row.SHA256, "verified_size": size}); err != nil {
 			return err
 		}

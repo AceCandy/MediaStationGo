@@ -115,6 +115,11 @@ export function streamURL(mediaId: string): string {
   return `/api/stream/${encodeURIComponent(mediaId)}?${tokenQuery()}${profileQuery()}`
 }
 
+// 管理员候选试播沿用原生视频的会话和播放配置鉴权。
+export function huangGuoAIReviewURL(downloadId: string, reviewToken: string): string {
+  return `/api/catalogs/huangguoai/downloads/${encodeURIComponent(downloadId)}/preview?review_token=${encodeURIComponent(reviewToken)}&${tokenQuery()}${profileQuery()}`
+}
+
 // imageURL converts a remote poster URL into a same-origin proxy URL so it
 // can never be blocked by CORS / GFW. Empty strings pass through unchanged.
 export type ImageURLOptions =

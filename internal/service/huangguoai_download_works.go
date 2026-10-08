@@ -17,6 +17,7 @@ type HuangGuoAIDownloadWorkSummary struct {
 	Kind          string `json:"kind"`
 	Total         int64  `json:"total"`
 	Completed     int64  `json:"completed"`
+	PendingReview int64  `json:"pending_review"`
 	Failed        int64  `json:"failed"`
 	Active        int64  `json:"active"`
 	Downloading   int64  `json:"downloading"`
@@ -30,7 +31,7 @@ type HuangGuoAIDownloadWorkSummary struct {
 
 func validHuangGuoAIDownloadStatus(status string) bool {
 	switch status {
-	case "", "queued", "downloading", "waiting_verify", "verifying", "publishing", "failed", "cancelled", "completed":
+	case "", "pending_review", "queued", "downloading", "waiting_verify", "verifying", "publishing", "failed", "cancelled", "completed":
 		return true
 	}
 	return false
@@ -56,7 +57,7 @@ func (s *HuangGuoAIDownloadService) Works(ctx context.Context, page int, status,
 			return err
 		}
 		pageWorks := q.Select("w.*").Order("w.created_at DESC,w.source_id").Offset((page - 1) * 50).Limit(50)
-		return tx.Table("(?) w", pageWorks).Joins("LEFT JOIN huangguoai_works catalog ON catalog.source_id=w.source_id").Joins("JOIN huangguoai_downloads d ON d.source_id=w.source_id").Select(`w.source_id,w.title,COALESCE(catalog.kind,'') AS kind,COUNT(*) AS total,COUNT(*) FILTER (WHERE d.status='completed') AS completed,COUNT(*) FILTER (WHERE d.status='failed') AS failed,COUNT(*) FILTER (WHERE d.status IN ('downloading','verifying','publishing','waiting_verify')) AS active,COUNT(*) FILTER (WHERE d.status='downloading') AS downloading,COUNT(*) FILTER (WHERE d.status='waiting_verify') AS waiting_verify,COUNT(*) FILTER (WHERE d.status='verifying') AS verifying,COUNT(*) FILTER (WHERE d.status='publishing') AS publishing,COUNT(*) FILTER (WHERE d.status='queued') AS queued,COUNT(*) FILTER (WHERE d.status='cancelled') AS cancelled,SUM(d.bytes) AS bytes`).Group("w.source_id,w.title,w.created_at,catalog.kind").Order("w.created_at DESC,w.source_id").Scan(&rows).Error
+		return tx.Table("(?) w", pageWorks).Joins("LEFT JOIN huangguoai_works catalog ON catalog.source_id=w.source_id").Joins("JOIN huangguoai_downloads d ON d.source_id=w.source_id").Select(`w.source_id,w.title,COALESCE(catalog.kind,'') AS kind,COUNT(*) AS total,COUNT(*) FILTER (WHERE d.status='completed') AS completed,COUNT(*) FILTER (WHERE d.status='failed') AS failed,COUNT(*) FILTER (WHERE d.status='pending_review') AS pending_review,COUNT(*) FILTER (WHERE d.status IN ('downloading','verifying','publishing','waiting_verify')) AS active,COUNT(*) FILTER (WHERE d.status='downloading') AS downloading,COUNT(*) FILTER (WHERE d.status='waiting_verify') AS waiting_verify,COUNT(*) FILTER (WHERE d.status='verifying') AS verifying,COUNT(*) FILTER (WHERE d.status='publishing') AS publishing,COUNT(*) FILTER (WHERE d.status='queued') AS queued,COUNT(*) FILTER (WHERE d.status='cancelled') AS cancelled,SUM(d.bytes) AS bytes`).Group("w.source_id,w.title,w.created_at,catalog.kind").Order("w.created_at DESC,w.source_id").Scan(&rows).Error
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	return rows, total, err
 }
@@ -77,7 +78,24 @@ func (s *HuangGuoAIDownloadService) WorkAction(ctx context.Context, id, action s
 	if !huangguoai.ValidID(id) {
 		return 0, errors.New("来源ID无效")
 	}
-	q := s.repo.DB.WithContext(ctx).Model(&model.HuangGuoAIDownload{}).Where("source_id=?", id)
+	// 待确认文件没有活跃执行者，逐项撤销并清理私有候选，不能只批量改状态。
+	var reviewed int64
+	var reviewedIDs []string
+	if action == "cancel" {
+		if err := s.repo.DB.WithContext(ctx).Model(&model.HuangGuoAIDownload{}).Where("source_id=? AND status='pending_review'", id).Pluck("id", &reviewedIDs).Error; err != nil {
+			return 0, err
+		}
+		for _, downloadID := range reviewedIDs {
+			if err := s.Action(ctx, downloadID, "cancel"); err != nil {
+				return reviewed, err
+			}
+			reviewed++
+		}
+	}
+	q := s.repo.DB.WithContext(ctx).Model(&model.HuangGuoAIDownload{}).Where("source_id=? AND status<>'pending_review'", id)
+	if len(reviewedIDs) > 0 {
+		q = q.Where("id NOT IN ?", reviewedIDs)
+	}
 	values := map[string]any{}
 	switch action {
 	case "cancel":
@@ -94,5 +112,5 @@ func (s *HuangGuoAIDownloadService) WorkAction(ctx context.Context, id, action s
 		s.refreshWorkTask(ctx, id)
 		s.Wake()
 	}
-	return result.RowsAffected, result.Error
+	return reviewed + result.RowsAffected, result.Error
 }

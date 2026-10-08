@@ -270,6 +270,26 @@ func (s *HuangGuoAIDownloadService) Action(ctx context.Context, id, action strin
 			return e
 		}
 		sourceID = row.SourceID
+		if row.Status == "pending_review" && (action == "retry" || action == "cancel") {
+			// 待确认行不会被 worker 领取；持有行锁时清理，失败保留路径以便再次撤销。
+			if !validHuangGuoAIStage(row.StagingPath, row.ID) {
+				return errors.New("候选暂存路径无效")
+			}
+			root, err := os.OpenRoot(row.Root)
+			if err != nil {
+				return errors.New("候选存储不可访问，请稍后重试")
+			}
+			err = root.RemoveAll(filepath.Dir(row.StagingPath))
+			root.Close()
+			if err != nil {
+				return errors.New("候选清理失败，请稍后重试")
+			}
+			status := "cancelled"
+			if action == "retry" {
+				status = "queued"
+			}
+			return tx.Model(&row).Updates(map[string]any{"status": status, "raw_size": 0, "sha256": "", "verified_size": 0, "staging_path": "", "warning": "", "review_token": "", "confirmed_by": "", "confirmed_at": nil, "error": "", "bytes": 0, "total_bytes": 0, "lease_token": "", "lease_until": nil}).Error
+		}
 		switch action {
 		case "cancel":
 			if row.Status == "completed" {

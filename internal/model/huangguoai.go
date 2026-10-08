@@ -167,16 +167,21 @@ func (HuangGuoAIDownloadWork) TableName() string { return "huangguoai_download_w
 
 type HuangGuoAIDownload struct {
 	PermanentBase
-	SourceID     string     `gorm:"size:32;not null;uniqueIndex:uidx_hga_download_episode,priority:1" json:"source_id"`
-	Episode      int        `gorm:"not null;uniqueIndex:uidx_hga_download_episode,priority:2" json:"episode"`
-	Title        string     `gorm:"type:text" json:"title"`
-	Root         string     `gorm:"type:text" json:"-"`
-	RelativePath string     `gorm:"type:text" json:"relative_path"`
-	Status       string     `gorm:"size:24;not null;index:idx_hga_download_due,priority:1" json:"status"`
-	Bytes        int64      `json:"bytes"`
-	TotalBytes   int64      `json:"total_bytes"`
-	Attempts     int        `json:"attempts"`
-	Error        string     `gorm:"type:text" json:"error"`
+	SourceID     string `gorm:"size:32;not null;uniqueIndex:uidx_hga_download_episode,priority:1" json:"source_id"`
+	Episode      int    `gorm:"not null;uniqueIndex:uidx_hga_download_episode,priority:2" json:"episode"`
+	Title        string `gorm:"type:text" json:"title"`
+	Root         string `gorm:"type:text" json:"-"`
+	RelativePath string `gorm:"type:text" json:"relative_path"`
+	Status       string `gorm:"size:24;not null;index:idx_hga_download_due,priority:1" json:"status"`
+	Bytes        int64  `json:"bytes"`
+	TotalBytes   int64  `json:"total_bytes"`
+	Attempts     int    `json:"attempts"`
+	Error        string `gorm:"type:text" json:"error"`
+	// 人工接受仅针对保留产物，警告和确认记录在发布后仍保留。
+	ReviewToken  string     `gorm:"size:36" json:"review_token"`
+	Warning      string     `gorm:"type:text" json:"warning"`
+	ConfirmedBy  string     `gorm:"size:36" json:"confirmed_by"`
+	ConfirmedAt  *time.Time `json:"confirmed_at"`
 	LeaseToken   string     `gorm:"size:36" json:"-"`
 	LeaseUntil   *time.Time `gorm:"index:idx_hga_download_due,priority:2" json:"-"`
 	RawSize      int64      `gorm:"not null;default:0" json:"-"`
