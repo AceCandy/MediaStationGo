@@ -1,0 +1,28 @@
+{
+  "id": "huangguoai-manual-verify",
+  "name": "huangguoai-manual-verify",
+  "title": "黄果下载校验失败人工确认",
+  "description": "保留完整传输但校验失败的候选文件，提供管理员试播和显式确认发布，并保留警告与严格正常流程。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-09",
+  "completedAt": "2026-10-09",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "2d2c227",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Implemented and verified; production deployment remains not_deployed. Local direct-main delivery, no PR.",
+  "meta": {
+    "deployment_status": "not_deployed"
+  }
+}
