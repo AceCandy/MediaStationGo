@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 217
+- **Total Sessions**: 218
 - **Last Active**: 2026-10-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1476 | Active |
+| `journal-3.md` | ~1512 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 218 | 2026-10-08 | Emby API 缓存设计归档 | `c09ba55` | `main` |
 | 217 | 2026-10-08 | 黄果下载跨任务分片复用 | `6d646fe` | `main` |
 | 216 | 2026-10-07 | 黄果下载分类、恢复与分片并发交付 | `f7357ef`, `318b490` | `main` |
 | 215 | 2026-10-07 | Pagination regressions repaired and archived | `8faac7f` | `main` |

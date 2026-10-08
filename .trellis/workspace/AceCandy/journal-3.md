@@ -1474,3 +1474,39 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 218: Emby API 缓存设计归档
+<!-- trellis-session: v=2 fp=d82f8591b90a2c0e -->
+
+**Date**: 2026-10-08
+**Task**: Emby API 缓存设计归档
+**Branch**: `main`
+
+### Summary
+
+完成单实例 Emby 列表、详情及继续观看的五分钟缓存设计，采用本地与可选 Redis 两层缓存，明确内容/用户状态/权限失效及旧读回填保护；仅设计交付，尚未实现。
+
+### Main Changes
+
+- 提交并归档需求、设计、实施计划与失效证据，明确业务代码未实现
+- Web 接口及浏览器缓存不改；直接删除历史的即时通知作为后续已知边界
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c09ba55` | docs(emby): 记录接口缓存设计与失效策略 |
+
+### Testing
+
+- [OK] 已复核文档范围、任务状态、上下文引用与 git diff --check
+- [OK] 未执行 Go 测试、编译或数据库/Redis/播放器验证；当前为设计文档提交
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 后续实现前复核提交入口、已知失效边界与验收计划
