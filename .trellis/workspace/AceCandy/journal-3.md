@@ -1590,3 +1590,25 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 222: 统一黄果人工确认弹窗
+<!-- trellis-session: v=2 fp=31fd4ca58ba5fe10 -->
+
+**Date**: 2026-10-09
+**Task**: 统一黄果人工确认弹窗
+**Branch**: `main`
+
+### Summary
+
+复用项目统一确认弹窗与主题按钮，保留取消不提交及候选版本确认。Web lint/build、合成浏览器明暗主题与响应式检查、独立复核通过。只读核对未完结作品定时刷新、新作品补充下载及入库配置，记录自动补新集缺口；未实现追更补集、未改生产配置、未部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a377cc9` | fix(downloads): 统一人工确认弹窗和按钮样式 |
+
+### Status
+
+[OK] **Completed**
