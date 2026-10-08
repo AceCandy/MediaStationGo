@@ -1510,3 +1510,39 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 后续实现前复核提交入口、已知失效边界与验收计划
+
+
+## Session 219: 统一收藏默认排序
+<!-- trellis-session: v=2 fp=85534fd7fac13a0d -->
+
+**Date**: 2026-10-08
+**Task**: 统一收藏默认排序
+**Branch**: `main`
+
+### Summary
+
+统一网页及 Emby 各来源收藏默认按添加时间倒序；修正重新收藏、NFO 播放隔离和重复行分页；已提交并归档。
+
+### Main Changes
+
+- 普通收藏恢复时刷新添加时间；红果与黄果重复收藏保留时间；NFO 新增独立收藏时间，不回填历史数据。
+- 网页混合收藏与 Emby 全局、库内查询在分页前统一默认倒序，保留客户端显式排序。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `76fe886` | fix(favorites): 统一收藏默认按添加时间倒序 |
+
+### Testing
+
+- [OK] 临时 PostgreSQL 收藏顺序、分页、计数、重新收藏、播放隔离及大数据查询计划回归通过；临时数据库已关闭并清理。
+- [OK] 前端 lint/build、diff 检查及独立复核通过；未部署，未实测原生客户端及浏览器交互。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后确认 NFO 时间列启动迁移及客户端默认收藏展示。
