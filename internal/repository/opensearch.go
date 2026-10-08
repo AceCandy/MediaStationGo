@@ -19,7 +19,7 @@ import (
 
 const (
 	defaultMetadataSearchAlias = "mediastation_metadata"
-	metadataSearchSchema       = 1
+	metadataSearchSchema       = 2
 )
 
 type OpenSearchMediaBackend struct {
@@ -165,6 +165,11 @@ func (b *OpenSearchMediaBackend) PrepareMetadataIndex(ctx context.Context) (stri
 				"library_ids":   map[string]any{"type": "keyword"},
 			},
 		},
+	}
+	if b.documentType == "metadata" {
+		properties := mapping["mappings"].(map[string]any)["properties"].(map[string]any)
+		properties["person_ids"] = map[string]any{"type": "keyword"}
+		properties["person_names"] = map[string]any{"type": "keyword"}
 	}
 	if err := b.doJSON(ctx, http.MethodPut, "/"+url.PathEscape(index), mapping, nil); err != nil {
 		return "", err

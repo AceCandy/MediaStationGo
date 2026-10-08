@@ -180,16 +180,14 @@ func TestEmbySearchCombinesPersonAndMediaItemTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := out["Items"].([]map[string]any)
-	if len(items) != 2 || out["TotalRecordCount"] != int64(2) {
-		t.Fatalf("mixed search = %#v, want Person and matching Movie", out)
+	if len(items) != 3 || out["TotalRecordCount"] != int64(3) {
+		t.Fatalf("mixed search = %#v, want Person, title match and credited Movie", out)
 	}
 	if items[0]["Type"] != "Person" || items[0]["Id"] != person.ID || items[1]["Id"] != "metadata-chow-story" {
 		t.Fatalf("mixed search order = %#v, want exact Person before containing Movie", items)
 	}
-	for _, item := range items {
-		if item["Id"] == "metadata-unrelated-credit" {
-			t.Fatalf("person credit expanded into unrelated movie: %#v", items)
-		}
+	if items[2]["Id"] != "metadata-unrelated-credit" {
+		t.Fatalf("person search omitted credited movie: %#v", items)
 	}
 	hints, err := svc.SearchHints(t.Context(), ItemsParams{
 		SearchTerm: "周星驰", IncludeItemTypes: []string{"Person", "Movie"}, Limit: 10,
@@ -198,7 +196,7 @@ func TestEmbySearchCombinesPersonAndMediaItemTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	searchHints := hints["SearchHints"].([]map[string]any)
-	if len(searchHints) != 2 || searchHints[0]["Type"] != "Person" || searchHints[0]["ItemId"] != person.ID {
+	if len(searchHints) != 3 || searchHints[0]["Type"] != "Person" || searchHints[0]["ItemId"] != person.ID {
 		t.Fatalf("mixed search hints = %#v, want exact Person first", hints)
 	}
 	if searchHints[1]["Type"] != "Movie" {
@@ -235,7 +233,7 @@ func TestEmbySearchCombinesPersonAndMediaItemTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := mediaWithUnsupported["Items"].([]map[string]any); len(got) != 1 || got[0]["Id"] != "metadata-chow-story" {
+	if got := mediaWithUnsupported["Items"].([]map[string]any); len(got) != 2 || got[0]["Id"] != "metadata-chow-story" || got[1]["Id"] != "metadata-unrelated-credit" {
 		t.Fatalf("Movie + unsupported type = %#v, want matching Movie", mediaWithUnsupported)
 	}
 

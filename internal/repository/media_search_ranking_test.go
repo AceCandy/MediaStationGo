@@ -2,6 +2,39 @@ package repository
 
 import "testing"
 
+func TestRankPersonWorksKeepsAllRelationsAfterOrdinaryCap(t *testing.T) {
+	candidates := make([]MetadataSearchCandidate, 0, 251)
+	for i := 0; i < 130; i++ {
+		candidates = append(candidates, MetadataSearchCandidate{Kind: "movie", ID: "title-" + string(rune(i+1)), Title: "周星驰外传"})
+	}
+	for i := 0; i < 121; i++ {
+		candidates = append(candidates, MetadataSearchCandidate{Kind: "movie", ID: "work-" + string(rune(i+1)), Title: "关联作品", PersonMatch: true})
+	}
+	rows, total := RankMetadataSearchCandidatePage("周星驰", candidates, 0, 1000)
+	if total != 221 || len(rows) != 221 {
+		t.Fatalf("mixed page len=%d total=%d, want 221/221", len(rows), total)
+	}
+	people := 0
+	for _, row := range rows {
+		if row.PersonMatch {
+			people++
+		}
+	}
+	if people != 121 {
+		t.Fatalf("person works=%d, want 121", people)
+	}
+	rows, total = RankMetadataSearchCandidatePage("周星驰", candidates, 220, 10)
+	if total != 221 || len(rows) != 1 || !rows[0].PersonMatch {
+		t.Fatalf("last page=%v total=%d", rows, total)
+	}
+	// 同一作品先作为标题候选、再作为关联候选时仍只返回一次。
+	candidates = []MetadataSearchCandidate{{Kind: "movie", ID: "same", Title: "作品"}, {Kind: "movie", ID: "same", PersonMatch: true}}
+	rows, total = RankMetadataSearchCandidatePage("周星驰", candidates, 0, 10)
+	if total != 1 || len(rows) != 1 || !rows[0].PersonMatch {
+		t.Fatalf("merged page=%v total=%d", rows, total)
+	}
+}
+
 func TestMetadataSearchNumericAliasesAndTitleNumbers(t *testing.T) {
 	for input, want := range map[string]string{
 		"0": "零", "1": "一", "9": "九", "10": "十", "11": "十一",

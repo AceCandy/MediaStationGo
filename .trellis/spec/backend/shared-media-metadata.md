@@ -1276,9 +1276,10 @@ return []model.MediaView{*part2}
 - Non-empty search candidate cap: `maxMetadataSearchCandidates = 100`.
 - OpenSearch document ID is the top-level `MetadataItem.ID`; its fields are
   `id`, `kind`, `title`, `original_name`, `overview`, `genres`, and
-  derived `library_ids`.
+  derived `library_ids`, plus ordinary `person_ids` and lowercase `person_names`.
 - The active OpenSearch alias is `mediastation_metadata`; versioned concrete
-  indexes are built before an atomic alias switch.
+  indexes are built before an atomic alias switch. Ordinary schema version 2 adds
+  person fields; HongGuo retains its independent version and mapping.
 
 ### 3. Contracts
 
@@ -1293,14 +1294,18 @@ return []model.MediaView{*part2}
   require an intersection with visible libraries; an explicitly restricted
   empty library set returns no candidates.
 - Web searches `title`, `original_name`, `overview`, and `genres`. Emby searches
-  only `title` and `original_name`; every normalized term must match, and
+  `title` and `original_name`, with an additional ordinary person-name/
+  original-name literal substring expansion to credited Movie/Series. Every
+  normalized title term must match, and
   PostgreSQL LIKE metacharacters are escaped literally.
-- Non-empty queries always ask OpenSearch or PostgreSQL for candidates at
+- Non-empty title queries always ask OpenSearch or PostgreSQL for candidates at
   `offset=0`, capped at 100. PostgreSQL revalidates the candidate IDs and loads
   current title, original name, overview, genres, and year; one shared Go
   comparator sorts the complete candidate set before applying the caller's
   offset/limit. The returned total is the revalidated candidate count and is
-  therefore at most 100. Empty-query browsing keeps database pagination and its
+  therefore at most 100 for title-only search. Ordinary person-work expansion
+  additionally retains every revalidated related work before pagination.
+  Empty-query browsing keeps database pagination and its
   uncapped logical total.
 - Search terms use AND between term groups and OR only between one term's
   equivalent forms. Standard decimal integers and canonical Chinese numbers
@@ -1333,18 +1338,49 @@ return []model.MediaView{*part2}
   total and ordering remain identical to projecting full Items; People,
   ProviderIds and MediaSources are not needed for the hints envelope.
 - Emby `SearchTerm` treats supported `IncludeItemTypes` as an OR set. Movie and
-  Series keep the OpenSearch/PostgreSQL media path; Person candidates come only
-  from PostgreSQL name/original-name search and never expand to credited works.
+  Series keep the existing title path and additionally expand ordinary person
+  names to credited works. Explicit Person candidates come from PostgreSQL
+  name/original-name search. Person keyword searches exclude HongGuo people;
+  no-keyword Persons browsing retains existing source behavior. NFO-only and
+  HuangGuo AI people are not included in this expansion.
   Unsupported types are ignored beside a supported type and return an empty
   envelope when requested alone. Mixed candidates use the shared rank, cap of
-  100, and in-memory pagination. No-term hierarchy browsing remains unchanged.
+  100 for non-related candidates, and in-memory pagination. No-term hierarchy
+  browsing remains unchanged; ordinary PersonIds work pages use the full
+  person-work candidate path and preserve file/state qualification.
 - OpenSearch hits are revalidated through PostgreSQL before ranking and response
   mapping. Stale, invisible, unplayable, or no-longer-matching candidates are
   omitted before the capped total and page are computed.
 - Media create, delete, rebind, and library move refresh both old and new
   top-level IDs after commit. Metadata content, parent, and merge changes do the
   same. A full rebuild replays dirty IDs before switching the alias; it does not
-  delete the retired Media index.
+  delete the retired Media index. Person credit replacement and person-name
+  translation refresh affected work IDs after commit. Shared-name changes
+  refresh all related works; unchanged credit snapshots need not refresh all
+  works sharing a person. Refresh failures disable person-index recall until
+  a successful rebuild; dirty identities are replayed before alias activation.
+
+### Ordinary Person Work Search
+
+- `PersonWorkSearchBackend.SearchPersonWorkIDs` queries the ordinary work alias
+  using exact `person_ids` or escaped lowercase keyword `person_names` substrings.
+  Read lightweight IDs in 500-ID keyset batches, not a capped first page or a
+  deep `from` window; timeout/failed-shard responses must fall back to PostgreSQL.
+- Movie credits belong to the Movie. Series person search unions Series and
+  Season credits, not Episode credits. Same names never merge provider identities.
+- `PersonWorkQuery` revalidates live people, current credits, kinds, visible
+  libraries and playable files. Person work qualification includes files directly
+  attached to Series or Season. Index documents include those library memberships;
+  ordinary title-only search retains its previous episode-chain qualification.
+- Emby PersonIds Movie/Series pages reuse stable sort, optional counts, state
+  eligibility and page-only hydration. A direct-file-only Series gets a page-local
+  summary even when the normal episode-summary loader returns no group.
+- Regression coverage: `TestOpenSearchPersonWorkCursorAndLiteralName`,
+  `TestOpenSearchPersonWorkRejectsIncompleteResults`,
+  `TestPersonSearchDocumentsFollowCreditsAndNames`,
+  `TestPersonSearchDocumentsIncludeDirectSeriesFiles`,
+  `TestEmbyOrdinaryPersonWorksCompletePagesAndRevalidation`, and
+  `TestEmbyPersonWorksPreserveDirectSeriesAndSeasonFiles`.
 
 ### 4. Validation & Error Matrix
 
@@ -1353,15 +1389,16 @@ return []model.MediaView{*part2}
 | OpenSearch alias is missing, incompatible, or the request fails | Use PostgreSQL Metadata search |
 | Restricted visibility resolves to no library | Return empty IDs, items, and total |
 | Movie loses its last Media | Delete its search document |
-| Series loses its last playable Episode Media | Delete its search document |
+| Series loses all playable Episode and direct Series/Season Media | Delete its search document |
 | Media changes Metadata or library | Refresh old and new top-level projections after commit |
 | OpenSearch returns a stale/invisible ID | Omit it during PostgreSQL revalidation |
-| Non-empty search has more than 100 backend matches | Rank and expose only the selected 100 candidates; total is capped at 100 |
+| Title-only search has more than 100 backend matches | Rank and expose only the selected 100 candidates; total is capped at 100 |
+| Ordinary person matches more than 100 works | Retain all revalidated related works and paginate the combined ranked set |
 | Search is `44` or `四十四` | Match both complete numeric forms; do not match `四十` as a numeric alias |
 | Emby player sends a one-character term such as `古%` | Normalize it to `古`; keep standalone or multi-character `%` terms literal |
-| Search requests `Person,Movie` | Return matching Person and Movie items in one ranked page; do not return unrelated credited works |
+| Search requests `Person,Movie` | Return matching Person, title-matched Movies and ordinary credited Movies in one ranked page |
 | Search requests `Person,MusicAlbum` | Ignore unsupported MusicAlbum and return matching Person items |
-| Requested offset is outside the candidate set | Return an empty page with the capped total |
+| Requested offset is outside the candidate set | Return an empty page with the qualified candidate total |
 | Search requests only Season/Episode | Return an empty Emby search envelope |
 
 ### 5. Good / Base / Bad Cases
@@ -1373,7 +1410,8 @@ return []model.MediaView{*part2}
 - Good: Yamby/Emby sends `古%` after one-character input and receives the same
   results as `古` without changing other literal `%` searches.
 - Good: `Person,Movie` search for an exact person name ranks that Person ahead
-  of a containing movie title without expanding the person's credits.
+  of a containing movie title, followed by credited works whose titles do not
+  contain the name.
 - Base: OpenSearch is unavailable; PostgreSQL returns the same Metadata-grained
   eligibility and applies the same Go ranking to its finite candidate set.
 - Bad: index one document per Media and collapse versions after pagination.
@@ -1403,7 +1441,7 @@ return []model.MediaView{*part2}
 - Synchronization tests assert create, last-Media delete, rebind, library move,
   Metadata parent change, and graph merge refresh every affected top-level ID.
 - Emby tests assert Movie/Series/Person OR results, unsupported-type ignoring,
-  no credit expansion, no-term browse stability, Season/Episode empty search,
+  ordinary credit expansion, >100 related-work paging, no-term browse stability, Season/Episode empty search,
   ParentId behavior, multi-term AND, one-character `%` suffix normalization,
   other literal `\\`/`%`/`_` terms, SearchHints, and logical total.
 

@@ -21,6 +21,11 @@ type MediaSearchBackend interface {
 	SearchMetadataIDs(ctx context.Context, query string, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error)
 }
 
+// PersonWorkSearchBackend 召回全部人物关联作品 ID，不沿用标题搜索的候选上限。
+type PersonWorkSearchBackend interface {
+	SearchPersonWorkIDs(ctx context.Context, name string, personIDs []string, filter MetadataSearchFilter) ([]string, error)
+}
+
 type MediaSearchSyncBackend interface {
 	MediaSearchBackend
 	PrepareMetadataIndex(ctx context.Context) (string, error)
@@ -79,6 +84,8 @@ type MetadataSearchDocument struct {
 	Overview     string   `json:"overview"`
 	Genres       string   `json:"genres"`
 	LibraryIDs   []string `json:"library_ids" gorm:"-"`
+	PersonIDs    []string `json:"person_ids,omitempty" gorm:"-"`
+	PersonNames  []string `json:"person_names,omitempty" gorm:"-"`
 }
 
 func (r *MediaRepository) refreshMetadataBestEffort(ctx context.Context, metadataIDs ...string) {

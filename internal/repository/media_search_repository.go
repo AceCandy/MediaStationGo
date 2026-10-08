@@ -265,6 +265,11 @@ func stringSet(values []string) map[string]struct{} {
 }
 
 func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter MetadataSearchFilter) *gorm.DB {
+	return r.metadataSearchWorkQuery(ctx, filter, false)
+}
+
+// metadataSearchWorkQuery 人物关联列表额外保留直接绑定整剧或季的文件资格。
+func (r *MediaViewRepository) metadataSearchWorkQuery(ctx context.Context, filter MetadataSearchFilter, directSeries bool) *gorm.DB {
 	q := r.db.WithContext(ctx).
 		Table("metadata_items AS search_metadata").
 		Where("search_metadata.kind IN ?", filter.Kinds)
@@ -278,6 +283,16 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 		visible.AllowedLibraryIDs = filter.VisibleLibraryIDs
 		qualification = metadataPlayableInLibrariesSQL
 		args = []any{&filter.VisibleLibraryIDs, &filter.VisibleLibraryIDs}
+	}
+	if directSeries {
+		direct := r.db.WithContext(ctx).Table("media direct_media").Select("1").
+			Where(`direct_media.metadata_id IN (
+SELECT search_metadata.id UNION ALL SELECT id FROM metadata_items WHERE parent_id=search_metadata.id AND kind='season')`)
+		if filter.LibraryRestricted {
+			direct = direct.Where("direct_media.library_id = ANY(?)", &filter.VisibleLibraryIDs)
+		}
+		qualification = "(" + qualification + " OR (search_metadata.kind='series' AND EXISTS (?)))"
+		args = append(args, direct)
 	}
 	q = FilterVisibleWorkLibraries(r.db.WithContext(ctx), q, "search_metadata.library_ids", nil, visible)
 	// 叶子作品的有效库归属已证明存在；整剧仍需满足搜索的季→集→文件结构。
@@ -936,7 +951,17 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
 		JOIN `+mediaSource+` AS episode_media ON episode_media.metadata_id = episode_metadata.id
 			WHERE series_metadata.id IN ? AND series_metadata.kind = 'series'
-	`, metadataIDs, metadataIDs).Scan(&libraries).Error
+		UNION
+		SELECT series_metadata.id AS metadata_id, direct_media.library_id
+		FROM metadata_items series_metadata JOIN media direct_media ON direct_media.metadata_id=series_metadata.id
+		WHERE series_metadata.id IN ? AND series_metadata.kind='series'
+		UNION
+		SELECT series_metadata.id AS metadata_id, direct_media.library_id
+		FROM metadata_items series_metadata
+		JOIN metadata_items season_metadata ON season_metadata.parent_id=series_metadata.id AND season_metadata.kind='season'
+		JOIN media direct_media ON direct_media.metadata_id=season_metadata.id
+		WHERE series_metadata.id IN ? AND series_metadata.kind='series'
+	`, metadataIDs, metadataIDs, metadataIDs, metadataIDs).Scan(&libraries).Error
 	if err != nil {
 		return nil, err
 	}
@@ -948,6 +973,10 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 	for _, item := range items {
 		itemByID[item.ID] = item
 	}
+	personIDs, personNames, err := r.metadataSearchPeople(ctx, metadataIDs)
+	if err != nil {
+		return nil, err
+	}
 	documents := make([]MetadataSearchDocument, 0, len(items))
 	for _, id := range metadataIDs {
 		item, exists := itemByID[id]
@@ -956,9 +985,14 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 			continue
 		}
 		sort.Strings(libraryIDs)
+		people := uniqueNonEmptyStrings(personIDs[id])
+		names := uniqueNonEmptyStrings(personNames[id])
+		sort.Strings(people)
+		sort.Strings(names)
 		documents = append(documents, MetadataSearchDocument{
 			ID: item.ID, Kind: item.Kind, Title: item.Title, OriginalName: item.OriginalName,
 			Overview: item.Overview, Genres: item.Genres, LibraryIDs: libraryIDs,
+			PersonIDs: people, PersonNames: names,
 		})
 	}
 	return documents, nil
@@ -967,37 +1001,20 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 // RefreshMetadataIDs recomputes affected top-level documents. Unknown or no
 // longer eligible IDs are deleted from the active alias.
 func (r *MediaViewRepository) RefreshMetadataIDs(ctx context.Context, metadataIDs ...string) {
-	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
+	_, ok := r.searchBackend.(MediaSearchSyncBackend)
 	if !ok || len(metadataIDs) == 0 {
 		return
 	}
 	topIDs, err := r.topMetadataIDsForMetadataIDs(ctx, metadataIDs)
 	if err != nil {
+		r.searchFailed.Store(true)
+		r.searchMu.Lock()
+		r.searchRebuildInvalid = true
+		r.searchMu.Unlock()
 		return
 	}
 	candidates := uniqueNonEmptyStrings(append(append([]string{}, metadataIDs...), topIDs...))
-	r.searchMu.Lock()
-	if r.searchRebuild {
-		for _, id := range candidates {
-			r.searchDirty[id] = struct{}{}
-		}
-	}
-	r.searchMu.Unlock()
-	documents, err := r.metadataSearchDocuments(ctx, candidates)
-	if err != nil {
-		return
-	}
-	byID := make(map[string]MetadataSearchDocument, len(documents))
-	for _, document := range documents {
-		byID[document.ID] = document
-	}
-	for _, id := range candidates {
-		if document, exists := byID[id]; exists {
-			_ = backend.UpsertMetadata(ctx, document)
-		} else {
-			_ = backend.DeleteMetadata(ctx, id)
-		}
-	}
+	r.searchIndex.refresh(ctx, candidates, r.metadataSearchDocuments)
 }
 
 func (r *searchIndex) refresh(ctx context.Context, candidates []string, loadDocuments func(context.Context, []string) ([]MetadataSearchDocument, error)) {

@@ -65,8 +65,10 @@ func (e *EmbyService) Persons(ctx context.Context, p ItemsParams) (map[string]an
 	if p.Limit <= 0 || p.Limit > 500 && !(p.SkipTotalRecordCount && p.Limit == 501) {
 		p.Limit = 50
 	}
-	if result, ok, err := e.hongGuoPersons(ctx, p); ok {
-		return result, err
+	if strings.TrimSpace(p.SearchTerm) == "" {
+		if result, ok, err := e.hongGuoPersons(ctx, p); ok {
+			return result, err
+		}
 	}
 	people, total, err := e.repo.Person.List(ctx, p.SearchTerm, p.IDs, p.StartIndex, p.Limit, !p.SkipTotalRecordCount)
 	if err != nil {

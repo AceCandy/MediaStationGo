@@ -9,7 +9,7 @@ import (
 
 const (
 	maxMetadataSearchCandidates = 100
-	// MetadataSearchCandidateLimit 是所有搜索后端和内存合并共享的候选上限。
+	// MetadataSearchCandidateLimit 是标题及人物条目的召回上限，人物关联作品不受此限制。
 	MetadataSearchCandidateLimit = maxMetadataSearchCandidates
 )
 
@@ -33,6 +33,8 @@ type MetadataSearchCandidate struct {
 	Overview     string `gorm:"column:overview"`
 	Genres       string `gorm:"column:genres"`
 	Year         int    `gorm:"column:year"`
+	// PersonMatch 已经由数据库复核人物关联，可保留片名没有命中姓名的作品。
+	PersonMatch bool `gorm:"-"`
 }
 
 type metadataSearchCandidate = MetadataSearchCandidate
@@ -172,10 +174,14 @@ func rankMetadataSearchCandidates(query string, groups []metadataSearchTermGroup
 	ranked := make([]metadataSearchCandidateRank, 0, len(candidates))
 	for _, candidate := range candidates {
 		values := metadataSearchCandidateFields(candidate, fields)
-		if !metadataSearchMatchesAllGroups(values, groups) {
+		titleMatch := metadataSearchMatchesAllGroups(values, groups)
+		if !titleMatch && !(fields == MetadataSearchFieldsTitle && candidate.PersonMatch) {
 			continue
 		}
 		entry := metadataSearchCandidateRank{candidate: candidate, tier: 2, number: metadataSearchTitleNumber(candidate.Title)}
+		if !titleMatch {
+			entry.tier = 3
+		}
 		if exactValues[strings.ToLower(strings.TrimSpace(candidate.Title))] || exactValues[strings.ToLower(strings.TrimSpace(candidate.OriginalName))] {
 			entry.tier = 0
 		} else if metadataSearchContainsGroups(candidate.Title, groups) || metadataSearchContainsGroups(candidate.OriginalName, groups) {
@@ -253,8 +259,9 @@ func rankMetadataSearchCandidatePage(query string, candidates []MetadataSearchCa
 	if len(terms) == 0 {
 		return []MetadataSearchCandidate{}, 0
 	}
-	seen := make(map[string]struct{}, len(candidates))
+	seen := make(map[string]int, len(candidates))
 	unique := make([]metadataSearchCandidate, 0, len(candidates))
+	hasPersonWorks := false
 	for _, candidate := range candidates {
 		if fields == MetadataSearchFieldsWeb {
 			candidate.Kind = ""
@@ -263,14 +270,30 @@ func rankMetadataSearchCandidatePage(query string, candidates []MetadataSearchCa
 		if candidate.ID == "" {
 			continue
 		}
-		if _, exists := seen[key]; exists {
+		if candidate.PersonMatch && fields == MetadataSearchFieldsTitle {
+			hasPersonWorks = true
+		}
+		if index, exists := seen[key]; exists {
+			unique[index].PersonMatch = unique[index].PersonMatch || candidate.PersonMatch
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(unique)
 		unique = append(unique, candidate)
 	}
 	ranked := rankMetadataSearchCandidates(query, buildMetadataSearchTermGroups(terms), unique, fields)
-	if len(ranked) > maxMetadataSearchCandidates {
+	if hasPersonWorks {
+		kept := make([]metadataSearchCandidate, 0, len(ranked))
+		ordinary := 0
+		for _, candidate := range ranked {
+			if candidate.PersonMatch || ordinary < maxMetadataSearchCandidates {
+				kept = append(kept, candidate)
+			}
+			if !candidate.PersonMatch {
+				ordinary++
+			}
+		}
+		ranked = kept
+	} else if len(ranked) > maxMetadataSearchCandidates {
 		ranked = ranked[:maxMetadataSearchCandidates]
 	}
 	if offset < 0 {

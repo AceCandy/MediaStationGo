@@ -195,6 +195,11 @@ func (e *EmbyService) items(ctx context.Context, p ItemsParams) (map[string]any,
 		}
 		return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
 	}
+	if p.SearchTerm == "" && len(p.PersonIDs) > 0 && len(embySearchKinds(p.IncludeItemTypes)) > 0 && !containsItemType(p.IncludeItemTypes, "Episode") && !containsItemType(p.IncludeItemTypes, "Season") {
+		if result, ok, err := e.ordinaryPersonWorkItems(ctx, p); ok {
+			return result, err
+		}
+	}
 	if result, ok, err := e.huangGuoAIHierarchyItems(ctx, p); ok {
 		return result, err
 	}

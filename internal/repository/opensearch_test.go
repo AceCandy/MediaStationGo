@@ -133,7 +133,7 @@ func TestOpenSearchMetadataIndexLifecycle(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "*/_alias"):
 			_, _ = io.WriteString(w, `{}`)
-		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/metadata-test_v1_"):
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/metadata-test_v2_"):
 			indexName = strings.TrimPrefix(r.URL.Path, "/")
 			if err := json.NewDecoder(r.Body).Decode(&mapping); err != nil {
 				t.Fatal(err)
@@ -192,10 +192,10 @@ func TestOpenSearchMetadataIndexLifecycle(t *testing.T) {
 
 	mappings := mapping["mappings"].(map[string]any)
 	properties := mappings["properties"].(map[string]any)
-	if len(properties) != 7 {
+	if len(properties) != 9 {
 		t.Fatalf("metadata mapping properties = %#v", properties)
 	}
-	for _, key := range []string{"id", "kind", "title", "original_name", "overview", "genres", "library_ids"} {
+	for _, key := range []string{"id", "kind", "title", "original_name", "overview", "genres", "library_ids", "person_ids", "person_names"} {
 		if _, ok := properties[key]; !ok {
 			t.Fatalf("metadata mapping missing %q: %#v", key, properties)
 		}

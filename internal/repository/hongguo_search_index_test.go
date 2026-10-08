@@ -209,7 +209,7 @@ func TestOpenSearchHongGuoSchemaCompatibility(t *testing.T) {
 			if err := backend.ensureReady(t.Context()); (err == nil) != (version == 2) {
 				t.Fatalf("version=%d err=%v", version, err)
 			}
-			if ordinary := NewOpenSearchMediaBackend(config.SearchConfig{Backend: "opensearch", OpenSearchURL: upstream.URL}); ordinary.schemaVersion() != 1 {
+			if ordinary := NewOpenSearchMediaBackend(config.SearchConfig{Backend: "opensearch", OpenSearchURL: upstream.URL}); ordinary.schemaVersion() != metadataSearchSchema {
 				t.Fatal("ordinary schema changed")
 			}
 		})

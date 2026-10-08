@@ -59,7 +59,7 @@ func New(db *gorm.DB) *Container {
 		HongGuo:       hongGuo,
 		HuangGuoAI:    &HuangGuoAIRepository{db: db},
 		NFO:           &NFORepository{db: db},
-		Person:        &PersonRepository{db: db},
+		Person:        &PersonRepository{db: db, view: mediaView},
 		Artwork:       &ArtworkRepository{db: db},
 		History:       &HistoryRepository{db: db},
 		PlaybackEvent: &PlaybackEventRepository{db: db},

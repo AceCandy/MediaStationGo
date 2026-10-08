@@ -53,7 +53,10 @@ type TranslationTarget struct {
 }
 
 // PersonRepository 管理共享人物和作品演职员关系。
-type PersonRepository struct{ db *gorm.DB }
+type PersonRepository struct {
+	db   *gorm.DB
+	view *MediaViewRepository
+}
 
 type metadataCreditKey struct {
 	PersonID     string
@@ -73,7 +76,8 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 	if len(types) == 0 {
 		return nil
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var personIDs []string
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 同一作品的快照串行合并，避免并发差量同步留下已移除的关系。
 		var metadata model.MetadataItem
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "kind").First(&metadata, "id = ?", metadataID).Error; err != nil {
@@ -96,7 +100,7 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 			if !containsString(types, input.Type) {
 				continue
 			}
-			person, err := upsertCreditPerson(tx, input)
+			person, err := upsertCreditPerson(tx, input, func(id string) { personIDs = append(personIDs, id) })
 			if err != nil {
 				return err
 			}
@@ -117,6 +121,10 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 		}
 		return nil
 	})
+	if err == nil {
+		r.refreshPersonWorks(ctx, []string{metadataID}, personIDs)
+	}
+	return err
 }
 
 func (r *PersonRepository) ListCredits(ctx context.Context, metadataID string) ([]model.MetadataCredit, error) {
@@ -248,7 +256,7 @@ func (r *PersonRepository) ListTranslationCaches(ctx context.Context, lookups []
 }
 
 func (r *PersonRepository) SaveAndApplyTranslation(ctx context.Context, cache model.TranslationCache, targets []TranslationTarget) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "kind"}, {Name: "context_key"}, {Name: "source_text"}, {Name: "target_language"}, {Name: "prompt_version"}},
 			DoUpdates: clause.AssignmentColumns([]string{"translated_text", "provider", "model", "updated_at"}),
@@ -257,12 +265,53 @@ func (r *PersonRepository) SaveAndApplyTranslation(ctx context.Context, cache mo
 		}
 		return applyTranslationTargets(tx, targets, cache.TranslatedText)
 	})
+	if err == nil {
+		r.refreshTranslatedPeople(ctx, targets)
+	}
+	return err
 }
 
 func (r *PersonRepository) ApplyCachedTranslation(ctx context.Context, targets []TranslationTarget, translatedText string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return applyTranslationTargets(tx, targets, translatedText)
 	})
+	if err == nil {
+		r.refreshTranslatedPeople(ctx, targets)
+	}
+	return err
+}
+
+// refreshTranslatedPeople 译名改变后刷新全部关联作品，不只刷新翻译上下文中的作品。
+func (r *PersonRepository) refreshTranslatedPeople(ctx context.Context, targets []TranslationTarget) {
+	var ids []string
+	for _, target := range targets {
+		if target.Kind == "person_name" {
+			ids = append(ids, target.ID)
+		}
+	}
+	if len(ids) > 0 {
+		r.refreshPersonWorks(ctx, nil, ids)
+	}
+}
+
+// refreshPersonWorks 在人物事务提交后刷新共享索引；季的关系由刷新器归并到整剧。
+func (r *PersonRepository) refreshPersonWorks(ctx context.Context, metadataIDs, personIDs []string) {
+	if r.view == nil || r.view.searchBackend == nil {
+		return
+	}
+	if len(personIDs) > 0 {
+		var related []string
+		if err := r.db.WithContext(ctx).Table("metadata_credits").Distinct("metadata_id").
+			Where("person_id = ANY(?)", &personIDs).Pluck("metadata_id", &related).Error; err != nil {
+			r.view.searchFailed.Store(true)
+			r.view.searchMu.Lock()
+			r.view.searchRebuildInvalid = true
+			r.view.searchMu.Unlock()
+			return
+		}
+		metadataIDs = append(metadataIDs, related...)
+	}
+	r.view.RefreshMetadataIDs(ctx, uniqueNonEmptyStrings(metadataIDs)...)
 }
 
 // FindCreditPeople 批量按来源标识读取人物，供头像复用判断使用，不按姓名合并。
@@ -305,7 +354,8 @@ func (r *PersonRepository) FindByID(ctx context.Context, id string) (*model.Pers
 func (r *PersonRepository) List(ctx context.Context, search string, ids []string, offset, limit int, count bool) ([]model.Person, int64, error) {
 	q := r.db.WithContext(ctx).Model(&model.Person{})
 	if search = strings.TrimSpace(search); search != "" {
-		q = q.Where("LOWER(name) LIKE ? OR LOWER(original_name) LIKE ?", "%"+strings.ToLower(search)+"%", "%"+strings.ToLower(search)+"%")
+		term := "%" + EscapeLike(strings.ToLower(search)) + "%"
+		q = q.Where("LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(original_name) LIKE ? ESCAPE '\\'", term, term)
 	}
 	if len(ids) > 0 {
 		q = q.Where("id = ANY(?)", &ids)
@@ -334,7 +384,7 @@ func (r *PersonRepository) ListIdentifiers(ctx context.Context, personID string)
 	return rows, err
 }
 
-func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
+func upsertCreditPerson(tx *gorm.DB, input CreditInput, nameChanged func(string)) (*model.Person, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		return nil, nil
@@ -353,6 +403,9 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 			if len(updates) > 0 {
 				if err := tx.Unscoped().Model(&person).Updates(updates).Error; err != nil {
 					return nil, err
+				}
+				if _, restored := updates["deleted_at"]; updates["name"] != nil || updates["original_name"] != nil || restored {
+					nameChanged(person.ID)
 				}
 			}
 			if identifier.DeletedAt.Valid {
@@ -384,7 +437,7 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 			if err := tx.Unscoped().Delete(&person).Error; err != nil {
 				return nil, err
 			}
-			return upsertCreditPerson(tx, input)
+			return upsertCreditPerson(tx, input, nameChanged)
 		}
 		return &person, nil
 	}
@@ -404,6 +457,9 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 	if updates := personSourceUpdates(person, input, "local"); len(updates) > 0 {
 		if err := tx.Unscoped().Model(&person).Updates(updates).Error; err != nil {
 			return nil, err
+		}
+		if _, restored := updates["deleted_at"]; updates["name"] != nil || updates["original_name"] != nil || restored {
+			nameChanged(person.ID)
 		}
 	}
 	return &person, nil
