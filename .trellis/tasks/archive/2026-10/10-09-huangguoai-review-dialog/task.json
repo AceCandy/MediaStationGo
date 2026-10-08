@@ -1,0 +1,28 @@
+{
+  "id": "huangguoai-review-dialog",
+  "name": "huangguoai-review-dialog",
+  "title": "统一黄果人工确认弹窗",
+  "description": "人工确认发布改用项目统一确认弹窗，保持按钮主题和二次确认语义；核对未完结作品的更新链路。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-09",
+  "completedAt": "2026-10-09",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "a377cc9",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Dialog style fix validated. Update-chain investigation is read-only; automatic episode catch-up remains unimplemented. Direct-main delivery without PR; not deployed.",
+  "meta": {
+    "deployment_status": "not_deployed"
+  }
+}
