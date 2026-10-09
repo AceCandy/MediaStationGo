@@ -1716,3 +1716,40 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 未部署、未重启服务、未操作生产队列；上线后验收真实新增集自动入队。
+
+
+## Session 226: 黄果确认发布与试播时间轴修复
+<!-- trellis-session: v=2 fp=9410f12fc56cd249 -->
+
+**Date**: 2026-10-10
+**Task**: 黄果确认发布与试播时间轴修复
+**Branch**: `main`
+
+### Summary
+
+人工确认改为快速记录决定，后台校验摘要并保留可重试的发布失败原因；修复音频时间戳回退导致视频拉长和卡顿。无活跃任务目录，完成会话归档记录。
+
+### Main Changes
+
+- 确认请求不再读取完整候选文件；失效候选清除旧确认，发布失败保留确认并提供重试发布。
+- HLS 音频恢复以连续视频、音频回退和无真实停顿为门槛，保留视频帧与各音轨起点，并同步规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d97c41a` | fix(huangguoai): 修复确认超时与音频时间戳导致的试播异常 |
+
+### Testing
+
+- [OK] 黄果源包 race 测试、go vet、diff 检查通过；覆盖 B 帧、双音轨、前置音频、音频停顿拒绝与取消。
+- [OK] 隔离 PostgreSQL 的黄果 service/repository/handler race 回归通过；前端 lint/build 已通过。
+- [OK] 真实第316作品第1集恢复367.9秒、11037帧，完整音视频解码通过；临时测试资源已清理。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未更新运行服务或重试生产候选，浏览器实际试播未验证；加载修复需重启后端，会中断活跃红果任务，等待用户安排。
