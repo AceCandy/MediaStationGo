@@ -1045,7 +1045,7 @@ mock matcher can match URL prefixes and otherwise hide the child response.
 
 ### 1. Scope / Trigger
 
-下载只输出文件，不能创建媒体、旧元数据、云盘对象或 STRM，也不自动追更。
+下载只输出文件，不能创建媒体、旧元数据、云盘对象或 STRM；已有下载作品通过资料刷新增量补集。
 `/admin/media/downloads` 位于文件空间；红果详情的下载按钮只对管理员显示。
 
 ### 2. Signatures
@@ -1170,6 +1170,39 @@ HongGuo download models explicitly map to `hongguo_download_works` and
 `hong_guo_*` tables in one transaction, preserving rows, keys and indexes. Skip
 already migrated tables; if both names exist, fail and roll back without dropping
 or merging either table. Historical archived SQL may still name legacy tables.
+
+## Episode catch-up after metadata refresh
+
+- Production construction connects HongGuo catalog refresh to its download
+  service. Targeted and batch refresh subsequently enqueue missing confirmed
+  episodes only for existing download placements and non-comic Series. Keep
+  new-work Supplement separate and preserve existing schedule/cooldown settings.
+- Query gaps with source-ID keyset batches of 100, independently of work
+  completion and metadata cooldown; a failed final-episode enqueue retries on
+  the next refresh. Partial detail failure still allows confirmed gaps to queue.
+  Targeted runs restrict catch-up to the selected source ID.
+- Automatic enqueue reuses the ordinary core with a catch-up mode: under the
+  work lock, recheck category and placement, read current episodes and skip
+  invalid/empty video IDs. Valid later episodes are not blocked by holes. Preserve
+  ordinary manual enqueue's existing allowance for unresolved IDs and keep
+  onlyNew Supplement behavior unchanged. Unique conflicts preserve all old
+  download statuses, video IDs and stable placement paths.
+- Confirmed whole-work removal with protected download history retains protected
+  episode identities/bindings and clears source video IDs for episodes without
+  retained download/recovery history in the same transaction. Catch-up must not
+  revive confirmed unavailable rows, including bound episodes with removed tasks.
+  Existing complete-list tail/hole cleanup and lease fencing remain required.
+- Cancellation/disable prevent admission; enqueue errors use fixed safe report
+  messages, never raw database text or detail failure checkpoints. Missing
+  download rows remain durable retry evidence. Download verification/publication
+  and external ingestion stay separate.
+- Tests: `TestHongGuoRefreshCatchesUpEpisodes`,
+  `TestHongGuoCatchUpPreservesStatesAndConfirmedIDs`,
+  `TestHongGuoCatchUpRetryCompletedAndPartialFailure`,
+  `TestHongGuoCatchUpPagingConcurrentAndCancel`, and
+  `TestHongGuoCatchUpDoesNotRestoreConfirmedUnavailableEpisodes`, and
+  `TestHongGuoCatchUpDoesNotRestoreUnavailableWorkRetainedByMedia`; run with
+  isolated PostgreSQL and race detection alongside download/reconcile regressions.
 
 ## Scenario: Work download summaries and bounded legacy compaction
 

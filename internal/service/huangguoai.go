@@ -31,6 +31,7 @@ type HuangGuoAIService struct {
 	repo              *repository.Container
 	client            *huangguoai.Client
 	tasks             *TaskTrackerService
+	downloads         *HuangGuoAIDownloadService
 	images            *ImageProxy
 	imageRoot         string
 	mu                sync.Mutex
@@ -165,6 +166,11 @@ func (s *HuangGuoAIService) Run(ctx context.Context, kind, id string) error {
 			report(id, err)
 		} else {
 			err = s.refreshBatch(ctx, report)
+		}
+		if s.downloads != nil && ctx.Err() == nil {
+			if catchUpErr := s.downloads.catchUp(ctx, id, report); catchUpErr != nil && err == nil {
+				err = catchUpErr
+			}
 		}
 	case TaskKindHuangGuoAIArtwork:
 		err = s.downloadArtwork(ctx, report)

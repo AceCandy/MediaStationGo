@@ -111,6 +111,11 @@ func (r *HongGuoRepository) RemoveUnavailableHongGuoDownloads(ctx context.Contex
 			}
 			return tx.Model(&work).Updates(map[string]any{"episode_count": detail.EpisodeCount, "total_episodes": detail.TotalEpisodes, "accessible_episodes": detail.AccessibleEpisodes, "update_text": detail.UpdateText, "completed": detail.Completed}).Error
 		}
+		// 整部已确认下架，未保留下载的分集不再有有效来源 ID；保留分集身份和媒体绑定。
+		protected := tx.Model(&model.HongGuoDownload{}).Select("episode").Where("source_id = ?", owner.SourceID)
+		if err := tx.Model(&model.HongGuoEpisode{}).Where("work_id = ? AND number NOT IN (?)", work.ID, protected).Update("source_video_id", "").Error; err != nil {
+			return err
+		}
 		if len(removed) != len(rows) {
 			return nil
 		}

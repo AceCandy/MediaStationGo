@@ -1,0 +1,31 @@
+{
+  "id": "huangguoai-episode-catchup",
+  "name": "huangguoai-episode-catchup",
+  "title": "黄果 AI 已下载剧集自动补集",
+  "description": "资料刷新后为已入队黄果 AI 剧集增量补集，保留旧下载状态和目录，失败缺口下轮重试；核查红果现有追更行为",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-09",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "deployment_status": "not_deployed",
+    "production_retry_status": "not_started",
+    "review_status": "passed",
+    "verification_status": "passed"
+  }
+}

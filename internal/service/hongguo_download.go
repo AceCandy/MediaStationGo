@@ -259,6 +259,11 @@ func (s *HongGuoDownloadService) Enqueue(ctx context.Context, id string) (int, e
 }
 
 func (s *HongGuoDownloadService) enqueue(ctx context.Context, id string, onlyNew bool) (int, error) {
+	return s.enqueueWork(ctx, id, onlyNew, false)
+}
+
+// enqueueWork 的 catchUp 模式仅补已有下载位置的有效分集，事务内复核清理结果。
+func (s *HongGuoDownloadService) enqueueWork(ctx context.Context, id string, onlyNew, catchUp bool) (int, error) {
 	if !hongguo.ValidID(id) {
 		return 0, errors.New("作品 ID 无效")
 	}
@@ -292,6 +297,17 @@ func (s *HongGuoDownloadService) enqueue(ctx context.Context, id string, onlyNew
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&work, "id = ?", work.ID).Error; err != nil {
 			return err
 		}
+		if catchUp {
+			if work.SourceCategory == "comic" {
+				return nil
+			}
+			if err := tx.First(&placement, "source_id = ?", id).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil
+				}
+				return err
+			}
+		}
 		var episodes []model.HongGuoEpisode
 		if err := tx.Where("work_id = ?", work.ID).Order("number").Limit(10001).Find(&episodes).Error; err != nil {
 			return err
@@ -317,6 +333,9 @@ func (s *HongGuoDownloadService) enqueue(ctx context.Context, id string, onlyNew
 			return err
 		}
 		for _, episode := range episodes {
+			if catchUp && !hongguo.ValidID(episode.SourceVideoID) {
+				continue
+			}
 			filename := fmt.Sprintf("S01E%03d.mp4", episode.Number)
 			row := model.HongGuoDownload{SourceID: id, Episode: episode.Number, VideoID: episode.SourceVideoID, Title: placement.Title, Root: placement.Root, RelativePath: filepath.Join(placement.Directory, "Season 01", filename), Status: "queued"}
 			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)

@@ -1,0 +1,32 @@
+{
+  "id": "hongguo-episode-catchup",
+  "name": "hongguo-episode-catchup",
+  "title": "红果已下载剧集自动补集",
+  "description": "红果资料刷新后自动补入已入队作品的有效缺集，保留下载状态和目录，失败下轮重试",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-09",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "deployment_status": "not_deployed",
+    "production_retry_status": "not_started",
+    "review_status": "passed",
+    "verification_status": "targeted_passed_existing_test_failure",
+    "existing_test_failure": "TestHongGuoImportTaskAndIsolation expects 5 definitions, existing catalog returns 6"
+  }
+}

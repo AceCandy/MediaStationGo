@@ -33,6 +33,7 @@ type HongGuoService struct {
 	repo              *repository.Container
 	client            *hongguo.Client
 	tasks             *TaskTrackerService
+	downloads         *HongGuoDownloadService
 	images            *ImageProxy
 	imageRoot         string
 	runMu             sync.Mutex
@@ -264,6 +265,12 @@ func (s *HongGuoService) runLocked(ctx context.Context, kind, sourceID, name str
 			}
 		} else {
 			err = s.refreshBatch(ctx, report, reportAlbumWarning)
+		}
+		if s.downloads != nil && ctx.Err() == nil {
+			catchUpErr := s.downloads.catchUp(ctx, sourceID, func(id string, itemErr error) { report("补集 "+id, "", itemErr) })
+			if catchUpErr != nil && err == nil {
+				err = catchUpErr
+			}
 		}
 	case TaskKindHongGuoAlbum:
 		err = s.backfillAlbums(ctx, func(id string, err error) { report(id, "", err) })

@@ -195,6 +195,33 @@ unconfirmed/series/conflicting coordinate-free files and retains Movie identity.
 `TestHuangGuoAIDownloadWorkStatusCounts` verify these projections in PostgreSQL.
 
 
+## Episode catch-up after metadata refresh
+
+- Production service construction connects the catalog to its download service.
+  Both targeted and batch `huangguoai_refresh` runs subsequently enqueue missing
+  confirmed episodes for Series with an existing download-work placement. A
+  placement is durable evidence of prior enqueue, even if episode rows are absent.
+  Never auto-enqueue fileless discoveries without a placement, Movies or works
+  with classification conflicts. Keep new-work `Supplement` semantics separate.
+- Reuse ordinary `Enqueue`: preserve stored root/directory/title and every old
+  episode row, including completed, failed, cancelled and pending-review states.
+  Work locks and unique conflict handling make repeated/concurrent passes safe.
+- Scan missing episode rows with source-ID keyset batches of 100, independently
+  of completion and metadata cooldown, so a failed final-episode enqueue retries
+  on the next refresh run without refetching a completed work. Targeted refresh
+  scopes catch-up to its source ID. Batch partial metadata failure must still
+  process confirmed gaps; cancellation prevents further admission. Missing rows
+  own retry state; never record enqueue errors as upstream detail failures.
+- Keep the existing 24-hour per-work metadata cooldown and scheduler settings.
+  Catch-up adds download rows only; download verification and library ingestion
+  remain separate. HongGuo catch-up has its own source-specific contract.
+- `TestHuangGuoAIRefreshCatchesUpEpisodes`,
+  `TestHuangGuoAICatchUpPreservesStatesAndEligibility`,
+  `TestHuangGuoAICatchUpRetriesCompletedWorkWithoutRefetch`, and
+  `TestHuangGuoAICatchUpPaginationConcurrentAndCancellation` cover real detail
+  parsing, final completion, root changes, state/path preservation, partial
+  failures, durable retry, paging, concurrent deduplication and cancellation.
+
 ## Download execution summaries
 
 - Both Movie (one internal episode) and Series keep one task execution per source
