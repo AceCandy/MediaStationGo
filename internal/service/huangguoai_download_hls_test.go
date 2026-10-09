@@ -126,17 +126,18 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 		delayed    bool
 		direct     bool
 		failure    string
+		review     bool
 	}{
 		{name: "page_duration_mismatch", duration: 6, end: true, status: 200},
 		{name: "unfinished_playlist", duration: 6, status: 200, failure: "HLS 未提供完整 VOD 结束证据"},
 		{name: "missing_segment", duration: 6, end: true, status: 404, failure: "HLS 第 1/1 个分片下载失败：HLS 资源 HTTP 404"},
 		{name: "short_segment", duration: 6, end: true, status: 200, short: true, failure: "HLS 资源长度不足"},
-		{name: "file_duration_mismatch", duration: 12, end: true, status: 200, failure: "视频时长与来源不一致"},
-		{name: "decode_failure", duration: 6, end: true, status: 200, decodeFail: true, failure: "音视频解码校验失败"},
+		{name: "file_duration_mismatch", review: true, duration: 12, end: true, status: 200, failure: "视频时长与来源不一致"},
+		{name: "decode_failure", review: true, duration: 6, end: true, status: 200, decodeFail: true, failure: "音视频解码校验失败"},
 		{name: "leading_audio_allowed", duration: 6, end: true, status: 200, delayed: true},
-		{name: "leading_audio_wrong_video_duration", duration: 12, end: true, status: 200, delayed: true, failure: "视频时长与来源不一致"},
-		{name: "leading_audio_decode_failure", duration: 6, end: true, status: 200, delayed: true, decodeFail: true, failure: "音视频解码校验失败"},
-		{name: "direct_mp4_keeps_total_duration_check", duration: 6, status: 200, direct: true, failure: "视频时长与来源不一致"},
+		{name: "leading_audio_wrong_video_duration", review: true, duration: 12, end: true, status: 200, delayed: true, failure: "视频时长与来源不一致"},
+		{name: "leading_audio_decode_failure", review: true, duration: 6, end: true, status: 200, delayed: true, decodeFail: true, failure: "音视频解码校验失败"},
+		{name: "direct_mp4_keeps_total_duration_check", review: true, duration: 6, status: 200, direct: true, failure: "视频时长与来源不一致"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newHuangGuoDownloadTaskTestService(t)
@@ -194,6 +195,15 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 				if row.Duration != float64(tt.duration) {
 					t.Fatalf("manifest duration lost: %.3f", row.Duration)
 				}
+				if tt.name == "file_duration_mismatch" || tt.name == "leading_audio_wrong_video_duration" {
+					if row.Warning == "" {
+						t.Fatal("merge warning lost before independent verification")
+					}
+					entries, err := os.ReadDir(filepath.Dir(filepath.Join(cfg.Root, row.StagingPath)))
+					if err != nil || len(entries) != 1 || entries[0].Name() != "ready.mp4" {
+						t.Fatal("review handoff retained transport or recovery artifacts", err)
+					}
+				}
 				if tt.decodeFail {
 					// 保留真实探测，只替换解码器，确认黄果发布前执行完整解码。
 					dir := t.TempDir()
@@ -232,7 +242,7 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 			} else {
 				diagnostic := row.Error
 				expectedStatus := "failed"
-				if row.Warning != "" {
+				if tt.review {
 					expectedStatus, diagnostic = "pending_review", row.Warning
 				}
 				if row.Status != expectedStatus || !strings.Contains(diagnostic, tt.failure) || !strings.Contains(log.Content, diagnostic) {
@@ -240,6 +250,27 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 				}
 				if _, err := os.Stat(filepath.Join(cfg.Root, "completed", row.RelativePath)); !os.IsNotExist(err) {
 					t.Fatal("failed media was published")
+				}
+			}
+			if tt.name == "file_duration_mismatch" {
+				file, err := s.ReviewFile(t.Context(), row.ID, row.ReviewToken)
+				if err != nil {
+					t.Fatal("merge candidate cannot be previewed", err)
+				}
+				file.Close()
+				if err := s.ConfirmReview(t.Context(), row.ID, row.ReviewToken, "admin"); err != nil {
+					t.Fatal(err)
+				}
+				publish, err := s.repo.HuangGuoAI.ClaimHuangGuoAIVerification(t.Context())
+				if err != nil || publish == nil || publish.Status != "publishing" {
+					t.Fatal("merge candidate confirmation lost", err)
+				}
+				s.run(t.Context(), *publish)
+				if err := s.repo.DB.First(&row, "id = ?", row.ID).Error; err != nil {
+					t.Fatal(err)
+				}
+				if row.Status != "completed" || row.Warning == "" || row.ConfirmedBy != "admin" || row.ConfirmedAt == nil {
+					t.Fatal("merge candidate audit lost", row.Status)
 				}
 			}
 			for _, private := range []string{"private-title", "secret-value", "https://", cfg.Root} {

@@ -44,8 +44,14 @@ func TestHLSMergeRecoversTimestampJump(t *testing.T) {
 		t.Fatalf("valid pause lost: %.3f %v", duration, err)
 	}
 	// 错误清单不能靠时间戳恢复放行。
-	if _, err := mergeHLS(t.Context(), input, t.TempDir(), 20); err == nil || !strings.Contains(err.Error(), "视频时长与来源不一致") {
-		t.Fatalf("wrong playlist accepted: %v", err)
+	candidate, err := mergeHLS(t.Context(), input, t.TempDir(), 20)
+	var mismatch HLSDurationMismatchError
+	if !errors.As(err, &mismatch) || filepath.Base(candidate) != "output.mp4" {
+		t.Fatalf("wrong playlist lost original review candidate: %s %v", candidate, err)
+	}
+	duration, err = hlsVideoDuration(t.Context(), candidate)
+	if err != nil || math.Abs(duration-9) > 0.1 {
+		t.Fatalf("review candidate timeline changed: %.3f %v", duration, err)
 	}
 }
 
@@ -210,8 +216,11 @@ func TestHLSMergeRejectsAudioTimingLoss(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(tools, "ffprobe"), []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := mergeHLS(t.Context(), "input.m3u8", t.TempDir(), 121); err == nil || !strings.Contains(err.Error(), tt.want) || strings.Contains(err.Error(), "private-token") {
-				t.Fatalf("invalid recovery accepted or unsafe error: %v", err)
+			for _, expected := range []float64{121, 200} {
+				output, err := mergeHLS(t.Context(), "input.m3u8", t.TempDir(), expected)
+				if output != "" || err == nil || !strings.Contains(err.Error(), tt.want) || strings.Contains(err.Error(), "private-token") {
+					t.Fatalf("invalid recovery accepted or unsafe error: %s %v", output, err)
+				}
 			}
 		})
 	}

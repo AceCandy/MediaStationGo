@@ -43,6 +43,13 @@ func TestHuangGuoAIManualReview(t *testing.T) {
 		if err := db.Create(&row).Error; err != nil {
 			t.Fatal(err)
 		}
+		if id == "9008" {
+			row.Duration = 2
+			row.Warning = "视频时长与来源不一致，未发布"
+			if err := db.Model(&row).Updates(map[string]any{"duration": row.Duration, "warning": row.Warning}).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
 		row.StagingPath = filepath.Join("downloading", row.ID+"-"+uuid.NewString(), "ready.mp4")
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, row.StagingPath)), 0700); err != nil {
 			t.Fatal(err)
@@ -73,6 +80,16 @@ func TestHuangGuoAIManualReview(t *testing.T) {
 			}
 		}
 		return row
+	}
+	if err := verifyDownloadMedia(t.Context(), media, 2, true, false, nil, nil, false); err != nil {
+		t.Fatal("warning preservation fixture must pass independent validation", err)
+	}
+	preserved := makeCandidate("9008")
+	if preserved.Warning != "视频时长与来源不一致，未发布" {
+		t.Fatal("successful repeated probe erased merge warning")
+	}
+	if err := s.Action(ctx, preserved.ID, "cancel"); err != nil {
+		t.Fatal(err)
 	}
 	row := makeCandidate("9001")
 	if err := s.ConfirmReview(ctx, row.ID, "stale-token", "admin"); err == nil {

@@ -370,10 +370,15 @@ then reuse the existing download transaction with the only-new guard.
 ## Manual review of complete candidates
 
 ### 1. Scope / Trigger
-Complete HuangGuo transfers failing independent strict duration/decode validation.
-Transport and remux failures keep existing fail/resume behavior; HongGuo is unchanged.
+Complete HuangGuo transfers failing independent strict duration/decode validation,
+and complete HLS merge outputs failing only video-duration comparison.
+Transport and remux execution failures keep existing fail/resume behavior; HongGuo
+is unchanged. Invalid video duration and audio-recovery evidence still reject outputs.
 
 ### 2. Signatures
+- `HLSDurationMismatchError` marks a merge duration mismatch with a candidate path.
+  Only `DownloadResuming` returns this path and original playlist duration with the
+  error; ordinary `Download` returns empty path/zero duration and remains strict.
 - Status `pending_review`; download JSON adds `warning`, `review_token`,
   `confirmed_by`, `confirmed_at`. Work counts add `pending_review`.
 - `GET /api/catalogs/huangguoai/downloads/:id/preview?review_token=<version>`
@@ -383,7 +388,15 @@ Transport and remux failures keep existing fail/resume behavior; HongGuo is unch
   AutoMigrate fields, no historical backfill or deployment from tests.
 
 ### 3. Contracts
-Strict validation remains mandatory for ordinary publication. Review candidates
+Strict validation remains mandatory for ordinary publication. Merge candidates
+prefer the earliest validated output before timestamp correction; audio-recovery
+track count/start-offset protection runs before duration branching. Missing segments,
+merge execution errors and invalid probes never return this typed candidate.
+The worker uses the existing durable `waiting_verify` handoff, retaining only
+`ready.mp4` and persisting the merge warning. Independent full validation still runs;
+a persisted merge warning forces `pending_review` even if repeated probing succeeds.
+Keep both merge and independent warnings when they differ. Do not classify candidates
+by error text or turn them into resumable-segment failures. Review candidates
 retain private stage, size and digest but are excluded from both worker claim
 queries. Preview/confirm require current admin role plus adult/profile visibility;
 never create public Media before publication. Preview requires regular file,
@@ -400,6 +413,10 @@ accepted and can be cancelled/retried again. UI trial state includes candidate
 version, so polling a new version closes the old trial.
 
 ### 4. Validation & Error Matrix
+- Complete merge, only duration mismatch -> typed candidate, strict verification,
+  then pending_review; no automatic publication.
+- Missing segment/unfinished playlist/merge execution failure/invalid duration or
+  audio-recovery evidence -> no merge candidate.
 - Non-admin -> 403; adult/profile/PIN lock -> 404.
 - Missing/stale/retired/nonregular/size-changed preview -> 404.
 - Invalid confirm body/changed digest/stale token/wrong state -> 400; no publish.
@@ -413,6 +430,15 @@ Base: valid strict output publishes automatically. Bad: claim pending_review mer
 because it has a digest, or confirm a new candidate from an old trial page.
 
 ### 6. Tests Required
+`TestDownloadHLSDurationReviewHandoff` verifies strict caller rejection versus
+resuming-caller candidate handoff and preserved playlist duration.
+`TestHLSMergeRecoversTimestampJump` checks the original candidate timeline;
+`TestHLSMergeRejectsAudioTimingLoss` rejects unsafe audio at both matching and
+mismatching durations. `TestHuangGuoAIDownloadHLSCompletenessAndDuration` explicitly
+asserts pending_review for merge mismatch, private-stage cleanup, preview and
+confirmation/audit publication. Expected state must come from the fixture, never
+from the actual warning field. `TestHuangGuoAIManualReview` also checks a successful
+repeated probe cannot erase a persisted merge warning.
 `TestHuangGuoAIManualReview` covers retention, excluded claims, stale/modified content,
 acceptance/audit, retry/cancel, cleanup failure recovery, symlinks, cancellation fencing
 and collisions. HTTP adult/profile test covers Range 206, PIN lock, profile lock and
@@ -423,6 +449,9 @@ a separate manual judgment. Inject unexpected database errors at final handoff i
 the privacy test; resume checkpoint errors already have a fixed sanitized category.
 
 ### 7. Wrong vs Correct
+Wrong: implement review only in independent verification while merge duration
+checks delete the same class of candidate earlier. Correct: inventory all rejection
+points and test transfer → merge → persistent handoff → verification → review.
 Wrong: treat playable samples as a full backup validation pass. Correct: preserve
 strict warning, require explicit acceptance and retain its provenance after publish.
 Rollback to older binaries requires resolving pending_review rows first; never

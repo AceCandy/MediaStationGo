@@ -535,6 +535,10 @@ func (c *Client) download(ctx context.Context, media Media, dir string, progress
 	}
 	output, err := mergeHLS(ctx, input, dir, p.Duration)
 	if err != nil {
+		var mismatch HLSDurationMismatchError
+		if cache != nil && errors.As(err, &mismatch) {
+			return output, p.Duration, err
+		}
 		return "", 0, err
 	}
 	return output, p.Duration, nil

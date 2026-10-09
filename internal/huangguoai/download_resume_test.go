@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -260,4 +261,34 @@ func TestHLSResumeSnapshotCheckpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDownloadHLSDurationReviewHandoff(t *testing.T) {
+	segment := filepath.Join(t.TempDir(), "synthetic.ts")
+	if err := exec.CommandContext(t.Context(), "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-c:v", "mpeg2video", "-f", "mpegts", segment).Run(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(segment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewClient(&http.Client{Transport: downloadTestTransport(func(req *http.Request) (*http.Response, error) {
+		body := data
+		if req.URL.Path == "/input.m3u8" {
+			body = []byte("#EXTM3U\n#EXTINF:20,\nsegment.ts\n#EXT-X-ENDLIST\n")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body)), ContentLength: int64(len(body)), Header: http.Header{}, Request: req}, nil
+	})})
+	media := Media{URL: "https://example.com/input.m3u8"}
+	output, duration, err := c.Download(t.Context(), media, t.TempDir(), nil)
+	var mismatch HLSDurationMismatchError
+	if output != "" || duration != 0 || !errors.As(err, &mismatch) {
+		t.Fatalf("strict caller received candidate: %s %.3f %v", output, duration, err)
+	}
+	output, duration, err = c.DownloadResuming(t.Context(), media, t.TempDir(), "", nil, nil)
+	var resume HLSResumeError
+	if output == "" || duration != 20 || !errors.As(err, &mismatch) || errors.As(err, &resume) {
+		t.Fatalf("review handoff lost candidate or duration: %s %.3f %v", output, duration, err)
+	}
+	assertHLSMergeTracks(t, output, 4, 0, 40)
 }

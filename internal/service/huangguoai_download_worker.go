@@ -165,8 +165,15 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 			row.SHA256, row.VerifiedSize = "", 0
 			return errors.New("校验文件长度已变更")
 		}
-		if verificationErr != nil {
-			warning := verificationErr.Error()
+		if verificationErr != nil || row.Warning != "" {
+			warning := row.Warning
+			if verificationErr != nil {
+				if warning == "" {
+					warning = verificationErr.Error()
+				} else if !strings.Contains(warning, verificationErr.Error()) {
+					warning += "；" + verificationErr.Error()
+				}
+			}
 			if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "pending_review", "warning": warning, "review_token": uuid.NewString(), "error": "", "sha256": row.SHA256, "verified_size": size, "lease_token": "", "lease_until": nil}); err != nil {
 				row.SHA256, row.VerifiedSize = "", 0
 				return err
@@ -216,13 +223,17 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 		}
 		return nil
 	})
-	if err != nil {
+	var mismatch huangguoai.HLSDurationMismatchError
+	if err != nil && !errors.As(err, &mismatch) {
 		var resumable huangguoai.HLSResumeError
 		retain = errors.As(err, &resumable)
 		if retain {
 			task.Update(TaskUpdate{Details: []string{"已保留完整分片，重试时核对清单后复用"}})
 		}
 		return huangGuoAIDownloadError{err}
+	}
+	if err != nil {
+		row.Warning = mismatch.Error()
 	}
 	if duration > 0 && math.Abs(duration-media.ExpectedDuration) > 2 {
 		task.Update(TaskUpdate{Details: []string{fmt.Sprintf("⚠️ 网页时长 %.3f 秒，清单时长 %.3f 秒，按清单校验当前源；正片内容完整性需另行确认", media.ExpectedDuration, duration)}})
@@ -266,7 +277,7 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 		// HLS 按完整媒体清单核对视频轨道，保留前置音频；直连 MP4 继续核对总时长。
 		row.Duration = duration
 	}
-	if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "waiting_verify", "raw_size": row.RawSize, "duration": row.Duration, "hls": row.HLS, "staging_path": ready, "lease_token": "", "lease_until": nil, "bytes": row.RawSize, "total_bytes": row.RawSize}); err != nil {
+	if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "waiting_verify", "warning": row.Warning, "raw_size": row.RawSize, "duration": row.Duration, "hls": row.HLS, "staging_path": ready, "lease_token": "", "lease_until": nil, "bytes": row.RawSize, "total_bytes": row.RawSize}); err != nil {
 		row.RawSize = 0
 		row.StagingPath = ""
 		return err

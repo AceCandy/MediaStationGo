@@ -13,10 +13,18 @@ import (
 	"strings"
 )
 
+// HLSDurationMismatchError 标记完整合并产物仅因时长异常需要人工确认。
+type HLSDurationMismatchError struct{}
+
+func (HLSDurationMismatchError) Error() string {
+	return "视频时长与来源不一致，未发布"
+}
+
 // 合并恢复只使用已下载的资源；保持全部音轨，独立发布校验仍必须通过。
 func mergeHLS(ctx context.Context, input, dir string, expected float64) (string, error) {
 	transcodeAudio, correctTimestamps := false, false
 	var sourceOffsets []float64
+	var candidate string
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -69,29 +77,33 @@ func mergeHLS(ctx context.Context, input, dir string, expected float64) (string,
 		if err != nil {
 			return "", err
 		}
-		if math.Abs(duration-expected) <= math.Max(2, expected*0.02) {
-			if transcodeAudio {
-				offsets, err := hlsAudioOffsets(ctx, output)
-				if err != nil {
-					return "", err
-				}
-				if len(offsets) != len(sourceOffsets) {
-					return "", errors.New("HLS 音轨恢复数量不符，未发布")
-				}
-				for i, offset := range offsets {
-					if math.Abs(offset-sourceOffsets[i]) > 0.25 {
-						return "", errors.New("HLS 音画起点校验失败，未发布")
-					}
+		if transcodeAudio {
+			offsets, err := hlsAudioOffsets(ctx, output)
+			if err != nil {
+				return "", err
+			}
+			if len(offsets) != len(sourceOffsets) {
+				return "", errors.New("HLS 音轨恢复数量不符，未发布")
+			}
+			for i, offset := range offsets {
+				if math.Abs(offset-sourceOffsets[i]) > 0.25 {
+					return "", errors.New("HLS 音画起点校验失败，未发布")
 				}
 			}
+		}
+		if math.Abs(duration-expected) <= math.Max(2, expected*0.02) {
 			return output, nil
+		}
+		// 人工确认优先保留原时间轴，避免跳变恢复缩短已下载内容。
+		if candidate == "" {
+			candidate = output
 		}
 		// 只有时长校验失败才收紧 TS 跳变阈值，保留正常源的原始时间轴。
 		if !correctTimestamps {
 			correctTimestamps = true
 			continue
 		}
-		return "", errors.New("视频时长与来源不一致，未发布")
+		return candidate, HLSDurationMismatchError{}
 	}
 	return "", errors.New("HLS 合并恢复失败，未发布")
 }
