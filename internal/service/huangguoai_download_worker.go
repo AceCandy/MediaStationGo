@@ -235,7 +235,9 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 	if err != nil {
 		row.Warning = mismatch.Error()
 	}
-	if duration > 0 && math.Abs(duration-media.ExpectedDuration) > 2 {
+	if duration > 0 && media.ExpectedDuration <= 0 {
+		task.Update(TaskUpdate{Details: []string{fmt.Sprintf("⚠️ 网页未提供时长，清单时长 %.3f 秒，按完整清单校验当前源；正片内容完整性需另行确认", duration)}})
+	} else if duration > 0 && math.Abs(duration-media.ExpectedDuration) > 2 {
 		task.Update(TaskUpdate{Details: []string{fmt.Sprintf("⚠️ 网页时长 %.3f 秒，清单时长 %.3f 秒，按清单校验当前源；正片内容完整性需另行确认", media.ExpectedDuration, duration)}})
 	}
 	rel, err := filepath.Rel(row.Root, input)

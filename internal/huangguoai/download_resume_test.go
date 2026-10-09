@@ -53,7 +53,7 @@ func TestDownloadHLSResumeAcrossAttempts(t *testing.T) {
 				}
 				return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(body)), ContentLength: int64(len(body)), Header: http.Header{}, Request: req}, nil
 			})})
-			media := Media{URL: "https://example.com/input.m3u8"}
+			media := Media{URL: "https://example.com/input.m3u8", ExpectedDuration: 4}
 			_, _, err := c.DownloadResuming(t.Context(), media, old, "", func(n int64) {
 				// map=1，前两个分片各3字节；失败请求等到它们的完成记录已写入。
 				if n >= 7 {

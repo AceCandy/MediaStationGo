@@ -42,7 +42,12 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   including audio starting before video; longer container duration alone is
   allowed. A difference over 2 seconds from page
   metadata produces a numeric-only warning, not a rejection. Direct MP4 retains
-  page-duration verification. Complete current-source transfer does not establish
+  page-duration verification. A wholly missing page duration may be resolved as
+  zero only until the actual media response is inspected: complete valid HLS
+  supplies playlist duration; direct MP4 still rejects missing/nonfinite duration
+  before writing its body. Explicit invalid/ambiguous page declarations reject
+  during Resolve. Never infer HLS from the URL extension. Log a fixed numeric-only
+  notice when the page omitted duration. Complete current-source transfer does not establish
   that the upstream supplied the complete story; retain that warning explicitly.
   Completed output and scanner ingestion are separate stages.
 - HLS resources (segments, maps and keys) retry transient request/read failures,
@@ -67,7 +72,12 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   This is per-task concurrency; source task concurrency remains independent.
 - Local HLS remux probes up to 30 MB and analyzes up to 30 seconds before stream
   copy, because some sources introduce video after several seconds of audio.
-  Recovery is local and bounded to three fresh, non-overwriting outputs. Only
+  Only a fixed `dimensions not set` error enables one wider 100 MB/100-second
+  probe retry; mixed disk/permission/invalid-input diagnostics do not enable it.
+  Recovery is local and bounded to four fresh, non-overwriting outputs, allowing
+  wider probing, audio recovery and timestamp correction to combine. Probe source
+  audio offsets using the active probe limits and refresh that evidence when
+  widening. Only
   the fixed `sample rate not set` diagnostic enables video-copy/all-audio AAC
   recovery; disk, permission and invalid-input errors never enable it. Use
   `-xerror` during audio encoding, then retain the independent complete decode
@@ -121,7 +131,9 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
 | Invalid ID/page/category/rank | 400 |
 | Missing classification/true episode | Pending metadata, no invented projection |
 | Disabled source scan | Keep old bindings; defer new binding |
-| Preview/unknown duration/unsupported encryption | Fail safely, no completed file |
+| Preview/invalid or ambiguous page duration/unsupported encryption | Fail safely, no completed file |
+| Page duration missing, actual response is complete valid HLS | Warn; persist playlist duration, then strict verification |
+| Page duration missing, actual response is direct MP4 | Fail before body staging, no completed file |
 | Complete HLS differs from page duration | Warn; verify video track against playlist duration and fully decode all tracks |
 | HLS video duration matches but audio extends total duration | Preserve all audio; allow after full decode |
 | Missing ENDLIST/failed or incomplete segment | Fail safely, no completed file |
@@ -230,6 +242,13 @@ range/headers, key/map recovery and progress without double counting.
 `TestDownloadHLSDelayedVideoParameters` uses a synthetic late-starting video
 track to reproduce the insufficient-probe failure, asserts both output tracks
 and full decode, and checks safe stderr classification through `Download`.
+`TestResolveDistinguishesMissingAndInvalidDuration` separates absent/empty declarations
+from zero/malformed/ambiguous ones. The HLS service integration table checks missing
+page duration with complete/unfinished/missing-segment/mismatched-video HLS and
+rejects direct MP4. `TestHLSMergeRecoversLateVideoDimensions` exercises an actual
+38-second video delay and full decode; the multi-audio recovery test combines all
+three recoveries and asserts preserved tracks/frame count. Mixed fatal diagnostics
+must never enable the wider retry.
 `TestHLSMergeErrorKeepsDiagnosticsPrivate` covers known and unknown tool errors
 without retaining titles, paths, URLs or credentials.
 `TestHLSMergeRecoversTimestampJump` keeps all frames, fixes a five-second jump,

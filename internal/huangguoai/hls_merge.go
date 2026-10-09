@@ -25,7 +25,8 @@ func mergeHLS(ctx context.Context, input, dir string, expected float64) (string,
 	transcodeAudio, correctTimestamps := false, false
 	var sourceOffsets []float64
 	var candidate string
-	for attempt := 0; attempt < 3; attempt++ {
+	probeLimit := "30000000"
+	for attempt := 0; attempt < 4; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
@@ -37,14 +38,14 @@ func mergeHLS(ctx context.Context, input, dir string, expected float64) (string,
 			return "", errors.New("HLS 合并暂存目标已存在或不可访问")
 		}
 		// 部分源的画面晚于音频出现，需要扩大输入探测范围才能取得视频尺寸。
-		args := []string{"-nostdin", "-v", "error", "-protocol_whitelist", "file,crypto", "-allowed_extensions", "ALL", "-probesize", "30000000", "-analyzeduration", "30000000"}
+		args := []string{"-nostdin", "-v", "error", "-protocol_whitelist", "file,crypto", "-allowed_extensions", "ALL", "-probesize", probeLimit, "-analyzeduration", probeLimit}
 		if correctTimestamps {
 			args = append(args, "-dts_delta_threshold", "1")
 		}
 		if transcodeAudio {
 			if sourceOffsets == nil {
 				var err error
-				sourceOffsets, err = hlsAudioOffsets(ctx, input)
+				sourceOffsets, err = hlsAudioOffsets(ctx, input, probeLimit)
 				if err != nil {
 					return "", err
 				}
@@ -67,6 +68,11 @@ func mergeHLS(ctx context.Context, input, dir string, expected float64) (string,
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
+			if probeLimit == "30000000" && hlsVideoDimensionsMissing(err) {
+				probeLimit = "100000000"
+				sourceOffsets = nil
+				continue
+			}
 			if !transcodeAudio && hlsAudioParametersMissing(err) {
 				transcodeAudio = true
 				continue
@@ -78,7 +84,7 @@ func mergeHLS(ctx context.Context, input, dir string, expected float64) (string,
 			return "", err
 		}
 		if transcodeAudio {
-			offsets, err := hlsAudioOffsets(ctx, output)
+			offsets, err := hlsAudioOffsets(ctx, output, probeLimit)
 			if err != nil {
 				return "", err
 			}
@@ -109,10 +115,10 @@ func mergeHLS(ctx context.Context, input, dir string, expected float64) (string,
 }
 
 // 比较每条音轨与视频的相对起点，保留原有前置音频，拒绝转码引入的错位。
-func hlsAudioOffsets(ctx context.Context, path string) ([]float64, error) {
+func hlsAudioOffsets(ctx context.Context, path, probeLimit string) ([]float64, error) {
 	args := []string{"-v", "error", "-protocol_whitelist", "file,crypto"}
 	if strings.HasSuffix(path, ".m3u8") {
-		args = append(args, "-allowed_extensions", "ALL", "-probesize", "30000000", "-analyzeduration", "30000000")
+		args = append(args, "-allowed_extensions", "ALL", "-probesize", probeLimit, "-analyzeduration", probeLimit)
 	}
 	args = append(args, "-show_entries", "stream=codec_type,start_time", "-of", "json", path)
 	data, err := exec.CommandContext(ctx, "ffprobe", args...).Output()
@@ -152,6 +158,19 @@ func hlsAudioOffsets(ctx context.Context, path string) ([]float64, error) {
 		audio[i] -= video
 	}
 	return audio, nil
+}
+
+// 只为探测不足扩大范围，不能把磁盘、权限或损坏输入误判为探测不足。
+func hlsVideoDimensionsMissing(err error) bool {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return false
+	}
+	stderr := string(exit.Stderr)
+	return strings.Contains(stderr, "dimensions not set") &&
+		!strings.Contains(stderr, "No space left on device") &&
+		!strings.Contains(stderr, "Permission denied") &&
+		!strings.Contains(stderr, "Invalid data found when processing input")
 }
 
 // 只针对可解码但无法直接写入 MP4 的音轨参数错误恢复，不按退出码猜测。

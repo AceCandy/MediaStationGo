@@ -307,6 +307,9 @@ func (c *Client) download(ctx context.Context, media Media, dir string, progress
 			cache.keep = false
 		}
 		defer resp.Body.Close()
+		if media.ExpectedDuration <= 0 || math.IsNaN(media.ExpectedDuration) || math.IsInf(media.ExpectedDuration, 0) {
+			return "", 0, errors.New("该集缺少可核对的完整时长")
+		}
 		f, e := os.OpenFile(input, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if e != nil {
 			return "", 0, errors.New("无法创建下载暂存文件")

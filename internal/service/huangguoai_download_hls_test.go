@@ -117,17 +117,23 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tt := range []struct {
-		name       string
-		duration   int
-		end        bool
-		status     int
-		short      bool
-		decodeFail bool
-		delayed    bool
-		direct     bool
-		failure    string
-		review     bool
+		name        string
+		duration    int
+		end         bool
+		status      int
+		short       bool
+		decodeFail  bool
+		delayed     bool
+		direct      bool
+		failure     string
+		missingPage bool
+		review      bool
 	}{
+		{name: "missing_page_duration_complete_hls", missingPage: true, duration: 6, end: true, status: 200},
+		{name: "missing_page_duration_unfinished_hls", missingPage: true, duration: 6, status: 200, failure: "HLS 未提供完整 VOD 结束证据"},
+		{name: "missing_page_duration_missing_segment", missingPage: true, duration: 6, end: true, status: 404, failure: "HLS 资源 HTTP 404"},
+		{name: "missing_page_duration_wrong_video", missingPage: true, duration: 12, end: true, status: 200, review: true, failure: "视频时长与来源不一致"},
+		{name: "missing_page_duration_direct_mp4", missingPage: true, duration: 6, status: 200, direct: true, failure: "该集缺少可核对的完整时长"},
 		{name: "page_duration_mismatch", duration: 6, end: true, status: 200},
 		{name: "unfinished_playlist", duration: 6, status: 200, failure: "HLS 未提供完整 VOD 结束证据"},
 		{name: "missing_segment", duration: 6, end: true, status: 404, failure: "HLS 第 1/1 个分片下载失败：HLS 资源 HTTP 404"},
@@ -153,6 +159,9 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 					body = []byte(`<script id="videoInitialData">{"id":"12","title":"private-title","ep":7,"videoSrc":"https://example.com/index.m3u8?token=secret-value"}</script><script type="application/ld+json">{"@type":"VideoObject","duration":"PT4M39S"}</script>`)
 					if tt.direct {
 						body = []byte(`<script id="videoInitialData">{"id":"12","title":"private-title","ep":7,"videoSrc":"https://example.com/media.mp4?token=secret-value"}</script><script type="application/ld+json">{"@type":"VideoObject","duration":"PT6S"}</script>`)
+					}
+					if tt.missingPage {
+						body = []byte(strings.Split(string(body), `<script type="application/ld+json">`)[0])
 					}
 				case "/index.m3u8":
 					body = []byte(fmt.Sprintf("#EXTM3U\n#EXTINF:%d,\nsegment.ts?token=secret-value\n", tt.duration))
@@ -229,7 +238,11 @@ func TestHuangGuoAIDownloadHLSCompletenessAndDuration(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tt.failure == "" {
-				if row.Status != "completed" || !strings.Contains(log.Content, "网页时长 279.000 秒") || !strings.Contains(log.Content, "清单时长 6.000 秒") {
+				pageWarning := "网页时长 279.000 秒"
+				if tt.missingPage {
+					pageWarning = "网页未提供时长"
+				}
+				if row.Status != "completed" || !strings.Contains(log.Content, pageWarning) || !strings.Contains(log.Content, "清单时长 6.000 秒") {
 					t.Fatalf("valid HLS rejected or warning missing: %s %s", row.Status, log.Content)
 				}
 				if tt.delayed {

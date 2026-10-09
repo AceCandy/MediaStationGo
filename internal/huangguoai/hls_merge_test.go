@@ -102,6 +102,19 @@ func TestHLSMergeAudioRecoveryPreservesEveryTrack(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertHLSMergeTracks(t, combinedOutput, 4, 2, 40)
+	// 尺寸、采样率与时间戳恢复可以组合，仍用真实编码器检验全部音轨和帧数。
+	wideScript := "#!/bin/sh\ncase \" $* \" in *' -probesize 30000000 '*) printf 'dimensions not set' >&2; exit 1;; esac\n" + strings.TrimPrefix(script, "#!/bin/sh\n")
+	if err := os.WriteFile(filepath.Join(tools, "ffmpeg"), []byte(wideScript), 0700); err != nil {
+		t.Fatal(err)
+	}
+	wideOutput, err := mergeHLS(t.Context(), combinedInput, t.TempDir(), 4)
+	if err != nil || filepath.Base(wideOutput) != "output-recovery-3.mp4" {
+		t.Fatalf("combined dimension recovery failed: %s %v", wideOutput, err)
+	}
+	assertHLSMergeTracks(t, wideOutput, 4, 2, 40)
+	if err := os.WriteFile(filepath.Join(tools, "ffmpeg"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
 	delayedDir := t.TempDir()
 	delayedArgs := []string{"-nostdin", "-v", "error", "-itsoffset", "8", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "mpeg2video", "-c:a", "aac", "-f", "mpegts", filepath.Join(delayedDir, "synthetic.ts")}
 	if err := exec.CommandContext(t.Context(), realFFmpeg, delayedArgs...).Run(); err != nil {
@@ -115,7 +128,7 @@ func TestHLSMergeAudioRecoveryPreservesEveryTrack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	offsets, err := hlsAudioOffsets(t.Context(), delayedOutput)
+	offsets, err := hlsAudioOffsets(t.Context(), delayedOutput, "30000000")
 	if err != nil || len(offsets) != 1 || offsets[0] > -7.9 {
 		t.Fatalf("leading audio lost: %v %v", offsets, err)
 	}
@@ -234,5 +247,36 @@ func TestHLSMergeRejectsAudioTimingLoss(t *testing.T) {
 		if hlsAudioParametersMissing(exit) {
 			t.Fatalf("unsafe error triggered audio recovery: %s", message)
 		}
+		exit.Stderr = []byte("dimensions not set " + message)
+		if hlsVideoDimensionsMissing(exit) {
+			t.Fatalf("unsafe error triggered dimension recovery: %s", message)
+		}
+	}
+}
+
+func TestHLSMergeRecoversLateVideoDimensions(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.m3u8")
+	args := []string{"-nostdin", "-v", "error", "-itsoffset", "38", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-f", "lavfi", "-i", "sine=frequency=440:duration=42", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "mpeg2video", "-c:a", "aac", "-f", "mpegts", filepath.Join(dir, "synthetic.ts")}
+	if err := exec.CommandContext(t.Context(), "ffmpeg", args...).Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, []byte("#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsynthetic.ts\n#EXT-X-ENDLIST\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := mergeHLS(t.Context(), input, dir, 4)
+	if err != nil || filepath.Base(output) != "output-recovery-1.mp4" {
+		t.Fatalf("late dimensions were not recovered: %s %v", output, err)
+	}
+	duration, err := hlsVideoDuration(t.Context(), output)
+	if err != nil || math.Abs(duration-4) > 0.1 {
+		t.Fatalf("late video duration changed: %.3f %v", duration, err)
+	}
+	if err := exec.CommandContext(t.Context(), "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode", "-i", output, "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-").Run(); err != nil {
+		t.Fatal("full decode failed", err)
+	}
+	offsets, err := hlsAudioOffsets(t.Context(), output, "100000000")
+	if err != nil || len(offsets) != 1 || offsets[0] > -37.9 {
+		t.Fatal("leading audio lost", offsets, err)
 	}
 }

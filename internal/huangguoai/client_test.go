@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -160,7 +162,7 @@ func TestPageDurationRejectsAmbiguousVideoObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageDuration(root) != 0 {
+	if duration, declared := pageDuration(root); duration != 0 || !declared {
 		t.Fatal("accepted ambiguous duration")
 	}
 }
@@ -170,5 +172,37 @@ func TestSearchRegistersVerifiedCategory(t *testing.T) {
 	rows, err := ParseSearch(body)
 	if err != nil || len(rows) != 1 || rows[0].Category != "ai-duanju" {
 		t.Fatalf("search category: %+v %v", rows, err)
+	}
+}
+
+func TestResolveDistinguishesMissingAndInvalidDuration(t *testing.T) {
+	for _, tt := range []struct {
+		name, metadata string
+		missing        bool
+	}{
+		{"missing", "", true},
+		{"empty", `{"@type":"VideoObject","duration":""}`, true},
+		{"zero", `{"@type":"VideoObject","duration":"PT0S"}`, false},
+		{"malformed", `{"@type":"VideoObject","duration":"invalid"}`, false},
+		{"mixed_valid_invalid", `[{"@type":"VideoObject","duration":"PT1M"},{"@type":"VideoObject","duration":"invalid"}]`, false},
+		{"ambiguous", `[{"@type":"VideoObject","duration":"PT1M"},{"@type":"VideoObject","duration":"PT2M"}]`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `<script id="videoInitialData">{"id":"12","ep":1,"title":"Synthetic","videoSrc":"https://example.com/media"}</script>`
+			if tt.metadata != "" {
+				body += `<script type="application/ld+json">` + tt.metadata + `</script>`
+			}
+			c := NewClient(&http.Client{Transport: downloadTestTransport(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), ContentLength: int64(len(body)), Header: http.Header{}, Request: req}, nil
+			})})
+			media, err := c.Resolve(t.Context(), "12", 1)
+			if tt.missing {
+				if err != nil || media.URL == "" || media.ExpectedDuration != 0 {
+					t.Fatalf("missing duration cannot reach HLS evidence: %v", err)
+				}
+			} else if err == nil {
+				t.Fatal("invalid or ambiguous declared duration accepted")
+			}
+		})
 	}
 }

@@ -346,8 +346,10 @@ type Media struct {
 
 var isoDuration = regexp.MustCompile(`^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$`)
 
-func pageDuration(root *html.Node) float64 {
+// 同时标记网页是否声明时长，缺失声明可由完整 HLS 清单补证，错误声明不可当作缺失。
+func pageDuration(root *html.Node) (float64, bool) {
 	var duration float64
+	declared := false
 	count := 0
 	walk(root, func(n *html.Node) {
 		if n.Data != "script" || attr(n, "type") != "application/ld+json" {
@@ -362,13 +364,16 @@ func pageDuration(root *html.Node) float64 {
 			switch x := v.(type) {
 			case map[string]any:
 				if x["@type"] == "VideoObject" {
+					if value, exists := x["duration"]; exists && value != "" && value != nil {
+						declared = true
+						count++
+					}
 					s, _ := x["duration"].(string)
 					m := isoDuration.FindStringSubmatch(s)
 					if len(m) == 4 {
 						h, _ := strconv.ParseFloat(m[1], 64)
 						min, _ := strconv.ParseFloat(m[2], 64)
 						sec, _ := strconv.ParseFloat(m[3], 64)
-						count++
 						duration = h*3600 + min*60 + sec
 					}
 				}
@@ -384,9 +389,9 @@ func pageDuration(root *html.Node) float64 {
 		scan(data)
 	})
 	if count != 1 || math.IsInf(duration, 0) || math.IsNaN(duration) {
-		return 0
+		return 0, declared
 	}
-	return duration
+	return duration, declared
 }
 
 func (c *Client) Resolve(ctx context.Context, id string, number int) (Media, error) {
@@ -417,8 +422,8 @@ func (c *Client) Resolve(ctx context.Context, id string, number int) (Media, err
 		return Media{}, errors.New("该集仅提供试看或未提供完整媒体")
 	}
 	// The website also assigns the full player source to previewSrc; equality is not a preview flag.
-	expected := pageDuration(root)
-	if expected <= 0 {
+	expected, declared := pageDuration(root)
+	if expected <= 0 && declared {
 		return Media{}, errors.New("该集缺少可核对的完整时长")
 	}
 	u, err := url.Parse(src)
