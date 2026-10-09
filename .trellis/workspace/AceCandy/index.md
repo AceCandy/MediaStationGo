@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 224
+- **Total Sessions**: 225
 - **Last Active**: 2026-10-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1682 | Active |
+| `journal-3.md` | ~1718 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 225 | 2026-10-09 | 黄果与红果自动补集 | `a202d83` | `main` |
 | 224 | 2026-10-09 | 恢复缺网页时长和视频尺寸探测失败下载 | `dd077c0` | `main` |
 | 223 | 2026-10-09 | 保留合并时长异常候选 | `0e2d874` | `main` |
 | 222 | 2026-10-09 | 统一黄果人工确认弹窗 | `a377cc9` | `main` |

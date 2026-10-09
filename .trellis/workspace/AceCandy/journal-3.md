@@ -1680,3 +1680,39 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 运行服务尚未加载修复，生产18个失败项未重试；需更新运行版本后再定向重试，14个待人工确认项不自动接受。
+
+
+## Session 225: 黄果与红果自动补集
+<!-- trellis-session: v=2 fp=8561d036237bd8c9 -->
+
+**Date**: 2026-10-09
+**Task**: 黄果与红果自动补集
+**Branch**: `main`
+
+### Summary
+
+资料刷新后自动补入已入队作品的有效缺集，保留旧状态和目录；红果下架清理防止自动恢复失效分集。两任务已归档，保持未部署。
+
+### Main Changes
+
+- 黄果与红果手动、定期资料刷新接入增量补集；失败缺口下轮重试，包含完结最后集。
+- 红果自动补集跳过无效视频 ID，保留已确认下架作品的分集身份和媒体绑定，阻止已清理集重新入队。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a202d83` | feat(downloads): 自动补齐黄果和红果新集 |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 定向回归、race、go vet 和独立审查通过；最终红果补集/下架回归 35.552s。
+- [OK] 较大回归仅原有 TestHongGuoImportTaskAndIsolation 失败：任务数量断言写死 5，已有定义实际 6，未修改该旧断言。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未部署、未重启服务、未操作生产队列；上线后验收真实新增集自动入队。
