@@ -1646,3 +1646,37 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 未部署、未验证真实片源；旧失败记录部署后重试生成候选。
+
+
+## Session 224: 恢复缺网页时长和视频尺寸探测失败下载
+<!-- trellis-session: v=2 fp=c70bb3d97141beb8 -->
+
+**Date**: 2026-10-09
+**Task**: 恢复缺网页时长和视频尺寸探测失败下载
+**Branch**: `main`
+
+### Summary
+
+完整HLS接替缺失网页时长证据，视频尺寸不足按固定诊断进行有界扩大探测；保持严格校验、人工确认和无覆盖发布。
+
+### Main Changes
+
+- 区分缺失与错误/歧义网页声明；实际直连MP4无有效时长仍拒绝。扩大探测可组合音轨和时间戳恢复，同步规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dd077c0` | fix(downloads): 恢复缺失网页时长和视频尺寸探测失败下载 |
+
+### Testing
+
+- [OK] 源包和黄果服务全量race、相关go vet、diff检查及独立复核通过；真实18个来源在隔离数据库和临时目录全部完成下载、完整解码、时长校验与发布。临时测试容器与产物已清理。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 运行服务尚未加载修复，生产18个失败项未重试；需更新运行版本后再定向重试，14个待人工确认项不自动接受。
