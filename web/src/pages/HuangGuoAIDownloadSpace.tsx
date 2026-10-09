@@ -63,7 +63,7 @@ export function HuangGuoAIDownloadSpace() {
         if (active.current) toast.success(action === 'confirm' ? '已确认，等待发布并整理入库' : action === 'retry' ? '下载任务已重新入队' : '下载任务已取消')
       }
       if (active.current) setRetry(v => v + 1)
-    } catch { if (active.current) toast.error('操作失败，旧执行尚未退出时请稍后重试') }
+    } catch { if (active.current) toast.error(action === 'confirm' ? '确认失败，请刷新任务状态后重试' : '操作失败，请检查任务状态或稍后重试') }
     finally { if (active.current) setBusy(false) }
   }
   const navigate = (changes: Record<string, string>) => { const next = new URLSearchParams(params); for (const [key, value] of Object.entries(changes)) next.set(key, value); setParams(next) }
@@ -171,7 +171,7 @@ function HuangGuoAIDownloadWork({ work, refresh, busy, perform }: { work: HuangG
           <div className="flex min-h-11 items-center gap-2 text-xs">
             <Link className="shrink-0 py-3 font-semibold" to={`/discover?system=huangguoai&id=${encodeURIComponent(work.source_id)}`}>{movie ? '正片' : series ? `E${String(row.episode).padStart(3, '0')}` : '下载项'}</Link>
             <span className="hidden min-w-0 flex-1 truncate text-ink-50 sm:block" title={row.relative_path}>{row.relative_path}</span>
-            <span className={`shrink-0 rounded px-1.5 py-1 ${statusColors[row.status]}`}>{statusLabels[row.status]}</span>
+            <span className={`shrink-0 rounded px-1.5 py-1 ${statusColors[row.status]}`}>{row.status === 'failed' && row.confirmed_at ? '发布失败' : statusLabels[row.status]}</span>
             {row.status === 'downloading' && <span className="shrink-0 tabular-nums text-ink-50">{row.total_bytes > 0 ? `${Math.max(0, Math.min(100, Math.floor(row.bytes * 100 / row.total_bytes)))}%` : `${(row.bytes / 1048576).toFixed(1)} MB`}</span>}
             <details className="relative ml-auto shrink-0"><summary className="cursor-pointer px-2 py-3 text-ink-50" aria-label={series ? `查看第 ${row.episode} 集任务详情` : `查看${itemLabel}任务详情`}>详情</summary><div className="absolute right-0 top-full z-10 max-h-80 w-64 max-w-[70vw] space-y-2 overflow-y-auto rounded-lg border border-ink-100/10 bg-[var(--app-bg)] p-3 shadow-xl">
               <p className="break-all">{row.relative_path || '输出路径尚未记录'}</p><p>尝试次数：{row.attempts}</p>
@@ -181,7 +181,7 @@ function HuangGuoAIDownloadWork({ work, refresh, busy, perform }: { work: HuangG
               {row.error && <p className="break-words text-red-500">{row.error}</p>}
             </div></details>
             {row.status === 'pending_review' && <button className="shrink-0 px-2 py-3 font-semibold text-brand-500" onClick={() => setPreviewID(previewID === `${row.id}:${row.review_token}` ? null : `${row.id}:${row.review_token}`)}>试播</button>}
-            {['failed', 'cancelled', 'pending_review'].includes(row.status) ? <button className="shrink-0 px-2 py-3 font-semibold text-brand-500 disabled:opacity-50" disabled={busy} onClick={() => void perform(row.id, 'retry')}>重试</button> : row.status !== 'completed' && <button className="shrink-0 px-2 py-3 text-ink-50 disabled:opacity-50" aria-label={series ? `取消第 ${row.episode} 集下载` : `取消${itemLabel}下载`} disabled={busy} onClick={() => void perform(row.id, 'cancel')}>取消下载</button>}
+            {['failed', 'cancelled', 'pending_review'].includes(row.status) ? <button className="shrink-0 px-2 py-3 font-semibold text-brand-500 disabled:opacity-50" disabled={busy} onClick={() => void perform(row.id, 'retry')}>{row.confirmed_at ? '重试发布' : '重试'}</button> : row.status !== 'completed' && <button className="shrink-0 px-2 py-3 text-ink-50 disabled:opacity-50" aria-label={series ? `取消第 ${row.episode} 集下载` : `取消${itemLabel}下载`} disabled={busy} onClick={() => void perform(row.id, 'cancel')}>取消下载</button>}
           </div>
           {previewID === `${row.id}:${row.review_token}` && row.status === 'pending_review' && <div className="space-y-3 pb-3">
             <p className="text-sm text-gold-600">校验未通过：{row.warning}。能播放不代表内容完整，请检查画面、声音及结尾。</p>

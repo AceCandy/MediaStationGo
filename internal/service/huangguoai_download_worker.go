@@ -23,7 +23,7 @@ var errHuangGuoAIPendingReview = errors.New("黄果 AI 等待人工确认")
 
 var errHuangGuoAIWaitingVerify = errors.New("黄果 AI 等待独立校验")
 
-// huangGuoAIDownloadError 仅标记来源客户端和媒体校验器已脱敏的错误，底层数据库错误不可公开。
+// huangGuoAIDownloadError 仅标记来源、校验和发布的固定脱敏错误，底层数据库错误不可公开。
 type huangGuoAIDownloadError struct{ error }
 
 func (e huangGuoAIDownloadError) Unwrap() error { return e.error }
@@ -86,10 +86,14 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 	}
 	safeErr := err
 	if err != nil {
-		safeErr = errors.New("黄果 AI 下载未完成")
+		message := "黄果 AI 下载未完成"
+		if row.ConfirmedAt != nil {
+			message = "黄果 AI 发布失败"
+		}
+		safeErr = errors.New(message)
 		var publicErr huangGuoAIDownloadError
 		if errors.As(err, &publicErr) {
-			safeErr = fmt.Errorf("黄果 AI 下载未完成：%s", publicErr.error)
+			safeErr = fmt.Errorf("%s：%s", message, publicErr.error)
 		}
 	}
 	if parent.Err() != nil {
@@ -101,7 +105,7 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 			status = "queued"
 		}
 		writeCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(writeCtx, row.ID, row.LeaseToken, map[string]any{"status": status, "error": safeErr.Error(), "lease_token": "", "lease_until": nil, "raw_size": row.RawSize, "sha256": row.SHA256, "verified_size": row.VerifiedSize, "staging_path": row.StagingPath})
+		_ = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(writeCtx, row.ID, row.LeaseToken, map[string]any{"status": status, "error": safeErr.Error(), "lease_token": "", "lease_until": nil, "raw_size": row.RawSize, "sha256": row.SHA256, "verified_size": row.VerifiedSize, "staging_path": row.StagingPath, "review_token": row.ReviewToken, "confirmed_by": row.ConfirmedBy, "confirmed_at": row.ConfirmedAt})
 		stop()
 	}
 	task.Finish(safeErr, TaskUpdate{Message: map[bool]string{true: "文件已完成并发布，等待整理入库", false: "文件未发布，等待重试"}[err == nil]})
@@ -111,11 +115,11 @@ func (s *HuangGuoAIDownloadService) run(parent context.Context, row model.HuangG
 func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.HuangGuoAIDownload, bytes *atomic.Int64, task *TaskHandle) error {
 	root, err := os.OpenRoot(row.Root)
 	if err != nil {
-		return errors.New("下载存储目录不可访问")
+		return huangGuoAIDownloadError{errors.New("下载存储目录不可访问")}
 	}
 	defer root.Close()
 	if !filepath.IsLocal(row.RelativePath) {
-		return errors.New("下载输出路径无效")
+		return huangGuoAIDownloadError{errors.New("下载输出路径无效")}
 	}
 	target := filepath.Join("completed", row.RelativePath)
 	if row.SHA256 != "" {
@@ -123,14 +127,15 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 			return s.publish(ctx, *row, root, target)
 		}
 		if !validHuangGuoAIStage(row.StagingPath, row.ID) {
-			return errors.New("恢复暂存路径无效")
+			return huangGuoAIDownloadError{errors.New("恢复暂存路径无效")}
 		}
 		if err = downloadFileMatches(root, row.StagingPath, row.SHA256, row.VerifiedSize); err != nil {
 			if _, e := root.Lstat(target); !os.IsNotExist(e) {
-				return errors.New("完成文件冲突，需人工检查")
+				return huangGuoAIDownloadError{errors.New("完成文件冲突，需人工检查")}
 			}
 			row.SHA256, row.RawSize, row.VerifiedSize = "", 0, 0
-			return errors.New("已校验暂存文件缺失，重试将重新下载")
+			row.ReviewToken, row.ConfirmedBy, row.ConfirmedAt = "", "", nil
+			return huangGuoAIDownloadError{errors.New("已校验候选缺失或内容已变更，重试将重新下载并重新校验")}
 		}
 		return s.publish(ctx, *row, root, target)
 	}
@@ -174,7 +179,7 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 					warning += "；" + verificationErr.Error()
 				}
 			}
-			if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "pending_review", "warning": warning, "review_token": uuid.NewString(), "error": "", "sha256": row.SHA256, "verified_size": size, "lease_token": "", "lease_until": nil}); err != nil {
+			if err = s.repo.HuangGuoAI.UpdateHuangGuoAIDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "pending_review", "warning": warning, "review_token": uuid.NewString(), "error": "", "sha256": row.SHA256, "verified_size": size, "confirmed_by": "", "confirmed_at": nil, "lease_token": "", "lease_until": nil}); err != nil {
 				row.SHA256, row.VerifiedSize = "", 0
 				return err
 			}
@@ -291,30 +296,33 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 func (s *HuangGuoAIDownloadService) publish(ctx context.Context, row model.HuangGuoAIDownload, root *os.Root, target string) error {
 	err := s.repo.HuangGuoAI.PublishHuangGuoAIDownload(ctx, row, func() error {
 		if _, e := root.Lstat(target); e == nil {
-			return downloadFileMatches(root, target, row.SHA256, row.VerifiedSize)
+			if e := downloadFileMatches(root, target, row.SHA256, row.VerifiedSize); e != nil {
+				return huangGuoAIDownloadError{e}
+			}
+			return nil
 		} else if !os.IsNotExist(e) {
-			return errors.New("输出文件不可检查")
+			return huangGuoAIDownloadError{errors.New("输出文件不可检查")}
 		}
 		if !validHuangGuoAIStage(row.StagingPath, row.ID) {
-			return errors.New("发布暂存路径无效")
+			return huangGuoAIDownloadError{errors.New("发布暂存路径无效")}
 		}
 		if e := downloadFileMatches(root, row.StagingPath, row.SHA256, row.VerifiedSize); e != nil {
-			return e
+			return huangGuoAIDownloadError{e}
 		}
 		if e := root.MkdirAll(filepath.Dir(target), 0750); e != nil {
-			return errors.New("输出目录不可写")
+			return huangGuoAIDownloadError{errors.New("输出目录不可写")}
 		}
 		if e := root.Link(row.StagingPath, target); e != nil {
-			return errors.New("发布失败，目标存在或不支持原子发布")
+			return huangGuoAIDownloadError{errors.New("发布失败，目标存在或不支持原子发布")}
 		}
 		dir, e := root.Open(filepath.Dir(target))
 		if e != nil {
-			return errors.New("输出目录不可持久化")
+			return huangGuoAIDownloadError{errors.New("输出目录不可持久化")}
 		}
 		e = dir.Sync()
 		dir.Close()
 		if e != nil {
-			return errors.New("输出目录持久化失败")
+			return huangGuoAIDownloadError{errors.New("输出目录持久化失败")}
 		}
 		return nil
 	})

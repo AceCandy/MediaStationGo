@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/database"
@@ -105,11 +106,47 @@ func TestHuangGuoAIManualReview(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, row.StagingPath), changed, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ConfirmReview(ctx, row.ID, row.ReviewToken, "admin"); err == nil {
-		t.Fatal("changed content accepted")
+	// 同长度修改不阻塞确认请求；后台发布必须复核摘要并撤销失效的确认。
+	oldToken := row.ReviewToken
+	if err := s.ConfirmReview(ctx, row.ID, oldToken, "admin"); err != nil {
+		t.Fatal("confirmation still reads candidate content", err)
 	}
+	changedClaim, err := repos.HuangGuoAI.ClaimHuangGuoAIVerification(ctx)
+	if err != nil || changedClaim == nil || changedClaim.Status != "publishing" {
+		t.Fatal("changed candidate publish claim", err)
+	}
+	s.run(ctx, *changedClaim)
+	var rejected model.HuangGuoAIDownload
+	if err := db.First(&rejected, "id=?", row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Status != "failed" || !strings.Contains(rejected.Error, "内容已变更") || rejected.ConfirmedAt != nil || rejected.ConfirmedBy != "" || rejected.ReviewToken != "" || rejected.SHA256 != "" {
+		t.Fatal("changed candidate kept acceptance", rejected.Status, rejected.Error)
+	}
+	if _, err := os.Stat(filepath.Join(root, "completed", row.RelativePath)); !os.IsNotExist(err) {
+		t.Fatal("changed candidate published")
+	}
+	// 模拟重新下载的候选交接，原版本不能确认新文件。
 	if err := os.WriteFile(filepath.Join(root, row.StagingPath), data, 0600); err != nil {
 		t.Fatal(err)
+	}
+	if err := db.Model(&rejected).Updates(map[string]any{"status": "waiting_verify", "raw_size": len(data)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	verification, err := repos.HuangGuoAI.ClaimHuangGuoAIVerification(ctx)
+	if err != nil || verification == nil || verification.Status != "verifying" {
+		t.Fatal("replacement verification claim", err)
+	}
+	s.run(ctx, *verification)
+	row = model.HuangGuoAIDownload{}
+	if err := db.First(&row, "id=?", rejected.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != "pending_review" || row.ReviewToken == oldToken || row.ConfirmedBy != "" || row.ConfirmedAt != nil {
+		t.Fatal("replacement inherited acceptance", row.Status)
+	}
+	if err := s.ConfirmReview(ctx, row.ID, oldToken, "admin"); err == nil {
+		t.Fatal("old trial accepted replacement")
 	}
 	if err := s.ConfirmReview(ctx, row.ID, row.ReviewToken, "admin"); err != nil {
 		t.Fatal(err)
@@ -225,7 +262,22 @@ func TestHuangGuoAIManualReview(t *testing.T) {
 	if actual, err := os.ReadFile(target); err != nil || string(actual) != "existing" {
 		t.Fatal("collision overwritten")
 	}
-	if err := db.First(&collision, "id=?", collision.ID).Error; err != nil || collision.Status != "failed" || collision.Warning == "" {
-		t.Fatal("collision not retained safely", err)
+	if err := db.First(&collision, "id=?", collision.ID).Error; err != nil || collision.Status != "failed" || collision.Warning == "" || collision.ConfirmedBy != "admin" || collision.ConfirmedAt == nil || !strings.Contains(collision.Error, "完成凭据不符") {
+		t.Fatal("collision not retained safely", err, collision.Error)
+	}
+	confirmedAt := *collision.ConfirmedAt
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Action(ctx, collision.ID, "retry"); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := repos.HuangGuoAI.ClaimHuangGuoAIVerification(ctx)
+	if err != nil || retry == nil || retry.Status != "publishing" {
+		t.Fatal("publication retry requires download or review", err)
+	}
+	s.run(ctx, *retry)
+	if err := db.First(&collision, "id=?", collision.ID).Error; err != nil || collision.Status != "completed" || collision.Error != "" || collision.ConfirmedBy != "admin" || collision.ConfirmedAt == nil || !collision.ConfirmedAt.Equal(confirmedAt) {
+		t.Fatal("publication retry lost acceptance", err)
 	}
 }

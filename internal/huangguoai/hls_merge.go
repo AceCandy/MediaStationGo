@@ -109,6 +109,11 @@ func mergeHLS(ctx context.Context, input, dir string, expected float64) (string,
 			correctTimestamps = true
 			continue
 		}
+		if restored, err := recoverHLSAudioTimestamps(ctx, input, dir, probeLimit, expected); ctx.Err() != nil {
+			return "", ctx.Err()
+		} else if err == nil && restored != "" {
+			return restored, nil
+		}
 		return candidate, HLSDurationMismatchError{}
 	}
 	return "", errors.New("HLS 合并恢复失败，未发布")

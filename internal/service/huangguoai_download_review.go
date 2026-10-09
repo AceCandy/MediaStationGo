@@ -62,7 +62,7 @@ func (s *HuangGuoAIDownloadService) ReviewFile(ctx context.Context, id, token st
 	return file, nil
 }
 
-// ConfirmReview 在行锁下确认相同摘要的候选，发布仍由独立 worker 执行。
+// ConfirmReview 只记录当前候选的人工决定，完整摘要校验由发布 worker 执行。
 func (s *HuangGuoAIDownloadService) ConfirmReview(ctx context.Context, id, token, userID string) error {
 	if userID == "" {
 		return errors.New("确认身份无效")
@@ -82,9 +82,6 @@ func (s *HuangGuoAIDownloadService) ConfirmReview(ctx context.Context, id, token
 		}
 		defer root.Close()
 		defer file.Close()
-		if err := downloadFileMatches(root, row.StagingPath, row.SHA256, row.VerifiedSize); err != nil {
-			return errors.New("候选内容已变更，请重新下载")
-		}
 		sourceID = row.SourceID
 		return tx.Model(&row).Updates(map[string]any{"status": "waiting_verify", "confirmed_by": userID, "confirmed_at": time.Now(), "lease_token": "", "lease_until": nil}).Error
 	})

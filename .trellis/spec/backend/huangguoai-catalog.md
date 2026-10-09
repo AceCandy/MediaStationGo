@@ -74,7 +74,7 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   copy, because some sources introduce video after several seconds of audio.
   Only a fixed `dimensions not set` error enables one wider 100 MB/100-second
   probe retry; mixed disk/permission/invalid-input diagnostics do not enable it.
-  Recovery is local and bounded to four fresh, non-overwriting outputs, allowing
+  Standard recovery is local and bounded to four fresh, non-overwriting outputs, allowing
   wider probing, audio recovery and timestamp correction to combine. Probe source
   audio offsets using the active probe limits and refresh that evidence when
   widening. Only
@@ -89,7 +89,22 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
   0.25 seconds of the input; preserve legitimate leading audio. Only video
   duration mismatch enables `-dts_delta_threshold 1` remux. `copyts` disables
   that correction, so combined recovery omits it and must still pass offset
-  checks. Final video duration retains `max(2 seconds, 2%)`; never change the
+  checks. If standard timestamp correction still leaves a duration mismatch,
+  allow one separate `output-audio-timestamps.mp4` recovery only with packet evidence:
+  the source video has strictly increasing DTS with no gap over 0.2 seconds, its
+  PTS span matches the playlist, and at least one audio track has backwards DTS.
+  Reject audio gaps over 0.2 seconds and unavailable/nonfinite timestamp or audio
+  packet-duration evidence. Stream numeric FFprobe packet fields, retaining only
+  per-track aggregates rather than an unbounded packet list.
+  Preserve video timestamps with `-copyts -start_at_zero` and stream copy; encode
+  all audio with `asetpts=N/SR/TB+STARTPTS` to retain each track's input origin.
+  Require unchanged video packet count and continuous output DTS, playlist-matched
+  video duration, unchanged audio count and each audio's summed packet duration
+  and relative start offset within 0.25 seconds. Independent complete decode remains
+  mandatory before publication. If evidence or recovery fails, retain the earliest
+  private review candidate; cancellation still aborts. Do not apply this recovery
+  to normal sources or genuine video pauses. Final video duration retains
+  `max(2 seconds, 2%)`; never change the
   playlist duration, drop corrupt packets/audio, or automatically publish by weakening checks.
   Capture bounded FFmpeg stderr with `Cmd.Output`, then return only fixed error
   categories or the numeric exit code; never persist arbitrary stderr text.
@@ -137,6 +152,8 @@ HongGuo, HuangGuo Video, old CloudFront and article pages.
 | Complete HLS differs from page duration | Warn; verify video track against playlist duration and fully decode all tracks |
 | HLS video duration matches but audio extends total duration | Preserve all audio; allow after full decode |
 | Missing ENDLIST/failed or incomplete segment | Fail safely, no completed file |
+| Continuous video plus backwards audio DTS stretches remux duration | Evidence-gated audio timestamp recovery, then full independent verification |
+| Video pauses/audio gaps/invalid packet evidence or unsuccessful timestamp recovery | Preserve original review candidate, never waive validation |
 | Complete retained file fails duration/decode validation | Pending administrator review, no automatic publication |
 | Lost lease/cancel/publish collision | No overwrite or another attempt's deletion |
 | Completed auto-mark predecessor | Preserve position, timestamps and events |
@@ -149,6 +166,16 @@ stay in Discover. Bad: use title equality, source count or current filter catego
 as identity/type evidence; scan files as ordinary metadata to make them visible.
 
 ## 6. Tests Required
+
+`TestHLSMergeRecoversAudioTimestampRollback` rewrites both synthetic audio PES
+clocks while retaining continuous video with B frames and leading audio. Assert
+source packet rollback and use of the audio-timestamp recovery output, unchanged 360
+video frames, both audio tracks/durations, relative starts, full decode, rejection
+of wrong playlist duration and no overwrite. `TestHLSPacketTimelineRejectsInvalidEvidence`
+rejects unavailable/nonfinite timestamps/durations and observes cancellation.
+`TestHLSAudioTimestampRecoveryRejectsAudioPause` rejects audio rollback combined
+with a real forward gap before creating any recovery output.
+The existing timestamp-jump and genuine-pause fixtures must continue to pass.
 
 Run `TestHuangGuoAI*` in repository/service/handler with isolated
 `MEDIASTATION_TEST_POSTGRES_DSN`; source package parser/HLS tests separately.
@@ -447,9 +474,13 @@ retain private stage, size and digest but are excluded from both worker claim
 queries. Preview/confirm require current admin role plus adult/profile visibility;
 never create public Media before publication. Preview requires regular file,
 correct size and task-private path without symlink replacement. Confirmation holds
-the row lock, checks candidate version and digest, records actor/time and moves to
-waiting_verify. The publishing worker rechecks digest and existing transaction/lease
-fencing; warning survives completed status. Acceptance is permission to retain a
+the row lock, checks candidate version and file metadata without reading its contents,
+records actor/time and moves to waiting_verify. The publishing worker checks the
+complete digest and existing transaction/lease fencing; warning survives completed
+status. Publication failures retain acceptance and a fixed sanitized reason in failed
+status; retry republishes the same candidate without another confirmation. Invalidated
+candidate checkpoints clear actor/time/version before re-download; new review
+candidates always require fresh acceptance. Acceptance is permission to retain a
 known validation failure, not certification of story completeness. Output still
 requires the normal organization/scanner stage to appear in the library.
 Retry/cancel of pending_review removes only its private stage under the row lock
@@ -465,7 +496,9 @@ version, so polling a new version closes the old trial.
   audio-recovery evidence -> no merge candidate.
 - Non-admin -> 403; adult/profile/PIN lock -> 404.
 - Missing/stale/retired/nonregular/size-changed preview -> 404.
-- Invalid confirm body/changed digest/stale token/wrong state -> 400; no publish.
+- Invalid confirm body/stale token/wrong state/nonregular or size-changed file -> 400.
+- Same-size content change -> confirmation queues promptly; background publication
+  fails without output and clears acceptance before re-download/review.
 - Accepted candidate cancelled or lease lost -> no publish or stale status write.
 - Output collision -> preserve existing output, retain warning, fail publication.
 - Cleanup failure -> error and retain recoverable checkpoint.
