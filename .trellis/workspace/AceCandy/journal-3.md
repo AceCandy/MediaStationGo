@@ -1612,3 +1612,37 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 223: 保留合并时长异常候选
+<!-- trellis-session: v=2 fp=990d4de1c2fe466e -->
+
+**Date**: 2026-10-09
+**Task**: 保留合并时长异常候选
+**Branch**: `main`
+
+### Summary
+
+补齐合并阶段时长异常到人工确认的交接，保留原时间轴候选和持久化警告，保持严格下载及音轨保护。
+
+### Main Changes
+
+- 类型化交接合并时长异常，候选仍执行独立校验且必须人工确认。同步防止遗漏校验入口和循环断言的规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e2d874` | fix(downloads): 保留合并时长异常候选供人工确认 |
+
+### Testing
+
+- [OK] 源包全量和黄果服务全量 race 测试、人工确认定向回归、相关包 go vet、diff 检查通过；已独立复核。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未部署、未验证真实片源；旧失败记录部署后重试生成候选。

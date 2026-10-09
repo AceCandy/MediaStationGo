@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 222
+- **Total Sessions**: 223
 - **Last Active**: 2026-10-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1614 | Active |
+| `journal-3.md` | ~1648 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 223 | 2026-10-09 | 保留合并时长异常候选 | `0e2d874` | `main` |
 | 222 | 2026-10-09 | 统一黄果人工确认弹窗 | `a377cc9` | `main` |
 | 221 | 2026-10-09 | 常规人物关联作品搜索 | `4d37367` | `main` |
 | 220 | 2026-10-09 | 黄果下载候选人工确认 | `2d2c227` | `main` |
