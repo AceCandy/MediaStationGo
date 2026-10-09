@@ -1,0 +1,29 @@
+{
+  "id": "huangguoai-duration-probe",
+  "name": "huangguoai-duration-probe",
+  "title": "恢复网页缺时长和视频尺寸探测失败下载",
+  "description": "完整HLS清单接替缺失的网页时长证据，并对视频尺寸探测不足进行有界本地恢复，严格校验后处理对应失败项。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-09",
+  "completedAt": "2026-10-09",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "dd077c0500d6e9ed194035786c8340e32d5fea6f",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "代码修复及隔离验收已完成；用户要求提交归档。运行服务未更新、生产18个失败项尚未重试，作为上线后续事项保留。",
+  "meta": {
+    "deployment_status": "not_deployed",
+    "production_retry_status": "not_started"
+  }
+}

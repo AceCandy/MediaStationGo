@@ -1,0 +1,4 @@
+# 设计
+pageDuration返回时长及是否存在声明，Resolve仅放行完全未声明时长的媒体；download按实际响应识别HLS，直连分支要求有效正数网页时长。现有ParsePlaylist提供ENDLIST、合法资源、正时长证据；合并和独立验证继续按清单时长，worker用独立安全提示说明网页未提供时长。
+mergeHLS记录活动探测范围，只有固定 dimensions not set 错误且不存在磁盘/权限/invalid诊断时扩大到100MB/100秒。增加一次有界恢复预算，保持独立输出、取消和全部校验；音轨源起点探测用同一活动范围。
+实际队列操作须使用既有service.Action与租约流程，先确认服务已加载修复。当前运行方式为开发go run，不能凭磁盘修改推定生效。
