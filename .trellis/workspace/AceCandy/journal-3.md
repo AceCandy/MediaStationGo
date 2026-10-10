@@ -1824,3 +1824,36 @@ Emby 条目有自身独立豆瓣评分时平级返回 DoubanRating，无评分�
 ### Next Steps
 
 - 未执行全量 Go 测试或实际播放器验证；客户端展示取决于其支持。未推送或部署。
+
+
+## Session 229: 豆瓣资料中心实现、审查修复与归档
+<!-- trellis-session: v=2 fp=4a7e3b7c55cc43eb -->
+
+**Date**: 2026-10-11
+**Task**: 豆瓣资料中心实现、审查修复与归档
+**Branch**: `feature/douban-data-center`
+
+### Summary
+
+完成共享豆瓣资料落库、独立定时刷新和管理员资料中心；修复迟到成功覆盖较新失败退避、刷新接口异常被记录为成功两项审查问题。用户授权提交归档，功能及任务已提交，保留原有 core 文件，尚未推送或部署。
+
+### Main Changes
+
+- 统一豆瓣详情、评分、获取时间及失败退避，迁移旧快照并切换业务读取，保留回滚来源。
+- 新增管理员资料中心列表、详情与手动刷新，独立资料刷新任务默认关闭；补充审查修复、回归和规格契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9071ae4` | feat(douban): 统一资料缓存与刷新并新增资料中心 |
+
+### Testing
+
+- [OK] 真实 PostgreSQL 16 下相关 model/database/repository/service/handler 五包 -race 聚焦回归及 go vet 通过；三项新增复现测试在修复后通过。
+- [OK] 此前管理页面的 Web lint/build、模拟 API 浏览器回归及前后端独立只读复核通过；本轮暂存检查、归档状态和提交范围检查通过。
+- [OK] 完整 service 包仍有已确认的既有分页失败与超时限制；真实豆瓣、Cookie/代理/风控及生产迁移未验证。
+
+### Status
+
+[OK] **Completed**
