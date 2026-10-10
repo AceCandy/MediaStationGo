@@ -1753,3 +1753,40 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 尚未更新运行服务或重试生产候选，浏览器实际试播未验证；加载修复需重启后端，会中断活跃红果任务，等待用户安排。
+
+
+## Session 227: Emby 五分钟响应缓存与搜索类型过滤
+<!-- trellis-session: v=2 fp=d3e3c8e18e314aa6 -->
+
+**Date**: 2026-10-10
+**Task**: Emby 五分钟响应缓存与搜索类型过滤
+**Branch**: `main`
+
+### Summary
+
+完成并提交 Emby 列表、详情和继续观看五分钟缓存，补齐用户与内容失效及版本隔离，过滤不支持的搜索类型，归档任务。
+
+### Main Changes
+
+- Items 缓存最终页，HTTP 详情与 Resume 独立缓存，随机和独立 SearchHints 绕过；凭据逐请求注入，Redis 提升不延长过期时间。
+- 共享播放写端只失效当前用户，公共内容与人物变更全局换代；保留 Web 直接历史删除最多等待五分钟的已确认边界。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4d446b8` | feat(emby): 增加五分钟响应缓存并过滤不支持的搜索类型 |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 与 Redis 的缓存重点回归、race、500/501 前瞻、请求凭据隔离、用户状态与部分提交测试通过。
+- [OK] 接口全包通过；服务全包超时后的 71 个用例续跑通过，四项失败均在 bc0ce96 基线复现并记录，未扩大范围修复。
+- [OK] go vet 与 git diff --check 通过；临时数据库、容器、工作树和日志已清理。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送或部署；生产压测与真实播放器验收尚未执行。

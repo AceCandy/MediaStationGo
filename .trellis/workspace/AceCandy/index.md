@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 226
+- **Total Sessions**: 227
 - **Last Active**: 2026-10-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1755 | Active |
+| `journal-3.md` | ~1792 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 227 | 2026-10-10 | Emby 五分钟响应缓存与搜索类型过滤 | `4d446b8` | `main` |
 | 226 | 2026-10-10 | 黄果确认发布与试播时间轴修复 | `d97c41a` | `main` |
 | 225 | 2026-10-09 | 黄果与红果自动补集 | `a202d83` | `main` |
 | 224 | 2026-10-09 | 恢复缺网页时长和视频尺寸探测失败下载 | `dd077c0` | `main` |
