@@ -15,12 +15,12 @@
   "branch": "feature/douban-data-center",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "9071ae470bfd3a2b47f0cc7b5f0bb2165ef230ed",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "共享资料中心及管理员页面实现完成，未提交未部署；追加审查的两项 P2 已最小修复，并补正式仓储/服务回归。真实 PostgreSQL 16 的相关五包 race 测试、go vet、diff 检查及存储/任务独立只读核验均通过。真实网络/风控/生产迁移未验证，完整 service 包既有基线失败/超时限制见 check.md。",
+  "notes": "共享资料中心及管理员页面实现完成，功能代码已提交，尚未部署；追加审查的两项 P2 已最小修复，并补正式仓储/服务回归。真实 PostgreSQL 16 的相关五包 race 测试、go vet、diff 检查及存储/任务独立只读核验均通过。用户已授权提交与任务归档。真实网络/风控/生产迁移未验证，完整 service 包既有基线失败/超时限制见 check.md。",
   "meta": {}
 }
