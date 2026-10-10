@@ -1790,3 +1790,37 @@ Corrected the ordinary Series favorite regression to assert one count and one pa
 ### Next Steps
 
 - 未推送或部署；生产压测与真实播放器验收尚未执行。
+
+
+## Session 228: Emby 独立豆瓣评分提交归档
+<!-- trellis-session: v=2 fp=9da779e6b6b9845a -->
+
+**Date**: 2026-10-10
+**Task**: Emby 独立豆瓣评分提交归档
+**Branch**: `main`
+
+### Summary
+
+Emby 条目有自身独立豆瓣评分时平级返回 DoubanRating，无评分省略，通用评分不变；已提交并归档。
+
+### Main Changes
+
+- 覆盖电影、整剧、季、单集的列表与详情，按页批量读取快照评分并同步接口说明。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d159740` | feat(emby): 返回独立豆瓣评分 |
+
+### Testing
+
+- [OK] 临时隔离 PostgreSQL 的针对性回归及查询次数测试、前端 lint/build、浏览器检查、独立复核和 diff 检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未执行全量 Go 测试或实际播放器验证；客户端展示取决于其支持。未推送或部署。
