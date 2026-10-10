@@ -75,6 +75,7 @@ const itemFields: readonly EmbyApiField[] = [
   { name: 'SeriesName', type: 'string', description: '所属整剧名称，黄果 AI Season 返回作品名称；红果 Season 按“第 x 季”返回，例如“第 4 季”。' },
   { name: 'MediaType', type: 'string', description: 'Video 等媒体类型。' },
   { name: 'RunTimeTicks', type: 'number', description: '以 100ns 为单位的时长。' },
+  { name: 'DoubanRating', type: 'number', description: '媒体项自身的独立豆瓣评分（0–10 分），与 CommunityRating 平级；仅已关联豆瓣且快照有有效评分时返回，否则省略。不继承剧集或季评分，不改变 CommunityRating，也不依赖 Fields=ProviderIds。' },
   { name: 'DateCreated', type: 'string', description: '媒体项创建时间（UTC）。NFO 使用本地条目首次创建时间，新增版本、删除文件或重扫不改写仍存在条目的时间；其他来源保持原有规则。具体 MediaSource 和 PlaybackInfo 的文件时间不受影响。' },
   { name: 'PartCount', type: 'number', description: '当前播放版本的物理 Part 数量；单文件省略。' },
   { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识；普通剧集的季缺少海报时使用剧集海报，单集 Primary 缺少剧照时依次使用剧集横版图、剧集海报。红果单集仅声明 Primary，使用所属季的作品海报，海报缺失时不声明有图。黄果 AI 作品、默认季及分集共用该作品的本地海报，接口遵守成人内容及文件库权限。' },
@@ -86,6 +87,7 @@ const itemFields: readonly EmbyApiField[] = [
 
 const itemsEnvelopeFields: readonly EmbyApiField[] = [
   { name: 'Items', type: 'array', description: '媒体项数组；Movie 不返回季/集层级字段，Episode 保留（含特别篇零季号），规则与媒体项详情一致。' },
+  { name: 'Items[].DoubanRating', type: 'number', description: '媒体项自身有独立豆瓣评分时，与 CommunityRating 平级返回；无有效评分时省略，规则与详情一致。' },
   { name: 'Items[].LibraryIds', type: 'string[]', description: 'IsFavorite 查询的 Movie/Series 附带当前用户可见的所属媒体库 ID，跨库作品、黄果 AI 作品和红果合集取去重并集，未知或无可见归属返回 []；不改变 ParentId。旧服务端可能省略此扩展，客户端应保持原类型显示。' },
   { name: 'Items[].LibraryType', type: 'string', description: 'CollectionFolder 视图附带的实际媒体库类型，hongguo 表示红果短剧库；原 CollectionType 仍为 tvshows；huangguoai 为黄果 AI 混合电影/剧集库，CollectionType 为空。客户端可将库 Id 与收藏 LibraryIds 匹配，字段缺失时不按库名或作品 ID 猜测。' },
   { ...unplayedItemCountField, name: 'Items[].UserData.UnplayedItemCount' },

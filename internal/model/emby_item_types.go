@@ -18,6 +18,7 @@ type EmbyItem struct {
 	ProductionYear     int               `json:"ProductionYear,omitempty"`
 	PremiereDate       *time.Time        `json:"PremiereDate,omitempty"`
 	CommunityRating    float64           `json:"CommunityRating,omitempty"`
+	DoubanRating       float64           `json:"DoubanRating,omitempty"`
 	OfficialRating     string            `json:"OfficialRating,omitempty"`
 	RunTimeTicks       int64             `json:"RunTimeTicks,omitempty"`
 	ParentId           string            `json:"ParentId,omitempty"`

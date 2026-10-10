@@ -442,6 +442,9 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 			"PlayedPercentage":      pct,
 		},
 	}
+	if m.DoubanRating > 0 {
+		item["DoubanRating"] = m.DoubanRating
+	}
 	// 电影省略季/集字段，避免空字符串被客户端视为存在剧集关联。
 	if episode {
 		item["SeriesId"] = seriesID

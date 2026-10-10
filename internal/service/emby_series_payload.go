@@ -11,13 +11,14 @@ func (e *EmbyService) seriesPayload(ctx context.Context, group embySeriesGroup, 
 }
 
 type embyMetadataRelations struct {
-	metadataByID            map[string]model.MetadataItem
-	artworkByMetadataID     map[string]map[string]string
-	peopleByMetadataID      map[string][]model.EmbyPerson
-	providerIDsByMetadataID map[string]map[string]string
-	favoriteByMetadataID    map[string]bool
-	playbackByMetadataID    map[string]embyContainerPlayback
-	fields                  embyListFields
+	metadataByID              map[string]model.MetadataItem
+	doubanRatingsByMetadataID map[string]float32
+	artworkByMetadataID       map[string]map[string]string
+	peopleByMetadataID        map[string][]model.EmbyPerson
+	providerIDsByMetadataID   map[string]map[string]string
+	favoriteByMetadataID      map[string]bool
+	playbackByMetadataID      map[string]embyContainerPlayback
+	fields                    embyListFields
 }
 
 func (e *EmbyService) metadataRelationsForIDs(ctx context.Context, metadataIDs []string, userID string, fields embyListFields) *embyMetadataRelations {
@@ -32,6 +33,7 @@ func (e *EmbyService) metadataRelationsForIDs(ctx context.Context, metadataIDs [
 		return relations
 	}
 	if e.repo.Metadata != nil {
+		relations.doubanRatingsByMetadataID, _ = e.repo.Metadata.DoubanRatingsByMetadataIDs(ctx, metadataIDs)
 		if rows, err := e.repo.Metadata.FindByIDs(ctx, metadataIDs); err == nil {
 			for _, row := range rows {
 				relations.metadataByID[row.ID] = row
@@ -89,11 +91,14 @@ func (e *EmbyService) seriesPayloadsWithFields(ctx context.Context, groups []emb
 }
 
 func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group embySeriesGroup, userID string, relations *embyMetadataRelations) map[string]any {
+	var doubanRating float32
 	var people []model.EmbyPerson
 	var providerIDs map[string]string
 	var favorite bool
 	var playback embyContainerPlayback
 	if relations == nil {
+		ratings, _ := e.repo.Metadata.DoubanRatingsByMetadataIDs(ctx, []string{group.ID})
+		doubanRating = ratings[group.ID]
 		metadata, _ := e.repo.Metadata.FindByID(ctx, group.ID)
 		if metadata != nil {
 			group.Name = metadata.Title
@@ -113,6 +118,7 @@ func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group emby
 		people = e.peopleForMetadata(ctx, group.ID)
 		providerIDs = e.metadataProviderIDs(ctx, group.ID)
 	} else {
+		doubanRating = relations.doubanRatingsByMetadataID[group.ID]
 		if metadata, ok := relations.metadataByID[group.ID]; ok {
 			group.Name = metadata.Title
 			group.Overview = metadata.Overview
@@ -178,6 +184,9 @@ func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group emby
 		"BackdropImageTags":  backdropTags,
 		"UserData":           userData,
 	}
+	if doubanRating > 0 {
+		item["DoubanRating"] = doubanRating
+	}
 	if relations == nil || relations.fields.people {
 		item["People"] = people
 	}
@@ -210,12 +219,15 @@ func (e *EmbyService) seasonPayloadsWithFields(ctx context.Context, seasons []em
 func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season embySeasonGroup, userID string, relations *embyMetadataRelations) map[string]any {
 	var overview string
 	var rating float32
+	var doubanRating float32
 	var seasonPoster string
 	var people []model.EmbyPerson
 	var providerIDs map[string]string
 	var favorite bool
 	var playback embyContainerPlayback
 	if relations == nil {
+		ratings, _ := e.repo.Metadata.DoubanRatingsByMetadataIDs(ctx, []string{season.ID})
+		doubanRating = ratings[season.ID]
 		if metadata, err := e.repo.Metadata.FindByID(ctx, season.ID); err == nil && metadata != nil {
 			season.Name = metadata.Title
 			overview = metadata.Overview
@@ -234,6 +246,7 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 		people = e.peopleForMetadata(ctx, season.ID)
 		providerIDs = e.metadataProviderIDs(ctx, season.ID)
 	} else {
+		doubanRating = relations.doubanRatingsByMetadataID[season.ID]
 		if metadata, ok := relations.metadataByID[season.ID]; ok {
 			season.Name = metadata.Title
 			overview = metadata.Overview
@@ -292,6 +305,9 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 		"ImageTags":         imageTags,
 		"BackdropImageTags": []string{},
 		"UserData":          userData,
+	}
+	if doubanRating > 0 {
+		item["DoubanRating"] = doubanRating
 	}
 	if relations == nil || relations.fields.people {
 		item["People"] = people
