@@ -196,6 +196,9 @@ func (r *MetadataRepository) upsertProviderSnapshot(ctx context.Context, metadat
 	if strings.TrimSpace(metadataID) == "" || strings.TrimSpace(provider) == "" || !json.Valid(payload) {
 		return errors.New("valid metadata provider snapshot is required")
 	}
+	if strings.EqualFold(strings.TrimSpace(provider), "douban") {
+		return r.saveDoubanSubject(ctx, metadataID, payload, fetchedAt, degraded)
+	}
 	payloadText := string(payload)
 	snapshot := model.MetadataProviderSnapshot{MetadataID: metadataID, Provider: strings.ToLower(strings.TrimSpace(provider)), Payload: payloadText, Degraded: degraded, FetchedAt: fetchedAt}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
@@ -317,6 +320,14 @@ func (r *MetadataRepository) ListMissingTMDbSnapshotsAfter(ctx context.Context, 
 }
 
 func (r *MetadataRepository) FindProviderSnapshot(ctx context.Context, metadataID, provider string) (*model.MetadataProviderSnapshot, error) {
+	if strings.EqualFold(strings.TrimSpace(provider), "douban") {
+		subject, err := (&DoubanRepository{db: r.db}).FindForMetadata(ctx, metadataID)
+		if err != nil || subject == nil || subject.Payload == nil || subject.FetchedAt == nil {
+			return nil, err
+		}
+		return &model.MetadataProviderSnapshot{MetadataID: metadataID, Provider: "douban", Payload: *subject.Payload,
+			Degraded: subject.Quality == model.DoubanQualityDegraded, FetchedAt: *subject.FetchedAt}, nil
+	}
 	var snapshot model.MetadataProviderSnapshot
 	err := r.db.WithContext(ctx).Where("metadata_id = ? AND provider = ?", metadataID, strings.ToLower(strings.TrimSpace(provider))).First(&snapshot).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -252,3 +252,10 @@ func isMissingTableErr(err error) bool {
 	}
 	return err == gorm.ErrInvalidDB
 }
+
+func (s *SchedulerService) jobDoubanDataRefresh(ctx context.Context) error {
+	if s.scraper == nil {
+		return nil
+	}
+	return s.scraper.runDoubanDataRefresh(ctx, schedulerTaskTrigger(ctx))
+}

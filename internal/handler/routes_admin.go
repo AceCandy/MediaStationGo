@@ -25,6 +25,9 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	admin.DELETE("/media/:id/strm-delete-target", deleteSTRMTargetHandler(svc))
 	admin.GET("/player-request-logs", playerRequestLogsHandler(svc))
 	admin.GET("/playback-stats", adminPlaybackStatsHandler(svc))
+	admin.GET("/douban/subjects", listDoubanSubjectsHandler(svc))
+	admin.GET("/douban/subjects/:id", doubanSubjectHandler(svc, false))
+	admin.POST("/douban/subjects/:id/refresh", doubanSubjectHandler(svc, true))
 }
 
 func registerAdminUserRoutes(admin *gin.RouterGroup, svc *service.Container) {

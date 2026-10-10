@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "关联与评分、字段和图片契约"}
+{"file": ".trellis/spec/frontend/routing-and-loading-contracts.md", "reason": "管理页路由权限、URL状态、可取消分页和响应式验证"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "复用主题、表格、Select及ModalShell"}
+{"file": ".trellis/tasks/10-10-douban-data-center/research/management-page.md", "reason": "管理页面接口、共享刷新边界和已核实复用点"}

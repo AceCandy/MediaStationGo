@@ -438,8 +438,8 @@ func TestDoubanProviderMatchPersistsSnapshotWithoutFusingDetailFields(t *testing
 		t.Fatal(err)
 	}
 	var count int64
-	if err := repos.DB.Model(&model.MetadataProviderSnapshot{}).
-		Where("metadata_id = ? AND provider = ?", persisted.Target.ID, "douban").Count(&count).Error; err != nil || count != 1 {
+	if err := repos.DB.Model(&model.DoubanSubject{}).
+		Where("douban_id = ?", match.DoubanID).Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("snapshot count = %d, err = %v", count, err)
 	}
 }
@@ -788,8 +788,8 @@ func TestDoubanMovieEnrichmentContinuesAfterDegradedSnapshot(t *testing.T) {
 	if err != nil || snapshot == nil || !snapshot.Degraded {
 		t.Fatalf("degraded snapshot = %#v, err = %v", snapshot, err)
 	}
-	candidates, err := repos.Metadata.ListDoubanMovieEnrichmentAfter(t.Context(), "", time.Now().UTC().Add(time.Hour), 20)
-	if err != nil || len(candidates) != 1 || candidates[0].MetadataID != "15000000-0000-0000-0000-000000000002" {
+	candidates, err := repos.Metadata.ListDoubanMovieEnrichmentAfter(t.Context(), "", time.Now().UTC().Add(-24*time.Hour), 20)
+	if err != nil || len(candidates) != 0 {
 		t.Fatalf("post-run candidates = %#v, err = %v", candidates, err)
 	}
 }

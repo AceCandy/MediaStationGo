@@ -77,7 +77,7 @@ func TestDoubanBindingImmediateAndForced(t *testing.T) {
 			failDetails = false
 			// 最后一步快照写入失败，也必须回滚绑定、字段和图片关系。
 			if err := repos.DB.Callback().Create().Before("gorm:create").Register("fail_douban_snapshot", func(tx *gorm.DB) {
-				if tx.Statement.Table == "metadata_provider_snapshots" {
+				if tx.Statement.Table == "douban_subjects" {
 					tx.AddError(errors.New("snapshot failure"))
 				}
 			}); err != nil {

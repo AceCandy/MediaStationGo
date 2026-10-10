@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -42,8 +41,15 @@ func (d *DoubanProvider) bindingSubject(ctx context.Context, id string) (*Match,
 	if !validDoubanID(id) {
 		return nil, "", ErrDoubanBindingInvalid
 	}
-	raw, status, requestErr := d.requestDetailRawJSON(ctx, "https://m.douban.com/rexxar/api/v2/subject/"+id, "https://m.douban.com/subject/"+id+"/")
-	if _, err := classifyDoubanDetailResponse(raw, status, requestErr); err != nil {
+	raw, _, fetchedAt, err := d.cachedDetail(ctx, id, "", "binding", func() ([]byte, bool, error) {
+		raw, status, requestErr := d.requestDetailRawJSON(ctx, "https://m.douban.com/rexxar/api/v2/subject/"+id, "https://m.douban.com/subject/"+id+"/")
+		_, err := classifyDoubanDetailResponse(raw, status, requestErr)
+		if err == nil {
+			_, err = doubanBindingPayloadKind(raw, id)
+		}
+		return raw, true, err
+	})
+	if err != nil {
 		return nil, "", err
 	}
 	kind, err := doubanBindingPayloadKind(raw, id)
@@ -51,6 +57,9 @@ func (d *DoubanProvider) bindingSubject(ctx context.Context, id string) (*Match,
 		return nil, "", err
 	}
 	match, err := doubanMatchFromRawJSON(id, raw)
+	if match != nil {
+		match.DoubanFetchedAt = fetchedAt
+	}
 	return match, kind, err
 }
 
@@ -136,6 +145,7 @@ func (s *ScraperService) SearchDoubanBinding(ctx context.Context, metadataID, qu
 
 // BindDouban 获取成功后才原子提交；强制绑定不改变本地实体和季集结构。
 func (s *ScraperService) BindDouban(ctx context.Context, metadataID string, req DoubanBindingRequest) (bool, error) {
+	ctx = WithDoubanFresh(ctx)
 	item, err := s.doubanBindingTarget(ctx, metadataID)
 	if err != nil {
 		return false, err
@@ -221,9 +231,9 @@ func (s *ScraperService) BindDouban(ctx context.Context, metadataID string, req 
 			}
 		}
 		if degraded {
-			return repos.Metadata.UpsertDegradedProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC())
+			return repos.Metadata.UpsertDegradedProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 		}
-		return repos.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC())
+		return repos.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 	})
 	if err == nil {
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataID)

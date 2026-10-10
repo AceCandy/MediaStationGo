@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
 
 	"gorm.io/gorm"
 
@@ -16,20 +15,20 @@ func (r *MetadataRepository) DoubanRatingsByMetadataIDs(ctx context.Context, met
 	if len(metadataIDs) == 0 {
 		return ratings, nil
 	}
-	db := r.db.WithContext(ctx)
-	linked := db.Table("metadata_identifiers AS identifier").Select("identifier.metadata_id").
-		Joins("JOIN metadata_items AS metadata ON metadata.id = identifier.metadata_id AND metadata.kind = identifier.entity_kind").
-		Where("identifier.provider = ? AND identifier.external_id <> '' AND identifier.metadata_id = ANY(?)", "douban", &metadataIDs)
-	var snapshots []model.MetadataProviderSnapshot
-	if err := db.Select("metadata_id", "payload").
-		Where("provider = ? AND metadata_id IN (?)", "douban", linked).
-		Find(&snapshots).Error; err != nil {
+	var rows []struct {
+		MetadataID string
+		Rating     float32
+	}
+	if err := r.db.Session(&gorm.Session{NewDB: true, Context: ctx}).Table("metadata_identifiers AS mid").Select("mid.metadata_id, ds.rating").
+		Joins("JOIN metadata_items AS mi ON mi.id = mid.metadata_id AND mi.kind = mid.entity_kind").
+		Joins("JOIN douban_subjects AS ds ON ds.douban_id = mid.external_id AND ds.entity_kind = COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind)").
+		Where("(SELECT COUNT(*) FROM metadata_identifiers other WHERE other.metadata_id = mid.metadata_id AND other.provider = 'douban' AND other.entity_kind = mid.entity_kind) = 1").
+		Where("mid.provider = 'douban' AND mid.metadata_id = ANY(?) AND ds.rating > 0 AND ds.rating <= 10", &metadataIDs).
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	for _, snapshot := range snapshots {
-		if rating := doubanSnapshotRating(snapshot.Payload); rating > 0 {
-			ratings[snapshot.MetadataID] = rating
-		}
+	for _, row := range rows {
+		ratings[row.MetadataID] = row.Rating
 	}
 	return ratings, nil
 }
@@ -47,15 +46,9 @@ func attachMediaViewDoubanRatings(db *gorm.DB, views []model.MediaView) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	var snapshots []model.MetadataProviderSnapshot
-	if err := db.Select("metadata_id", "payload").
-		Where("provider = ? AND metadata_id = ANY(?)", "douban", &ids).
-		Find(&snapshots).Error; err != nil {
+	ratings, err := (&MetadataRepository{db: db}).DoubanRatingsByMetadataIDs(db.Statement.Context, ids)
+	if err != nil {
 		return err
-	}
-	ratings := make(map[string]float32, len(snapshots))
-	for _, snapshot := range snapshots {
-		ratings[snapshot.MetadataID] = doubanSnapshotRating(snapshot.Payload)
 	}
 	for i := range views {
 		if views[i].DoubanID != "" {
@@ -65,35 +58,5 @@ func attachMediaViewDoubanRatings(db *gorm.DB, views []model.MediaView) error {
 	return nil
 }
 
-// doubanSnapshotRating 兼容移动端评分及历史 subject/data 包装；缺失或无效评分保持未知。
-func doubanSnapshotRating(payload string) float32 {
-	var subject map[string]json.RawMessage
-	if json.Unmarshal([]byte(payload), &subject) != nil {
-		return 0
-	}
-	for _, key := range []string{"subject", "data"} {
-		var nested map[string]json.RawMessage
-		if json.Unmarshal(subject[key], &nested) == nil && nested != nil {
-			subject = nested
-			break
-		}
-	}
-	for _, key := range []string{"rate", "rating"} {
-		raw := subject[key]
-		var nested map[string]json.RawMessage
-		if json.Unmarshal(raw, &nested) == nil && nested != nil {
-			raw = nested["value"]
-			if len(raw) == 0 {
-				raw = nested["score"]
-			}
-		}
-		var number json.Number
-		if json.Unmarshal(raw, &number) == nil {
-			value, err := number.Float64()
-			if err == nil && value > 0 && value <= 10 {
-				return float32(value)
-			}
-		}
-	}
-	return 0
-}
+// doubanSnapshotRating 保持已有仓储解析调用兼容。
+func doubanSnapshotRating(payload string) float32 { return model.DoubanRating(payload) }

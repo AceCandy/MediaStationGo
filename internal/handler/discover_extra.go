@@ -233,6 +233,9 @@ func loadDiscoverSection(parent context.Context, svc *service.Container, job dis
 	}
 	sectionTimeout := discoverSectionTimeout(job.key)
 	sectionCtx, cancel := context.WithTimeout(parent, sectionTimeout)
+	if job.refresh {
+		sectionCtx = service.WithDoubanFresh(sectionCtx)
+	}
 	items, err := loadDiscoverSectionItems(sectionCtx, svc, job.provider, job.key, job.page)
 	elapsed := time.Since(started)
 	cancel()

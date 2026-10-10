@@ -7,6 +7,7 @@ import {
   Code2,
   Compass,
   Copy,
+  Database,
   FileText,
   HardDrive,
   Home,
@@ -40,6 +41,7 @@ const AdminEmbyAPIsPage = lazy(() =>
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const DiscoverPage = lazy(() => import('./pages/DiscoverHubPage').then((m) => ({ default: m.DiscoverHubPage })))
 const TasksPage = lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })))
+const DoubanDataCenterPage = lazy(() => import('./pages/DoubanDataCenterPage').then((m) => ({ default: m.DoubanDataCenterPage })))
 const FileManagerPage = lazy(() =>
   import('./pages/FileManagerPage').then((m) => ({ default: m.FileManagerPage })),
 )
@@ -275,6 +277,12 @@ export const appRoutes: AppRoute[] = [
         path: 'tasks',
         element: <TasksPage />,
         navigation: { scope: 'header', label: '任务中心', icon: ListChecks, to: '/admin/tasks', order: 60, end: true },
+      },
+      {
+        id: 'admin-data-center',
+        path: 'data-center',
+        element: <DoubanDataCenterPage />,
+        navigation: { scope: 'management', label: '资料中心', icon: Database, to: '/admin/data-center', order: 25, end: true },
       },
       {
         id: 'admin-tasks-scheduler',

@@ -53,6 +53,8 @@ func AllModels() []interface{} {
 		&MetadataItem{},
 		&MetadataIdentifier{},
 		&MetadataProviderSnapshot{},
+		&DoubanSubject{},
+		&DoubanQueryCache{},
 		&CatalogHydrationJob{},
 		&TaskExecution{},
 		&HongGuoDownloadWork{},

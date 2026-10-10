@@ -44,6 +44,7 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 		} else if details != nil {
 			doubanDetails = details
 			match.RawJSON = details.RawJSON
+			match.DoubanFetchedAt = details.DoubanFetchedAt
 			if match.TMDbID == 0 {
 				match.TMDbID = details.TMDbID
 			}
@@ -82,7 +83,7 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	}
 	defer s.invalidateMediaCache(ctx)
 	if source == "douban" && len(match.RawJSON) > 0 {
-		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, canonical.ID, "douban", match.RawJSON, time.Now().UTC()); err != nil {
+		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, canonical.ID, "douban", match.RawJSON, doubanMatchFetchedAt(match)); err != nil {
 			return nil, err
 		}
 	}

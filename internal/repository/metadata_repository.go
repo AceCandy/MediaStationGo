@@ -446,35 +446,39 @@ func (r *MetadataRepository) ListDoubanMovieEnrichmentAfter(ctx context.Context,
 SELECT mi.id AS metadata_id, MIN(mid.external_id) AS douban_id
 FROM metadata_items AS mi
 JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id
-LEFT JOIN metadata_provider_snapshots AS mps ON mps.metadata_id = mi.id AND mps.provider = 'douban'
--- 空路径保留完整 JSON 值；阻止内联，让多个字段检查复用一次解压后的快照。
-LEFT JOIN LATERAL (SELECT mps.payload #> '{}' AS payload OFFSET 0) AS snapshot ON TRUE
+LEFT JOIN douban_subjects AS mps ON mps.douban_id = mid.external_id
+  AND mps.entity_kind = COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind)
 WHERE mi.kind IN ?
   AND mid.provider = 'douban'
   AND mid.entity_kind = mi.kind
   AND mi.id > ?
-  AND mps.degraded IS NOT TRUE
+  AND (mps.next_retry_at IS NULL OR mps.next_retry_at <= NOW())
   AND (
-    mps.metadata_id IS NULL
+    mps.payload IS NULL
+    OR (btrim(COALESCE(mi.overview, '')) = '' AND btrim(COALESCE(mps.payload ->> 'intro', mps.payload ->> 'summary', mps.payload ->> 'short_comment', '')) <> '')
+    OR (mps.quality <> 'degraded' AND mi.title !~ '[㐀-䶿一-鿿豈-﫿]' AND COALESCE(mps.payload ->> 'title', '') ~ '[㐀-䶿一-鿿豈-﫿]')
     OR (
-      mps.fetched_at < ?
-      AND (
-        btrim(COALESCE(mi.overview, '')) = ''
-        OR mi.title !~ '[㐀-䶿一-鿿豈-﫿]'
-        OR jsonb_exists(snapshot.payload, 'subject') OR jsonb_exists(snapshot.payload, 'data')
-        OR btrim(COALESCE(snapshot.payload ->> 'intro', '')) = ''
-        OR NOT (jsonb_exists(snapshot.payload, 'cover_url') OR jsonb_exists(snapshot.payload, 'pic'))
-        OR NOT EXISTS (
-          SELECT 1 FROM metadata_artwork_candidates AS mac
-          JOIN artwork_assets AS aa ON aa.id = mac.asset_id
-          WHERE mac.metadata_id = mi.id AND mac.artwork_type = 'poster' AND mac.source_provider = 'douban'
-          UNION ALL
-          SELECT 1 FROM metadata_artworks AS ma
-          JOIN artwork_assets AS aa ON aa.id = ma.asset_id
-          WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster' AND ma.source_provider = 'douban'
-        )
+      (jsonb_exists(mps.payload, 'cover_url') OR jsonb_exists(mps.payload, 'pic') OR jsonb_exists(mps.payload, 'cover'))
+      AND NOT EXISTS (
+        SELECT 1 FROM metadata_artwork_candidates mac JOIN artwork_assets aa ON aa.id = mac.asset_id
+        WHERE mac.metadata_id = mi.id AND mac.artwork_type = 'poster' AND mac.source_provider = 'douban'
+        UNION ALL
+        SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id
+        WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster' AND ma.source_provider = 'douban'
       )
     )
+    OR (mps.fetched_at < ? AND (
+      mps.quality = 'partial'
+      OR btrim(COALESCE(mi.overview, '')) = ''
+      OR mi.title !~ '[㐀-䶿一-鿿豈-﫿]'
+      OR NOT EXISTS (
+        SELECT 1 FROM metadata_artwork_candidates mac JOIN artwork_assets aa ON aa.id = mac.asset_id
+        WHERE mac.metadata_id = mi.id AND mac.artwork_type = 'poster' AND mac.source_provider = 'douban'
+        UNION ALL
+        SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id
+        WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster' AND ma.source_provider = 'douban'
+      )
+    ))
   )
 GROUP BY mi.id
 HAVING COUNT(*) = 1

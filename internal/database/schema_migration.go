@@ -23,6 +23,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	if err := migrateDoubanSubjects(db); err != nil {
+		return err
+	}
 	if err := ensureHuangGuoAIBindingIdentity(db); err != nil {
 		return err
 	}

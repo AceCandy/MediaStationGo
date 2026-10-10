@@ -1743,7 +1743,8 @@ if snapshot.Degraded {
 
 ### 2. Signatures
 
-- Raw detail carrier: `Match.RawJSON []byte`.
+- Raw detail carrier: `Match.RawJSON []byte` and original success time
+  `Match.DoubanFetchedAt time.Time`; keep both when forwarding cached details.
 - Regular Douban detail boundary: `DoubanProvider.GetMatchByID(ctx, doubanID) (*Match, error)`.
 - Enrichment-only detail boundary:
   `DoubanProvider.GetEnrichmentMatchByID(ctx, doubanID, entityKind) (*Match, degraded bool, error)`.
@@ -1760,8 +1761,11 @@ if snapshot.Degraded {
 - Snapshot writes:
   `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)` and
   `UpsertDegradedProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
-- Snapshot identity is `(metadata_id, provider)`, payload storage is JSONB,
-  and `degraded` is a non-null boolean whose default is `false`.
+- Non-Douban snapshot identity remains `(metadata_id, provider)` with JSONB
+  payloads. Douban details now live in `douban_subjects`, keyed by external ID
+  and effective provider kind; the snapshot methods return a compatibility
+  projection from the current unique identifier. Do not read/write legacy
+  Douban rows in `metadata_provider_snapshots`.
 - Candidate discovery:
   `ListDoubanMovieEnrichmentAfter(ctx, afterID, refreshBefore, limit) []DoubanMovieEnrichmentCandidate`.
 - Candidate artwork:
@@ -1805,14 +1809,16 @@ if snapshot.Degraded {
   the Chinese-title precedence exception to replace a non-empty title and never
   clears a field omitted from the subject payload.
 - If both sources have the same entity kind and provide a TMDb ID that conflicts with the canonical TMDb
-  identifier, skip the entire Douban write, including snapshot and artwork.
-- A historical candidate starts with one Movie or TV detail request according
+  identifier, skip local enrichment, including artwork and compatibility writes.
+  Independently validated shared subject data may already have been saved.
+- A historical candidate reuses valid cached details or makes one Movie or TV detail request according
   to its canonical kind, unless its identifier has an explicitly confirmed
   `douban_entity_kind` from manual binding. Save a
-  complete or degraded valid response and advance `fetched_at` only after field
-  and artwork persistence succeed. A successful permission fallback advances
-  the cursor and continues the batch; request, parsing, field, artwork, or
-  snapshot failures do not advance the cooldown.
+  complete or degraded valid response in the shared subject table before local
+  field/artwork persistence. Artwork failures retain the successful detail and
+  its original fetching time for reuse. A successful permission fallback advances
+  the cursor and continues the batch; request/parsing failures never advance
+  the successful fetching time. Local completion never extends detail freshness.
 - Canonical graph merge moves provider snapshots and artwork candidates to the
   surviving metadata; when the same provider/candidate key already exists, the
   surviving target row wins before the source metadata is hard-deleted.
@@ -1822,20 +1828,17 @@ if snapshot.Degraded {
   Existing selection always wins; only an absent selection is atomically
   promoted. Public responses continue to use only `/api/artwork/:assetID`,
   never a remote URL.
-- Historical passes exclude every explicit `degraded=true` Douban snapshot.
-  Otherwise, they admit Movie/Series with one same-kind Douban identifier when no
-  snapshot exists, or when the snapshot is older than 24 hours and is a legacy
-  wrapper, lacks mobile `intro` / image fields, lacks Douban-owned local poster
-  artwork, or canonical data lacks overview or a Chinese title. Other empty
-  fields are filled only during such a request and never trigger one alone.
-  Passes use metadata-ID keyset pagination, a maximum batch of 100, serial
-  processing, a two-second inter-item delay, and a persisted cursor. They never
-  join `media`. A retryable upstream failure stops the current execution before
-  the failed item's cursor write and before the short-page cursor reset; the
-  next execution therefore retries that same item first. Explicit not-found and
-  local permanent ambiguity advance the cursor and continue. Metrics and logs
-  distinguish requests, field updates, new posters, degraded snapshots,
-  snapshot-only refreshes, permanent failures/skips, and upstream pauses.
+- Historical passes use current unique same-local-kind Douban identifiers,
+  routing by confirmed `douban_entity_kind` when present. Retry timestamps apply independently of detail freshness. Useful cached titles,
+  overviews or posters keep local gaps eligible even while details are fresh;
+  local gaps without useful cached values are rechecked after 24 hours. Legacy
+  partial details are eligible after that local cooldown. Other empty fields
+  are filled during enrichment and never trigger a request alone.
+  Passes retain metadata-ID keyset pagination, batch size 100, serial processing,
+  two-second inter-item delay and the existing persisted cursor. Retryable
+  upstream failures stop before advancing the failed item's cursor. Not-found
+  entries advance the cursor. Metrics count actual upstream calls rather than
+  cache accesses; shared Provider admission also spaces fallback/route attempts.
 - Series enrichment writes only its own fields, poster candidate/selection and
   Douban snapshot. Never change child metadata, identifiers, artwork, snapshots,
   season/episode coordinates, hierarchy, inventory or Media attachments.
@@ -1860,20 +1863,21 @@ if snapshot.Degraded {
 | Movie/TV detail returns HTTP 403 or JSON code `1000` | Request `/subject/{id}` once and persist a successful response with `degraded=true` |
 | Movie/TV detail returns 404, 429, 5xx, a network error, or another JSON error | Preserve not-found/retryable semantics and do not request subject |
 | Subject fallback fails | Persist no new fields, artwork, or snapshot; preserve the subject error classification |
-| Periodic candidate has `degraded=true` | Exclude it regardless of age, payload shape, artwork, or missing fields |
+| Fresh degraded detail has useful values for local gaps | Complete local fields/artwork from the cache without another request |
 | Manual retry gets a complete Movie/TV response | Replace the payload and clear `degraded` atomically |
 | Manual retry is still permission-restricted | Refresh the subject payload and keep `degraded=true` |
-| Snapshot is less than 24 hours old | Make no provider request |
-| Stale current snapshot, Douban poster, overview, and Chinese title are complete | Make no provider request |
-| Stale snapshot is legacy or lacks intro/image/Douban artwork | Refresh and fill only missing canonical data |
-| Mobile detail fails during regular scraping but abstract succeeds | Save the wrapper as partial and retry only after 24 hours |
+| Complete detail is within its TTL (default seven days), or degraded detail within at most one day | Reuse it unless explicitly forced |
+| Douban poster, overview, and Chinese title have no local gaps | Skip enrichment; the independent data-refresh job can still refresh expired details |
+| Local gaps have no useful cached values | Recheck after the 24-hour local cooldown; shared detail freshness still decides network access |
+| Mobile detail fails during regular scraping but abstract succeeds | Save the wrapper as partial; complete-detail callers cannot reuse it as complete data |
 | Mobile detail has a retryable failure during batch enrichment | Stop the batch before the current cursor write; request no later candidate |
 | The next batch runs after a retryable failure | Retry the same candidate first |
 | Mobile detail explicitly reports not found | Record a permanent failure, advance that candidate, and continue |
 | Single-item enrichment has a retryable upstream failure | Return HTTP 429 without changing the batch cursor |
-| Refresh or persistence fails | Preserve the previous `fetched_at` |
+| Network/parsing/shared subject persistence fails | Preserve the previous successful `fetched_at` |
+| Local field/artwork persistence fails after a successful detail fetch | Retain the saved detail and its original fetching time |
 | Detail contains unknown fields | Preserve them in the valid JSONB document |
-| Same-kind detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
+| Same-kind detail TMDb ID conflicts with canonical TMDb ID | Skip local fields, artwork and compatibility writes; keep independently validated shared data |
 | Canonical field is non-empty | Preserve it; only a complete response may use the Chinese-title rule |
 | Current artwork selection exists | Save local candidate and preserve selection |
 | Current artwork selection is absent | Atomically promote the local candidate |
@@ -1886,10 +1890,10 @@ if snapshot.Degraded {
   missing Chinese title/overview, localizes its poster as a candidate, and keeps
   the existing TMDb selection.
 - Good: a restricted Movie/TV detail stores only the real subject response as
-  degraded; periodic enrichment then skips it until an administrator
-  manually obtains a complete response.
-- Base: all three trigger fields are complete, or the latest successful check is
-  less than 24 hours old; no network request is made.
+  degraded; local completion reuses useful cached values and the data-refresh
+  job can retry after expiry without replacing an existing complete response.
+- Base: all three trigger fields are complete, so enrichment makes no request;
+  independently, data refresh checks expiry using the shared TTL and backoff.
 - Bad: query Douban by title, enrich Season/Episode in this task, treat every upstream
   failure as permission denial, infer degraded state from missing fields,
   overwrite a non-empty field/current image, expose a remote image URL, or scan
@@ -1903,8 +1907,8 @@ if snapshot.Degraded {
   rating/image, episode count, source, IDs, projected lists, and unknown raw
   fields survive detail parsing; normal persistence makes one detail request.
 - Repository/PostgreSQL: Movie/Series same-kind unique-ID keyset discovery, ambiguity skip,
-  no-snapshot admission, 24-hour exclusion, stale incomplete admission,
-  complete exclusion, explicit degraded exclusion, complete-upsert degraded
+  no-snapshot admission, local cooldown, cached local-gap admission,
+  no-local-gap exclusion, useful degraded cache reuse, complete-upsert degraded
   clearing, candidate uniqueness, and atomic selection preservation/promotion.
 - Service: complete and degraded fill-only rules, Chinese-title replacement,
   subject failure without a snapshot, Movie/Series kind boundaries, TMDb
@@ -1929,15 +1933,16 @@ if snapshot.Degraded {
 metadata.Overview = doubanDetail.Overview
 repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", subject.RawJSON, fetchedAt)
 
-// Correct: reuse the accepted response, fill gaps, and persist its explicit
-// quality state only after field/artwork writes succeed.
-fillMissingDoubanFields(ctx, metadata.ID, metadata.Kind, detail, degraded)
-repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
+// Correct: the Provider saves shared data before local completion. Compatibility
+// writes preserve the original fetching time; local failures retain the detail.
+fetchedAt := detail.DoubanFetchedAt
 if degraded {
     repo.UpsertDegradedProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
 } else {
     repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
 }
+fillMissingDoubanFields(ctx, metadata.ID, metadata.Kind, detail, degraded)
+repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
 ```
 
 ## Scenario: Asynchronous Catalog Artwork Handoff

@@ -282,7 +282,8 @@ func (r *ArtworkRepository) ListDoubanArtworkCandidatesAfter(ctx context.Context
 	q := r.db.WithContext(ctx).Table("metadata_artwork_candidates AS mac").
 		Joins("JOIN metadata_items AS mi ON mi.id = mac.metadata_id").
 		Joins("JOIN artwork_assets AS aa ON aa.id = mac.asset_id").
-		Joins("LEFT JOIN metadata_provider_snapshots AS mps ON mps.metadata_id = mac.metadata_id AND mps.provider = 'douban'").
+		Joins("LEFT JOIN LATERAL (SELECT MIN(external_id) AS external_id, MIN(COALESCE(NULLIF(douban_entity_kind, ''), entity_kind)) AS entity_kind FROM metadata_identifiers WHERE metadata_id = mac.metadata_id AND provider = 'douban' AND entity_kind = mi.kind HAVING COUNT(*) = 1) AS mid ON TRUE").
+		Joins("LEFT JOIN douban_subjects AS mps ON mps.douban_id = mid.external_id AND mps.entity_kind = mid.entity_kind").
 		Where("mac.source_provider = 'douban' AND mac.artwork_type = ?", model.ArtworkTypePoster)
 	if afterID = strings.TrimSpace(afterID); afterID != "" {
 		q = q.Where("mac.id > ?", afterID)

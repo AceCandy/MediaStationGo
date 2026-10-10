@@ -437,3 +437,102 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
 	return nil
 }
 ```
+
+
+## Scenario: Persistent Shared Douban Data
+
+### Scope and storage
+- `DoubanSubject` stores original JSONB, independent 0–10 rating, quality,
+  `fetched_at`, `last_attempt_at` and `next_retry_at`. Its unique key is
+  `(douban_id, entity_kind)`. Confirmed cross-type bindings use
+  `MetadataIdentifier.DoubanEntityKind`; empty values retain the local kind.
+- Scores and compatibility snapshots follow the current unique identifier.
+  Ambiguous associations yield no subject or rating. Movie/Series data tasks
+  do not process Season/Episode; legacy own-identity scores remain supported
+  without inheritance. General metadata ratings and local artwork stay separate.
+- Startup migration chooses complete details before degraded/partial responses,
+  then the newest fetching time, in bounded keyset batches. It checks explicit
+  response identity, preserves fetching time, skips existing shared identities
+  and retains old snapshots for rollback. No ongoing legacy Douban writes.
+
+### Retrieval and refresh
+- The shared Provider serializes cache admission, rechecks persisted state, allows
+  canceled waiters to leave and spaces every actual attempt by two seconds.
+  This includes permission fallback and existing proxy-route reselection.
+  Coordination is per application process; persistent data survives restarts.
+- Complete detail TTL defaults to seven days. Existing settings support
+  `metadata.douban_detail_ttl_seconds` from 3,600 to 2,592,000 seconds.
+  Degraded TTL is capped at one day. Subject-only binding validation is partial
+  and cannot satisfy a complete detail request. Regular scraping may reuse its
+  historical wrapped abstract response; episode counts require detail capability.
+- Normal failures retain previous payload/rating/success time and defer retries
+  five minutes; confirmed not-found defers one day. Late failures cannot replace
+  newer attempt state. Successful payload writes gate attempt/retry columns
+  independently: a late success can fill absent or older eligible details but
+  must retain a newer `last_attempt_at` and `next_retry_at`. An accepted success
+  at or after the latest attempt clears the old retry state. Complete data cannot
+  be overwritten by partial/degraded data or an older success. A downgrade after complete data defers another full
+  attempt one day while preserving the complete row.
+- `WithDoubanFresh` bypasses TTL and retry backoff for explicit admin operations.
+  A failed force request remains a failure. Concurrent arrivals may reuse a
+  successful fetching time later than their arrival. Explicit discover refresh
+  propagates this flag while retaining section stale/fallback behavior.
+- Valid details persist before local fields/poster processing. Compatibility
+  writes compare JSON values (JSONB changes whitespace/key order) and never
+  extend fetching time merely because local enrichment used cached details.
+  `Match.DoubanFetchedAt` carries the original successful fetching time through
+  binding, enrichment and regular persistence; copying RawJSON must copy this
+  time too. A delayed local write must not overwrite a later subject refresh.
+- Search/rail payloads use `DoubanQueryCache`, keyed by normalized URL hash,
+  with five-minute search or six-hour rail TTL. Validate expected response shape
+  before caching; errors never replace good results. Successful writes remove
+  expired query rows. Query responses never become complete subject data.
+- Successful subject writes invalidate Web media and Emby item/content caches.
+  Display paths remain batched database reads with no per-item network request.
+- `douban_data_refresh` / “豆瓣资料刷新” is a separate default-off daily job,
+  using settings `metadata.douban_data_refresh_enabled` and
+  `metadata.douban_data_refresh_interval_seconds`. It scans due bound Movie/Series
+  identities, refreshes shared details/ratings only and has separate history/logs.
+  A temporary upstream failure stops the batch, returns the original error,
+  records a failed execution/stage with a sanitized error, and increments
+  `failed` and `upstream_paused`; it must not report successful completion.
+  The existing enrichment job/key/cursor/history still performs local completion.
+
+### Administrator data center
+- `/admin/data-center` and `/api/admin/douban/subjects` belong to administrator
+  access; API authorization resolves the current active account and role.
+- GET collection supports parameterized literal title substring or exact Douban
+  ID search, entity-kind filtering and bounded pagination. Count and rows use
+  identical filters; order is `fetched_at DESC NULLS LAST, id DESC`. Return the
+  summary projection only, including failed rows, never their complete JSON.
+- GET `/:id` reads the persisted shared UUID, exposing parsed details and raw
+  JSON without provider requests. Root, `subject` and `data` payloads remain
+  readable. A missing row returns 404; invalid parameters/UUID return 400.
+- POST `/:id/refresh` accepts existing Movie/Series rows only, derives the remote
+  identity from storage and uses `WithDoubanFresh`. It never performs canonical
+  enrichment, artwork downloads or binding/hierarchy writes. Read the row back
+  after success and report the attempt's degraded status separately: quality
+  protection may have retained an older complete payload. Upstream failure is
+  an error and keeps previous successful data, with persisted retry state.
+- No arbitrary URL/new identity, JSON editing, deletion or bulk force-refresh
+  is supported. Legacy Season/Episode rows are visible but read-only.
+
+### Verification
+- PostgreSQL: `TestDoubanMigrationPreservesIdentityQualityAndTime`,
+  `TestDoubanSharedSubjectWriteAndAssociation`, cache/refresh tests in
+  `internal/service/douban_cache_test.go`, and existing Douban/Emby rating tests.
+- Run cache concurrency and cancellation coverage with `-race` and a real
+  `MEDIASTATION_TEST_POSTGRES_DSN`; do not count skipped DB tests as validation.
+- `TestDoubanPayloadIdentityAtBothLevels` rejects conflicting root/nested IDs
+  and kinds while accepting normalized historical numeric IDs.
+- `TestDoubanSubjectSuccessPreservesNewerFailure` and
+  `TestDoubanSeriesLatePersistencePreservesNewerFailure` cover late successful
+  details after a newer failure, retaining retry state and original fetching time.
+  `TestDoubanDataRefreshUpstreamFailureIsFailed` covers failed task history,
+  batch termination, preserved old details and the five-minute retry delay.
+- `TestDoubanManagement*` covers PostgreSQL search/paging/projection, forced
+  readback, unchanged canonical data, failure preservation and history guards.
+  Administrator route tests cover authentication, role and parameter validation.
+  Run `node scripts/check-douban-data-center.mjs` from `web` against an isolated
+  Vite server for UI permissions, URL state, cancellation, refresh feedback and
+  dark/light responsive layouts; all browser API responses are mocked.

@@ -86,7 +86,10 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 		t.Fatal(err)
 	}
 	payload := `{"cover":{"image":{"large":{"url":"https://img9.doubanio.com/view/photo/l/public/p123.jpg"}}}}`
-	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: metadata.ID, Provider: "douban", Payload: payload, FetchedAt: time.Now().UTC()}).Error; err != nil {
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: metadata.ID, Provider: "douban", EntityKind: metadata.Kind, ExternalID: "123"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -181,7 +184,10 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 			}
 			largeURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg"
 			payload := `{"title":"Movie","cover":{"image":{"large":{"url":"` + largeURL + `"}}}}`
-			if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: metadata.ID, Provider: "douban", Payload: payload, FetchedAt: time.Now().UTC()}).Error; err != nil {
+			if err := db.Create(&model.MetadataIdentifier{MetadataID: metadata.ID, Provider: "douban", EntityKind: metadata.Kind, ExternalID: "123"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
 				t.Fatal(err)
 			}
 			root := t.TempDir()
@@ -242,8 +248,8 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 			}
 			newLargeURL := "https://img9.doubanio.com/view/photo/l/public/p456.jpg"
 			newPayload := `{"title":"Movie","cover":{"image":{"large":{"url":"` + newLargeURL + `"}}}}`
-			if err := db.Model(&model.MetadataProviderSnapshot{}).
-				Where("metadata_id = ? AND provider = 'douban'", metadata.ID).
+			if err := db.Model(&model.DoubanSubject{}).
+				Where("douban_id = ?", "123").
 				Update("payload", newPayload).Error; err != nil {
 				t.Fatal(err)
 			}

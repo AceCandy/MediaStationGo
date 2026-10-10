@@ -166,7 +166,7 @@ func assertServiceTestTMDbSnapshot(t *testing.T, repos *repository.Container, me
 func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
 	t.Helper()
 	models := []any{
-		&model.Library{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
+		&model.Library{}, &model.DoubanSubject{}, &model.DoubanQueryCache{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.MetadataProviderSnapshot{}, &model.CatalogHydrationJob{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{},
 		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.MetadataArtworkRecheck{}, &model.Media{}, &model.MediaProbeMetadata{},

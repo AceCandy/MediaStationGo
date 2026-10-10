@@ -22,6 +22,7 @@ const (
 	TaskDefinitionTMDbArtworkMissingRecheck  = "tmdb_artwork_missing_recheck"
 	TaskDefinitionDoubanArtworkLocalRepair   = "douban_artwork_local_repair"
 	TaskDefinitionTMDbEpisodeMetadataRecheck = "tmdb_episode_metadata_recheck"
+	TaskDefinitionDoubanDataRefresh          = "douban_data_refresh"
 	TaskDefinitionDoubanEnrichment           = "douban_movie_enrichment"
 	TaskDefinitionAccountCleanup             = "account_cleanup"
 	TaskDefinitionTMDbSnapshotBackfill       = "tmdb_snapshot_backfill"
@@ -89,6 +90,7 @@ var taskDefinitionSpecs = []taskDefinitionSpec{
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionTMDbArtworkMissingRecheck, Name: "TMDb 无图复查", Description: "仅复查电影和整剧缺失的 TMDb 海报、背景图；季海报和集图片由季/集信息补全/复查处理", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindArtwork, Name: "TMDb 无图复查"}, schedulerJob: "tmdb_artwork_missing_recheck"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionDoubanArtworkLocalRepair, Name: "豆瓣图片本地化修复", Description: "升级豆瓣小海报并恢复本地文件缺失的豆瓣候选", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindArtwork, Name: "豆瓣图片本地化修复"}, schedulerJob: "douban_artwork_local_repair"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionTMDbEpisodeMetadataRecheck, Name: "TMDb 季/集信息补全/复查", Description: "补全有媒体资源的季与集：简介、播出日期及季海报/集图片，并补齐缺失的季标识和快照；标题仅顺带更新，不单独触发复查", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindArtwork, Name: "TMDb 集信息补全/复查"}, schedulerJob: "tmdb_episode_metadata_recheck"},
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionDoubanDataRefresh, Name: "豆瓣资料刷新", Description: "刷新已绑定电影和整剧的到期豆瓣资料与评分，不修改本地字段或图片", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindArtwork, Name: "豆瓣资料刷新"}, schedulerJob: "douban_data_refresh"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionDoubanEnrichment, Name: "豆瓣信息补齐", Description: "缓慢补齐已有唯一豆瓣 ID 的电影和整剧信息及海报候选，不修改季和集", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindArtwork, Name: "豆瓣电影信息补齐"}, schedulerJob: "douban_movie_enrichment"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionAccountCleanup, Name: "账号清理巡检", Description: "按保号规则检查并清理不符合条件的账号", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindCleanup, Name: "账号清理巡检"}, schedulerJob: "account_cleanup"},
 }

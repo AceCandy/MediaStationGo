@@ -20,7 +20,7 @@ func TestDoubanEnrichmentCandidateJSONAndPagination(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
+			if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
 				t.Fatal(err)
 			}
 			cutoff := time.Now().UTC().Add(-24 * time.Hour)
@@ -33,15 +33,15 @@ func TestDoubanEnrichmentCandidateJSONAndPagination(t *testing.T) {
 				ambiguous bool
 			}{
 				{payload: "", want: true},
-				{payload: "null", want: true},
-				{payload: `123`, want: true},
-				{payload: `["subject"]`, want: true},
+				{payload: "null"},
+				{payload: `123`},
+				{payload: `["subject"]`},
 				{payload: `{"intro":"text","pic":null}`},
 				{payload: `{"intro":"text","cover_url":null}`},
 				{payload: `{"intro":"text","pic":"x","subject":null}`, want: true},
 				{payload: `{"intro":"text","pic":"x","data":null}`, want: true},
 				{payload: `{"intro":" \t","pic":"x"}`},
-				{payload: `{"intro":" ","pic":"x"}`, want: true},
+				{payload: `{"intro":" ","pic":"x"}`},
 				{payload: `{"intro":123,"pic":null}`},
 				{payload: `{}`, degraded: true},
 				{payload: `{}`, recent: true},
@@ -71,7 +71,7 @@ func TestDoubanEnrichmentCandidateJSONAndPagination(t *testing.T) {
 					if tc.recent {
 						fetched = cutoff
 					}
-					if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: item.ID, Provider: "douban", Payload: tc.payload, Degraded: tc.degraded, FetchedAt: fetched}).Error; err != nil {
+					if err := db.Create(&model.DoubanSubject{DoubanID: fmt.Sprint(i), EntityKind: kind, Payload: &tc.payload, Quality: model.DoubanPayloadQuality([]byte(tc.payload), tc.degraded), FetchedAt: &fetched}).Error; err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -104,8 +104,8 @@ func TestDoubanEnrichmentCandidateJSONAndPagination(t *testing.T) {
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("candidates = %v, want %v", got, want)
 			}
-			// JOIN 依赖同一作品/provider 的快照唯一性，重复快照必须由数据库拒绝。
-			if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: "movie-001", Provider: "douban", Payload: `{}`, FetchedAt: cutoff}).Error; err == nil {
+			// 同一豆瓣身份只能保存一份共享资料。
+			if err := db.Create(&model.DoubanSubject{DoubanID: "1", EntityKind: kind}).Error; err == nil {
 				t.Fatal("duplicate provider snapshot accepted")
 			}
 			ctx, cancel := context.WithCancel(t.Context())

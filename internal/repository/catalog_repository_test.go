@@ -18,7 +18,7 @@ func TestMissingTMDbSnapshotCountScopesMetadataProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, sql := range []string{
@@ -115,7 +115,7 @@ func TestListMissingTMDbSnapshotsWithoutMediaTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	items := []model.MetadataItem{
@@ -179,7 +179,7 @@ func TestListMissingTMDbSnapshotsWithoutMediaTable(t *testing.T) {
 	if next, _ := repo.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "11"); next != nil {
 		t.Fatalf("new identifier persisted after snapshot failure: %#v", next)
 	}
-	if err := db.Migrator().DropTable(&model.MetadataProviderSnapshot{}); err != nil {
+	if err := db.Migrator().DropTable(&model.MetadataProviderSnapshot{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.ReplaceIdentifierWithSnapshot(t.Context(), items[0].ID, "tmdb", model.MetadataKindMovie, "12", []byte(`{"id":12}`), time.Now().UTC()); err == nil {
@@ -344,7 +344,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteWorks(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
@@ -374,7 +374,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteWorks(t *test
 	if err := db.Create(&identifiers).Error; err != nil {
 		t.Fatal(err)
 	}
-	snapshots := make([]model.MetadataProviderSnapshot, 0, len(items)-1)
+	snapshots := make([]model.DoubanSubject, 0, len(items)-1)
 	for i := 1; i < len(items)-1; i++ {
 		fetchedAt := refreshBefore.Add(-time.Hour)
 		payload := `{"title":"移动端详情","intro":"完整简介","cover_url":"https://image.test/poster.jpg"}`
@@ -387,7 +387,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteWorks(t *test
 		if i == 3 {
 			payload = `{"title":"移动端缺失详情"}`
 		}
-		snapshots = append(snapshots, model.MetadataProviderSnapshot{MetadataID: items[i].ID, Provider: "douban", Payload: payload, FetchedAt: fetchedAt})
+		snapshots = append(snapshots, model.DoubanSubject{DoubanID: fmt.Sprintf("%d00", i+1), EntityKind: items[i].Kind, Payload: &payload, Quality: model.DoubanPayloadQuality([]byte(payload), false), FetchedAt: &fetchedAt})
 	}
 	if err := db.Create(&snapshots).Error; err != nil {
 		t.Fatal(err)
@@ -406,7 +406,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteWorks(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantIDs := []string{items[0].ID, items[3].ID, items[4].ID, items[5].ID, items[6].ID, items[7].ID, items[8].ID}
+	wantIDs := []string{items[0].ID, items[4].ID, items[5].ID, items[6].ID, items[7].ID, items[8].ID}
 	if len(candidates) != len(wantIDs) {
 		t.Fatalf("douban enrichment candidates = %#v", candidates)
 	}

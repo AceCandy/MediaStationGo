@@ -89,7 +89,7 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	movie := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"},
 		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "1295644"},
 	)
-	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: movie.ID, Provider: "douban", Payload: `{"subject":{}}`, FetchedAt: time.Now().UTC()}).Error; err != nil {
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), movie.ID, "douban", []byte(`{"subject":{}}`), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := repos.Artwork.SaveCandidate(t.Context(), movie.ID, model.ArtworkTypePoster, "douban", "https://image.test/poster.jpg", &model.ArtworkAsset{SHA256: "douban-poster", StorageKey: "douban/poster.jpg", MimeType: "image/jpeg"}); err != nil {

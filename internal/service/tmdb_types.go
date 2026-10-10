@@ -1,5 +1,7 @@
 package service
 
+import "time"
+
 // Match describes a successful metadata match. The same struct is reused
 // across providers; provider-specific IDs sit side-by-side so the scraper
 // orchestrator can write them all into a single update.
@@ -36,6 +38,8 @@ type Match struct {
 	CatalogPosterURL     string              `json:"-"`
 	CatalogBackdropURL   string              `json:"-"`
 	Seasons              []TMDbSeasonSummary `json:"-"`
+	// DoubanFetchedAt 保留响应真实获取时间，防止晚到的本地提交覆盖较新的共享资料。
+	DoubanFetchedAt time.Time `json:"-"`
 }
 
 // PersonCredit 是 provider-neutral 的演职员快照。

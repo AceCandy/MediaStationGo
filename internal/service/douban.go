@@ -27,7 +27,10 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 const (
@@ -37,6 +40,11 @@ const (
 
 // DoubanProvider talks to the unofficial Douban movie API.
 type DoubanProvider struct {
+	dataRepo     *repository.Container
+	dataGate     chan struct{}
+	dataNext     time.Time
+	dataDelay    time.Duration
+	cache        *RuntimeCacheService
 	apiConfig    *APIConfigService
 	proxyPool    *ProxyPoolService
 	client       *http.Client
@@ -55,6 +63,8 @@ type DoubanProvider struct {
 // NewDoubanProvider is the constructor.
 func NewDoubanProvider(apiConfig *APIConfigService) *DoubanProvider {
 	return &DoubanProvider{
+		dataGate:     make(chan struct{}, 1),
+		dataDelay:    2 * time.Second,
 		apiConfig:    apiConfig,
 		client:       NewExternalHTTPClient(doubanRequestTimeout),
 		directClient: &http.Client{Timeout: doubanRequestTimeout, Transport: NewInternalTransport()},
@@ -176,12 +186,16 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 	if doubanID == "" {
 		return nil, nil
 	}
-	rawJSON, err := d.getDetailRawJSON(ctx, doubanID)
+	rawJSON, _, fetchedAt, err := d.cachedDetail(ctx, doubanID, "", "regular", func() ([]byte, bool, error) {
+		raw, err := d.getDetailRawJSON(ctx, doubanID)
+		return raw, false, err
+	})
 	if err != nil {
 		return nil, err
 	}
 	match, err := doubanMatchFromRawJSON(doubanID, rawJSON)
 	if match != nil {
+		match.DoubanFetchedAt = fetchedAt
 		match.PosterURL = d.ResolveArtworkURL(ctx, match.PosterURL)
 	}
 	return match, err
@@ -193,7 +207,9 @@ func (d *DoubanProvider) GetEnrichmentMatchByID(ctx context.Context, doubanID, e
 	if doubanID == "" {
 		return nil, false, nil
 	}
-	rawJSON, degraded, err := d.getEnrichmentDetailRawJSON(ctx, doubanID, entityKind)
+	rawJSON, degraded, fetchedAt, err := d.cachedDetail(ctx, doubanID, entityKind, "detail", func() ([]byte, bool, error) {
+		return d.getEnrichmentDetailRawJSON(ctx, doubanID, entityKind)
+	})
 	if err != nil {
 		return nil, false, err
 	}
@@ -201,6 +217,7 @@ func (d *DoubanProvider) GetEnrichmentMatchByID(ctx context.Context, doubanID, e
 	if err != nil {
 		return nil, false, fmt.Errorf("%w: invalid detail payload: %w", ErrDoubanTemporarilyUnavailable, err)
 	}
+	match.DoubanFetchedAt = fetchedAt
 	match.PosterURL = d.ResolveArtworkURL(ctx, match.PosterURL)
 	return match, degraded, nil
 }
@@ -290,6 +307,10 @@ func withDoubanTaskRouteReset(ctx context.Context) context.Context {
 }
 
 func (d *DoubanProvider) requestJSON(ctx context.Context, requestURL, referer string) ([]byte, int, error) {
+	return d.cachedQuery(ctx, requestURL, referer)
+}
+
+func (d *DoubanProvider) requestJSONRemote(ctx context.Context, requestURL, referer string) ([]byte, int, error) {
 	resolved := d.resolveConfig(ctx)
 	attempt := func(client *http.Client, config Resolved) doubanHTTPResult {
 		return d.doJSONRequest(ctx, client, config, requestURL, referer)
@@ -408,6 +429,14 @@ func (d *DoubanProvider) doJSONRequest(
 	requestURL string,
 	referer string,
 ) doubanHTTPResult {
+	if d.dataRepo != nil {
+		if err := d.waitDataRequest(ctx); err != nil {
+			return doubanHTTPResult{err: err}
+		}
+	}
+	if count, _ := ctx.Value(doubanRequestStatsKey{}).(*atomic.Int64); count != nil {
+		count.Add(1)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return doubanHTTPResult{err: err}
@@ -754,7 +783,10 @@ func (d *DoubanProvider) GetEpisodeCountByID(ctx context.Context, doubanID strin
 	if doubanID == "" {
 		return 0, nil
 	}
-	rawJSON, err := d.getDetailRawJSON(ctx, doubanID)
+	rawJSON, _, _, err := d.cachedDetail(ctx, doubanID, "", "detail", func() ([]byte, bool, error) {
+		raw, err := d.getDetailRawJSON(ctx, doubanID)
+		return raw, false, err
+	})
 	if err != nil {
 		return 0, err
 	}

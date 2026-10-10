@@ -26,7 +26,7 @@ func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 	if len(models) > 0 {
 		models = append(models,
 			&model.MediaProbeMetadata{}, &model.MetadataArtworkRecheck{},
-			&model.MetadataItem{}, &model.MetadataIdentifier{},
+			&model.DoubanSubject{}, &model.DoubanQueryCache{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
 			&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{},
 		)
 		if err := db.AutoMigrate(models...); err != nil {

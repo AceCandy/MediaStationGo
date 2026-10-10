@@ -154,15 +154,19 @@ func TestSchedulerRegistersDisabledDoubanMovieEnrichment(t *testing.T) {
 		cancel()
 		scheduler.Stop()
 	}()
+	pending := map[string]bool{"douban_movie_enrichment": true, "douban_data_refresh": true}
 	for _, status := range scheduler.Status() {
-		if status.Name == "douban_movie_enrichment" {
-			if status.Enabled || status.IntervalSeconds != int64((24*time.Hour)/time.Second) {
-				t.Fatalf("douban enrichment status = %#v", status)
-			}
-			return
+		if !pending[status.Name] {
+			continue
 		}
+		if status.Enabled || status.IntervalSeconds != int64((24*time.Hour)/time.Second) {
+			t.Fatalf("douban job status = %#v", status)
+		}
+		delete(pending, status.Name)
 	}
-	t.Fatal("douban movie enrichment scheduler job is missing")
+	if len(pending) > 0 {
+		t.Fatalf("missing douban scheduler jobs: %v", pending)
+	}
 }
 
 func TestSchedulerRunNowAsyncRejectsDuplicateRun(t *testing.T) {

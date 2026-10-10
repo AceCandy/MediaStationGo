@@ -57,6 +57,7 @@ func (s *ScraperService) EnrichMovieFromDouban(ctx context.Context, metadataID s
 
 // EnrichFromDouban 立即补齐一个电影或电视剧元数据，不读取或修改批量游标。
 func (s *ScraperService) EnrichFromDouban(ctx context.Context, metadataID string) (bool, error) {
+	ctx = WithDoubanFresh(ctx)
 	result, err := s.enrichMovieFromDoubanMobile(ctx, metadataID)
 	if err == nil && result.Skipped {
 		return false, ErrDoubanEnrichmentIneligible
@@ -64,8 +65,10 @@ func (s *ScraperService) EnrichFromDouban(ctx context.Context, metadataID string
 	return result.Degraded, err
 }
 
-func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, metadataID string, details *Match, mobileOnly bool) (doubanEnrichmentResult, error) {
-	result := doubanEnrichmentResult{Subject: metadataID}
+func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, metadataID string, details *Match, mobileOnly bool) (result doubanEnrichmentResult, err error) {
+	result = doubanEnrichmentResult{Subject: metadataID}
+	ctx, requestCount := withDoubanRequestStats(ctx)
+	defer func() { result.Requested = requestCount.Load() > 0 }()
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.douban == nil {
 		return result, errors.New("douban movie enrichment dependencies unavailable")
 	}
@@ -97,7 +100,6 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 	}
 
 	if details == nil {
-		result.Requested = true
 		if mobileOnly {
 			details, result.Degraded, err = s.douban.GetEnrichmentMatchByID(ctx, doubanID, providerKind)
 		} else {
@@ -160,9 +162,9 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 			result.CandidateSaved = true
 		}
 		if result.Degraded {
-			return repos.Metadata.UpsertDegradedProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC())
+			return repos.Metadata.UpsertDegradedProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 		}
-		return repos.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC())
+		return repos.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 	})
 	if err != nil {
 		return result, err
@@ -174,6 +176,7 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataID)
 	}
 	result.SnapshotSaved = true
+	s.invalidateMediaCache(ctx)
 	return result, nil
 }
 

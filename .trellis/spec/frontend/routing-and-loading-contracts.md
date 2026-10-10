@@ -69,6 +69,14 @@ Viewer composition state is URL owned:
   this list carry the complete library URL as router state so “返回媒体库”
   restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
+- Administrator Data Center: `/admin/data-center` stores trimmed `keyword`,
+  `type=movie|series|season|episode` and positive `page` in the URL; defaults
+  are omitted. Normalize invalid/duplicate values with replace navigation,
+  reset the page on filter changes and request 30 persisted subjects at a time.
+  List/detail reads never contact Douban. Explicit Movie/Series updates use the
+  shared row UUID, block duplicate submission and reread stored data after both
+  success and failure; Season/Episode history is read-only. Abort old reads and
+  remount on auth session generation changes, canceling pending updates.
 - Download Space: absent `status` defaults to `downloading`; explicit `status=` selects all states. Keep the explicit empty value when selecting all so reload and pagination do not revert to the default. Existing named status links retain their selection.
 - Download Space keeps one source switch; do not repeat the selected navigation
   title or add a separate task heading. Search, work status and management actions

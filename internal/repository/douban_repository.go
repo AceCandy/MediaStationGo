@@ -1,0 +1,196 @@
+package repository
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
+	"time"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+// DoubanRepository 管理共享豆瓣资料及持久查询缓存。
+type DoubanRepository struct{ db *gorm.DB }
+
+// DoubanSubjectSummary 是资料中心的分页投影，不携带完整原始响应。
+type DoubanSubjectSummary struct {
+	ID            string     `json:"id"`
+	DoubanID      string     `json:"douban_id"`
+	EntityKind    string     `json:"entity_kind"`
+	Title         string     `json:"title"`
+	Year          string     `json:"year"`
+	Rating        float32    `json:"rating"`
+	Quality       string     `json:"quality"`
+	HasPayload    bool       `json:"has_payload"`
+	FetchedAt     *time.Time `json:"fetched_at"`
+	LastAttemptAt *time.Time `json:"last_attempt_at"`
+	NextRetryAt   *time.Time `json:"next_retry_at"`
+}
+
+const doubanSummaryTitleSQL = `COALESCE(NULLIF(payload #>> '{subject,title}', ''), NULLIF(payload #>> '{subject,name}', ''), NULLIF(payload #>> '{data,title}', ''), NULLIF(payload #>> '{data,name}', ''), NULLIF(payload->>'title', ''), payload->>'name', '')`
+const doubanSummaryYearSQL = `COALESCE(payload #>> '{subject,year}', payload #>> '{data,year}', payload->>'year', '')`
+
+// ListSubjects 对共享资料直接筛选分页，失败占位记录同样可见。
+func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int) ([]DoubanSubjectSummary, int64, error) {
+	q := r.db.WithContext(ctx).Model(&model.DoubanSubject{})
+	if kind != "" {
+		q = q.Where("entity_kind = ?", kind)
+	}
+	if keyword != "" {
+		q = q.Where("douban_id = ? OR strpos(lower("+doubanSummaryTitleSQL+"), lower(?)) > 0", keyword, keyword)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	rows := make([]DoubanSubjectSummary, 0)
+	err := q.Select("id, douban_id, entity_kind, " + doubanSummaryTitleSQL + " AS title, " + doubanSummaryYearSQL + " AS year, rating, quality, payload IS NOT NULL AS has_payload, fetched_at, last_attempt_at, next_retry_at").
+		Order("fetched_at DESC NULLS LAST, id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&rows).Error
+	return rows, total, err
+}
+
+func (r *DoubanRepository) FindSubjectByID(ctx context.Context, id string) (*model.DoubanSubject, error) {
+	var subject model.DoubanSubject
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&subject).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &subject, err
+}
+
+func (r *DoubanRepository) Find(ctx context.Context, id, kind string) (*model.DoubanSubject, error) {
+	var subject model.DoubanSubject
+	q := r.db.WithContext(ctx).Where("douban_id = ?", id)
+	if kind != "" {
+		q = q.Where("entity_kind = ?", kind)
+	}
+	err := q.Order("fetched_at DESC NULLS LAST").First(&subject).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &subject, err
+}
+
+// Save 只接受真实 JSON；旧响应或降级资料不得覆盖已保存的完整资料。
+func (r *DoubanRepository) Save(ctx context.Context, id, kind string, payload []byte, quality string, fetchedAt time.Time) error {
+	if strings.TrimSpace(id) == "" || (kind != model.MetadataKindMovie && kind != model.MetadataKindSeries && kind != model.MetadataKindSeason && kind != model.MetadataKindEpisode) || !model.DoubanPayloadMatchesIdentity(payload, id, kind) || (quality != model.DoubanQualityComplete && quality != model.DoubanQualityDegraded && quality != model.DoubanQualityPartial) {
+		return errors.New("invalid douban subject")
+	}
+	text := string(payload)
+	subject := model.DoubanSubject{DoubanID: id, EntityKind: kind, Payload: &text,
+		Rating: doubanSnapshotRating(text), Quality: quality, FetchedAt: &fetchedAt, LastAttemptAt: &fetchedAt}
+	updates := clause.AssignmentColumns([]string{"payload", "rating", "quality", "fetched_at", "updated_at"})
+	// 成功资料仍可补录，但迟到结果不能清除较新的失败退避。
+	updates = append(updates,
+		clause.Assignment{Column: clause.Column{Name: "last_attempt_at"}, Value: clause.Expr{SQL: `CASE WHEN douban_subjects.last_attempt_at IS NULL OR douban_subjects.last_attempt_at <= excluded.last_attempt_at THEN excluded.last_attempt_at ELSE douban_subjects.last_attempt_at END`}},
+		clause.Assignment{Column: clause.Column{Name: "next_retry_at"}, Value: clause.Expr{SQL: `CASE WHEN douban_subjects.last_attempt_at IS NULL OR douban_subjects.last_attempt_at <= excluded.last_attempt_at THEN excluded.next_retry_at ELSE douban_subjects.next_retry_at END`}},
+	)
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "douban_id"}, {Name: "entity_kind"}},
+		DoUpdates: updates,
+		Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `
+(douban_subjects.fetched_at IS NULL OR douban_subjects.fetched_at <= excluded.fetched_at)
+AND (douban_subjects.quality <> 'complete' OR excluded.quality = 'complete')
+AND (douban_subjects.quality <> 'degraded' OR excluded.quality <> 'partial')`}}},
+	}).Create(&subject).Error
+}
+
+func (r *DoubanRepository) RecordFailure(ctx context.Context, id, kind string, at, retryAt time.Time) error {
+	subject := model.DoubanSubject{DoubanID: id, EntityKind: kind, LastAttemptAt: &at, NextRetryAt: &retryAt}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "douban_id"}, {Name: "entity_kind"}},
+		DoUpdates: clause.AssignmentColumns([]string{"last_attempt_at", "next_retry_at", "updated_at"}),
+		Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "douban_subjects.last_attempt_at IS NULL OR douban_subjects.last_attempt_at <= excluded.last_attempt_at"}}},
+	}).Create(&subject).Error
+}
+
+func (r *DoubanRepository) FindQuery(ctx context.Context, key string, now time.Time) ([]byte, error) {
+	var row model.DoubanQueryCache
+	err := r.db.WithContext(ctx).Where("key = ? AND expires_at > ?", key, now).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return []byte(row.Payload), err
+}
+
+func (r *DoubanRepository) SaveQuery(ctx context.Context, key string, payload []byte, at time.Time, ttl time.Duration) error {
+	row := model.DoubanQueryCache{Key: key, Payload: string(payload), FetchedAt: at, ExpiresAt: at.Add(ttl)}
+	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, UpdateAll: true}).Create(&row).Error; err != nil {
+		return err
+	}
+	return r.db.WithContext(ctx).Where("expires_at <= ?", at).Delete(&model.DoubanQueryCache{}).Error
+}
+
+// FindForMetadata 按当前关联和人工确认的实际类型取资料，改绑后不再读取旧条目。
+func (r *DoubanRepository) FindForMetadata(ctx context.Context, metadataID string) (*model.DoubanSubject, error) {
+	identifier, err := uniqueDoubanIdentifier(ctx, r.db, metadataID)
+	if err != nil || identifier == nil {
+		return nil, err
+	}
+	return r.Find(ctx, identifier.ExternalID, doubanIdentifierKind(*identifier))
+}
+
+func uniqueDoubanIdentifier(ctx context.Context, db *gorm.DB, metadataID string) (*model.MetadataIdentifier, error) {
+	var identifiers []model.MetadataIdentifier
+	err := db.WithContext(ctx).Table("metadata_identifiers AS mid").Select("mid.*").
+		Joins("JOIN metadata_items AS mi ON mi.id = mid.metadata_id AND mi.kind = mid.entity_kind").
+		Where("mid.metadata_id = ? AND mid.provider = 'douban'", metadataID).Limit(2).Find(&identifiers).Error
+	if err != nil || len(identifiers) != 1 {
+		return nil, err
+	}
+	return &identifiers[0], nil
+}
+
+func doubanIdentifierKind(identifier model.MetadataIdentifier) string {
+	if identifier.DoubanEntityKind != "" {
+		return identifier.DoubanEntityKind
+	}
+	return identifier.EntityKind
+}
+
+func (r *MetadataRepository) saveDoubanSubject(ctx context.Context, metadataID string, payload []byte, at time.Time, degraded bool) error {
+	identifier, err := uniqueDoubanIdentifier(ctx, r.db, metadataID)
+	if err != nil || identifier == nil {
+		return err
+	}
+	kind := doubanIdentifierKind(*identifier)
+	repo := &DoubanRepository{db: r.db}
+	existing, err := repo.Find(ctx, identifier.ExternalID, kind)
+	if err != nil {
+		return err
+	}
+	// 使用缓存完成本地补齐不能把旧响应重新标记为刚获取。
+	if existing != nil && existing.Payload != nil && sameDoubanJSON([]byte(*existing.Payload), payload) {
+		return nil
+	}
+	return repo.Save(ctx, identifier.ExternalID, kind, payload, model.DoubanPayloadQuality(payload, degraded), at)
+}
+
+// JSONB 会规范化空白和键顺序；兼容写入必须按 JSON 值比较获取时间。
+func sameDoubanJSON(a, b []byte) bool {
+	var left, right any
+	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
+}
+
+// ListRefreshCandidatesAfter 只扫描已关联且资料到期的电影与整剧，不涉及本地补齐。
+func (r *DoubanRepository) ListRefreshCandidatesAfter(ctx context.Context, afterID, afterKind string, before, now time.Time, limit int) ([]model.DoubanSubject, error) {
+	var rows []model.DoubanSubject
+	err := r.db.WithContext(ctx).Raw(`
+SELECT DISTINCT mid.external_id AS douban_id,
+ COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind) AS entity_kind
+FROM metadata_identifiers mid
+JOIN metadata_items mi ON mi.id = mid.metadata_id AND mi.kind = mid.entity_kind
+LEFT JOIN douban_subjects ds ON ds.douban_id = mid.external_id
+ AND ds.entity_kind = COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind)
+WHERE mid.provider = 'douban' AND mi.kind IN ('movie','series') AND (mid.external_id, COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind)) > (?, ?)
+ AND (SELECT COUNT(*) FROM metadata_identifiers other WHERE other.metadata_id = mi.id AND other.provider = 'douban' AND other.entity_kind = mi.kind) = 1
+ AND (ds.next_retry_at IS NULL OR ds.next_retry_at <= ?)
+ AND (ds.fetched_at IS NULL OR ds.fetched_at <= ? OR ds.quality = 'partial'
+   OR (ds.quality = 'degraded' AND ds.fetched_at <= ?))
+ORDER BY douban_id, entity_kind LIMIT ?`, afterID, afterKind, now, before, now.Add(-24*time.Hour), limit).Scan(&rows).Error
+	return rows, err
+}
