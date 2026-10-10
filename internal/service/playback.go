@@ -22,13 +22,20 @@ import (
 
 // PlaybackService bundles history / favourite / playlist business logic.
 type PlaybackService struct {
-	log  *zap.Logger
-	repo *repository.Container
+	log   *zap.Logger
+	repo  *repository.Container
+	cache *RuntimeCacheService
 }
 
 // NewPlaybackService is the constructor.
 func NewPlaybackService(log *zap.Logger, repo *repository.Container) *PlaybackService {
 	return &PlaybackService{log: log, repo: repo}
+}
+
+// SetRuntimeCache 接入共享的 Emby 用户状态失效，不改变 Web 读取缓存。
+func (p *PlaybackService) SetRuntimeCache(cache *RuntimeCacheService) *PlaybackService {
+	p.cache = cache
+	return p
 }
 
 // ─── History ────────────────────────────────────────────────────────────────
@@ -75,7 +82,7 @@ func shouldRecordPlaybackProgress(position, duration int64) bool {
 }
 
 // RecordProgress validates and stores automatic playback progress for visible media.
-func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, sessionID string, position, duration int64, visibility MediaVisibility) error {
+func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, sessionID string, position, duration int64, visibility MediaVisibility) (err error) {
 	if userID == "" || mediaID == "" {
 		return errors.New("missing user or media")
 	}
@@ -85,6 +92,12 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 	if !shouldRecordPlaybackProgress(position, duration) {
 		return nil
 	}
+	changed := false
+	defer func() {
+		if changed && err == nil {
+			p.cache.InvalidateEmbyUser(ctx, userID)
+		}
+	}()
 	filter := repository.MediaQueryFilter{
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
@@ -102,6 +115,7 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 		if !visibility.AllowsView(&rows[0]) {
 			return errors.New("media not found")
 		}
+		changed = true
 		completed := playbackCompleted(position, duration)
 		autoMark, err := p.autoMarkPreviousEpisodes(ctx, completed)
 		if err != nil {
@@ -122,6 +136,7 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 		if !visibility.AllowsView(&rows[0]) {
 			return errors.New("media not found")
 		}
+		changed = true
 		completed := playbackCompleted(position, duration)
 		autoMark, err := p.autoMarkPreviousEpisodes(ctx, completed)
 		if err != nil {
@@ -142,6 +157,7 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 		if !visibility.AllowsView(&rows[0]) {
 			return errors.New("media not found")
 		}
+		changed = true
 		completed := playbackCompleted(position, duration)
 		autoMark, err := p.autoMarkPreviousEpisodes(ctx, completed)
 		if err != nil {
@@ -174,7 +190,12 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 	return p.saveProgress(ctx, h, sessionID, media.LibraryID, visibility)
 }
 
-func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, mediaID string, completed *bool) (int64, error) {
+func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, mediaID string, completed *bool) (affected int64, err error) {
+	defer func() {
+		if err == nil && affected > 0 {
+			p.cache.InvalidateEmbyUser(ctx, userID)
+		}
+	}()
 	media, err := p.repo.Media.FindByID(ctx, mediaID)
 	if err != nil {
 		return 0, err
@@ -357,11 +378,19 @@ func (p *PlaybackService) hydrateHistory(ctx context.Context, rows []model.Playb
 
 // ToggleFavourite flips the favourite flag and reports the new state.
 func (p *PlaybackService) ToggleFavourite(ctx context.Context, userID, mediaID string) (bool, error) {
-	return p.repo.Favorite.Toggle(ctx, userID, mediaID)
+	out, err := p.repo.Favorite.Toggle(ctx, userID, mediaID)
+	if err == nil {
+		p.cache.InvalidateEmbyUser(ctx, userID)
+	}
+	return out, err
 }
 
 func (p *PlaybackService) SetFavourite(ctx context.Context, userID, mediaID string, favorite bool) (bool, error) {
-	return p.repo.Favorite.Set(ctx, userID, mediaID, favorite)
+	out, err := p.repo.Favorite.Set(ctx, userID, mediaID, favorite)
+	if err == nil {
+		p.cache.InvalidateEmbyUser(ctx, userID)
+	}
+	return out, err
 }
 
 func (p *PlaybackService) IsFavourite(ctx context.Context, userID, mediaID string) (bool, error) {

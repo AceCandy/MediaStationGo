@@ -80,6 +80,7 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	if err != nil {
 		return nil, err
 	}
+	defer s.invalidateMediaCache(ctx)
 	if source == "douban" && len(match.RawJSON) > 0 {
 		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, canonical.ID, "douban", match.RawJSON, time.Now().UTC()); err != nil {
 			return nil, err
@@ -175,6 +176,7 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 	if err != nil {
 		return nil, err
 	}
+	defer s.invalidateMediaCache(ctx)
 	s.ensureTMDbSnapshot(ctx, canonical.ID, entityKind, match.TMDbID)
 	result := &persistedMetadataMatch{Target: canonical}
 	if entityKind == model.MetadataKindSeries {
@@ -320,6 +322,7 @@ func (s *ScraperService) saveCreditInputs(ctx context.Context, metadataID string
 	if err := s.repo.Person.ReplaceCredits(ctx, metadataID, loaded, inputs); err != nil {
 		return err
 	}
+	s.invalidateMediaCache(ctx)
 	if err := s.repo.DB.WithContext(ctx).Model(&model.MetadataItem{}).Where("id = ?", metadataID).Update("people_hydrated_at", time.Now().UTC()).Error; err != nil {
 		return err
 	}

@@ -104,6 +104,8 @@ type ItemsParams struct {
 	SkipTotalRecordCount bool
 	// randomSeed 固定一次请求中各批候选的随机顺序，不接受外部 SQL 输入。
 	randomSeed uint64
+	// skipResponseCache 保留独立 SearchHints 的实时查询入口。
+	skipResponseCache bool
 }
 
 const (
@@ -138,6 +140,28 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 	if embyRandomSort(p) && p.randomSeed == 0 {
 		p.randomSeed = rand.Uint64()
 	}
+	if len(p.IDs) == 0 && (strings.TrimSpace(p.SearchTerm) != "" || len(p.PersonIDs) > 0) && len(p.IncludeItemTypes) > 0 {
+		// 搜索和人物关联只支持作品及人物，先忽略其他类型，避免落入全库分集查询。
+		types := make([]string, 0, len(p.IncludeItemTypes))
+		for _, itemType := range p.IncludeItemTypes {
+			switch strings.ToLower(strings.TrimSpace(itemType)) {
+			case "movie", "series", "person":
+				types = append(types, itemType)
+			}
+		}
+		if len(types) == 0 {
+			return emptyItemsEnvelope(p.StartIndex), nil
+		}
+		p.IncludeItemTypes = types
+	}
+	cacheKey := ""
+	var cacheState embyResponseCacheState
+	if e.cache != nil && !p.skipResponseCache && !embyRandomSort(p) {
+		cacheKey, cacheState = e.responseCacheIdentity(ctx, "items", p)
+		if out, ok := e.readResponseCache(ctx, cacheKey, cacheState, p.UserID, true); ok {
+			return out, nil
+		}
+	}
 	// IDs 与根目录返回完整集合，不按 Limit 裁切。
 	lookahead := p.SkipTotalRecordCount && (len(p.IDs) == 0 || containsOnlyPersonItemTypes(p.IncludeItemTypes)) && !(p.ParentID == "" && p.SearchTerm == "" &&
 		(containsOnlyFolderItemTypes(p.IncludeItemTypes) || (!p.Recursive && len(p.IncludeItemTypes) == 0 && len(p.Filters) == 0)))
@@ -163,6 +187,9 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		out["Items"], err = e.favoriteLibraryMembership(ctx, p.UserID, items)
+	}
+	if err == nil {
+		e.writeResponseCache(ctx, cacheKey, cacheState, p.UserID, out)
 	}
 	return out, err
 }
@@ -195,7 +222,7 @@ func (e *EmbyService) items(ctx context.Context, p ItemsParams) (map[string]any,
 		}
 		return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
 	}
-	if p.SearchTerm == "" && len(p.PersonIDs) > 0 && len(embySearchKinds(p.IncludeItemTypes)) > 0 && !containsItemType(p.IncludeItemTypes, "Episode") && !containsItemType(p.IncludeItemTypes, "Season") {
+	if p.SearchTerm == "" && len(p.PersonIDs) > 0 && len(embySearchKinds(p.IncludeItemTypes)) > 0 {
 		if result, ok, err := e.ordinaryPersonWorkItems(ctx, p); ok {
 			return result, err
 		}

@@ -18,6 +18,30 @@ type personWorkTestBackend struct {
 	personIDs []string
 }
 
+func TestEmbyUnsupportedPersonAndSearchTypesSkipDatabase(t *testing.T) {
+	// 不配置仓储，确保被忽略的类型在查询数据库前返回。
+	svc := (&EmbyService{}).SetRuntimeCache(NewRuntimeCacheService(nil, nil))
+	for _, itemType := range []string{"Episode", "Season", "Video", "Folder", "MusicAlbum"} {
+		for _, mode := range []string{"person", "search"} {
+			t.Run(mode+"-"+itemType, func(t *testing.T) {
+				p := ItemsParams{IncludeItemTypes: []string{itemType}, Recursive: true, SortBy: "DateCreated,SortName", SortOrder: "Ascending", StartIndex: 7, Limit: 20}
+				if mode == "person" {
+					p.PersonIDs = []string{"actor"}
+				} else {
+					p.SearchTerm = "演员"
+				}
+				out, err := svc.Items(t.Context(), p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(out["Items"].([]map[string]any)) != 0 || out["TotalRecordCount"] != int64(0) || out["StartIndex"] != 7 {
+					t.Fatalf("unsupported query=%#v", out)
+				}
+			})
+		}
+	}
+}
+
 func TestOrdinaryPersonWorksLeavesSourcePeopleToExistingRoute(t *testing.T) {
 	svc := newTestEmbyService(t)
 	_, handled, err := svc.ordinaryPersonWorkItems(t.Context(), ItemsParams{PersonIDs: []string{"hg-person-existing"}, IncludeItemTypes: []string{"Series"}})
@@ -106,6 +130,14 @@ func TestEmbyOrdinaryPersonWorksCompletePagesAndRevalidation(t *testing.T) {
 	if !reflect.DeepEqual(b.personIDs, []string{"actor-1"}) {
 		t.Fatalf("backend person filter=%v", b.personIDs)
 	}
+	mixed := p
+	mixed.IncludeItemTypes = []string{"Movie", "Episode", "Season", "Video", "Folder"}
+	if got, gotTotal := pageIDs(mixed); gotTotal != total || !reflect.DeepEqual(got, ids) {
+		t.Fatalf("mixed person query=%v/%d, want %v/%d", got, gotTotal, ids, total)
+	}
+	if !reflect.DeepEqual(mixed.IncludeItemTypes, []string{"Movie", "Episode", "Season", "Video", "Folder"}) {
+		t.Fatal("caller item types changed")
+	}
 	for _, sortBy := range []string{"Name", "ProductionYear", "CommunityRating", "DateCreated", "DatePlayed"} {
 		t.Run("avatar-sort-"+sortBy, func(t *testing.T) {
 			ordered := p
@@ -145,6 +177,11 @@ func TestEmbyOrdinaryPersonWorksCompletePagesAndRevalidation(t *testing.T) {
 	indexed, indexedTotal := pageIDs(p)
 	if indexedTotal != 123 || len(indexed) != 23 {
 		t.Fatalf("name tail=%v total=%d", indexed, indexedTotal)
+	}
+	mixed = p
+	mixed.IncludeItemTypes = []string{"Movie", "Series", "Episode", "Season"}
+	if got, gotTotal := pageIDs(mixed); gotTotal != indexedTotal || !reflect.DeepEqual(got, indexed) {
+		t.Fatalf("mixed name query=%v/%d, want %v/%d", got, gotTotal, indexed, indexedTotal)
 	}
 	// 后端出错必须回退全量关联查询，而不是保留不完整索引结果。
 	b.err = errors.New("unavailable")

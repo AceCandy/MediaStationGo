@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -13,11 +12,6 @@ import (
 func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
 	if p.ParentID != "" && (!p.Recursive || containsItemType(p.IncludeItemTypes, "Movie")) && !containsItemType(p.IncludeItemTypes, "Episode") && !containsEmbyFilter(p.Filters, "IsResumable") {
 		p = libraryWorkSortParams(p)
-	}
-	cacheKey := e.embyItemsCacheKey("items", p)
-	var cached embyItemsCacheValue
-	if e.cache != nil && !embyRandomSort(p) && e.cache.GetJSON(ctx, cacheKey, &cached) {
-		return map[string]any{"Items": cached.Items, "TotalRecordCount": cached.TotalRecordCount, "StartIndex": cached.StartIndex}, nil
 	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
 	q = e.applyUserMediaVisibility(ctx, q, p.UserID)
@@ -96,9 +90,7 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		}
 	}
 	out := map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}
-	if e.cache != nil && !embyRandomSort(p) {
-		e.cache.SetJSON(ctx, cacheKey, embyItemsCacheValue{Items: items, TotalRecordCount: total, StartIndex: p.StartIndex}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
-	}
+
 	return out, nil
 }
 

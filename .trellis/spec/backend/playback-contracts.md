@@ -489,3 +489,12 @@ Wrong: give every CollectionFolder `UnplayedItemCount: 0`.
 Correct: omit the uncomputed library statistic while retaining real Series/Season counts.
 
 Exact cross-server state updates use the separate [PlaybackProgress synchronization contract](progress-sync-contracts.md).
+
+
+## Emby 用户状态缓存失效
+
+共享 `PlaybackService` 注入 RuntimeCache。播放进度、收藏和有影响行的历史删除成功提交后调用 `InvalidateEmbyUser`，只推进该用户代数并删除其 Emby 前缀。Emby 转调 PlaybackService 的写入口不重复通知；直接写状态与 CAS 成功的入口自行通知。事务回滚、被门槛忽略的进度、CAS 冲突和零行历史删除不通知。没有可靠 changed 信号的幂等成功写入保守失效该用户，不额外查询差异。
+
+公共媒体内容、绑定、人物与展示变更沿用 `DeletePrefix("media:")` 全局换代。若前一阶段已提交、后续阶段失败，仍需通知，不能以整个流程最终错误判断所有数据均未变。纯重试状态和来源图片 LocalKey（不改变现有 ImageTags 标识）不通知。
+
+已确认边界：Web `watch_history.go` 的两个直接删除入口本次未接入通知，其 Emby 状态最多等待五分钟 TTL 刷新。单实例约束见 work-level-queries。回归测试 `TestEmbyResponseCacheDetailsResumeAndState` 与 `TestEmbyResponseCacheProgressRollback` 验证用户隔离和提交边界。

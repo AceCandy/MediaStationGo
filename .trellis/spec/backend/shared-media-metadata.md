@@ -1362,6 +1362,14 @@ return []model.MediaView{*part2}
 
 ### Ordinary Person Work Search
 
+- Items with SearchTerm or PersonIds support only Movie, Series and Person
+  query types. Remove unsupported types before source/hierarchy dispatch; an
+  unsupported-only query returns an empty envelope without database access.
+  In particular, Episode person queries are compatibility no-ops, not an
+  invitation to expand person search to episodes. Mixed types retain the
+  supported subset. Normal episode browsing without these filters is unchanged.
+  Cover this boundary with `TestEmbyUnsupportedPersonAndSearchTypesSkipDatabase`
+  and the mixed-query cases in `TestEmbyOrdinaryPersonWorksCompletePagesAndRevalidation`.
 - `PersonWorkSearchBackend.SearchPersonWorkIDs` queries the ordinary work alias
   using exact `person_ids` or escaped lowercase keyword `person_names` substrings.
   Read lightweight IDs in 500-ID keyset batches, not a capped first page or a

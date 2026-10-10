@@ -103,7 +103,7 @@ func embyItemByIDHandler(svc *service.Container) gin.HandlerFunc {
 		if uid == "" {
 			uid = embyUserID(c)
 		}
-		out, err := svc.Emby.Item(c.Request.Context(), id, uid)
+		out, err := svc.Emby.CachedItem(c.Request.Context(), id, uid)
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return
@@ -163,7 +163,7 @@ func embyResumeItemsHandler(svc *service.Container) gin.HandlerFunc {
 		params := parseEmbyItemsParams(c)
 		params.Limit, _ = strconv.Atoi(firstQueryValue(c, "Limit", "limit"))
 		params.ParentID = ""
-		out, err := svc.Emby.ResumeItemsPage(c.Request.Context(), params)
+		out, err := svc.Emby.CachedResumeItemsPage(c.Request.Context(), params)
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return

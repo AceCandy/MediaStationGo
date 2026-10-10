@@ -37,12 +37,12 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 	builder.initAccessAndStorageServices()
 	builder.initIdentityServices()
 	builder.initImageProxy()
-	builder.c.HuangGuoAI = NewHuangGuoAIService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir)
+	builder.c.HuangGuoAI = NewHuangGuoAIService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir).SetRuntimeCache(builder.c.Cache)
 	builder.c.HuangGuoAIDownloads = NewHuangGuoAIDownloadService(repos, builder.c.HuangGuoAI, builder.c.Tasks)
 	builder.c.HuangGuoAI.downloads = builder.c.HuangGuoAIDownloads
 	builder.c.Scheduler.huangguoai = builder.c.HuangGuoAI
 	builder.c.Scheduler.SetHuangGuoAIDownloads(builder.c.HuangGuoAIDownloads)
-	builder.c.HongGuo = NewHongGuoService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir)
+	builder.c.HongGuo = NewHongGuoService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir).SetRuntimeCache(builder.c.Cache)
 	builder.c.HongGuoDownloads = NewHongGuoDownloadService(repos, builder.c.HongGuo, builder.c.Tasks)
 	builder.c.HongGuo.downloads = builder.c.HongGuoDownloads
 	builder.c.HongGuoDanmu = NewHongGuoDanmuService(repos.HongGuo, builder.c.APIConfig, log)
@@ -126,7 +126,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Scraper.SetNotifyChannels(b.c.NotifyChannels)
 	b.c.Media = NewMediaService(b.cfg, b.log, b.repos).SetRuntimeCache(b.c.Cache).SetTMDbProvider(b.c.TMDb)
 	b.c.Stream = NewStreamService(b.cfg, b.log, b.repos)
-	b.c.Playback = NewPlaybackService(b.log, b.repos)
+	b.c.Playback = NewPlaybackService(b.log, b.repos).SetRuntimeCache(b.c.Cache)
 	b.c.Subtitle = NewSubtitleService(b.log, b.repos)
 	b.c.Emby.SetSubtitle(b.c.Subtitle)
 	b.c.Stats = NewStatsService(b.log, b.repos).SetRuntimeCache(b.c.Cache)

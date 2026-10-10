@@ -15,6 +15,7 @@ func (e *EmbyService) SearchHints(ctx context.Context, p ItemsParams) (map[strin
 		p.Limit = 20
 	}
 	p.Fields = []string{"BasicSyncInfo"}
+	p.skipResponseCache = true
 	result, err := e.Items(ctx, p)
 	if err != nil {
 		return nil, err

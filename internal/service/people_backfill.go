@@ -134,6 +134,9 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 						result.Details = append(result.Details, "❌ "+candidate.MetadataID+": "+sanitizeTaskLogError(combinedErr).Error())
 						return
 					}
+					if reset > 0 {
+						s.invalidateMediaCache(ctx)
+					}
 					wakeScrapeWorker = reset > 0
 					result.Details = append(result.Details, fmt.Sprintf("🔄 %s: TMDB 标识 %s 已失效，已重置 %d 个媒体", candidate.MetadataID, candidate.ExternalID, reset))
 				} else if persistErr := s.persistCredits(ctx, candidate.MetadataID, loaded, credits); persistErr != nil {

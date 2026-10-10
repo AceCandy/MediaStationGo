@@ -251,6 +251,7 @@ func (s *MediaService) DeleteLibraryRoot(ctx context.Context, libraryID, rootID 
 	if err := s.repo.Media.DeleteByLibraryRoot(ctx, libraryID, rootID); err != nil {
 		return err
 	}
+	s.invalidateMediaCache(ctx)
 	if err := s.repo.Library.DeleteRoot(ctx, libraryID, rootID); err != nil {
 		return err
 	}

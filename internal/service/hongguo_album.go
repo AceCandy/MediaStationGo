@@ -25,6 +25,7 @@ func (s *HongGuoService) refreshAlbum(ctx context.Context, sourceID string) erro
 		if saveErr := s.repo.HongGuo.SaveAlbum(ctx, sourceID, album); saveErr != nil {
 			return errors.Join(errHongGuoCheckpoint, saveErr)
 		}
+		s.cache.DeletePrefix(ctx, "media:")
 		return nil
 	}
 	if saveErr := s.repo.HongGuo.RetryAlbum(ctx, sourceID, time.Now()); saveErr != nil {

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -13,7 +14,8 @@ import (
 func assertEmbyUnplayedCount(t *testing.T, item map[string]any, want int) {
 	t.Helper()
 	data, ok := item["UserData"].(map[string]any)
-	if !ok || (data["UnplayedItemCount"] != want && data["UnplayedItemCount"] != float64(want)) {
+	raw, err := json.Marshal(data["UnplayedItemCount"])
+	if !ok || err != nil || string(raw) != fmt.Sprint(want) {
 		t.Fatalf("item=%v UnplayedItemCount want=%d, UserData=%v", item["Id"], want, data)
 	}
 }

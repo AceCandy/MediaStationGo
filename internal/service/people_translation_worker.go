@@ -178,6 +178,7 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 			if err := s.repo.Person.ApplyCachedTranslation(ctx, group.targets, translated); err != nil {
 				return applied, appendPeopleTranslationFailures(details, []*pendingPeopleTranslation{group}, err), err
 			}
+			s.invalidateMediaCache(ctx)
 			applied++
 			details = append(details, peopleTranslationDetail(group, translated, "缓存"))
 			continue
@@ -212,6 +213,7 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 			if err := s.repo.Person.SaveAndApplyTranslation(ctx, cache, group.targets); err != nil {
 				return applied, appendPeopleTranslationFailures(details, []*pendingPeopleTranslation{group}, err), err
 			}
+			s.invalidateMediaCache(ctx)
 			applied++
 			details = append(details, peopleTranslationDetail(group, translated, "AI"))
 		}

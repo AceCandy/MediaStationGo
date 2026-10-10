@@ -83,7 +83,7 @@ func (e *EmbyService) SyncProgressSnapshot(ctx context.Context, userID, itemID, 
 		return EmbyProgressSnapshot{}, err
 	}
 	if e.cache != nil {
-		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		e.cache.InvalidateEmbyUser(ctx, userID)
 	}
 	return EmbyProgressSnapshot{MediaSourceID: view.ID, PositionTicks: positionTicks,
 		RunTimeTicks: runtimeTicks, Played: played, Revision: strconv.FormatInt(revision, 10)}, nil

@@ -28,6 +28,7 @@ var ErrHuangGuoAIDisabled = errors.New("黄果 AI 来源已停用")
 
 // HuangGuoAIService keeps source jobs and cancellation independent of other catalogs.
 type HuangGuoAIService struct {
+	cache             *RuntimeCacheService
 	repo              *repository.Container
 	client            *huangguoai.Client
 	tasks             *TaskTrackerService
@@ -44,6 +45,12 @@ type HuangGuoAIService struct {
 
 func NewHuangGuoAIService(repo *repository.Container, tasks *TaskTrackerService, images *ImageProxy, dataDir string) *HuangGuoAIService {
 	return &HuangGuoAIService{repo: repo, client: huangguoai.NewClient(nil), tasks: tasks, images: images, imageRoot: filepath.Join(dataDir, "catalogs", "huangguoai", "artwork"), running: map[string]context.CancelFunc{}}
+}
+
+// SetRuntimeCache 接入来源资料、绑定及图片变更后的公共响应失效。
+func (s *HuangGuoAIService) SetRuntimeCache(cache *RuntimeCacheService) *HuangGuoAIService {
+	s.cache = cache
+	return s
 }
 
 func (s *HuangGuoAIService) Enabled(ctx context.Context) (bool, error) {
@@ -225,6 +232,8 @@ func (s *HuangGuoAIService) refresh(ctx context.Context, id string) error {
 	if err == nil {
 		_, _, err = s.repo.HuangGuoAI.SaveDetail(ctx, input)
 		if err == nil {
+			s.cache.DeletePrefix(ctx, "media:")
+			defer s.cache.DeletePrefix(ctx, "media:")
 			err = s.repo.HuangGuoAI.RebindWork(ctx, id)
 		}
 	}

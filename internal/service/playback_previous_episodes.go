@@ -20,11 +20,16 @@ func (p *PlaybackService) autoMarkPreviousEpisodes(ctx context.Context, complete
 }
 
 // saveProgress 统一网页与 Emby 的历史、前集补标和真实事件事务；无需加载媒体展示投影。
-func (p *PlaybackService) saveProgress(ctx context.Context, history *model.PlaybackHistory, sessionID, libraryID string, visibility MediaVisibility) error {
+func (p *PlaybackService) saveProgress(ctx context.Context, history *model.PlaybackHistory, sessionID, libraryID string, visibility MediaVisibility) (err error) {
 	autoMark, err := p.autoMarkPreviousEpisodes(ctx, history.Completed)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err == nil {
+			p.cache.InvalidateEmbyUser(ctx, history.UserID)
+		}
+	}()
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" && !autoMark {
 		return p.repo.History.UpsertProgress(ctx, history)

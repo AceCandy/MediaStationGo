@@ -130,7 +130,7 @@ func TestHongGuoRefreshDefersAlbumFailure(t *testing.T) {
 			repos := repository.New(db)
 			tasks := NewTaskTrackerService(zap.NewNop(), nil)
 			tasks.ConfigurePersistence(repos.TaskExecution, t.TempDir())
-			s := NewHongGuoService(repos, tasks, nil, t.TempDir())
+			s := NewHongGuoService(repos, tasks, nil, t.TempDir()).SetRuntimeCache(NewRuntimeCacheService(nil, nil))
 			t.Cleanup(s.Wait)
 			for _, id := range []string{"91001", "91002"} {
 				if _, err := repos.HongGuo.SaveDetail(t.Context(), hongguo.Work{SourceID: id, Title: id, EpisodeCount: 2, Snapshot: []byte(`{}`)}); err != nil {
@@ -163,9 +163,13 @@ func TestHongGuoRefreshDefersAlbumFailure(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 			})})
+			contentBefore, _ := s.cache.embyCacheVersions("viewer")
 			before := time.Now()
 			if err := s.Run(t.Context(), TaskKindHongGuoRefresh, sourceID); err != nil {
 				t.Fatalf("album query failed the detail task: %v", err)
+			}
+			if contentAfter, _ := s.cache.embyCacheVersions("viewer"); contentAfter == contentBefore {
+				t.Fatal("committed detail with failed album did not invalidate cache")
 			}
 			page, err := tasks.ListSystem(model.TaskSystemHongGuo, 1, 10)
 			if err != nil || len(page.Items) != 1 {

@@ -59,6 +59,7 @@ func (s *MediaService) updateNFOMetadata(ctx context.Context, media *model.Media
 		_ = rollback()
 		return nil, err
 	}
+	s.invalidateMediaCache(ctx)
 	updated, err := s.repo.MediaView.FindByID(ctx, media.ID)
 	if err != nil {
 		_ = rollback()

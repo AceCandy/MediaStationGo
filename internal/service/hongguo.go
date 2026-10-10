@@ -30,6 +30,7 @@ var errHongGuoCheckpoint = errors.New("红果同步检查点保存失败")
 
 // HongGuoService 持有来源任务互斥与取消，复用公共执行日志，不写旧资料表。
 type HongGuoService struct {
+	cache             *RuntimeCacheService
 	repo              *repository.Container
 	client            *hongguo.Client
 	tasks             *TaskTrackerService
@@ -52,6 +53,12 @@ type HongGuoService struct {
 
 func NewHongGuoService(repo *repository.Container, tasks *TaskTrackerService, images *ImageProxy, dataDir string) *HongGuoService {
 	return &HongGuoService{repo: repo, tasks: tasks, client: hongguo.NewClient(nil), images: images, imageRoot: filepath.Join(dataDir, "catalogs", "hongguo", "artwork")}
+}
+
+// SetRuntimeCache 接入来源资料、绑定及图片变更后的公共响应失效。
+func (s *HongGuoService) SetRuntimeCache(cache *RuntimeCacheService) *HongGuoService {
+	s.cache = cache
+	return s
 }
 
 func (s *HongGuoService) Enabled(ctx context.Context) (bool, error) {
@@ -328,6 +335,8 @@ func (s *HongGuoService) refresh(ctx context.Context, id string, reportAlbumWarn
 	if err != nil {
 		return "", err
 	}
+	s.cache.DeletePrefix(ctx, "media:")
+	defer s.cache.DeletePrefix(ctx, "media:")
 	if err := s.repo.HongGuo.RebindWork(ctx, id); err != nil {
 		return "", err
 	}

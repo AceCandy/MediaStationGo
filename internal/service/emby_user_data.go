@@ -27,14 +27,14 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 		}
 		_, err = e.repo.HuangGuoAI.Favorite(ctx, userID, target.SourceID, &favorite)
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
 	if strings.HasPrefix(itemID, "hg-group-") {
 		_, err := e.repo.MediaView.HongGuoSeriesFavorite(ctx, userID, itemID, e.mediaQueryFilter(ctx, userID), &favorite)
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
@@ -48,7 +48,7 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 	if target.NFOItemID != "" {
 		err := e.repo.NFO.SetFavorite(ctx, userID, target.NFOItemID, target.MediaID, favorite)
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
@@ -58,7 +58,7 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 		}
 		err := e.repo.HongGuo.SetFavorite(ctx, userID, target.SourceID, favorite)
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
@@ -69,7 +69,7 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 		return err
 	}
 	if e.cache != nil {
-		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		e.cache.InvalidateEmbyUser(ctx, userID)
 	}
 	return nil
 }
@@ -86,13 +86,13 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		}
 		err = e.repo.HuangGuoAI.MarkPlayedBatch(ctx, userID, views, played)
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
 	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, played); handled {
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
@@ -116,7 +116,7 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 			return nil
 		})
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
@@ -127,7 +127,7 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 	if metadata != nil && (metadata.Kind == model.MetadataKindSeries || metadata.Kind == model.MetadataKindSeason) {
 		err = e.markContainerPlayed(ctx, userID, itemID, played)
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
@@ -146,7 +146,7 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 			err = e.repo.HongGuo.MarkPlayed(ctx, userID, *media, played)
 		}
 		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+			e.cache.InvalidateEmbyUser(ctx, userID)
 		}
 		return err
 	}
@@ -154,9 +154,13 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		return errors.New("media not found")
 	}
 	if !played {
-		err = e.repo.DB.WithContext(ctx).
+		result := e.repo.DB.WithContext(ctx).
 			Where("user_id = ? AND metadata_id = ?", userID, target.MetadataID).
-			Delete(&model.PlaybackHistory{}).Error
+			Delete(&model.PlaybackHistory{})
+		if result.RowsAffected == 0 {
+			return result.Error
+		}
+		err = result.Error
 	} else {
 		dur := int64(0)
 		if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
@@ -173,7 +177,7 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		})
 	}
 	if err == nil && e.cache != nil {
-		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		e.cache.InvalidateEmbyUser(ctx, userID)
 	}
 	return err
 }
@@ -233,10 +237,7 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 		if dur <= 0 {
 			return nil
 		}
-		err := NewPlaybackService(e.log, e.repo).RecordProgress(ctx, userID, target.MediaID, sessionID, pos, dur, e.mediaVisibility(ctx, userID))
-		if err == nil && e.cache != nil {
-			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
-		}
+		err := NewPlaybackService(e.log, e.repo).SetRuntimeCache(e.cache).RecordProgress(ctx, userID, target.MediaID, sessionID, pos, dur, e.mediaVisibility(ctx, userID))
 		return err
 	}
 	if target.MetadataID == "" || target.MediaID == "" {
@@ -290,10 +291,7 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 		}
 		libraryID = media.LibraryID
 	}
-	err := NewPlaybackService(e.log, e.repo).saveProgress(ctx, history, sessionID, libraryID, e.mediaVisibility(ctx, userID))
-	if err == nil && e.cache != nil {
-		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
-	}
+	err := NewPlaybackService(e.log, e.repo).SetRuntimeCache(e.cache).saveProgress(ctx, history, sessionID, libraryID, e.mediaVisibility(ctx, userID))
 	return err
 }
 

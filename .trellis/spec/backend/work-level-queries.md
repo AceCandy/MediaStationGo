@@ -219,7 +219,7 @@ change those tie windows or convert directly bound ordinary Series media to fold
 | 前排作品不满足权限或状态 | 继续检查后续候选，不在资格前截断 |
 | 越界页 | 空 Items；启用计数时保留准确 TotalRecordCount，免计数下界为 0 |
 | HTTP Items 未传开关 / false / true | 前两者无额外总数 SQL、返回数字下界；true 保留准确总数，固定排序/随机种子时页面内容相同 |
-| 两种计数模式交替命中缓存 | 不共享缓存键；原始前瞻页不被裁切污染，下界不冒充准确总数 |
+| 两种计数模式交替命中缓存 | 不共享缓存键；保存裁切和收藏归属补全后的最终页，下界不冒充准确总数 |
 | Limit=500 / 非法 Limit / Person IDs / 根 Views | 内部 501 前瞻 / 外部归一化为 50 / 仍分页 / 完整库集合 |
 | 随机未看首批不足 | 同 seed 顺序继续补取，跳过已看/无权限；不回退日期排序 |
 | 作品跨 A/B 库、A 删除最后文件 | A 不再展示，B 保留；时间按既有全局规则 |
@@ -343,3 +343,14 @@ only exercises the first supported key. Native player latency remains a separate
    `TestOrdinarySeriesFavoriteAddedOrder` checks ordinary-only global/library TV.
 7. **Wrong vs correct:** do not sort favorites by work/file import time or the
    shared NFO playback updated_at; select their source-owned favorite time.
+
+
+## Emby 五分钟响应缓存
+
+- `EmbyService.Items` 归一化参数后缓存最终页：前瞻裁切与收藏 `LibraryIds` 补全都完成后保存。`mediaItems` 不再另设缓存；计数模式与完整参数分别入键，IDs 保留顺序和重复项。
+- HTTP 浏览详情使用 `CachedItem`，Resume 使用 `CachedResumeItemsPage`。内部 `Item` 和 `ResumeItemsPage` 保持实时与原 Go 类型。独立 Latest/Views/Persons/SearchHints/Counts 不新增响应缓存，SearchHints 调 Items 时显式绕过。
+- Emby 响应固定 300 秒，与 Web 的 `cache.media_ttl_seconds` 分离。Random、错误、取消、nil 详情和超过 1 MiB 的响应不缓存；合法空列表可以缓存。快照携带绝对过期时间，Redis 命中提升到 L1 不能延长五分钟期限。
+- 键包含仓储 `ReadCacheKey`、公共内容代数、当前用户状态代数、完整查询参数、有效可见库范围及认证成人隐藏快照。先捕获版本，命中解码后与写回前再次比较；旧查询不能填充新版本键。
+- 快照是请求凭据注入前的 JSON 字节，每次命中解码为独立对象。列表顶层保留 `[]map[string]any`、`int64` 总数和 `int` 起始位置，嵌套数字用 `json.Number` 保精度；内部消费者不能依赖嵌套冷读 Go 类型。HTTP 最后逐请求注入 token。
+- 当前仅支持单后端实例。沿用共享本地 L1 和可选 Redis L2；版本换代在本地完成，不依赖 Redis 删除或请求 context 成功。重启由仓储实例标识隔离旧 Redis 响应。
+- 关键回归：`TestEmbyResponseCacheFinalPages`、`TestEmbyResponseCacheNFOHierarchy`、`TestEmbyResponseCacheInvalidationAndOldFill`、`TestEmbyResponseCacheUsesCurrentRequestToken`。

@@ -2,6 +2,12 @@ package service
 
 import "testing"
 
+type embyItemsCacheValue struct {
+	Items            []map[string]any `json:"items"`
+	TotalRecordCount int64            `json:"total_record_count"`
+	StartIndex       int              `json:"start_index"`
+}
+
 func TestEmbyItemsCacheKeyIncludesFields(t *testing.T) {
 	svc := &EmbyService{}
 	base := ItemsParams{ParentID: "library-1", Limit: 50}

@@ -18,9 +18,11 @@ type RuntimeCacheService struct {
 	client *redis.Client
 	prefix string
 
-	mu     sync.RWMutex
-	memory map[string]runtimeCacheItem
-	limit  int
+	mu             sync.RWMutex
+	memory         map[string]runtimeCacheItem
+	limit          int
+	contentVersion uint64
+	userVersions   map[string]uint64
 }
 
 type runtimeCacheItem struct {
@@ -116,6 +118,11 @@ func (c *RuntimeCacheService) DeletePrefix(ctx context.Context, prefix string) {
 	if !c.Enabled() || strings.TrimSpace(prefix) == "" {
 		return
 	}
+	if prefix == "media:" || prefix == embyItemsCachePrefix {
+		c.mu.Lock()
+		c.contentVersion++
+		c.mu.Unlock()
+	}
 	fullPrefix := c.key(prefix)
 	c.deleteMemoryPrefix(fullPrefix)
 	if c.client != nil {
@@ -135,6 +142,30 @@ func (c *RuntimeCacheService) DeletePrefix(ctx context.Context, prefix string) {
 			}
 		}
 	}
+}
+
+// embyCacheVersions 读取同一实例的内容与用户状态代数，隔离写入前的响应。
+func (c *RuntimeCacheService) embyCacheVersions(userID string) (uint64, uint64) {
+	if c == nil {
+		return 0, 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.contentVersion, c.userVersions[userID]
+}
+
+// InvalidateEmbyUser 仅失效该用户的列表、详情和续播，换代不依赖删除成功。
+func (c *RuntimeCacheService) InvalidateEmbyUser(ctx context.Context, userID string) {
+	if c == nil || userID == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.userVersions == nil {
+		c.userVersions = make(map[string]uint64)
+	}
+	c.userVersions[userID]++
+	c.mu.Unlock()
+	c.DeletePrefix(ctx, embyUserCachePrefix(userID))
 }
 
 func (c *RuntimeCacheService) key(key string) string {
