@@ -1,0 +1,33 @@
+{
+  "id": "emby-douban-rating",
+  "name": "emby-douban-rating",
+  "title": "Emby 返回独立豆瓣评分",
+  "description": "在 Emby 含 CommunityRating 的条目中，有独立豆瓣评分时平级返回 DoubanRating，无评分省略，并保持通用评分不变。补录已完成实现及验证，供提交归档。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-10",
+  "completedAt": "2026-10-10",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "d159740d68b719a21f19d7a9abcaa8684501c3ca",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/model/emby_item_types.go",
+    "internal/repository/media_view_ratings.go",
+    "internal/service/emby_items_detail.go",
+    "internal/service/emby_series_payload.go",
+    "internal/service/emby_ratings_test.go",
+    "web/src/pages/embyApiCatalog.ts"
+  ],
+  "notes": "实现、针对性验证和独立复核完成；按用户授权补录并归档。未做播放器实测、全量 Go 测试或部署。",
+  "meta": {}
+}
