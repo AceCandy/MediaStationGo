@@ -191,6 +191,8 @@ type HuangGuoAIDownload struct {
 	Duration     float64    `json:"-"`
 	// HLS 的清单时长与视频轨道核对，独立校验和重启恢复必须保留该策略。
 	HLS bool `gorm:"not null;default:false" json:"-"`
+	// 领取前已排队且无旧执行者时，可独占复用原分片目录；不持久化、不对外返回。
+	ReuseStaging bool `gorm:"-" json:"-"`
 }
 
 func (HuangGuoAIDownload) TableName() string { return "huangguoai_downloads" }

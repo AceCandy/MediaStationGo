@@ -2,19 +2,141 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/huangguoai"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
+
+func TestHuangGuoAIDownloadResumeDirectoryOwnership(t *testing.T) {
+	for _, mode := range []string{"failed", "failed_work", "shutdown", "expired", "cancelled", "cancelled_work", "checkpoint_failure"} {
+		t.Run(mode, func(t *testing.T) {
+			s := newHuangGuoDownloadTaskTestService(t)
+			cfg, err := s.Config(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := model.HuangGuoAIDownload{SourceID: "71", Episode: 1, Root: cfg.Root, RelativePath: "synthetic.mp4", Status: "failed"}
+			if err := s.repo.DB.Create(&row).Error; err != nil {
+				t.Fatal(err)
+			}
+			oldToken := uuid.NewString()
+			stage := filepath.Join("downloading", row.ID+"-"+oldToken)
+			oldDir := filepath.Join(cfg.Root, stage)
+			if err := os.MkdirAll(oldDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			segment := "segment-000000.ts"
+			data := []byte("complete")
+			if err := os.WriteFile(filepath.Join(oldDir, segment), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			digest := sha256.Sum256(data)
+			record, err := json.Marshal(map[string]any{"Identity": strings.Repeat("0", 64), "Size": len(data), "SHA256": hex.EncodeToString(digest[:])})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(oldDir, segment+".resume"), record, 0600); err != nil {
+				t.Fatal(err)
+			}
+			oldFile, err := os.Open(filepath.Join(oldDir, segment))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer oldFile.Close()
+			oldInfo, err := oldFile.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			row.StagingPath = filepath.Join(stage, "ready.mp4")
+			if mode == "shutdown" {
+				row.Status = "queued"
+			}
+			if mode == "expired" || strings.HasPrefix(mode, "cancelled") {
+				row.Status = "downloading"
+				row.LeaseToken = oldToken
+				expired := time.Now().Add(-time.Minute)
+				row.LeaseUntil = &expired
+			}
+			if err := s.repo.DB.Save(&row).Error; err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(mode, "cancelled") {
+				if err := s.Action(t.Context(), row.ID, "cancel"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode != "expired" && mode != "shutdown" {
+				if strings.HasSuffix(mode, "_work") {
+					if n, err := s.WorkAction(t.Context(), row.SourceID, "retry"); err != nil || n != 1 {
+						t.Fatalf("work retry: %d %v", n, err)
+					}
+				} else {
+					if err := s.Action(t.Context(), row.ID, "retry"); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			lease, err := s.repo.HuangGuoAI.ClaimHuangGuoAIDownload(t.Context())
+			if err != nil || lease == nil {
+				t.Fatalf("claim: %v", err)
+			}
+			wantReuse := mode != "expired" && !strings.HasPrefix(mode, "cancelled")
+			if lease.ReuseStaging != wantReuse || lease.LeaseToken == oldToken {
+				t.Fatal("claim did not distinguish stopped worker from expired ownership")
+			}
+			mediaRequests := 0
+			s.catalog.client = huangguoai.NewClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path == "/video/71/" {
+					body := `<script id="videoInitialData">{"id":"71","title":"Synthetic","ep":1,"videoSrc":"https://example.com/index.m3u8"}</script><script type="application/ld+json">{"@type":"VideoObject","duration":"PT4S"}</script>`
+					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), ContentLength: int64(len(body)), Header: http.Header{}, Request: req}, nil
+				}
+				mediaRequests++
+				return nil, errors.New("synthetic playlist unavailable")
+			})})
+			if mode == "checkpoint_failure" {
+				if err := s.repo.DB.Callback().Update().Before("gorm:update").Register("test:resume-checkpoint", func(tx *gorm.DB) {
+					values, _ := tx.Statement.Dest.(map[string]any)
+					if tx.Statement.Table == "huangguoai_downloads" && len(values) == 1 && values["staging_path"] != nil {
+						tx.AddError(errors.New("synthetic checkpoint failure"))
+					}
+				}); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = s.repo.DB.Callback().Update().Remove("test:resume-checkpoint") })
+			}
+			s.run(t.Context(), *lease)
+			checkpoint := row.StagingPath
+			if err := s.repo.DB.First(&row, "id = ?", row.ID).Error; err != nil || row.Status != "failed" {
+				t.Fatalf("failure checkpoint: %v", err)
+			}
+			info, err := os.Stat(filepath.Join(cfg.Root, filepath.Dir(row.StagingPath), segment))
+			if err != nil || os.SameFile(oldInfo, info) != wantReuse {
+				t.Fatal("cache was copied for stopped worker or shared with expired worker")
+			}
+			if (row.StagingPath == checkpoint) != wantReuse {
+				t.Fatal("wrong directory handoff")
+			}
+			if mode == "checkpoint_failure" && mediaRequests != 0 {
+				t.Fatal("network started before successful checkpoint")
+			}
+		})
+	}
+}
 
 func TestHuangGuoAIDownloadResumeRetryAndPublish(t *testing.T) {
 	s := newHuangGuoDownloadTaskTestService(t)
@@ -123,6 +245,9 @@ func TestHuangGuoAIDownloadResumeRetryAndPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 	third := claim()
+	if !third.ReuseStaging {
+		t.Fatal("normal failed retry did not allow exclusive cache reuse")
+	}
 	s.run(t.Context(), *third)
 	reload()
 	if row.Status != "waiting_verify" || !row.HLS || row.RawSize == 0 || row.Duration != 4 {
@@ -131,8 +256,8 @@ func TestHuangGuoAIDownloadResumeRetryAndPublish(t *testing.T) {
 	if calls["/part-000.ts"] != 1 || calls["/part-001.ts"] != 1 || calls["/part-002.ts"] != 2 {
 		t.Fatalf("retry refetched completed segments: %v", calls)
 	}
-	if _, err := os.Stat(firstStage); !os.IsNotExist(err) {
-		t.Fatal("old checkpoint not retired after durable handoff")
+	if row.StagingPath != oldCheckpoint {
+		t.Fatal("normal failed retry moved or copied the cache directory")
 	}
 	entries, err := os.ReadDir(filepath.Join(cfg.Root, filepath.Dir(row.StagingPath)))
 	if err != nil || len(entries) != 1 || entries[0].Name() != "ready.mp4" {

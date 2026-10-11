@@ -16,10 +16,15 @@ import (
 )
 
 func TestDownloadHLSResumeAcrossAttempts(t *testing.T) {
-	for _, change := range []string{"unchanged", "playlist", "key", "map", "corrupt", "truncated", "missing_record", "symlink", "direct_failure"} {
+	for _, change := range []string{"unchanged", "playlist", "key", "map", "corrupt", "truncated", "missing_record", "symlink", "direct_failure", "in_place/unchanged", "in_place/playlist", "in_place/key", "in_place/map", "in_place/corrupt", "in_place/truncated", "in_place/missing_record", "in_place/symlink", "in_place/direct_failure"} {
 		t.Run(change, func(t *testing.T) {
 			installParallelHLSTools(t)
 			old, next := t.TempDir(), t.TempDir()
+			inPlace := strings.HasPrefix(change, "in_place/")
+			change = strings.TrimPrefix(change, "in_place/")
+			if inPlace {
+				next = old
+			}
 			var mu sync.Mutex
 			calls := map[string]int{}
 			failing, sequence, keyByte, mapByte := true, 1, byte(1), byte(1)
@@ -70,6 +75,10 @@ func TestDownloadHLSResumeAcrossAttempts(t *testing.T) {
 				}
 			}
 			first := filepath.Join(old, "segment-000000.m4s")
+			firstInfo, err := os.Stat(first)
+			if err != nil {
+				t.Fatal(err)
+			}
 			switch change {
 			case "playlist":
 				sequence++
@@ -131,8 +140,14 @@ func TestDownloadHLSResumeAcrossAttempts(t *testing.T) {
 				t.Fatalf("cache not included exactly once in progress: %v", progress)
 			}
 			after, err := os.ReadFile(first)
-			if err != nil || !bytes.Equal(before, after) {
+			if !inPlace && (err != nil || !bytes.Equal(before, after)) {
 				t.Fatal("resume changed previous lease files")
+			}
+			if inPlace && change == "unchanged" {
+				info, err := os.Stat(first)
+				if err != nil || !os.SameFile(firstInfo, info) {
+					t.Fatal("in-place resume copied or replaced a completed segment")
+				}
 			}
 			for _, path := range []string{first, filepath.Join(next, "segment-000000.m4s")} {
 				info, err := os.Stat(path)
@@ -205,9 +220,12 @@ func TestDownloadHLSResumeCancellationAndMergeFailure(t *testing.T) {
 }
 
 func TestHLSResumeSnapshotCheckpoint(t *testing.T) {
-	for _, failure := range []string{"checkpoint", "copy_cancel", "copy_conflict"} {
+	for _, failure := range []string{"checkpoint", "copy_cancel", "copy_conflict", "in_place_checkpoint", "in_place_cancel"} {
 		t.Run(failure, func(t *testing.T) {
 			old, next := t.TempDir(), t.TempDir()
+			if strings.HasPrefix(failure, "in_place_") {
+				next = old
+			}
 			name := "segment-000000.ts"
 			if err := os.WriteFile(filepath.Join(old, name), []byte("complete"), 0600); err != nil {
 				t.Fatal(err)
@@ -222,7 +240,7 @@ func TestHLSResumeSnapshotCheckpoint(t *testing.T) {
 			}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			if failure == "copy_cancel" {
+			if failure == "copy_cancel" || failure == "in_place_cancel" {
 				cancel()
 			}
 			if failure == "copy_conflict" {
@@ -246,7 +264,7 @@ func TestHLSResumeSnapshotCheckpoint(t *testing.T) {
 				}
 				return errors.New("private database error")
 			})
-			if err == nil || strings.Contains(err.Error(), "private") || checkpointCalled != (failure == "checkpoint") {
+			if err == nil || strings.Contains(err.Error(), "private") || checkpointCalled != (failure == "checkpoint" || failure == "in_place_checkpoint") {
 				t.Fatalf("unsafe checkpoint: called=%v err=%v", checkpointCalled, err)
 			}
 			data, err := os.ReadFile(filepath.Join(old, name))

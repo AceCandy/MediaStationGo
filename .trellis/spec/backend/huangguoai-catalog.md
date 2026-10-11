@@ -330,17 +330,28 @@ and publication retain their existing independent leases and checks.
 `HLSResumeError` marks a failed transfer with complete cached segments.
 `segment-NNNNNN.ts|m4s.resume` contains only `Identity`, `Size`, `SHA256`.
 Use existing `staging_path`; no schema or public API changes.
+`HuangGuoAIDownload.ReuseStaging` is claim-local (`gorm:"-"`, `json:"-"`).
 
 ### 3. Contracts
 
-Use a private directory for each lease. Copy previous complete regular files with
-exclusive writes and verify size/digest; never share writable files or hard links.
+Claim queued rows with an empty previous lease token as exclusive stopped-worker
+recovery. Keep generating a fresh fencing token, but reuse their original stage
+in place (`dir == previousDir`), verifying complete records and size/digest without
+copying or renaming. Normal failed/shutdown workers finish all transfer writes and
+cleanup before clearing their lease. Preserve the old token when retrying cancelled
+rows: cancellation or lease expiry alone does not prove that worker has stopped.
+Expired active leases and queued rows with an old token still use a new private
+directory and copy complete regular files with exclusive writes and size/digest
+checks; never share writable files or hard links with a possibly running worker.
 Identity hashes the resolved playlist (URLs/ranges/order/sequence/IV), Referer,
 and freshly downloaded generation-specific keys and maps. Signed URL changes
 conservatively invalidate cache. No URL, signature or key plaintext in records.
 Before switching `staging_path`, finish copying, sync records/files and stage plus
 its parent, then run the fenced checkpoint callback; only afterward retire old
-stage. Copy/cancel/checkpoint failures retain the previous database path.
+stage. Copy/cancel/checkpoint failures retain the previous database path. In-place
+recovery keeps both the old directory and path on pre-checkpoint failure; count
+validated existing segments before network requests so early playlist failures
+also preserve the cache. Never retire an in-place stage from its own checkpoint.
 Each completed segment gets a synced record before progress is reported. Reused
 bytes count once toward progress and the total-media limit. A failed transfer
 retains only segments/records; keys/maps/manifests are removed. Successful transfer
@@ -354,6 +365,8 @@ reuse suspect data. Existing `Download` remains non-resuming for other callers.
 - HLS changes to direct MP4 -> discard obsolete HLS cache; direct transfer has no
   segment resume, including when the new direct response is incomplete.
 - Snapshot storage failure/cancel/checkpoint failure -> retain old checkpoint.
+- Normal failed retry -> same stage/files, fresh lease token, no segment copy.
+- Expired lease/cancelled retry -> independent stage/files, no writable sharing.
 - Partial transfer with complete segments -> `HLSResumeError`; no publication.
 - Media-size limit or merge/verification failure -> discard current cache.
 
@@ -372,13 +385,19 @@ changes, same-size corruption, truncation, missing records, symlinks and account
 partial cleanup and non-resumable merge failure. `TestHLSResumeSnapshotCheckpoint`
 checks snapshot-before-checkpoint, cancellation, collision and safe diagnostics.
 `TestHuangGuoAIDownloadResumeRetryAndPublish` uses isolated PostgreSQL and synthetic
-HLS for failure/retry/new lease, intermediate Resolve failure, reuse, complete
+HLS for failure/retry/new lease, intermediate Resolve failure, in-place reuse, complete
 handoff, strict independent verification/publication and final cleanup.
+`TestHuangGuoAIDownloadResumeDirectoryOwnership` asserts unchanged file identity
+for failed/shutdown recovery, distinct file identity for expired/cancelled recovery,
+and cache preservation with no media request on checkpoint persistence failure.
 
 ### 7. Wrong vs Correct
 
 Wrong: update the task path, delete previous stage, then begin snapshot copying.
 Correct: copy and persist the snapshot first; commit the fenced task path next.
+Wrong: infer worker termination from lease expiry, or rename a stopped cache before
+persisting its new path. Correct: reuse the original stopped-worker directory and
+checkpoint; retain copy isolation whenever the previous worker may still run.
 
 ## Scheduled new-work download supplement
 

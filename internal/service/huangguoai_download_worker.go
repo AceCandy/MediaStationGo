@@ -197,22 +197,29 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 	}
 	oldStage := row.StagingPath
 	stage := filepath.Join("downloading", row.ID+"-"+row.LeaseToken)
+	previous := ""
+	reuseStage := false
+	if validHuangGuoAIStage(oldStage, row.ID) && filepath.Dir(oldStage) != stage {
+		if info, e := root.Lstat(filepath.Dir(oldStage)); e == nil && info.IsDir() {
+			previous = filepath.Join(row.Root, filepath.Dir(oldStage))
+			if row.ReuseStaging {
+				// 正常失败已等待所有写盘退出，原地复用避免复制及目录迁移交接窗口。
+				stage = filepath.Dir(oldStage)
+				reuseStage = true
+			}
+		}
+	}
 	if err = root.MkdirAll(stage, 0700); err != nil {
 		return errors.New("下载暂存目录不可写")
 	}
-	retain := false
+	retain := reuseStage
 	defer func() {
 		if !retain {
 			_ = root.RemoveAll(stage)
 		}
 	}()
 	ready := filepath.Join(stage, "ready.mp4")
-	previous := ""
-	if validHuangGuoAIStage(oldStage, row.ID) && filepath.Dir(oldStage) != stage {
-		if info, e := root.Lstat(filepath.Dir(oldStage)); e == nil && info.IsDir() {
-			previous = filepath.Join(row.Root, filepath.Dir(oldStage))
-		}
-	}
+	checkpointed := false
 	bytes.Store(0)
 	input, duration, err := s.catalog.client.DownloadResuming(ctx, media, filepath.Join(row.Root, stage), previous, func(n int64) { bytes.Store(n) }, func() error {
 		// 新快照已持久化后才交接数据库路径，复制失败或取消仍保留旧检查点。
@@ -223,7 +230,8 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 			return e
 		}
 		row.StagingPath = ready
-		if previous != "" {
+		checkpointed = true
+		if previous != "" && !reuseStage {
 			_ = root.RemoveAll(filepath.Dir(oldStage))
 		}
 		return nil
@@ -231,12 +239,13 @@ func (s *HuangGuoAIDownloadService) execute(ctx context.Context, row *model.Huan
 	var mismatch huangguoai.HLSDurationMismatchError
 	if err != nil && !errors.As(err, &mismatch) {
 		var resumable huangguoai.HLSResumeError
-		retain = errors.As(err, &resumable)
+		retain = errors.As(err, &resumable) || (reuseStage && !checkpointed)
 		if retain {
 			task.Update(TaskUpdate{Details: []string{"已保留完整分片，重试时核对清单后复用"}})
 		}
 		return huangGuoAIDownloadError{err}
 	}
+	retain = false
 	if err != nil {
 		row.Warning = mismatch.Error()
 	}

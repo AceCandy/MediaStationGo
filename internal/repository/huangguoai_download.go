@@ -36,6 +36,7 @@ func (r *HuangGuoAIRepository) claimHuangGuoAIDownload(ctx context.Context, veri
 		if err := query.Order("created_at, id").First(&row).Error; err != nil {
 			return err
 		}
+		row.ReuseStaging = row.Status == "queued" && row.LeaseToken == ""
 		row.LeaseToken = uuid.NewString()
 		row.LeaseUntil = &until
 		if !verification {

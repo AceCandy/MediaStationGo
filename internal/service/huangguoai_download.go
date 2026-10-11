@@ -303,7 +303,8 @@ func (s *HuangGuoAIDownloadService) Action(ctx context.Context, id, action strin
 			if row.LeaseUntil != nil && row.LeaseUntil.After(time.Now()) {
 				return errors.New("等待旧执行退出")
 			}
-			return tx.Model(&row).Updates(map[string]any{"status": "queued", "error": "", "lease_token": "", "lease_until": nil}).Error
+			// 取消只改变状态，租约过期也不代表旧执行者已退出；保留其标记以隔离缓存。
+			return tx.Model(&row).Updates(map[string]any{"status": "queued", "error": "", "lease_until": nil}).Error
 		default:
 			return errors.New("下载操作无效")
 		}

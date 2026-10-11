@@ -32,9 +32,9 @@ type hlsResumeCache struct {
 	keep     bool
 }
 
-// DownloadResuming 将旧租约的完成分片复制到新私有目录，再核对当前清单及加密上下文。
+// DownloadResuming 恢复完整分片，再核对当前清单及加密上下文。
 // previousDir 为空时建立首次可恢复下载。checkpoint 在快照持久化后、网络传输前交接任务路径。
-// 旧目录只读，完整媒体仍须由调用方独立校验。
+// 两个目录相同时，调用方必须确保旧执行者已退出；不同目录仍复制隔离。完整媒体须独立校验。
 func (c *Client) DownloadResuming(ctx context.Context, media Media, dir, previousDir string, progress func(int64), checkpoint func() error) (string, float64, error) {
 	cache := &hlsResumeCache{dir: dir, keep: true}
 	if previousDir != "" {
@@ -101,7 +101,7 @@ func readHLSRecord(root *os.Root, name string) (hlsSegmentRecord, bool) {
 	return record, record.Size > 0 && record.Size <= maxSegmentBytes && len(record.SHA256) == 64 && len(record.Identity) == 64 && hashErr == nil && identityErr == nil
 }
 
-// copyPrevious 只复制完整记录对应的普通文件；旧租约仍在退出时也不会共享可写文件。
+// copyPrevious 只接收完整记录对应的普通文件；不同目录复制隔离，同目录只校验。
 func (cache *hlsResumeCache) copyPrevious(ctx context.Context, previous string) error {
 	root, err := os.OpenRoot(previous)
 	if err != nil {
@@ -135,6 +135,14 @@ func (cache *hlsResumeCache) copyPrevious(ctx context.Context, previous string) 
 		}
 		info, e := root.Lstat(name)
 		if e != nil || !info.Mode().IsRegular() || info.Size() != record.Size {
+			continue
+		}
+		if filepath.Clean(previous) == filepath.Clean(cache.dir) {
+			n, hash, e := hlsFileDigest(filepath.Join(cache.dir, name), maxSegmentBytes)
+			if e == nil && n == record.Size && hash == record.SHA256 {
+				total += n
+				cache.complete.Add(1)
+			}
 			continue
 		}
 		src, e := root.Open(name)

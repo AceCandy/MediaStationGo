@@ -103,7 +103,8 @@ func (s *HuangGuoAIDownloadService) WorkAction(ctx context.Context, id, action s
 		values["status"] = "cancelled"
 	case "retry":
 		q = q.Where("status IN ('failed','cancelled') AND (lease_until IS NULL OR lease_until<=?)", time.Now())
-		values = map[string]any{"status": "queued", "error": "", "lease_token": "", "lease_until": nil}
+		// 与单项重试一致，取消任务的旧 token 仍标记潜在执行者，恢复时必须复制隔离。
+		values = map[string]any{"status": "queued", "error": "", "lease_until": nil}
 	default:
 		return 0, errors.New("下载操作无效")
 	}
