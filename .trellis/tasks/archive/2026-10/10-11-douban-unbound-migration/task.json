@@ -1,0 +1,30 @@
+{
+  "id": "douban-unbound-migration",
+  "name": "douban-unbound-migration",
+  "title": "豆瓣历史资料独立迁移",
+  "description": "修正旧豆瓣快照迁移对媒体关联的依赖，按快照真实身份迁入共享资料中心",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "database",
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-11",
+  "completedAt": "2026-10-11",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "56bf712f77b3bc99f3a1d759185be25b6aec60a5",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/database/douban_migration.go",
+    "internal/database/douban_migration_test.go",
+    ".trellis/spec/backend/douban-cookie-config.md"
+  ],
+  "notes": "独立身份迁移修复、分页/质量保护回归及独立审查通过。后续只读核验旧有效资料全部进入中心；用户另行执行旧快照清理，旧表豆瓣记录为 0。按用户要求提交归档。",
+  "meta": {}
+}
