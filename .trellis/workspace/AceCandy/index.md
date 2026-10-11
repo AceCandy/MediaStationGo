@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 229
+- **Total Sessions**: 230
 - **Last Active**: 2026-10-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1859 | Active |
+| `journal-3.md` | ~1897 | Active |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 230 | 2026-10-11 | 豆瓣资料中心本地海报与历史迁移收尾 | `56bf712` | `main` |
 | 229 | 2026-10-11 | 豆瓣资料中心实现、审查修复与归档 | `9071ae4` | `feature/douban-data-center` |
 | 228 | 2026-10-10 | Emby 独立豆瓣评分提交归档 | `d159740` | `main` |
 | 227 | 2026-10-10 | Emby 五分钟响应缓存与搜索类型过滤 | `4d446b8` | `main` |

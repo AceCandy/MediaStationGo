@@ -1857,3 +1857,41 @@ Emby 条目有自身独立豆瓣评分时平级返回 DoubanRating，无评分�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 230: 豆瓣资料中心本地海报与历史迁移收尾
+<!-- trellis-session: v=2 fp=0bbab3f162b923f9 -->
+
+**Date**: 2026-10-11
+**Task**: 豆瓣资料中心本地海报与历史迁移收尾
+**Branch**: `main`
+
+### Summary
+
+完成独立豆瓣海报落地、电影电视剧筛选、历史快照按真实身份迁移；审查和回归通过，用户清理旧豆瓣快照后实库核验为零，两个任务已归档。
+
+### Main Changes
+
+- 资料中心列表与详情显示本地海报，独立资产引用、失败回退与迟到下载保护。
+- 旧快照迁移支持无媒体关联、真实身份和质量时间优先；保留本地作品展示字段及关联。
+- 已提交主干并归档两项任务；原有 core 文件保持未跟踪。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `56bf712` | feat(douban): 完善资料中心本地海报与历史迁移 |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 五包 Douban、ImageVariant、ArtworkStore 回归及竞态检查通过，go vet 通过。
+- [OK] Web lint/build、图片 URL 和资料中心响应式深浅主题浏览器检查通过；两个只读独立审查通过。
+- [OK] 实库只读核验旧表 provider=douban 数量为 0。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 重建并重启实际服务后验证真实海报加载；本次未部署或推送。
