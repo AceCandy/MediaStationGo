@@ -1953,3 +1953,39 @@ Emby 条目有自身独立豆瓣评分时平级返回 DoubanRating，无评分�
 ### Next Steps
 
 - 核验用户重启后的生产迁移任务、来源引用及真实 TMDb 联调；旧数据清理另行处理。
+
+
+## Session 233: TMDb 历史迁移与回填安全修复
+<!-- trellis-session: v=2 fp=e305810e6e4305e6 -->
+
+**Date**: 2026-10-12
+**Task**: TMDb 历史迁移与回填安全修复
+**Branch**: `main`
+
+### Summary
+
+启动自动回填等待离线迁移成功，旧演职员关系按来源时间保护；完成回归、独立复核及归档。
+
+### Main Changes
+
+- 迁移失败或取消不自动回填，保留断点与旧来源正文。
+- 跨语言、跨组件演员与幕后关系不倒退，支持有效空列表与季集/人物作品。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ede129d` | fix(tmdb): 串行迁移与回填并防止演职员关系倒退 |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 专项 go test -race 通过：repository 22.387s，service 29.025s。
+- [OK] go vet 与 git diff --check 通过；未执行全包回归或生产 API 联调。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 使用修复后版本启动并继续迁移；生产库已被旧版本覆盖的关系尚未核验。
