@@ -28,6 +28,7 @@ type DoubanSubjectSummary struct {
 	HasPayload    bool       `json:"has_payload"`
 	PosterURL     string     `gorm:"-" json:"poster_url"`
 	FetchedAt     *time.Time `json:"fetched_at"`
+	RichFetchedAt *time.Time `json:"rich_fetched_at"`
 	LastAttemptAt *time.Time `json:"last_attempt_at"`
 	NextRetryAt   *time.Time `json:"next_retry_at"`
 }
@@ -49,7 +50,7 @@ func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind strin
 		return nil, 0, err
 	}
 	rows := make([]DoubanSubjectSummary, 0)
-	err := q.Select("id, douban_id, entity_kind, " + doubanSummaryTitleSQL + " AS title, " + doubanSummaryYearSQL + " AS year, rating, quality, payload IS NOT NULL AS has_payload, fetched_at, last_attempt_at, next_retry_at").
+	err := q.Select("id, douban_id, entity_kind, " + doubanSummaryTitleSQL + " AS title, " + doubanSummaryYearSQL + " AS year, rating, quality, payload IS NOT NULL AS has_payload, fetched_at, rich_fetched_at, last_attempt_at, next_retry_at").
 		Order("fetched_at DESC NULLS LAST, id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&rows).Error
 	return rows, total, err
 }
@@ -85,10 +86,46 @@ func (r *DoubanRepository) Find(ctx context.Context, id, kind string) (*model.Do
 	return &subject, err
 }
 
+// SetRichPayload 只更新观察到的资料版本，头像下载和网页获取不得覆盖并发刷新。
+func (r *DoubanRepository) SetRichPayload(ctx context.Context, observed *model.DoubanSubject, payload []byte) (bool, error) {
+	if !json.Valid(payload) {
+		return false, errors.New("invalid douban rich payload")
+	}
+	var freshness struct {
+		FetchedAt time.Time `json:"fetched_at"`
+	}
+	if err := json.Unmarshal(payload, &freshness); err != nil {
+		return false, err
+	}
+	// PostgreSQL 时间戳精度为微秒，头像沿用同次网页时间时不能误判为新抓取。
+	freshness.FetchedAt = freshness.FetchedAt.Truncate(time.Microsecond)
+	updates := map[string]any{"rich_payload": string(payload)}
+	if !freshness.FetchedAt.IsZero() && (observed.RichFetchedAt == nil || freshness.FetchedAt.After(*observed.RichFetchedAt)) {
+		updates["rich_fetched_at"], updates["rich_next_retry_at"] = freshness.FetchedAt, nil
+	}
+	result := r.db.WithContext(ctx).Model(&model.DoubanSubject{}).
+		Where("id = ? AND rich_payload IS NOT DISTINCT FROM ?::jsonb AND fetched_at IS NOT DISTINCT FROM ? AND rich_next_retry_at IS NOT DISTINCT FROM ?", observed.ID, observed.RichPayload, observed.FetchedAt, observed.RichNextRetryAt).
+		UpdateColumns(updates)
+	return result.RowsAffected > 0, result.Error
+}
+
+// RecordRichFailure 保留已有补充资料，且不把迟到失败写到更新后的资料上。
+func (r *DoubanRepository) RecordRichFailure(ctx context.Context, observed *model.DoubanSubject, retryAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&model.DoubanSubject{}).
+		Where("id = ? AND fetched_at IS NOT DISTINCT FROM ? AND rich_fetched_at IS NOT DISTINCT FROM ? AND rich_next_retry_at IS NOT DISTINCT FROM ?", observed.ID, observed.FetchedAt, observed.RichFetchedAt, observed.RichNextRetryAt).
+		UpdateColumn("rich_next_retry_at", retryAt).Error
+}
+
 // Save 只接受真实 JSON；旧响应或降级资料不得覆盖已保存的完整资料。
 func (r *DoubanRepository) Save(ctx context.Context, id, kind string, payload []byte, quality string, fetchedAt time.Time) error {
+	_, err := r.SaveWithResult(ctx, id, kind, payload, quality, fetchedAt)
+	return err
+}
+
+// SaveWithResult 同时报告新资料是否被接纳，迟到或降级写入不计为更新。
+func (r *DoubanRepository) SaveWithResult(ctx context.Context, id, kind string, payload []byte, quality string, fetchedAt time.Time) (bool, error) {
 	if strings.TrimSpace(id) == "" || (kind != model.MetadataKindMovie && kind != model.MetadataKindSeries && kind != model.MetadataKindSeason && kind != model.MetadataKindEpisode) || !model.DoubanPayloadMatchesIdentity(payload, id, kind) || (quality != model.DoubanQualityComplete && quality != model.DoubanQualityDegraded && quality != model.DoubanQualityPartial) {
-		return errors.New("invalid douban subject")
+		return false, errors.New("invalid douban subject")
 	}
 	text := string(payload)
 	subject := model.DoubanSubject{DoubanID: id, EntityKind: kind, Payload: &text,
@@ -99,14 +136,15 @@ func (r *DoubanRepository) Save(ctx context.Context, id, kind string, payload []
 		clause.Assignment{Column: clause.Column{Name: "last_attempt_at"}, Value: clause.Expr{SQL: `CASE WHEN douban_subjects.last_attempt_at IS NULL OR douban_subjects.last_attempt_at <= excluded.last_attempt_at THEN excluded.last_attempt_at ELSE douban_subjects.last_attempt_at END`}},
 		clause.Assignment{Column: clause.Column{Name: "next_retry_at"}, Value: clause.Expr{SQL: `CASE WHEN douban_subjects.last_attempt_at IS NULL OR douban_subjects.last_attempt_at <= excluded.last_attempt_at THEN excluded.next_retry_at ELSE douban_subjects.next_retry_at END`}},
 	)
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+	result := r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "douban_id"}, {Name: "entity_kind"}},
 		DoUpdates: updates,
 		Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `
 (douban_subjects.fetched_at IS NULL OR douban_subjects.fetched_at <= excluded.fetched_at)
 AND (douban_subjects.quality <> 'complete' OR excluded.quality = 'complete')
 AND (douban_subjects.quality <> 'degraded' OR excluded.quality <> 'partial')`}}},
-	}).Create(&subject).Error
+	}).Create(&subject)
+	return result.RowsAffected > 0, result.Error
 }
 
 func (r *DoubanRepository) RecordFailure(ctx context.Context, id, kind string, at, retryAt time.Time) error {
@@ -186,21 +224,24 @@ func sameDoubanJSON(a, b []byte) bool {
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
 
-// ListRefreshCandidatesAfter 只扫描已关联且资料到期的电影与整剧，不涉及本地补齐。
-func (r *DoubanRepository) ListRefreshCandidatesAfter(ctx context.Context, afterID, afterKind string, before, now time.Time, limit int) ([]model.DoubanSubject, error) {
+// refreshCandidates 的计数与选择共用基础资料到期和失败退避规则。
+func (r *DoubanRepository) refreshCandidates(ctx context.Context, before, now time.Time) *gorm.DB {
+	return r.db.WithContext(ctx).Model(&model.DoubanSubject{}).
+		Where("entity_kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
+		Where("next_retry_at IS NULL OR next_retry_at <= ?", now).
+		Where("payload IS NULL OR fetched_at IS NULL OR fetched_at <= ? OR quality = ? OR (quality = ? AND fetched_at <= ?)", before, model.DoubanQualityPartial, model.DoubanQualityDegraded, now.Add(-24*time.Hour))
+}
+
+// ListRefreshCandidates 限量选择最久未成功获取的基础资料，不受网页补充状态影响。
+func (r *DoubanRepository) ListRefreshCandidates(ctx context.Context, before, now time.Time, limit int) ([]model.DoubanSubject, error) {
 	var rows []model.DoubanSubject
-	err := r.db.WithContext(ctx).Raw(`
-SELECT DISTINCT mid.external_id AS douban_id,
- COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind) AS entity_kind
-FROM metadata_identifiers mid
-JOIN metadata_items mi ON mi.id = mid.metadata_id AND mi.kind = mid.entity_kind
-LEFT JOIN douban_subjects ds ON ds.douban_id = mid.external_id
- AND ds.entity_kind = COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind)
-WHERE mid.provider = 'douban' AND mi.kind IN ('movie','series') AND (mid.external_id, COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind)) > (?, ?)
- AND (SELECT COUNT(*) FROM metadata_identifiers other WHERE other.metadata_id = mi.id AND other.provider = 'douban' AND other.entity_kind = mi.kind) = 1
- AND (ds.next_retry_at IS NULL OR ds.next_retry_at <= ?)
- AND (ds.fetched_at IS NULL OR ds.fetched_at <= ? OR ds.quality = 'partial'
-   OR (ds.quality = 'degraded' AND ds.fetched_at <= ?))
-ORDER BY douban_id, entity_kind LIMIT ?`, afterID, afterKind, now, before, now.Add(-24*time.Hour), limit).Scan(&rows).Error
+	err := r.refreshCandidates(ctx, before, now).Select("douban_id, entity_kind").
+		Order("fetched_at ASC NULLS FIRST, douban_id, entity_kind").Limit(limit).Find(&rows).Error
 	return rows, err
+}
+
+func (r *DoubanRepository) CountRefreshCandidates(ctx context.Context, before, now time.Time) (int64, error) {
+	var count int64
+	err := r.refreshCandidates(ctx, before, now).Count(&count).Error
+	return count, err
 }

@@ -69,12 +69,17 @@ Viewer composition state is URL owned:
   this list carry the complete library URL as router state so “返回媒体库”
   restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
-- Administrator Data Center: `/admin/data-center` stores trimmed `keyword`,
+- Administrator Data Center is an admin-only Viewer Space leaf between Discover
+  and Me; moving the navigation does not widen route or API access.
+  `/admin/data-center` stores trimmed `keyword`,
   `type=movie|series` and positive `page` in the URL; defaults
   are omitted. Normalize invalid/duplicate values with replace navigation,
   reset the page on filter changes and request 30 persisted subjects at a time.
   List/detail reads never contact Douban. Explicit Movie/Series updates use the
-  shared row UUID, block duplicate submission and reread stored data after both
+  shared row UUID and explicit `mode=base|full`; base updates only the API data,
+  full also attempts the webpage supplement. Show separate successful base and
+  supplement update times in list/detail. Block duplicate submission and reread
+  stored data after both
   success and failure; Season/Episode history is read-only. Abort old reads and
   remount on auth session generation changes, canceling pending updates.
   List and detail posters use the summary's same-origin `poster_url` with

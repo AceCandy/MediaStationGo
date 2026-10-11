@@ -250,3 +250,29 @@ func startFinishedTask(t *testing.T, tracker *TaskTrackerService, kind, name str
 	update.Stage = "completed"
 	task.Finish(nil, update)
 }
+
+func TestDoubanRefreshBelongsToCommonTasks(t *testing.T) {
+	tracker := NewTaskTrackerService(nil, nil)
+	startFinishedTask(t, tracker, TaskKindDoubanDataRefresh, "豆瓣资料刷新", TaskUpdate{})
+	for _, system := range []string{model.TaskSystemCommon, model.TaskSystemCatalog} {
+		definitions, err := tracker.DefinitionsForSystem(nil, system)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, definition := range definitions {
+			if definition.Key == TaskDefinitionDoubanDataRefresh {
+				found = true
+				if definition.Latest == nil || definition.Latest.System != model.TaskSystemCommon {
+					t.Fatalf("refresh history: %#v", definition)
+				}
+			}
+			if (definition.Key == TaskDefinitionDoubanEnrichment || definition.Key == TaskDefinitionTMDbArtworkLocalRepair) && system != model.TaskSystemCatalog {
+				t.Fatalf("media task moved to common: %#v", definition)
+			}
+		}
+		if found != (system == model.TaskSystemCommon) {
+			t.Fatalf("refresh definition in %s: %v", system, found)
+		}
+	}
+}

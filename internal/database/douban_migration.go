@@ -82,3 +82,10 @@ LIMIT 1000`, afterID, afterQuality, afterQuality, afterTime, afterQuality, after
 		}
 	}
 }
+
+// migrateDoubanRefreshTasks 保留执行记录与日志键，仅将旧资料刷新归入公共任务。
+func migrateDoubanRefreshTasks(db *gorm.DB) error {
+	return db.Model(&model.TaskExecution{}).
+		Where("kind = ? AND name = ?", "artwork", "豆瓣资料刷新").
+		UpdateColumns(map[string]any{"kind": "douban_data_refresh", "system": model.TaskSystemCommon}).Error
+}

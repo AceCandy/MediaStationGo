@@ -248,7 +248,7 @@ func (d *DoubanProvider) getMobileDetailRawJSON(ctx context.Context, doubanID st
 	return rawJSON, err
 }
 
-func (d *DoubanProvider) getEnrichmentDetailRawJSON(ctx context.Context, doubanID, entityKind string) ([]byte, bool, error) {
+func (d *DoubanProvider) getRexxarDetailRawJSON(ctx context.Context, doubanID, entityKind string) ([]byte, bool, error) {
 	detailType := "movie"
 	if entityKind == "series" {
 		detailType = "tv"
@@ -263,15 +263,22 @@ func (d *DoubanProvider) getEnrichmentDetailRawJSON(ctx context.Context, doubanI
 		referer,
 	)
 	permissionDenied, err := classifyDoubanDetailResponse(rawJSON, status, requestErr)
+	return rawJSON, permissionDenied, err
+}
+
+func (d *DoubanProvider) getEnrichmentDetailRawJSON(ctx context.Context, doubanID, entityKind string) ([]byte, bool, error) {
+	rawJSON, permissionDenied, err := d.getRexxarDetailRawJSON(ctx, doubanID, entityKind)
 	if !permissionDenied {
 		return rawJSON, false, err
 	}
-	rawJSON, status, requestErr = d.requestDetailRawJSON(
+	escapedID := url.PathEscape(doubanID)
+	referer := "https://m.douban.com/subject/" + escapedID + "/"
+	rawJSON, status, requestErr := d.requestDetailRawJSON(
 		ctx,
 		"https://m.douban.com/rexxar/api/v2/subject/"+escapedID,
 		referer,
 	)
-	permissionDenied, err = classifyDoubanDetailResponse(rawJSON, status, requestErr)
+	_, err = classifyDoubanDetailResponse(rawJSON, status, requestErr)
 	if err != nil {
 		return nil, false, err
 	}
@@ -442,6 +449,10 @@ func (d *DoubanProvider) doJSONRequest(
 		return doubanHTTPResult{err: err}
 	}
 	d.setHeaders(req, resolved)
+	webRequest, _ := ctx.Value(doubanWebRequestKey{}).(bool)
+	if webRequest {
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	}
 	if referer != "" {
 		req.Header.Set("Referer", referer)
 	}
@@ -456,8 +467,15 @@ func (d *DoubanProvider) doJSONRequest(
 	if err != nil {
 		return doubanHTTPResult{err: err}
 	}
-	body, readErr := io.ReadAll(resp.Body)
+	var reader io.Reader = resp.Body
+	if webRequest {
+		reader = io.LimitReader(resp.Body, (4<<20)+1)
+	}
+	body, readErr := io.ReadAll(reader)
 	_ = resp.Body.Close()
+	if webRequest && len(body) > 4<<20 {
+		return doubanHTTPResult{status: resp.StatusCode, err: errors.New("douban webpage too large")}
+	}
 	return doubanHTTPResult{body: body, status: resp.StatusCode, err: readErr}
 }
 

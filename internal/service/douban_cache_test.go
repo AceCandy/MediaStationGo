@@ -179,6 +179,9 @@ func TestDoubanQueryCachePersistsAndRejectsErrorObjects(t *testing.T) {
 func TestDoubanDataRefreshOnlyChangesSharedData(t *testing.T) {
 	var calls atomic.Int64
 	provider, repos := newDoubanCacheTestProvider(t, func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/subject/100/" {
+			return doubanCacheTestResponse(req, 200, doubanRichFixture), nil
+		}
 		calls.Add(1)
 		if req.URL.Path != "/rexxar/api/v2/tv/100" {
 			t.Errorf("wrong cross-kind endpoint %s", req.URL.Path)
@@ -206,7 +209,7 @@ func TestDoubanDataRefreshOnlyChangesSharedData(t *testing.T) {
 		t.Fatalf("refresh history %#v", history)
 	}
 	for _, execution := range history {
-		if execution.Status != TaskStatusCompleted || taskDefinitionKeyForTask(execution) != TaskDefinitionDoubanDataRefresh {
+		if execution.System != model.TaskSystemCommon || execution.Status != TaskStatusCompleted || taskDefinitionKeyForTask(execution) != TaskDefinitionDoubanDataRefresh {
 			t.Fatalf("wrong history definition %#v", execution)
 		}
 	}
@@ -479,5 +482,75 @@ func TestDoubanDataRefreshUpstreamFailureIsFailed(t *testing.T) {
 	stored, err := repos.Douban.Find(t.Context(), "100", "movie")
 	if err != nil || stored == nil || stored.Payload == nil || stored.Rating != 8 || stored.FetchedAt == nil || !stored.FetchedAt.Equal(old) || stored.NextRetryAt == nil || stored.LastAttemptAt == nil || !stored.NextRetryAt.Equal(stored.LastAttemptAt.Add(5*time.Minute)) {
 		t.Fatalf("refresh failure lost old data or backoff: %#v %v", stored, err)
+	}
+}
+
+func TestDoubanDataRefreshIncludesUnboundSubjects(t *testing.T) {
+	var calls atomic.Int64
+	provider, repos := newDoubanCacheTestProvider(t, func(req *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		if req.URL.Path == "/subject/100/" {
+			return doubanCacheTestResponse(req, 200, doubanRichFixture), nil
+		}
+		return doubanCacheTestResponse(req, 200, `{"id":"100","type":"movie","title":"未关联作品","rating":{"value":9}}`), nil
+	})
+	if err := repos.Douban.Save(t.Context(), "100", "movie", []byte(`{"id":"100","title":"旧资料"}`), model.DoubanQualityComplete, time.Now().Add(-8*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	scraper := &ScraperService{repo: repos, douban: provider}
+	for range 2 {
+		if err := scraper.runDoubanDataRefresh(t.Context(), TaskTriggerManual); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stored, err := repos.Douban.Find(t.Context(), "100", "movie")
+	if err != nil || stored == nil || stored.Rating != 9 || stored.RichFetchedAt != nil || calls.Load() != 1 {
+		t.Fatalf("unbound refresh/fresh cache: %#v calls=%d err=%v", stored, calls.Load(), err)
+	}
+}
+
+func TestDoubanDataRefreshCandidateFreshnessAndLimit(t *testing.T) {
+	db := newServiceTestDB(t, &model.DoubanSubject{})
+	repos := repository.New(db)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	old, yesterday, future := now.Add(-8*24*time.Hour), now.Add(-25*time.Hour), now.Add(time.Hour)
+	rows := []model.DoubanSubject{
+		{DoubanID: "100", EntityKind: "movie", Quality: model.DoubanQualityComplete, FetchedAt: &old, RichFetchedAt: &old},
+		{DoubanID: "100", EntityKind: "series", Quality: model.DoubanQualityComplete, FetchedAt: &old, RichFetchedAt: &old},
+		{DoubanID: "101", EntityKind: "movie", Quality: model.DoubanQualityComplete, FetchedAt: &now, RichFetchedAt: &now},
+		{DoubanID: "102", EntityKind: "movie", Quality: model.DoubanQualityComplete, FetchedAt: &old, NextRetryAt: &future},
+		{DoubanID: "103", EntityKind: "movie", Quality: model.DoubanQualityPartial, FetchedAt: &now},
+		{DoubanID: "104", EntityKind: "series", Quality: model.DoubanQualityDegraded, FetchedAt: &yesterday},
+		{DoubanID: "105", EntityKind: "series", Quality: model.DoubanQualityDegraded, FetchedAt: &now},
+		{DoubanID: "106", EntityKind: "movie"},
+		{DoubanID: "107", EntityKind: "episode", FetchedAt: &old},
+		{DoubanID: "108", EntityKind: "movie", Quality: model.DoubanQualityComplete, FetchedAt: &now},
+		{DoubanID: "109", EntityKind: "movie", Quality: model.DoubanQualityComplete, FetchedAt: &now, RichNextRetryAt: &future},
+	}
+	payload := `{"title":"已保存资料"}`
+	for i := range rows {
+		if rows[i].FetchedAt != nil {
+			rows[i].Payload = &payload
+		}
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := now.Add(-7 * 24 * time.Hour)
+	page, err := repos.Douban.ListRefreshCandidates(t.Context(), before, now, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, row := range page {
+		got = append(got, row.DoubanID+"/"+row.EntityKind)
+	}
+	if joined := strings.Join(got, ","); joined != "106/movie,100/movie,100/series,104/series,103/movie" {
+		t.Fatalf("refresh candidates: %s", joined)
+	}
+	limited, err := repos.Douban.ListRefreshCandidates(t.Context(), before, now, 2)
+	count, countErr := repos.Douban.CountRefreshCandidates(t.Context(), before, now)
+	if err != nil || countErr != nil || count != 5 || len(limited) != 2 || limited[0].DoubanID != "106" || limited[1].DoubanID != "100" {
+		t.Fatalf("oldest-first limit/count: %#v %d %v %v", limited, count, err, countErr)
 	}
 }

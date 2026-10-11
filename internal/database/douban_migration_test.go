@@ -219,3 +219,47 @@ func TestDoubanMigrationPagesPastInvalidCandidates(t *testing.T) {
 		t.Fatalf("pagination/quality selection: %#v", subjects)
 	}
 }
+
+func TestDoubanRefreshTaskMigrationPreservesHistory(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.TaskExecution{}); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	rows := []model.TaskExecution{
+		{Kind: "artwork", Name: "豆瓣资料刷新", System: model.TaskSystemCatalog, Status: "completed", StartedAt: at, FinishedAt: &at, Metrics: `{"updated":3}`},
+		{Kind: "artwork", Name: "豆瓣资料刷新", System: "", Status: "failed", StartedAt: at, FinishedAt: &at, Metrics: `{}`},
+		{Kind: "artwork", Name: "豆瓣电影信息补齐", System: model.TaskSystemCatalog, Status: "completed", StartedAt: at, Metrics: `{}`},
+		{Kind: "artwork", Name: "TMDb 图片本地化修复", System: model.TaskSystemCatalog, Status: "completed", StartedAt: at, Metrics: `{}`},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 比较持久化后的原值，排除 JSONB 规范化和数据库微秒精度差异。
+	for i := range rows {
+		if err := db.First(&rows[i], "id = ?", rows[i].ID).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if err := migrateDoubanRefreshTasks(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, before := range rows {
+		var after model.TaskExecution
+		if err := db.First(&after, "id = ?", before.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		wantKind, wantSystem := before.Kind, before.System
+		if i < 2 {
+			wantKind, wantSystem = "douban_data_refresh", model.TaskSystemCommon
+		}
+		if after.Kind != wantKind || after.System != wantSystem || after.Name != before.Name || after.Status != before.Status || after.Metrics != before.Metrics || !after.StartedAt.Equal(before.StartedAt) || !after.UpdatedAt.Equal(before.UpdatedAt) {
+			t.Fatalf("migration changed unrelated history: before=%#v after=%#v", before, after)
+		}
+	}
+}

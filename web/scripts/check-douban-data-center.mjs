@@ -12,7 +12,7 @@ const fixture = new Worker(`
   const {createServer,request}=require('node:http');
   const server=createServer((req,res)=>{
     if(req.url.startsWith('/api/')) {
-      if(req.url.includes('/poster')) {
+      if(req.url.includes('/poster') || req.url.includes('/credits/')) {
         const failed=req.url.includes('44444444');
         res.writeHead(failed?404:200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});
         res.end(failed?'':'<svg xmlns="http://www.w3.org/2000/svg" width="120" height="180"><rect width="120" height="180" fill="purple"/></svg>');
@@ -35,8 +35,7 @@ const wait = code => browser('wait', '--fn', code)
 const text = 'document.querySelector("main")?.innerText'
 const click = name => {
   if(name==='关闭详情') {
-    browser('focus','[aria-label="关闭详情"]')
-    browser('press','Enter')
+    browser('press','Escape')
     wait("!document.querySelector('[role=dialog]')")
   } else browser('find', 'role', 'button', 'click', '--name', name, '--exact')
 }
@@ -70,8 +69,8 @@ try {
         data={data:empty?[]:rows,total:empty?0:p.type?rows.length:31,page:p.page,page_size:30};
       }else{
         const item=config.url.includes(probe.episode.id)?probe.episode:config.url.includes('66666666')?subject('66666666-6666-4666-8666-666666666666','movie','',false):subject(probe.movie.id,'movie');
-        const detail={...item,original_name:'Original title',overview:'已落库的简介',release_date:'2026-01-01',genres:['剧情'],languages:['中文'],countries:['中国'],raw_json:{title:item.title,intro:'已落库的简介',private_detail:'原始资料'}};
-        if(kind==='refresh') {if(probe.refreshMode==='success') probe.updated=true; detail.rating=probe.updated?9.2:8.1; data={data:{subject:detail,degraded:probe.refreshMode==='degraded'}};}
+        const detail={...item,original_name:'Original title',overview:'已落库的简介',release_date:'2026-01-01',genres:['剧情'],languages:['中文'],countries:['中国'],directors:['导演甲'],writers:['编剧乙'],actors:['演员甲','演员乙'],durations:['141分钟'],aliases:['别名甲'],release_dates:['2026-01-01(中国大陆)','2026-02-01(中国香港)'],imdb_id:'tt34610311',rating_count:613808,rating_distribution:[{stars:5,percent:27.3},{stars:4,percent:48.1}],credits:[{person_id:'cast-1',name:'演员甲',role:'饰 黄德忠',type:'Actor',profile_url:'/api/admin/douban/subjects/'+item.id+'/credits/0/image?v='+(probe.updated?'2026-10-11':'2026-10-10')}],awards:[{event:'第44届电影奖',category:'最佳男主角',people:'演员甲'}],honors:[{title:'犯罪片榜',rank:10}],rich_fetched_at:probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z',raw_json:{title:item.title,intro:'已落库的简介',private_detail:'原始资料'}};
+        if(kind==='refresh') {if(probe.refreshMode==='success') probe.updated=true; detail.rating=probe.updated?9.2:8.1; data={data:{subject:detail,degraded:probe.refreshMode==='degraded',supplement_unavailable:probe.refreshMode==='supplement'}};}
         else data={data:detail};
       }
       return {data,status:200,headers:{},config};
@@ -85,6 +84,19 @@ try {
   wait(`${text}?.includes('测试电影')`)
   assert.equal(evaluate('location.search'), '')
   assert.ok(evaluate(`!!document.querySelector('a[href="/admin/data-center"]')`))
+  const navigation = evaluate(`(async () => {
+    const { LAYOUT_NAV_GROUPS } = await import('/src/components/layoutNavigation.ts');
+    const viewer = LAYOUT_NAV_GROUPS.find(group => group.id === 'viewer').items;
+    return {
+      labels: viewer.map(item => item.label),
+      adminOnly: viewer.find(item => item.label === '资料中心')?.adminOnly,
+      managementHasCenter: LAYOUT_NAV_GROUPS.find(group => group.id === 'management').items.some(item => item.label === '资料中心'),
+    };
+  })()`)
+  assert.deepEqual(navigation.labels.slice(2, 5), ['发现', '资料中心', '我的'])
+  assert.equal(navigation.adminOnly, true)
+  assert.equal(navigation.managementHasCenter, false)
+
   assert.ok(evaluate(`${text}.includes('未获取资料') && ${text}.includes('降级资料') && ${text}.includes('摘要资料')`))
   assert.ok(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='list').every(c=>c.page_size===30)"))
   assert.equal(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').length"), 0)
@@ -140,6 +152,12 @@ try {
       browser('click',selector)
       wait("document.querySelector('[role=dialog]')?.innerText.includes('已落库的简介')")
       wait("document.querySelector('[role=dialog] img')?.naturalWidth > 0")
+      wait("document.querySelector('[role=dialog] img[alt=\"演员甲\"]')?.naturalWidth > 0")
+      assert.ok(evaluate("document.querySelector('[role=dialog]').innerText.includes('613,808') && document.querySelector('[role=dialog]').innerText.includes('编剧乙') && document.querySelector('[role=dialog]').innerText.includes('第44届电影奖')"))
+      assert.equal(evaluate("getComputedStyle(document.querySelector('[role=dialog] img[alt=\"演员甲\"]').parentElement).borderRadius"),'9999px')
+      assert.equal(evaluate("!!document.querySelector('[role=dialog] .modal-header')"),false)
+      assert.equal(evaluate("document.querySelector('[role=dialog]').innerText.includes('预告片')"),false)
+
       assert.ok(evaluate("document.querySelector('[role=dialog] img').getAttribute('src').includes('maxWidth=600')"))
       assert.equal(evaluate("document.querySelector('[role=dialog] details').open"), false)
       browser('click','[role=dialog] summary')
@@ -153,22 +171,38 @@ try {
 
   browser('click','main tbody tr button')
   wait("document.querySelector('[role=dialog]')?.innerText.includes('已落库的简介')")
+  evaluate("document.querySelector('.modal-backdrop').click(); true")
+  wait("!document.querySelector('[role=dialog]')")
+  assert.equal(evaluate("document.activeElement.textContent"), '查看')
+  browser('click','main tbody tr button')
+  wait("document.querySelector('[role=dialog]')?.innerText.includes('已落库的简介')")
   evaluate("window.doubanProbe.hold='refresh'; true")
-  click('更新豆瓣资料')
+  click('完整更新豆瓣资料')
   wait("window.doubanProbe.calls.some(c=>c.kind==='refresh')")
-  evaluate("document.querySelector('[role=dialog] footer button').click(); true")
+  evaluate("document.querySelector('[role=dialog] button[aria-label=\"完整更新豆瓣资料\"]').click(); true")
   assert.equal(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').length"),1)
-  assert.ok(evaluate("document.querySelector('[role=dialog] footer button').disabled"))
+  assert.equal(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').at(-1).mode"),'full')
+  assert.ok(evaluate("document.querySelector('[role=dialog] button[aria-label=\"完整更新豆瓣资料\"]').disabled"))
   evaluate("window.doubanProbe.hold=''; window.doubanProbe.releases.splice(0).forEach(resolve=>resolve()); true")
   wait("document.querySelector('[role=dialog]')?.innerText.includes('9.2')")
   wait("document.querySelector('[role=dialog] img')?.getAttribute('src').includes('2026-10-11') && document.querySelector('[role=dialog] img')?.naturalWidth > 0")
   evaluate("window.doubanProbe.refreshMode='failure'; true")
-  click('更新豆瓣资料')
-  wait("document.querySelector('[role=dialog]')?.innerText.includes('模拟读取失败') && !document.querySelector('[role=dialog] footer button').disabled")
+  click('完整更新豆瓣资料')
+  wait("document.querySelector('[role=dialog]')?.innerText.includes('模拟读取失败') && !document.querySelector('[role=dialog] button[aria-label=\"完整更新豆瓣资料\"]').disabled")
   assert.ok(evaluate("document.querySelector('[role=dialog]').innerText.includes('9.2')"))
+  assert.ok(evaluate("document.querySelector('[role=dialog] img[alt=\"演员甲\"]').getAttribute('src').includes('2026-10-11')"))
+  evaluate("window.doubanProbe.refreshMode='supplement'; true")
+  click('完整更新豆瓣资料')
+  wait("document.body.innerText.includes('基础资料已更新，网页补充暂不可用')")
   evaluate("window.doubanProbe.refreshMode='degraded'; true")
-  click('更新豆瓣资料')
+  click('完整更新豆瓣资料')
   wait("document.body.innerText.includes('完整接口受限，已保留已有完整资料')")
+  evaluate("window.doubanProbe.refreshMode='success'; true")
+  click('基础更新豆瓣资料')
+  wait("document.body.innerText.includes('基础资料已更新，补充资料保持原样')")
+  assert.equal(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').at(-1).mode"),'base')
+  assert.ok(evaluate("document.querySelector('[role=dialog]').innerText.includes('基础资料更新') && document.querySelector('[role=dialog]').innerText.includes('补充资料更新') && document.querySelector('[role=dialog]').innerText.includes('第44届电影奖')"))
+
   click('关闭详情')
 
   evaluate("window.doubanProbe.failList=true; true")
@@ -204,7 +238,7 @@ try {
   evaluate("window.doubanProbe.hold=''; window.doubanProbe.releases.splice(0).forEach(resolve=>resolve()); true")
 
   evaluate("window.doubanProbe.hold='refresh'; true")
-  click('更新豆瓣 100')
+  click('完整更新豆瓣 100')
   wait("window.doubanProbe.releases.length===1")
   evaluate("window.doubanProbe.role='user'; window.doubanProbe.auth.getState().setSession('local-viewer-token','',{id:'viewer',username:'测试用户',role:'user',tier:'free'}); true")
   wait("!document.querySelector('a[href=\"/admin/data-center\"]') && !document.querySelector('[aria-label=\"豆瓣资料列表\"]')")

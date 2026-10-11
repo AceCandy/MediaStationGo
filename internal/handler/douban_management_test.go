@@ -42,7 +42,8 @@ func TestDoubanManagementAdminAccessAndValidation(t *testing.T) {
 		}
 	}
 	router := gin.New()
-	registerAdminRoutes(router.Group("/api"), cfg, &service.Container{Repo: repos, Log: zap.NewNop()})
+	svc := &service.Container{Repo: repos, Log: zap.NewNop()}
+	registerAdminRoutes(router.Group("/api"), cfg, svc)
 	request := func(method, path, token string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "/api/admin/douban/subjects"+path, nil)
 		if token != "" {
@@ -54,8 +55,9 @@ func TestDoubanManagementAdminAccessAndValidation(t *testing.T) {
 	}
 	id := uuid.NewString()
 	for _, endpoint := range []struct{ method, path string }{
-		{http.MethodGet, ""}, {http.MethodGet, "/" + id}, {http.MethodPost, "/" + id + "/refresh"},
+		{http.MethodGet, ""}, {http.MethodGet, "/" + id}, {http.MethodPost, "/" + id + "/refresh"}, {http.MethodPost, "/" + id + "/refresh?mode=base"},
 		{http.MethodGet, "/" + id + "/poster"}, {http.MethodHead, "/" + id + "/poster"},
+		{http.MethodGet, "/" + id + "/credits/0/image"}, {http.MethodHead, "/" + id + "/credits/0/image"},
 	} {
 		for _, access := range []struct {
 			role string
@@ -73,10 +75,18 @@ func TestDoubanManagementAdminAccessAndValidation(t *testing.T) {
 			t.Fatalf("invalid query %q: %d %s", query, response.Code, response.Body.String())
 		}
 	}
-	for _, endpoint := range []struct{ method, path string }{{http.MethodGet, "/not-a-uuid"}, {http.MethodPost, "/not-a-uuid/refresh"}, {http.MethodGet, "/not-a-uuid/poster"}, {http.MethodHead, "/not-a-uuid/poster"}} {
+	for _, endpoint := range []struct{ method, path string }{{http.MethodGet, "/not-a-uuid"}, {http.MethodPost, "/not-a-uuid/refresh"}, {http.MethodGet, "/not-a-uuid/poster"}, {http.MethodHead, "/not-a-uuid/poster"}, {http.MethodGet, "/not-a-uuid/credits/0/image"}, {http.MethodGet, "/" + id + "/credits/-1/image"}} {
 		response := request(endpoint.method, endpoint.path, tokens["admin"])
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("invalid row id: %d %s", response.Code, response.Body.String())
 		}
 	}
+	svc.Douban = service.NewDoubanProvider(nil)
+	for _, query := range []string{"mode=invalid", "mode=", "mode=base&mode=full"} {
+		response := request(http.MethodPost, "/"+id+"/refresh?"+query, tokens["admin"])
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid refresh mode %s: %d", query, response.Code)
+		}
+	}
+
 }

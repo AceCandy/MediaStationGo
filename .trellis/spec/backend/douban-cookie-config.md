@@ -504,8 +504,23 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   Display paths remain batched database reads with no per-item network request.
 - `douban_data_refresh` / “豆瓣资料刷新” is a separate default-off daily job,
   using settings `metadata.douban_data_refresh_enabled` and
-  `metadata.douban_data_refresh_interval_seconds`. It scans due bound Movie/Series
-  identities, refreshes shared details/ratings only and has separate history/logs.
+  `metadata.douban_data_refresh_interval_seconds`. It belongs to Common Tasks with kind `douban_data_refresh` and scans due
+  Movie/Series rows directly in `douban_subjects`, including unbound subjects.
+  It refreshes only shared base details/ratings through the strict Rexxar Movie/TV
+  endpoint, with no subject fallback, HTML, celebrities or image requests.
+  Supplement age/missing data never selects a fresh base row. Count and selection
+  share the same base TTL/quality/retry predicate. Choose one bounded snapshot,
+  ordered by oldest `fetched_at NULLS FIRST`, then Douban ID/kind; default cap 100,
+  configurable 1–100 using `metadata.douban_data_refresh_count`. Preserve enabled
+  and interval keys. A cap is a subject count, not a physical HTTP-attempt cap.
+  Same-value success advances base freshness. Admission rechecks cache/backoff;
+  a concurrent fresh result, deferred retry or rejected late save is a skip.
+  Metrics report total eligible at start, selected, processed, changed, unchanged,
+  skipped, failed, remaining eligible at finish and actual HTTP attempts.
+  Successful base writes preserve all rich JSON/timestamps/retry and image keys.
+  Histories/logs remain independent.
+  Startup migrates only legacy `artwork` executions named “豆瓣资料刷新” to
+  the new kind/system; the definition key, daily log paths and settings stay stable.
   A temporary upstream failure stops the batch, returns the original error,
   records a failed execution/stage with a sanitized error, and increments
   `failed` and `upstream_paused`; it must not report successful completion.
@@ -521,7 +536,11 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
 - GET `/:id` reads the persisted shared UUID, exposing parsed details and raw
   JSON without provider requests. Root, `subject` and `data` payloads remain
   readable. A missing row returns 404; invalid parameters/UUID return 400.
-- POST `/:id/refresh` accepts existing Movie/Series rows only, derives the remote
+- POST `/:id/refresh?mode=base|full` accepts existing Movie/Series rows only.
+  Missing mode defaults to `full` for compatibility; empty, unknown or duplicate
+  modes return 400. Base forces the strict Rexxar detail reader without fallback
+  or supplement changes. Full preserves the existing complete/degraded reader
+  and explicit webpage supplementation behavior. Both derive the remote
   identity from storage and uses `WithDoubanFresh`. It never performs canonical
   enrichment, artwork downloads or binding/hierarchy writes. Read the row back
   after success and report the attempt's degraded status separately: quality
@@ -606,3 +625,75 @@ checking, Web lint/build and `check-image-url.mjs`.
 Wrong: call `ImportRemote` with a fabricated metadata ID, or return the remote
 source URL to the browser. Correct: save a standalone deduplicated asset, CAS
 the Douban reference and serve it through the authenticated subject poster route.
+
+
+## Scenario: Rich administrator subject details
+
+### 1. Scope / Trigger
+Administrator subject detail fields, public webpage supplement refresh and cached credit images.
+
+### 2. Signatures
+- `douban_subjects.rich_payload` holds public webpage fields and local profile
+  keys independently of the unchanged original `payload`. `rich_fetched_at` and
+  `rich_next_retry_at` track webpage success and retry independently of API time.
+### 3. Contracts
+- GET detail only reads storage. Explicit single-subject full refresh
+  supplements a successful complete API response with one subject webpage,
+  using the same serialized request gate, proxy/Cookie resolution and detail TTL.
+  Confirm `og:url`, nonempty heading and info; challenges/wrong pages never
+  replace stored rich data. HTML requests accept HTML and cap bodies at 4 MiB.
+- A webpage failure preserves stored fields and sets a five-minute supplement
+  retry. Scheduled base refresh never examines or retries this supplement state.
+  Base-only manual refresh also preserves it. Explicit full refresh reports partial success using
+  `supplement_unavailable`; degraded API refresh does not attempt the webpage.
+- Rich CAS checks original success time, observed rich JSON and retry state.
+  Conflicts merge current same-source avatar keys. New webpage success clears
+  supplement retry; avatar writes do not. Compare times at PostgreSQL microsecond
+  precision to avoid treating avatar writes as new webpage fetches.
+- Profile images resolve only saved credit indices via authenticated admin
+  GET/HEAD `/douban/subjects/:id/credits/:index/image`; no arbitrary source URL.
+  Official HTTPS doubanio `/view/` sources import lazily through ImageProxy into
+  PeopleImageStore's persistent `DataDir/people`; local keys remain in rich data,
+  without creating canonical people/media rows. Preserve keys when sources are
+  unchanged, CAS references after download, and reject changed-person late
+  results. Missing originals repair through ImportCached; errors show placeholders.
+  Serve variants with private/no-cache, error no-store, and rich timestamp URL
+  versions. HEAD uses the same import/repair behavior as subject posters.
+- The wide ModalShell has no extra header/close button or theme toggle; backdrop
+  and Escape close, focus returns to its trigger, and global theme applies.
+  Display only available metadata, rating count/distribution, awards/honors;
+  reuse MediaCredits circular profiles. No trailers/stills or third-party scores.
+### 4. Validation & Error Matrix
+Invalid subject UUID/index -> 400; missing subject/image -> 404; unavailable
+services -> 503. Webpage challenge, wrong identity or malformed page -> preserve
+rich data and defer five minutes. Full manual operation reports partial success;
+scheduled operation stops the batch. Image errors use no-store and never return
+remote source errors to clients.
+
+### 5. Good/Base/Bad Cases
+Good: API refresh succeeds and blocked webpage preserves existing credits for a
+later retry. Base: a cached subject displays available API fields and local
+avatars. Bad: clear rich fields on challenge, create fake canonical people,
+perform remote detail requests when opening the dialog, or reset API time when
+serving an avatar.
+
+### 6. Tests Required
+- `TestDoubanRich*`, management/auth tests, isolated PostgreSQL race
+  checks and `check-douban-data-center.mjs` cover identity/failure preservation,
+  independent retry, CAS, avatar persistence/repair/HEAD, partial-success feedback,
+  profile versions, focus/closing and responsive themes. Real HTML availability
+  depends on upstream access and is separate from mocked transport verification.
+
+### 7. Wrong vs Correct
+Wrong: compare nanosecond JSON time to a database timestamp and clear failure
+retry during an avatar write. Correct: truncate to PostgreSQL microsecond
+precision; only a newer webpage success clears supplement retry.
+
+### Bounded base refresh verification
+`TestDoubanDataRefresh*`, `TestDoubanBaseRefresh*`,
+`TestDoubanManagementBaseRefreshPreservesRichState` and
+`TestSchedulerDoubanRefreshCountConfiguration` verify API-only transport,
+oldest-first bounded progress, independent rich state, shared TTL, late-save
+metrics, admission retries and count persistence. Browser checks
+`check-douban-refresh-task.mjs` and `check-douban-data-center.mjs` cover count
+settings, task metrics, base/full modes, independent timestamps and access.

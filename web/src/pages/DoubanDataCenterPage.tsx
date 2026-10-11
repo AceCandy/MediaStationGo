@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Database, Film, RefreshCw, Search, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Database, Film, RefreshCw, Search, ExternalLink, Star } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { doubanAPI, type DoubanSubjectDetail, type DoubanSubjectPage, type DoubanSubjectSummary } from '../api/douban'
+import { doubanAPI, type DoubanRefreshMode, type DoubanSubjectDetail, type DoubanSubjectPage, type DoubanSubjectSummary } from '../api/douban'
 import { imageURL } from '../api/client'
 import { ModalShell } from '../components/ModalShell'
 import { Select } from '../components/Select'
 import { useAuthStore } from '../stores/auth'
+import { MediaCredits } from './MediaDetailCast'
 
 const kinds: Record<string, string> = { movie: '电影', series: '电视剧' }
 const qualityLabels: Record<string, string> = { complete: '完整资料', degraded: '降级资料', partial: '摘要资料' }
@@ -22,7 +23,7 @@ function Quality({ subject }: { subject: DoubanSubjectSummary }) {
 function SubjectPoster({ subject, large = false }: { subject: DoubanSubjectSummary; large?: boolean }) {
   const src = imageURL(subject.poster_url, subject.fetched_at || undefined, { maxWidth: large ? 600 : 160 })
   const [failedURL, setFailedURL] = useState('')
-  return <div className={`flex aspect-[2/3] shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--app-glass)] ${large ? 'w-40 sm:w-48' : 'w-12'}`}>
+  return <div className={`flex aspect-[2/3] shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--app-glass)] ${large ? 'w-28 sm:w-40' : 'w-12'}`}>
     {src && failedURL !== src ? <img src={src} alt={`${subject.title || '豆瓣资料'}海报`} className="h-full w-full object-cover" loading="lazy" decoding="async" onError={() => setFailedURL(src)} /> : <Film aria-label="暂无海报" className="text-ink-50" size={large ? 40 : 20} />}
   </div>
 }
@@ -89,18 +90,19 @@ function DoubanDataCenterContent() {
     setSelected(null)
     detailTrigger.current?.focus()
   }
-  const refresh = async (subject: DoubanSubjectSummary) => {
+  const refresh = async (subject: DoubanSubjectSummary, mode: DoubanRefreshMode) => {
     if (mutation.current || !canRefresh(subject)) return
     const controller = new AbortController()
     mutation.current = controller
     setPendingID(subject.id)
     setActionError(null)
     try {
-      const result = await doubanAPI.refresh(subject.id, controller.signal)
+      const result = await doubanAPI.refresh(subject.id, mode, controller.signal)
       if (controller.signal.aborted) return
       if (result.degraded) {
         toast(result.subject.quality === 'complete' ? '完整接口受限，已保留已有完整资料' : '完整接口受限，已保存降级资料')
-      } else toast.success('豆瓣资料已更新')
+      } else if (result.supplement_unavailable) toast('基础资料已更新，网页补充暂不可用，已有内容已保留')
+      else toast.success(mode === 'base' ? '基础资料已更新，补充资料保持原样' : '基础与补充资料已更新')
     } catch (err) {
       if (!controller.signal.aborted) setActionError({ id: subject.id, doubanID: subject.douban_id, message: errorText(err, '豆瓣资料更新失败，已有数据已保留') })
     } finally {
@@ -113,7 +115,7 @@ function DoubanDataCenterContent() {
   }
   const actions = (subject: DoubanSubjectSummary) => <div className="flex flex-wrap gap-2">
     <button type="button" className="btn-outline px-3 py-2 text-xs" onClick={() => openDetail(subject)}>查看</button>
-    {canRefresh(subject) ? <button type="button" className="btn-outline gap-1.5 px-3 py-2 text-xs" aria-label={`更新豆瓣 ${subject.douban_id}`} disabled={pendingID !== null} onClick={() => void refresh(subject)}><RefreshCw size={14} className={pendingID === subject.id ? 'animate-spin' : ''} />{pendingID === subject.id ? '更新中…' : '更新'}</button> : <span className="self-center text-xs text-ink-50">历史资料 · 仅查看</span>}
+    {canRefresh(subject) ? <RefreshButtons pending={pendingID !== null} onRefresh={(mode) => void refresh(subject, mode)} subjectID={subject.douban_id} /> : <span className="self-center text-xs text-ink-50">历史资料 · 仅查看</span>}
   </div>
   const rows = data?.items || []
   const pages = Math.max(1, Math.ceil((data?.total || 0) / 30))
@@ -129,24 +131,24 @@ function DoubanDataCenterContent() {
     {actionError && <p role="alert" className="rounded border border-red-300/40 p-3 text-sm text-red-500">豆瓣 {actionError.doubanID}：{actionError.message}</p>}
     <section className="glass-panel !p-0" aria-label="豆瓣资料列表">
       {loading ? <p className="p-10 text-center text-ink-50">正在读取资料…</p> : error ? <div className="space-y-3 p-8 text-center"><p role="alert" className="text-red-500">{error}</p><button type="button" className="btn-outline" onClick={() => setRevision((value) => value + 1)}>重试读取</button></div> : rows.length === 0 ? <p className="p-10 text-center text-ink-50">{keyword || type ? '没有符合条件的豆瓣资料' : '暂无豆瓣资料，获取或绑定作品后会自动保存到这里'}</p> : <>
-        <div className="hidden overflow-x-auto xl:block"><table className="data-table"><thead><tr><th>作品</th><th>类型</th><th>豆瓣评分</th><th>资料状态</th><th>最近获取</th><th>下次可重试</th><th>操作</th></tr></thead><tbody>{rows.map((subject) => <tr key={subject.id}>
-          <td className="max-w-xs"><div className="flex items-center gap-3"><SubjectPoster subject={subject} /><div className="min-w-0"><p className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</p><p className="mt-1 text-xs text-ink-50">{subject.douban_id}{subject.year ? ` · ${subject.year}` : ''}</p></div></div></td><td className="whitespace-nowrap">{kinds[subject.entity_kind] || subject.entity_kind}</td><td className="font-semibold text-gold-500">{ratingText(subject.rating)}</td><td className="whitespace-nowrap"><Quality subject={subject} /></td><td className="text-xs">{timeText(subject.fetched_at)}</td><td className="text-xs">{timeText(subject.next_retry_at)}</td><td>{actions(subject)}</td>
+        <div className="hidden overflow-x-auto xl:block"><table className="data-table"><thead><tr><th>作品</th><th>类型</th><th>豆瓣评分</th><th>资料状态</th><th>基础资料更新</th><th>补充资料更新</th><th>下次可重试</th><th>操作</th></tr></thead><tbody>{rows.map((subject) => <tr key={subject.id}>
+          <td className="max-w-xs"><div className="flex items-center gap-3"><SubjectPoster subject={subject} /><div className="min-w-0"><p className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</p><p className="mt-1 text-xs text-ink-50">{subject.douban_id}{subject.year ? ` · ${subject.year}` : ''}</p></div></div></td><td className="whitespace-nowrap">{kinds[subject.entity_kind] || subject.entity_kind}</td><td className="font-semibold text-gold-500">{ratingText(subject.rating)}</td><td className="whitespace-nowrap"><Quality subject={subject} /></td><td className="text-xs">{timeText(subject.fetched_at)}</td><td className="text-xs">{timeText(subject.rich_fetched_at || null)}</td><td className="text-xs">{timeText(subject.next_retry_at)}</td><td>{actions(subject)}</td>
         </tr>)}</tbody></table></div>
-        <div className="divide-y divide-[var(--app-border)] xl:hidden">{rows.map((subject) => <article key={subject.id} className="space-y-3 p-4"><div className="flex items-start gap-3"><SubjectPoster subject={subject} /><div className="min-w-0 flex-1"><h2 className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</h2><p className="mt-1 text-xs text-ink-50">{subject.douban_id} · {kinds[subject.entity_kind] || subject.entity_kind}{subject.year ? ` · ${subject.year}` : ''}</p></div><span className="shrink-0 font-semibold text-gold-500">{ratingText(subject.rating)}</span></div><Quality subject={subject} /><dl className="space-y-1 text-xs text-ink-50"><div>最近获取：{timeText(subject.fetched_at)}</div><div>下次可重试：{timeText(subject.next_retry_at)}</div></dl>{actions(subject)}</article>)}</div>
+        <div className="divide-y divide-[var(--app-border)] xl:hidden">{rows.map((subject) => <article key={subject.id} className="space-y-3 p-4"><div className="flex items-start gap-3"><SubjectPoster subject={subject} /><div className="min-w-0 flex-1"><h2 className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</h2><p className="mt-1 text-xs text-ink-50">{subject.douban_id} · {kinds[subject.entity_kind] || subject.entity_kind}{subject.year ? ` · ${subject.year}` : ''}</p></div><span className="shrink-0 font-semibold text-gold-500">{ratingText(subject.rating)}</span></div><Quality subject={subject} /><dl className="space-y-1 text-xs text-ink-50"><div>基础资料更新：{timeText(subject.fetched_at)}</div><div>补充资料更新：{timeText(subject.rich_fetched_at || null)}</div><div>下次可重试：{timeText(subject.next_retry_at)}</div></dl>{actions(subject)}</article>)}</div>
       </>}
     </section>
     {!loading && !error && <footer className="flex flex-wrap items-center justify-between gap-3 text-sm text-ink-50"><span>共 {data?.total || 0} 条</span>{((data?.total || 0) > 0 || page > 1) && <div className="flex items-center gap-2"><button type="button" className="icon-btn" title="上一页" aria-label="上一页" disabled={page <= 1} onClick={() => updateParams({ page: page === 2 ? '' : String(page - 1) })}><ChevronLeft size={18} /></button><span>{page} / {pages}</span><button type="button" className="icon-btn" title="下一页" aria-label="下一页" disabled={page >= pages} onClick={() => updateParams({ page: String(page + 1) })}><ChevronRight size={18} /></button></div>}</footer>}
-    {selected && <SubjectDetails key={selected.id} subject={selected} revision={revision} pending={pendingID !== null} error={actionError?.id === selected.id ? actionError.message : ''} onClose={closeDetail} onRefresh={() => void refresh(selected)} />}
+    {selected && <SubjectDetails key={selected.id} subject={selected} revision={revision} pending={pendingID !== null} error={actionError?.id === selected.id ? actionError.message : ''} onClose={closeDetail} onRefresh={(mode) => void refresh(selected, mode)} />}
   </div>
 }
 
-function SubjectDetails({ subject, revision, pending, error: actionError, onClose, onRefresh }: { subject: DoubanSubjectSummary; revision: number; pending: boolean; error: string; onClose: () => void; onRefresh: () => void }) {
+function SubjectDetails({ subject, revision, pending, error: actionError, onClose, onRefresh }: { subject: DoubanSubjectSummary; revision: number; pending: boolean; error: string; onClose: () => void; onRefresh: (mode: DoubanRefreshMode) => void }) {
   const [detail, setDetail] = useState<DoubanSubjectDetail | null>(null)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
   const [loading, setLoading] = useState(true)
-  const closeButton = useRef<HTMLButtonElement>(null)
-  useEffect(() => { closeButton.current?.focus() }, [])
+  const panel = useRef<HTMLDivElement>(null)
+  useEffect(() => { panel.current?.focus() }, [])
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
@@ -157,19 +159,48 @@ function SubjectDetails({ subject, revision, pending, error: actionError, onClos
     return () => controller.abort()
   }, [subject.id, revision, retry])
   const item = detail || subject
-  return <ModalShell onClose={onClose} ariaLabel="豆瓣资料详情" maxWidth="max-w-3xl" className="max-h-[90dvh] overflow-y-auto">
-    <header className="modal-header"><div className="min-w-0"><h2 className="break-words text-lg font-semibold text-ink-600">{item.title || '豆瓣资料详情'}</h2><p className="mt-1 text-sm text-ink-50">{item.douban_id} · {kinds[item.entity_kind]}</p></div><button ref={closeButton} type="button" className="icon-btn shrink-0" title="关闭详情" aria-label="关闭详情" onClick={onClose}><X size={20} /></button></header>
-    <div className="space-y-5 px-5 py-4">
-      <div className="flex flex-col gap-4 sm:flex-row"><SubjectPoster subject={item} large /><div className="min-w-0 flex-1 space-y-4"><div className="flex flex-wrap items-center gap-3"><Quality subject={item} /><span className="font-semibold text-gold-500">豆瓣评分 {ratingText(item.rating)}</span>{item.year && <span className="text-sm text-ink-50">{item.year} 年</span>}</div><dl className="grid gap-3 text-sm sm:grid-cols-2">{[['最近获取', timeText(item.fetched_at)], ['最近尝试', timeText(item.last_attempt_at)], ['下次可重试', timeText(item.next_retry_at)]].map(([label, value]) => <div key={label}><dt className="text-xs text-ink-50">{label}</dt><dd className="mt-1 text-ink-600">{value}</dd></div>)}</dl></div></div>
+  const facts = detail ? [
+    ['导演', detail.directors?.join(' / ')], ['编剧', detail.writers?.join(' / ')],
+    ['主演', detail.actors?.join(' / ')], ['类型', detail.genres?.join(' / ')],
+    ['制片地区', detail.countries?.join(' / ')], ['语言', detail.languages?.join(' / ')],
+    ['上映日期', detail.release_dates?.join(' / ') || detail.release_date],
+    ['片长', detail.durations?.join(' / ')], ['又名', detail.aliases?.join(' / ')],
+  ].filter(([, value]) => value) : []
+  const shares = detail?.rating_distribution || []
+  const trapFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return
+    const focusable = panel.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), summary')
+    if (!focusable?.length) { event.preventDefault(); return }
+    const first = focusable[0], last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && (document.activeElement === last || document.activeElement === panel.current)) { event.preventDefault(); first.focus() }
+  }
+  return <ModalShell onClose={onClose} ariaLabel={item.title || '豆瓣资料'} maxWidth="max-w-5xl" className="max-h-[90dvh] overflow-y-auto">
+    <div ref={panel} tabIndex={-1} onKeyDown={trapFocus} className="space-y-6 p-5 outline-none sm:p-8">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 basis-60"><h2 className="break-words font-display text-2xl font-semibold text-ink-600">{item.title || '未获取标题'}{item.year && <span className="ml-2 font-normal text-ink-50">({item.year})</span>}</h2><p className="mt-2 break-words text-xs text-ink-50">{detail?.original_name && `${detail.original_name} · `}{kinds[item.entity_kind]} · 豆瓣 {item.douban_id}</p></div>
+        <div className="flex flex-wrap gap-2"><a className="btn-outline gap-1.5 px-3 py-2 text-xs" href={`https://movie.douban.com/subject/${encodeURIComponent(item.douban_id)}/`} target="_blank" rel="noopener noreferrer">豆瓣原页<ExternalLink size={13} /></a>{canRefresh(item) && <RefreshButtons pending={pending} onRefresh={onRefresh} />}</div>
+      </header>
       {loading && <p className="text-sm text-ink-50">正在读取详情…</p>}
       {error && <div className="flex flex-wrap items-center gap-3"><p role="alert" className="text-sm text-red-500">{error}</p><button type="button" className="btn-outline px-3 py-2 text-xs" onClick={() => setRetry((value) => value + 1)}>重试读取详情</button></div>}
       {actionError && <p role="alert" className="text-sm text-red-500">{actionError}</p>}
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-5 lg:grid-cols-[auto_minmax(0,1fr)_12rem] lg:gap-7">
+        <SubjectPoster subject={item} large />
+        <dl className="min-w-0 space-y-2 text-xs leading-relaxed sm:text-sm">{facts.map(([label, value]) => <div className="sm:flex sm:gap-3" key={label}><dt className="shrink-0 whitespace-nowrap text-ink-50 sm:w-20">{label}</dt><dd className="min-w-0 break-words text-ink-600">{value}</dd></div>)}{detail?.imdb_id && <div className="sm:flex sm:gap-3"><dt className="shrink-0 whitespace-nowrap text-ink-50 sm:w-20">IMDb</dt><dd><a href={`https://www.imdb.com/title/${encodeURIComponent(detail.imdb_id)}/`} className="text-brand-500 hover:underline" target="_blank" rel="noopener noreferrer">{detail.imdb_id} ↗</a></dd></div>}</dl>
+        <aside className="col-span-2 border-t border-[var(--app-border)] pt-5 lg:col-span-1 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0" aria-label="豆瓣评分"><p className="text-xs text-ink-50">豆瓣评分</p><div className="mt-2 flex flex-wrap items-center gap-4 lg:block"><p className="text-4xl font-semibold text-ink-600">{ratingText(item.rating)}{item.rating > 0 && <span className="ml-2 text-xs font-normal text-ink-50">/ 10</span>}</p><div><div className="my-2 flex gap-0.5 text-gold-500" aria-hidden="true">{Array.from({ length: 5 }, (_, i) => <Star key={i} size={16} fill={item.rating >= (i + 1) * 2 ? 'currentColor' : 'none'} />)}</div>{!!detail?.rating_count && <p className="text-xs text-ink-50">{detail.rating_count.toLocaleString()} 人评价</p>}</div></div>{shares.length > 0 && <div className="mt-4 max-w-xs space-y-1.5" aria-label="评分星级分布">{shares.map((share) => <div key={share.stars} className="flex items-center gap-2 text-[11px] text-ink-50"><span>{share.stars}星</span><div className="h-1.5 flex-1 overflow-hidden rounded bg-[var(--app-glass)]"><div className="h-full rounded bg-gold-500" style={{ width: `${share.percent}%` }} /></div><span className="w-10 text-right">{share.percent}%</span></div>)}</div>}{detail?.honors?.find((honor) => honor.rank > 0) && <p className="mt-5 border-t border-[var(--app-border)] pt-3 text-xs text-gold-500">{detail.honors.find((honor) => honor.rank > 0)!.title} · 第 {detail.honors.find((honor) => honor.rank > 0)!.rank} 名</p>}</aside>
+      </div>
       {detail && <>
-        <dl className="grid gap-3 text-sm sm:grid-cols-2">{[['原名', detail.original_name], ['上映日期', detail.release_date], ['类型', detail.genres?.join('、')], ['语言', detail.languages?.join('、')], ['地区', detail.countries?.join('、')]].map(([label, value]) => <div key={label}><dt className="text-xs text-ink-50">{label}</dt><dd className="mt-1 break-words text-ink-600">{value || '—'}</dd></div>)}</dl>
-        <section><h3 className="mb-2 text-sm font-medium text-ink-600">简介</h3><p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-100">{detail.overview || '暂无简介'}</p></section>
-        {detail.has_payload ? <details className="rounded border border-[var(--app-border)] p-3"><summary className="cursor-pointer text-sm text-ink-100">原始豆瓣资料</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs text-ink-100">{JSON.stringify(detail.raw_json, null, 2)}</pre></details> : <p className="text-sm text-ink-50">该记录尚未成功获取资料。</p>}
+        {detail.overview && <section className="border-t border-[var(--app-border)] pt-5"><h3 className="mb-3 font-display text-base font-semibold text-ink-600">剧情简介</h3><p className="whitespace-pre-wrap break-words text-sm leading-7 text-ink-100">{detail.overview}</p></section>}
+        {!!detail.credits?.length && <MediaCredits key={`${item.id}:${detail.rich_fetched_at || ''}`} credits={detail.credits} />}
+        {!!detail.awards?.length && <section><h3 className="mb-3 font-display text-base font-semibold text-ink-600">获奖与提名</h3><div className="divide-y divide-[var(--app-border)]">{detail.awards.map((award, index) => <div key={index} className="grid gap-1 py-3 text-xs sm:grid-cols-[14rem_minmax(0,1fr)] sm:gap-4"><p className="text-brand-500">{award.event}</p><p className="break-words text-ink-100">{award.category}{award.people && <span className="ml-2 text-ink-50">{award.people}</span>}</p></div>)}</div></section>}
+        {!!detail.honors?.length && <section><h3 className="mb-3 font-display text-base font-semibold text-ink-600">榜单与荣誉</h3><div className="flex flex-wrap gap-2">{detail.honors.map((honor) => <span key={honor.title} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-glass)] px-3 py-2 text-xs text-ink-100">{honor.rank > 0 && <strong className="mr-2 text-gold-500">第 {honor.rank} 名</strong>}{honor.title}</span>)}</div></section>}
       </>}
+      <section className="border-t border-[var(--app-border)] pt-5"><div className="mb-3 flex items-center gap-3"><h3 className="text-sm font-medium text-ink-600">资料状态</h3><Quality subject={item} /></div><dl className="grid gap-3 text-xs sm:grid-cols-2">{[['基础资料更新', timeText(item.fetched_at)], ['补充资料更新', timeText(item.rich_fetched_at || null)], ['最近尝试', timeText(item.last_attempt_at)], ['下次可重试', timeText(item.next_retry_at)]].map(([label, value]) => <div key={label}><dt className="text-ink-50">{label}</dt><dd className="mt-1 text-ink-100">{value}</dd></div>)}</dl>{!canRefresh(item) && <p className="mt-3 text-xs text-ink-50">历史季和集资料仅支持查看</p>}</section>
+      {detail && (detail.has_payload ? <details className="border-t border-[var(--app-border)] pt-4"><summary className="cursor-pointer text-xs text-ink-50">原始豆瓣资料</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs text-ink-100">{JSON.stringify(detail.raw_json, null, 2)}</pre></details> : <p className="text-sm text-ink-50">该记录尚未成功获取资料。</p>)}
     </div>
-    <footer className="modal-footer mt-5">{canRefresh(item) ? <button type="button" className="btn-primary gap-2" disabled={pending} onClick={onRefresh}><RefreshCw size={16} className={pending ? 'animate-spin' : ''} />{pending ? '正在更新…' : '更新豆瓣资料'}</button> : <p className="text-sm text-ink-50">历史季和集资料仅支持查看</p>}</footer>
   </ModalShell>
+}
+
+function RefreshButtons({ pending, onRefresh, subjectID }: { pending: boolean; onRefresh: (mode: DoubanRefreshMode) => void; subjectID?: string }) {
+  return <>{([['base', '基础更新'], ['full', '完整更新']] as const).map(([mode, label]) => <button key={mode} type="button" className="btn-outline gap-1.5 px-3 py-2 text-xs" aria-label={`${label}豆瓣${subjectID ? ` ${subjectID}` : '资料'}`} title={mode === 'base' ? '只请求基础接口，更新资料和评分' : '更新基础资料，并尝试获取网页补充'} disabled={pending} onClick={() => onRefresh(mode)}><RefreshCw size={14} />{label}</button>)}</>
 }

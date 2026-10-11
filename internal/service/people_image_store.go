@@ -188,3 +188,15 @@ func (s *PeopleImageStore) hasUsableImage(key string) bool {
 	stored, err := prepareStoredImage(data)
 	return err == nil && stored.StorageKey == key
 }
+
+// serveStoredImage 仅服务已验证的本地头像，复用缩略图与响应缓存规则。
+func (s *PeopleImageStore) serveStoredImage(w http.ResponseWriter, r *http.Request, key, cacheControl string) error {
+	if !s.hasUsableImage(key) {
+		return ErrPeopleImageNotFound
+	}
+	path, err := storedImagePath(s.root, key)
+	if err != nil || !s.imageProxy.serveImageFile(w, r, key, path, cacheControl) {
+		return ErrPeopleImageNotFound
+	}
+	return nil
+}

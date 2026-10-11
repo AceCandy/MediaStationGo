@@ -15,14 +15,19 @@ const (
 // DoubanSubject 按豆瓣实际身份保存共享资料，不随本地作品解绑或删除而丢失。
 type DoubanSubject struct {
 	PermanentBase
-	DoubanID      string  `gorm:"size:32;not null;uniqueIndex:uidx_douban_subject,priority:1"`
-	EntityKind    string  `gorm:"size:16;not null;uniqueIndex:uidx_douban_subject,priority:2"`
-	Payload       *string `gorm:"type:jsonb"`
-	Rating        float32
-	Quality       string     `gorm:"size:16;not null;default:''"`
-	FetchedAt     *time.Time `gorm:"index"`
-	LastAttemptAt *time.Time
-	NextRetryAt   *time.Time `gorm:"index"`
+	DoubanID   string  `gorm:"size:32;not null;uniqueIndex:uidx_douban_subject,priority:1"`
+	EntityKind string  `gorm:"size:16;not null;uniqueIndex:uidx_douban_subject,priority:2"`
+	Payload    *string `gorm:"type:jsonb"`
+	// RichPayload 保存公开网页补充资料及头像本地引用，不改写接口原始响应。
+	RichPayload   *string `gorm:"type:jsonb"`
+	RichFetchedAt *time.Time
+	// RichNextRetryAt 独立控制网页补充退避，基础详情成功不推迟补充重试。
+	RichNextRetryAt *time.Time
+	Rating          float32
+	Quality         string     `gorm:"size:16;not null;default:''"`
+	FetchedAt       *time.Time `gorm:"index"`
+	LastAttemptAt   *time.Time
+	NextRetryAt     *time.Time `gorm:"index"`
 	// PosterAssetID 独立引用本地原图，未绑定媒体的资料也可保存海报。
 	PosterAssetID   *string       `gorm:"size:36;index"`
 	PosterSourceURL string        `gorm:"type:text;not null;default:''"`

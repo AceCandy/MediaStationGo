@@ -89,6 +89,11 @@ history is observability only; business object state owns retry and recovery.
 - `GET /api/tasks` also returns stable task `definitions`; each definition may
   expose current state, latest terminal execution, schedule, next run, and a
   server-owned manual action.
+- Common `douban_data_refresh` exposes `schedule_config.count` (default 100,
+  bounds 1–100). Timer and task-center manual actions both use the persisted
+  subject cap and refresh only due base API data; a manual task action is not
+  a bulk force refresh. Its separate log key and prior enabled/interval settings
+  remain stable. Task-center displays actual attempts separately from subjects.
 - Configurable periodic definitions expose `schedule_config` with `enabled`,
   `interval_seconds`, `min_interval_seconds`, and `max_interval_seconds`.
 - `PUT /api/tasks/definitions/:key/schedule` accepts `enabled` and

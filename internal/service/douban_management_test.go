@@ -16,6 +16,9 @@ func TestDoubanManagementRefreshKeepsLocalDataAndOldSuccessOnFailure(t *testing.
 	var calls atomic.Int64
 	var fail atomic.Bool
 	provider, repos := newDoubanCacheTestProvider(t, func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/subject/100/" {
+			return doubanCacheTestResponse(req, 200, doubanRichFixture), nil
+		}
 		calls.Add(1)
 		if req.URL.Path != "/rexxar/api/v2/tv/100" {
 			t.Errorf("wrong actual kind: %s", req.URL.Path)
@@ -101,5 +104,30 @@ func TestDoubanManagementDegradedReadbackAndHistoricalReadOnly(t *testing.T) {
 	detail, err = provider.SubjectDetail(t.Context(), placeholder.ID)
 	if err != nil || detail.HasPayload || len(detail.RawJSON) != 0 || detail.FetchedAt != nil || detail.NextRetryAt == nil || calls.Load() != 2 {
 		t.Fatalf("failed placeholder should remain readable without network: %#v %v", detail, err)
+	}
+}
+
+func TestDoubanManagementBaseRefreshPreservesRichState(t *testing.T) {
+	calls := 0
+	provider, repos := newDoubanCacheTestProvider(t, func(req *http.Request) (*http.Response, error) {
+		calls++
+		if req.URL.Path != "/rexxar/api/v2/movie/100" {
+			t.Fatalf("base mode requested %s", req.URL.Path)
+		}
+		return doubanCacheTestResponse(req, 200, `{"id":"100","type":"movie","title":"基础更新","rating":9}`), nil
+	})
+	if err := repos.Douban.Save(t.Context(), "100", "movie", []byte(`{"id":"100","type":"movie","title":"旧资料"}`), model.DoubanQualityComplete, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := repos.Douban.Find(t.Context(), "100", "movie")
+	rich, at := `{"writers":["已保存编剧"]}`, time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+	if err := repos.DB.Model(row).Updates(map[string]any{"rich_payload": rich, "rich_fetched_at": at, "rich_next_retry_at": at.Add(2 * time.Hour)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	before, _ := repos.Douban.Find(t.Context(), "100", "movie")
+	result, err := provider.RefreshSubjectBase(t.Context(), row.ID)
+	after, _ := repos.Douban.Find(t.Context(), "100", "movie")
+	if err != nil || calls != 1 || result.Degraded || result.SupplementUnavailable || result.Subject.Rating != 9 || !reflect.DeepEqual(before.RichPayload, after.RichPayload) || !reflect.DeepEqual(before.RichFetchedAt, after.RichFetchedAt) || !reflect.DeepEqual(before.RichNextRetryAt, after.RichNextRetryAt) {
+		t.Fatalf("base-only force: %#v calls=%d err=%v", result, calls, err)
 	}
 }

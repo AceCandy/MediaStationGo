@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -63,10 +64,14 @@ func (d *DoubanProvider) waitDataRequest(ctx context.Context) error {
 }
 
 // cachedDetail 将资料获取与本地字段、图片处理分开，成功 JSON 独立落库。
-func (d *DoubanProvider) cachedDetail(ctx context.Context, id, kind string, purpose string, fetch func() ([]byte, bool, error)) ([]byte, bool, time.Time, error) {
+func (d *DoubanProvider) cachedDetail(ctx context.Context, id, kind string, purpose string, fetch func() ([]byte, bool, error), observations ...*doubanDetailObservation) ([]byte, bool, time.Time, error) {
 	if d.dataRepo == nil {
 		raw, degraded, err := fetch()
 		return raw, degraded, time.Now().UTC(), err
+	}
+	var observation *doubanDetailObservation
+	if len(observations) > 0 {
+		observation = observations[0]
 	}
 	started := time.Now().UTC()
 	release, err := d.enterDataRequest(ctx)
@@ -85,6 +90,9 @@ func (d *DoubanProvider) cachedDetail(ctx context.Context, id, kind string, purp
 			ttl = 24 * time.Hour
 		}
 		usable := purpose != "detail" || stored.Quality != model.DoubanQualityPartial
+		if purpose == "base" {
+			usable = stored.Quality == model.DoubanQualityComplete
+		}
 		if purpose == "regular" && stored.Quality == model.DoubanQualityPartial && stored.Payload != nil {
 			// 普通刮削兼容旧摘要，但绑定搜索的 subject 不能替代详情。
 			usable = model.DoubanPayloadQuality([]byte(*stored.Payload), false) == model.DoubanQualityPartial
@@ -96,10 +104,16 @@ func (d *DoubanProvider) cachedDetail(ctx context.Context, id, kind string, purp
 		if stored.Payload != nil && stored.FetchedAt != nil && usable &&
 			time.Since(*stored.FetchedAt) < ttl && (!forced || stored.FetchedAt.After(started)) {
 			if _, err := doubanMatchFromRawJSON(id, []byte(*stored.Payload)); err == nil && model.DoubanPayloadMatchesIdentity([]byte(*stored.Payload), id, stored.EntityKind) {
+				if observation != nil {
+					observation.Cached = true
+				}
 				return []byte(*stored.Payload), stored.Quality == model.DoubanQualityDegraded, *stored.FetchedAt, nil
 			}
 		}
 		if !forced && stored.NextRetryAt != nil && time.Now().Before(*stored.NextRetryAt) {
+			if observation != nil {
+				observation.Deferred = true
+			}
 			return nil, false, time.Time{}, fmt.Errorf("%w: retry is deferred", ErrDoubanTemporarilyUnavailable)
 		}
 	}
@@ -136,8 +150,15 @@ func (d *DoubanProvider) cachedDetail(ctx context.Context, id, kind string, purp
 	if purpose == "binding" {
 		quality = model.DoubanQualityPartial
 	}
-	if err := d.dataRepo.Douban.Save(ctx, id, kind, raw, quality, at); err != nil {
+	saved, err := d.dataRepo.Douban.SaveWithResult(ctx, id, kind, raw, quality, at)
+	if err != nil {
 		return nil, false, time.Time{}, err
+	}
+	if observation != nil {
+		observation.Saved = saved
+		var previous, incoming any
+		observation.Changed = stored == nil || stored.Payload == nil || stored.Quality != quality ||
+			json.Unmarshal([]byte(*stored.Payload), &previous) != nil || json.Unmarshal(raw, &incoming) != nil || !reflect.DeepEqual(previous, incoming)
 	}
 	if degraded && stored != nil && stored.Quality == model.DoubanQualityComplete {
 		if err := d.dataRepo.Douban.RecordFailure(ctx, id, kind, at, at.Add(24*time.Hour)); err != nil {
@@ -241,4 +262,25 @@ func doubanMatchFetchedAt(match *Match) time.Time {
 		return match.DoubanFetchedAt
 	}
 	return time.Now().UTC()
+}
+
+// doubanDetailObservation 在共享准入锁内区分缓存命中、实际保存与资料内容变化。
+type doubanDetailObservation struct {
+	Cached   bool
+	Deferred bool
+	Saved    bool
+	Changed  bool
+}
+
+// refreshBaseDetail 只使用基础 Rexxar 接口，不进行 subject 降级或网页补充。
+func (d *DoubanProvider) refreshBaseDetail(ctx context.Context, id, kind string) (doubanDetailObservation, error) {
+	var observation doubanDetailObservation
+	_, _, _, err := d.cachedDetail(ctx, id, kind, "base", func() ([]byte, bool, error) {
+		raw, _, err := d.getRexxarDetailRawJSON(ctx, id, kind)
+		return raw, false, err
+	}, &observation)
+	if observation.Deferred {
+		err = nil
+	}
+	return observation, err
 }

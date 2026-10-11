@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -47,7 +48,16 @@ func doubanSubjectHandler(svc *service.Container, refresh bool) gin.HandlerFunc 
 		var result any
 		var err error
 		if refresh {
-			result, err = svc.Douban.RefreshSubject(c.Request.Context(), id)
+			mode := c.DefaultQuery("mode", "full")
+			if len(c.QueryArray("mode")) > 1 || (mode != "full" && mode != "base") {
+				Error(c, http.StatusBadRequest, ErrInvalidParams, "资料刷新模式无效")
+				return
+			}
+			if mode == "base" {
+				result, err = svc.Douban.RefreshSubjectBase(c.Request.Context(), id)
+			} else {
+				result, err = svc.Douban.RefreshSubject(c.Request.Context(), id)
+			}
 		} else {
 			result, err = svc.Douban.SubjectDetail(c.Request.Context(), id)
 		}
@@ -87,6 +97,31 @@ func doubanSubjectPosterHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if errors.Is(err, service.ErrDoubanSubjectMissing) || errors.Is(err, service.ErrArtworkNotFound) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Status(http.StatusInternalServerError)
+	}
+}
+
+func doubanSubjectCreditImageHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		id := c.Param("id")
+		index, err := strconv.Atoi(c.Param("index"))
+		if _, idErr := uuid.Parse(id); idErr != nil || err != nil || index < 0 || index > 1000 {
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		if svc == nil || svc.Douban == nil || svc.PeopleImages == nil {
+			c.Status(http.StatusServiceUnavailable)
+			return
+		}
+		err = svc.Douban.ServeSubjectCreditImage(c.Request.Context(), c.Writer, c.Request, id, index, svc.PeopleImages)
+		if err == nil {
+			return
+		}
+		if errors.Is(err, service.ErrDoubanSubjectMissing) || errors.Is(err, service.ErrPeopleImageNotFound) {
 			c.Status(http.StatusNotFound)
 			return
 		}

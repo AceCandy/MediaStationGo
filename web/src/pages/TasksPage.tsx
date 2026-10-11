@@ -58,6 +58,9 @@ function scheduleText(definition: TaskDefinition): string {
 
 function taskProgressText(definition: TaskDefinition): string {
   const metrics = (definition.current ?? definition.latest)?.metrics
+  if (definition.key === 'douban_data_refresh' && metrics) {
+    return `待更新 ${metrics.total ?? 0} · 本轮处理 ${metrics.processed ?? 0} / ${metrics.selected ?? 0} · 变化 ${metrics.changed ?? 0} · 未变化 ${metrics.unchanged ?? 0} · 跳过 ${metrics.skipped ?? 0} · 失败 ${metrics.failed ?? 0} · 剩余到期 ${metrics.remaining ?? 0} · 接口请求 ${metrics.requested ?? 0}`
+  }
   if (definition.system === 'hongguo' && typeof metrics?.processed === 'number') {
     return `已处理 ${metrics.processed}${typeof metrics.failed === 'number' ? ` · 失败待重试 ${metrics.failed}` : ''}`
   }
@@ -282,16 +285,18 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
   const [value, setValue] = useState(String(config.interval_seconds / scheduleUnits[initialUnit].seconds))
   const [saving, setSaving] = useState(false)
   const supplement = definition.key === 'hongguo_download_supplement' || definition.key === 'huangguoai_download_supplement'
-  const [count, setCount] = useState(String(config.count ?? 10))
+  const refresh = definition.key === 'douban_data_refresh'
+  const hasCount = supplement || refresh
+  const [count, setCount] = useState(String(config.count ?? (refresh ? 100 : 10)))
   const [error, setError] = useState('')
   const unitSeconds = scheduleUnits[unit].seconds
 
   const save = async () => {
-    if (supplement && (!Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 100)) { setError('每轮补充数量须为 1–100 部'); return }
+    if (hasCount && (!Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 100)) { setError(refresh ? '每轮最多更新数量须为 1–100 条' : '每轮补充数量须为 1–100 部'); return }
     setSaving(true)
     setError('')
     try {
-      await tasksAPI.updateSchedule(definition.key, enabled, Number(value) * unitSeconds, supplement ? Number(count) : undefined)
+      await tasksAPI.updateSchedule(definition.key, enabled, Number(value) * unitSeconds, hasCount ? Number(count) : undefined)
       await onSaved()
       toast.success(`${definition.name}周期已更新`)
       onClose()
@@ -311,6 +316,7 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
         <label><span className="mb-1 block text-xs text-ink-50">单位</span><Select className="input-field" value={unit} disabled={saving} onChange={(value) => setUnit(value as ScheduleUnit)}>{Object.entries(scheduleUnits).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</Select></label>
       </div>
       <p className="mt-2 text-xs text-ink-50">支持范围：{formatInterval(config.min_interval_seconds)} 至 {formatInterval(config.max_interval_seconds)}</p>
+      {refresh && <><label className="mt-4 block text-sm">每轮最多更新数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">仅更新到期的基础资料与评分，不抓取网页补充。每轮最多处理 1–100 条，剩余条目留到下一轮；代理重试可能增加接口请求次数。</p></>}
       {supplement && <><label className="mt-4 block text-sm">每轮补充数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">每轮新增 1–100 部，不是保持队列数量；已有任务和资料不齐的作品跳过。默认关闭，启用后才周期执行。</p></>}
       {error && <p className="mt-3 text-sm text-red-500" role="alert">{error}</p>}
       <footer className="mt-6 flex justify-end gap-2"><button type="button" className="btn-outline" disabled={saving} onClick={onClose}>取消</button><button type="button" className="btn-primary" disabled={saving || !value} onClick={() => void save()}>{saving ? '保存中...' : '保存'}</button></footer>

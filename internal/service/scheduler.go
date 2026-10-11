@@ -53,7 +53,7 @@ var (
 	ErrSchedulerJobAlreadyRunning = errors.New("scheduled job already running")
 	ErrSchedulerConfigUnsupported = errors.New("scheduled job is not configurable")
 	ErrSchedulerIntervalInvalid   = errors.New("scheduled job interval is invalid")
-	ErrSchedulerCountInvalid      = errors.New("每轮补充数量须为 1–100 部")
+	ErrSchedulerCountInvalid      = errors.New("每轮处理数量须为 1–100")
 )
 
 func (s *SchedulerService) SetTaskTracker(tasks *TaskTrackerService) {
@@ -146,7 +146,7 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		s.configuredJob(ctx, "tmdb_artwork_missing_recheck", "metadata.tmdb_artwork_missing_recheck_enabled", "metadata.tmdb_artwork_missing_recheck_interval_seconds", false, 24*time.Hour, s.jobTMDbArtworkMissingRecheck),
 		s.configuredJob(ctx, "douban_artwork_local_repair", "metadata.douban_artwork_local_repair_enabled", "metadata.douban_artwork_local_repair_interval_seconds", false, 24*time.Hour, s.jobDoubanArtworkLocalRepair),
 		s.configuredJob(ctx, "tmdb_episode_metadata_recheck", "metadata.tmdb_episode_metadata_recheck_enabled", "metadata.tmdb_episode_metadata_recheck_interval_seconds", false, 24*time.Hour, s.jobTMDbEpisodeMetadataRecheck),
-		s.configuredJob(ctx, "douban_data_refresh", "metadata.douban_data_refresh_enabled", "metadata.douban_data_refresh_interval_seconds", false, 24*time.Hour, s.jobDoubanDataRefresh),
+		s.configuredCountJob(ctx, s.configuredJob(ctx, "douban_data_refresh", "metadata.douban_data_refresh_enabled", "metadata.douban_data_refresh_interval_seconds", false, 24*time.Hour, s.jobDoubanDataRefresh), doubanDataRefreshCountKey, doubanDataRefreshDefaultCount),
 		s.configuredJob(ctx, "douban_movie_enrichment", "metadata.douban_movie_enrichment_enabled", "metadata.douban_movie_enrichment_interval_seconds", false, 24*time.Hour, s.jobDoubanMovieEnrichment),
 		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
 	}
@@ -187,7 +187,12 @@ func (s *SchedulerService) Start(ctx context.Context) {
 // configuredSupplementJob 复用两来源的默认数量及独立配置，避免修改一方影响另一方。
 func (s *SchedulerService) configuredSupplementJob(ctx context.Context, kind, prefix string, run func(context.Context) error) *scheduledJob {
 	job := s.configuredJob(ctx, kind, prefix+".enabled", prefix+".interval_seconds", false, 24*time.Hour, run)
-	job.count, job.countKey = 10, prefix+".count"
+	return s.configuredCountJob(ctx, job, prefix+".count", 10)
+}
+
+// configuredCountJob 复用限量任务的数量配置，不改变各任务的周期与默认开关。
+func (s *SchedulerService) configuredCountJob(ctx context.Context, job *scheduledJob, key string, defaultCount int) *scheduledJob {
+	job.count, job.countKey = defaultCount, key
 	if s.repo != nil && s.repo.Setting != nil {
 		if value, err := s.repo.Setting.Get(ctx, job.countKey); err == nil {
 			if count, err := strconv.Atoi(value); err == nil && count >= 1 && count <= 100 {

@@ -411,3 +411,35 @@ func TestSchedulerRegistersIndependentHongGuoRanks(t *testing.T) {
 		t.Fatalf("missing schedules: %v", want)
 	}
 }
+
+func TestSchedulerDoubanRefreshCountConfiguration(t *testing.T) {
+	db := newServiceTestDB(t, &model.Setting{})
+	repos := repository.New(db)
+	scheduler := NewSchedulerService(zap.NewNop(), repos, nil, nil, nil)
+	ctx := t.Context()
+	job := scheduler.configuredCountJob(ctx, scheduler.configuredJob(ctx, TaskKindDoubanDataRefresh, "metadata.douban_data_refresh_enabled", "metadata.douban_data_refresh_interval_seconds", false, 24*time.Hour, func(context.Context) error { return nil }), doubanDataRefreshCountKey, doubanDataRefreshDefaultCount)
+	scheduler.jobs = []*scheduledJob{job}
+	if job.count != 100 || job.enabled || job.interval != 24*time.Hour {
+		t.Fatalf("defaults: %#v", job)
+	}
+	for _, count := range []int{0, 101} {
+		if err := scheduler.UpdateSchedule(ctx, job.name, true, 3600, count); !errors.Is(err, ErrSchedulerCountInvalid) {
+			t.Fatalf("invalid count=%d: %v", count, err)
+		}
+	}
+	for _, count := range []int{1, 100, 23} {
+		if err := scheduler.UpdateSchedule(ctx, job.name, false, 3600, count); err != nil {
+			t.Fatal(err)
+		}
+		limit, err := (&ScraperService{repo: repos}).doubanDataRefreshLimit(ctx)
+		if err != nil || limit != count || scheduler.Status()[0].Count != count {
+			t.Fatalf("count=%d limit=%d err=%v", count, limit, err)
+		}
+	}
+	if err := scheduler.UpdateSchedule(ctx, job.name, false, 7200); err != nil {
+		t.Fatal(err)
+	}
+	if scheduler.Status()[0].Count != 23 {
+		t.Fatal("schedule without count reset limit")
+	}
+}

@@ -282,7 +282,7 @@ export const appRoutes: AppRoute[] = [
         id: 'admin-data-center',
         path: 'data-center',
         element: <DoubanDataCenterPage />,
-        navigation: { scope: 'management', label: '资料中心', icon: Database, to: '/admin/data-center', order: 25, end: true },
+        navigation: { scope: 'viewer', label: '资料中心', icon: Database, to: '/admin/data-center', order: 35, end: true },
       },
       {
         id: 'admin-tasks-scheduler',
