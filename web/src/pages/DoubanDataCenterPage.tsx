@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Database, RefreshCw, Search, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Database, Film, RefreshCw, Search, X } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { doubanAPI, type DoubanSubjectDetail, type DoubanSubjectPage, type DoubanSubjectSummary } from '../api/douban'
+import { imageURL } from '../api/client'
 import { ModalShell } from '../components/ModalShell'
 import { Select } from '../components/Select'
 import { useAuthStore } from '../stores/auth'
 
-const kinds: Record<string, string> = { movie: '电影', series: '整剧', season: '季', episode: '集' }
+const kinds: Record<string, string> = { movie: '电影', series: '电视剧' }
 const qualityLabels: Record<string, string> = { complete: '完整资料', degraded: '降级资料', partial: '摘要资料' }
 const canRefresh = (subject: DoubanSubjectSummary) => ['movie', 'series'].includes(subject.entity_kind)
 const timeText = (value: string | null) => value ? new Date(value).toLocaleString() : '—'
@@ -16,6 +17,14 @@ const errorText = (error: unknown, fallback: string) => (error as { response?: {
 
 function Quality({ subject }: { subject: DoubanSubjectSummary }) {
   return <span className={subject.quality === 'complete' ? 'badge-sage' : 'badge-neutral'}>{subject.has_payload ? qualityLabels[subject.quality] || '已有资料' : '未获取资料'}</span>
+}
+
+function SubjectPoster({ subject, large = false }: { subject: DoubanSubjectSummary; large?: boolean }) {
+  const src = imageURL(subject.poster_url, subject.fetched_at || undefined, { maxWidth: large ? 600 : 160 })
+  const [failedURL, setFailedURL] = useState('')
+  return <div className={`flex aspect-[2/3] shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--app-glass)] ${large ? 'w-40 sm:w-48' : 'w-12'}`}>
+    {src && failedURL !== src ? <img src={src} alt={`${subject.title || '豆瓣资料'}海报`} className="h-full w-full object-cover" loading="lazy" decoding="async" onError={() => setFailedURL(src)} /> : <Film aria-label="暂无海报" className="text-ink-50" size={large ? 40 : 20} />}
+  </div>
 }
 
 export function DoubanDataCenterPage() {
@@ -121,9 +130,9 @@ function DoubanDataCenterContent() {
     <section className="glass-panel !p-0" aria-label="豆瓣资料列表">
       {loading ? <p className="p-10 text-center text-ink-50">正在读取资料…</p> : error ? <div className="space-y-3 p-8 text-center"><p role="alert" className="text-red-500">{error}</p><button type="button" className="btn-outline" onClick={() => setRevision((value) => value + 1)}>重试读取</button></div> : rows.length === 0 ? <p className="p-10 text-center text-ink-50">{keyword || type ? '没有符合条件的豆瓣资料' : '暂无豆瓣资料，获取或绑定作品后会自动保存到这里'}</p> : <>
         <div className="hidden overflow-x-auto xl:block"><table className="data-table"><thead><tr><th>作品</th><th>类型</th><th>豆瓣评分</th><th>资料状态</th><th>最近获取</th><th>下次可重试</th><th>操作</th></tr></thead><tbody>{rows.map((subject) => <tr key={subject.id}>
-          <td className="max-w-xs"><p className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</p><p className="mt-1 text-xs text-ink-50">{subject.douban_id}{subject.year ? ` · ${subject.year}` : ''}</p></td><td className="whitespace-nowrap">{kinds[subject.entity_kind] || subject.entity_kind}</td><td className="font-semibold text-gold-500">{ratingText(subject.rating)}</td><td className="whitespace-nowrap"><Quality subject={subject} /></td><td className="text-xs">{timeText(subject.fetched_at)}</td><td className="text-xs">{timeText(subject.next_retry_at)}</td><td>{actions(subject)}</td>
+          <td className="max-w-xs"><div className="flex items-center gap-3"><SubjectPoster subject={subject} /><div className="min-w-0"><p className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</p><p className="mt-1 text-xs text-ink-50">{subject.douban_id}{subject.year ? ` · ${subject.year}` : ''}</p></div></div></td><td className="whitespace-nowrap">{kinds[subject.entity_kind] || subject.entity_kind}</td><td className="font-semibold text-gold-500">{ratingText(subject.rating)}</td><td className="whitespace-nowrap"><Quality subject={subject} /></td><td className="text-xs">{timeText(subject.fetched_at)}</td><td className="text-xs">{timeText(subject.next_retry_at)}</td><td>{actions(subject)}</td>
         </tr>)}</tbody></table></div>
-        <div className="divide-y divide-[var(--app-border)] xl:hidden">{rows.map((subject) => <article key={subject.id} className="space-y-3 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</h2><p className="mt-1 text-xs text-ink-50">{subject.douban_id} · {kinds[subject.entity_kind] || subject.entity_kind}{subject.year ? ` · ${subject.year}` : ''}</p></div><span className="shrink-0 font-semibold text-gold-500">{ratingText(subject.rating)}</span></div><Quality subject={subject} /><dl className="space-y-1 text-xs text-ink-50"><div>最近获取：{timeText(subject.fetched_at)}</div><div>下次可重试：{timeText(subject.next_retry_at)}</div></dl>{actions(subject)}</article>)}</div>
+        <div className="divide-y divide-[var(--app-border)] xl:hidden">{rows.map((subject) => <article key={subject.id} className="space-y-3 p-4"><div className="flex items-start gap-3"><SubjectPoster subject={subject} /><div className="min-w-0 flex-1"><h2 className="break-words font-medium text-ink-600">{subject.title || '未获取标题'}</h2><p className="mt-1 text-xs text-ink-50">{subject.douban_id} · {kinds[subject.entity_kind] || subject.entity_kind}{subject.year ? ` · ${subject.year}` : ''}</p></div><span className="shrink-0 font-semibold text-gold-500">{ratingText(subject.rating)}</span></div><Quality subject={subject} /><dl className="space-y-1 text-xs text-ink-50"><div>最近获取：{timeText(subject.fetched_at)}</div><div>下次可重试：{timeText(subject.next_retry_at)}</div></dl>{actions(subject)}</article>)}</div>
       </>}
     </section>
     {!loading && !error && <footer className="flex flex-wrap items-center justify-between gap-3 text-sm text-ink-50"><span>共 {data?.total || 0} 条</span>{((data?.total || 0) > 0 || page > 1) && <div className="flex items-center gap-2"><button type="button" className="icon-btn" title="上一页" aria-label="上一页" disabled={page <= 1} onClick={() => updateParams({ page: page === 2 ? '' : String(page - 1) })}><ChevronLeft size={18} /></button><span>{page} / {pages}</span><button type="button" className="icon-btn" title="下一页" aria-label="下一页" disabled={page >= pages} onClick={() => updateParams({ page: String(page + 1) })}><ChevronRight size={18} /></button></div>}</footer>}
@@ -151,8 +160,7 @@ function SubjectDetails({ subject, revision, pending, error: actionError, onClos
   return <ModalShell onClose={onClose} ariaLabel="豆瓣资料详情" maxWidth="max-w-3xl" className="max-h-[90dvh] overflow-y-auto">
     <header className="modal-header"><div className="min-w-0"><h2 className="break-words text-lg font-semibold text-ink-600">{item.title || '豆瓣资料详情'}</h2><p className="mt-1 text-sm text-ink-50">{item.douban_id} · {kinds[item.entity_kind]}</p></div><button ref={closeButton} type="button" className="icon-btn shrink-0" title="关闭详情" aria-label="关闭详情" onClick={onClose}><X size={20} /></button></header>
     <div className="space-y-5 px-5 py-4">
-      <div className="flex flex-wrap items-center gap-3"><Quality subject={item} /><span className="font-semibold text-gold-500">豆瓣评分 {ratingText(item.rating)}</span>{item.year && <span className="text-sm text-ink-50">{item.year} 年</span>}</div>
-      <dl className="grid gap-3 text-sm sm:grid-cols-2">{[['最近获取', timeText(item.fetched_at)], ['最近尝试', timeText(item.last_attempt_at)], ['下次可重试', timeText(item.next_retry_at)]].map(([label, value]) => <div key={label}><dt className="text-xs text-ink-50">{label}</dt><dd className="mt-1 text-ink-600">{value}</dd></div>)}</dl>
+      <div className="flex flex-col gap-4 sm:flex-row"><SubjectPoster subject={item} large /><div className="min-w-0 flex-1 space-y-4"><div className="flex flex-wrap items-center gap-3"><Quality subject={item} /><span className="font-semibold text-gold-500">豆瓣评分 {ratingText(item.rating)}</span>{item.year && <span className="text-sm text-ink-50">{item.year} 年</span>}</div><dl className="grid gap-3 text-sm sm:grid-cols-2">{[['最近获取', timeText(item.fetched_at)], ['最近尝试', timeText(item.last_attempt_at)], ['下次可重试', timeText(item.next_retry_at)]].map(([label, value]) => <div key={label}><dt className="text-xs text-ink-50">{label}</dt><dd className="mt-1 text-ink-600">{value}</dd></div>)}</dl></div></div>
       {loading && <p className="text-sm text-ink-50">正在读取详情…</p>}
       {error && <div className="flex flex-wrap items-center gap-3"><p role="alert" className="text-sm text-red-500">{error}</p><button type="button" className="btn-outline px-3 py-2 text-xs" onClick={() => setRetry((value) => value + 1)}>重试读取详情</button></div>}
       {actionError && <p role="alert" className="text-sm text-red-500">{actionError}</p>}

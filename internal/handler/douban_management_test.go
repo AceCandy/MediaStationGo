@@ -55,6 +55,7 @@ func TestDoubanManagementAdminAccessAndValidation(t *testing.T) {
 	id := uuid.NewString()
 	for _, endpoint := range []struct{ method, path string }{
 		{http.MethodGet, ""}, {http.MethodGet, "/" + id}, {http.MethodPost, "/" + id + "/refresh"},
+		{http.MethodGet, "/" + id + "/poster"}, {http.MethodHead, "/" + id + "/poster"},
 	} {
 		for _, access := range []struct {
 			role string
@@ -72,7 +73,7 @@ func TestDoubanManagementAdminAccessAndValidation(t *testing.T) {
 			t.Fatalf("invalid query %q: %d %s", query, response.Code, response.Body.String())
 		}
 	}
-	for _, endpoint := range []struct{ method, path string }{{http.MethodGet, "/not-a-uuid"}, {http.MethodPost, "/not-a-uuid/refresh"}} {
+	for _, endpoint := range []struct{ method, path string }{{http.MethodGet, "/not-a-uuid"}, {http.MethodPost, "/not-a-uuid/refresh"}, {http.MethodGet, "/not-a-uuid/poster"}, {http.MethodHead, "/not-a-uuid/poster"}} {
 		response := request(endpoint.method, endpoint.path, tokens["admin"])
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("invalid row id: %d %s", response.Code, response.Body.String())

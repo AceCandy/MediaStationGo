@@ -26,6 +26,7 @@ type DoubanSubjectSummary struct {
 	Rating        float32    `json:"rating"`
 	Quality       string     `json:"quality"`
 	HasPayload    bool       `json:"has_payload"`
+	PosterURL     string     `gorm:"-" json:"poster_url"`
 	FetchedAt     *time.Time `json:"fetched_at"`
 	LastAttemptAt *time.Time `json:"last_attempt_at"`
 	NextRetryAt   *time.Time `json:"next_retry_at"`
@@ -60,6 +61,15 @@ func (r *DoubanRepository) FindSubjectByID(ctx context.Context, id string) (*mod
 		return nil, nil
 	}
 	return &subject, err
+}
+
+// SetPoster 仅在资料与图片引用均未变化时关联新图，避免迟到下载覆盖新资料。
+func (r *DoubanRepository) SetPoster(ctx context.Context, observed *model.DoubanSubject, assetID, sourceURL string) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&model.DoubanSubject{}).
+		Where("id = ? AND payload IS NOT DISTINCT FROM ?::jsonb AND poster_asset_id IS NOT DISTINCT FROM ? AND poster_source_url = ?",
+			observed.ID, observed.Payload, observed.PosterAssetID, observed.PosterSourceURL).
+		UpdateColumns(map[string]any{"poster_asset_id": assetID, "poster_source_url": sourceURL})
+	return result.RowsAffected > 0, result.Error
 }
 
 func (r *DoubanRepository) Find(ctx context.Context, id, kind string) (*model.DoubanSubject, error) {

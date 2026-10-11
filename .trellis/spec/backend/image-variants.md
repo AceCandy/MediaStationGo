@@ -27,6 +27,10 @@ Original storage/import and authentication are not transformation concerns.
 - Keys include algorithm version, source path/size/nanosecond mtime and normalized options. Downloaded bytes use a content hash if original storage failed. Source updates create a new variant; old variants remain.
 - Web defaults to maxWidth=640; large backgrounds use 1920. `original:true` removes processing parameters. URL version replacement must not create duplicate query keys; tokens must not enter image URLs.
 - Same-origin `/api/` images rely on the existing HttpOnly Cookie, not a token-bearing URL. Playback URLs retain their existing token behavior. Non-critical list, search and administration images use native lazy loading and asynchronous decoding.
+- File variants honor their caller's Cache-Control, including hot variants and
+  HEAD/304 responses. Mutable Douban subject poster URLs use private/no-cache;
+  serving a previous poster after a failed update uses no-store even when the
+  requested variant already exists on disk.
 - Browser SW identities retain transformation parameters, removing only credentials and version/retry/refresh values. Its existing same-specification old-version eviction is independent of server disk retention.
 
 ## 4. Validation & Error Matrix

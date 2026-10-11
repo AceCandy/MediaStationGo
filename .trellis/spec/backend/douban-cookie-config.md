@@ -451,9 +451,22 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   do not process Season/Episode; legacy own-identity scores remain supported
   without inheritance. General metadata ratings and local artwork stay separate.
 - Startup migration chooses complete details before degraded/partial responses,
-  then the newest fetching time, in bounded keyset batches. It checks explicit
-  response identity, preserves fetching time, skips existing shared identities
-  and retains old snapshots for rollback. No ongoing legacy Douban writes.
+  then the newest fetching time, in bounded keyset batches. Derive identity from
+  the snapshot itself (root, `subject` or `data`), normalize numeric IDs and map
+  `tv`/`is_tv` to Series. A current media binding is not required: unbound and
+  previously rebound snapshots still belong in the center under their own
+  identity. Only missing fields may use a unique valid legacy identifier; when
+  the snapshot has an ID, a type fallback must belong to that same normalized ID.
+  Reject conflicting identities and unidentified payloads without inventing IDs.
+  Validate each candidate before deduplication so an invalid preferred response
+  cannot hide a valid one; advance the cursor even for skipped candidates.
+  Preserve fetching time, skip existing shared identities and retain old snapshots
+  for rollback without changing media bindings. No ongoing legacy Douban writes.
+- After migration coverage is verified, an explicitly authorized operational
+  cleanup may remove only `metadata_provider_snapshots.provider = 'douban'` rows
+  covered by a nonempty shared subject of equal/better quality and no older fetch
+  time. Keep the table and every other provider's snapshot. Do not clear local
+  canonical fields previously filled from Douban or delete media/ID associations.
 
 ### Retrieval and refresh
 - The shared Provider serializes cache admission, rechecks persisted state, allows
@@ -519,6 +532,8 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
 
 ### Verification
 - PostgreSQL: `TestDoubanMigrationPreservesIdentityQualityAndTime`,
+  `TestDoubanMigrationUsesSnapshotIdentityWithoutBinding`,
+  `TestDoubanMigrationPagesPastInvalidCandidates`,
   `TestDoubanSharedSubjectWriteAndAssociation`, cache/refresh tests in
   `internal/service/douban_cache_test.go`, and existing Douban/Emby rating tests.
 - Run cache concurrency and cancellation coverage with `-race` and a real
@@ -536,3 +551,58 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   Run `node scripts/check-douban-data-center.mjs` from `web` against an isolated
   Vite server for UI permissions, URL state, cancellation, refresh feedback and
   dark/light responsive layouts; all browser API responses are mocked.
+
+## Scenario: Independent data-center posters
+
+### 1. Scope / Trigger
+Data-center image display and shared subject poster persistence, including
+subjects with no local media association.
+
+### 2. Signatures
+- `douban_subjects.poster_asset_id`: nullable ArtworkAsset reference, SET NULL
+  on asset deletion; `poster_source_url`: persisted official large-image URL.
+- Summary/detail `poster_url` is `/api/admin/douban/subjects/:id/poster` when
+  a payload exists, otherwise empty. GET/HEAD require active administrator auth.
+- `DoubanRepository.SetPoster` compares the observed JSONB payload and poster
+  fields; `ArtworkRepository.SaveAsset` deduplicates without media selection writes.
+
+### 3. Contracts
+List/detail JSON reads perform no download. Image reads parse root/subject/data
+through the existing official-large-image rules, reuse an available current
+asset or matching local Douban media artwork, then download through ImageProxy
+into the existing DataDir artwork store. No startup backfill or arbitrary URL
+input exists. Persist only valid downloaded images. Subject upserts preserve
+poster fields; poster operations never advance freshness/retry timestamps,
+change rating/quality, create media metadata or change artwork selections.
+Late downloads use CAS; a loser rereads the winner instead of overwriting it.
+Use the variant wrapper and controlled storage paths. Current responses use
+private/no-cache because the subject UUID is mutable; old-image fallbacks and
+image errors use no-store. Existing image negative caching limits failed retries.
+
+### 4. Validation & Error Matrix
+Invalid UUID -> 400; missing shared row or missing usable image -> 404;
+unavailable services -> 503. Errors do not expose upstream messages. Missing
+local original -> repair through the normal image import. Missing large source
+or failed download -> preserve old asset and all subject data, serving available
+old bytes with no-store. Invalid transform -> existing 400 behavior.
+
+### 5. Good/Base/Bad Cases
+Good: an unbound subject's first visible poster is downloaded once and remains
+available after the temporary remote cache is gone. Base: an existing matching
+media candidate is independently referenced without selecting it. Bad: create
+fake metadata ownership, bulk download at startup, cache an old-image fallback
+as immutable, or reset successful subject time when a poster is downloaded.
+
+### 6. Tests Required
+`TestDoubanPoster*` covers unbound persistence, media reuse/selection isolation,
+missing-file repair, source changes, failure state preservation, invalid images,
+concurrent deduplication and stale-download CAS on isolated PostgreSQL.
+Management route tests cover GET/HEAD auth and UUID validation. Browser checks
+serve real mock image bytes and verify loading, placeholders, versions, filters
+and responsive themes. Run the Douban/artwork/image-variant tests with race
+checking, Web lint/build and `check-image-url.mjs`.
+
+### 7. Wrong vs Correct
+Wrong: call `ImportRemote` with a fabricated metadata ID, or return the remote
+source URL to the browser. Correct: save a standalone deduplicated asset, CAS
+the Douban reference and serve it through the authenticated subject poster route.

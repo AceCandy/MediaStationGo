@@ -28,6 +28,8 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	admin.GET("/douban/subjects", listDoubanSubjectsHandler(svc))
 	admin.GET("/douban/subjects/:id", doubanSubjectHandler(svc, false))
 	admin.POST("/douban/subjects/:id/refresh", doubanSubjectHandler(svc, true))
+	admin.GET("/douban/subjects/:id/poster", doubanSubjectPosterHandler(svc))
+	admin.HEAD("/douban/subjects/:id/poster", doubanSubjectPosterHandler(svc))
 }
 
 func registerAdminUserRoutes(admin *gin.RouterGroup, svc *service.Container) {

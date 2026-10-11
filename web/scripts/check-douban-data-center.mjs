@@ -4,8 +4,30 @@ import { execFileSync } from 'node:child_process'
 import { Buffer } from 'node:buffer'
 import console from 'node:console'
 import process from 'node:process'
+import { Worker } from 'node:worker_threads'
 
-const base = process.argv[2] || 'http://127.0.0.1:6239'
+// 独立图片模拟入口保留同源路径，原生 img 请求也必须真正解码成功。
+const fixture = new Worker(`
+  const {parentPort,workerData}=require('node:worker_threads');
+  const {createServer,request}=require('node:http');
+  const server=createServer((req,res)=>{
+    if(req.url.startsWith('/api/')) {
+      if(req.url.includes('/poster')) {
+        const failed=req.url.includes('44444444');
+        res.writeHead(failed?404:200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});
+        res.end(failed?'':'<svg xmlns="http://www.w3.org/2000/svg" width="120" height="180"><rect width="120" height="180" fill="purple"/></svg>');
+      } else { res.writeHead(200,{'Content-Type':'application/json'});res.end('{}'); }
+      return;
+    }
+    const upstream=request(new URL(req.url,workerData),{method:req.method,headers:{...req.headers,host:new URL(workerData).host}},response=>{
+      res.writeHead(response.statusCode,response.headers);response.pipe(res);
+    });
+    upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
+  });
+  server.listen(0,'127.0.0.1',()=>parentPort.postMessage(server.address().port));
+`, { eval: true, workerData: process.argv[2] || 'http://127.0.0.1:6239' })
+const port = await new Promise((resolve, reject) => { fixture.once('message', resolve); fixture.once('error', reject) })
+const base = `http://127.0.0.1:${port}`
 const session = `douban-center-${process.pid}`
 const browser = (...args) => execFileSync('agent-browser', ['--session', session, ...args], { encoding: 'utf8', timeout: 30000 })
 const evaluate = code => JSON.parse(browser('eval', '-b', Buffer.from(code).toString('base64'), '--json')).data.result
@@ -23,12 +45,11 @@ const navigate = path => evaluate(`history.pushState(null,'',${JSON.stringify(pa
 try {
   browser('open', base + '/login')
   browser('set','media','dark','reduced-motion')
-  browser('network', 'route', base + '/api/**', '--body', '{}')
   evaluate(`(async () => {
     const {api}=await import('/src/api/client.ts');
     const {useAuthStore}=await import('/src/stores/auth.ts');
     const probe=window.doubanProbe={calls:[],hold:'',releases:[],failList:false,failDetail:false,refreshMode:'success',role:'admin',updated:false,emptyList:false};
-    const subject=(id,kind,quality='complete',has_payload=true)=>({id,douban_id:id.startsWith('111')?'100':id.slice(0,3),entity_kind:kind,title:kind==='movie'?'测试电影'+ '很长的标题'.repeat(8):'历史单集',year:'2026',rating:probe.updated?9.2:8.1,quality,has_payload,fetched_at:has_payload?'2026-10-10T12:00:00Z':null,last_attempt_at:'2026-10-10T12:00:00Z',next_retry_at:null});
+    const subject=(id,kind,quality='complete',has_payload=true)=>({id,douban_id:id.startsWith('111')?'100':id.slice(0,3),entity_kind:kind,title:kind==='movie'?'测试电影'+ '很长的标题'.repeat(8):kind==='series'?'测试电视剧':'历史单集',year:'2026',rating:probe.updated?9.2:8.1,quality,has_payload,poster_url:has_payload?'/api/admin/douban/subjects/'+id+'/poster':'',fetched_at:has_payload?(probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z'):null,last_attempt_at:'2026-10-10T12:00:00Z',next_retry_at:null});
     probe.movie=subject('11111111-1111-4111-8111-111111111111','movie');
     probe.episode=subject('22222222-2222-4222-8222-222222222222','episode');
     api.defaults.adapter=async config=>{
@@ -44,7 +65,7 @@ try {
       let data;
       if(kind==='list'){
         const p=config.params, empty=p.keyword==='empty'||probe.emptyList;
-        let rows=p.page===2?[subject('33333333-3333-4333-8333-333333333333','series')]:[subject(probe.movie.id,'movie'),probe.episode,subject('44444444-4444-4444-8444-444444444444','movie','degraded'),subject('55555555-5555-4555-8555-555555555555','movie','partial'),subject('66666666-6666-4666-8666-666666666666','movie','',false)];
+        let rows=p.page===2?[subject('33333333-3333-4333-8333-333333333333','series')]:[subject(probe.movie.id,'movie'),probe.episode,subject('33333333-3333-4333-8333-333333333333','series'),subject('44444444-4444-4444-8444-444444444444','movie','degraded'),subject('55555555-5555-4555-8555-555555555555','movie','partial'),subject('66666666-6666-4666-8666-666666666666','movie','',false)];
         if(p.type) rows=rows.filter(row=>row.entity_kind===p.type);
         data={data:empty?[]:rows,total:empty?0:p.type?rows.length:31,page:p.page,page_size:30};
       }else{
@@ -67,6 +88,12 @@ try {
   assert.ok(evaluate(`${text}.includes('未获取资料') && ${text}.includes('降级资料') && ${text}.includes('摘要资料')`))
   assert.ok(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='list').every(c=>c.page_size===30)"))
   assert.equal(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').length"), 0)
+  browser('set','viewport','1440','900')
+  wait("document.querySelector('main tbody tr img')?.naturalWidth > 0")
+  assert.ok(evaluate("document.querySelector('main tbody tr img').getAttribute('src').startsWith('/api/admin/douban/subjects/')"))
+  wait("!!document.querySelector('main tbody tr:nth-child(4) [aria-label=\"暂无海报\"]')")
+  navigate('/admin/data-center?type=episode')
+  wait("location.search === '' && document.querySelector('main tbody tr img')?.naturalWidth > 0")
 
   evaluate('window.doubanProbe.emptyList=true; true')
   click('重新读取列表')
@@ -80,17 +107,21 @@ try {
   click('关闭详情')
 
   click('下一页')
-  wait("location.search.includes('page=2') && document.querySelector('main').innerText.includes('整剧')")
+  wait("location.search.includes('page=2') && document.querySelector('main').innerText.includes('电视剧') && !document.querySelector('main').innerText.includes('测试电影')")
   click('上一页')
-  wait(`${text}?.includes('测试电影')`)
+  wait(`location.search === '' && ${text}?.includes('测试电影')`)
   browser('fill', '[aria-label="名称或豆瓣 ID"]', ' 筛选 ')
   click('搜索')
   wait("new URLSearchParams(location.search).get('keyword')==='筛选'")
   assert.equal(evaluate('new URLSearchParams(location.search).has("page")'), false)
   browser('click', '[aria-label="资料类型"]')
-  browser('find', 'role', 'option', 'click', '--name', '集', '--exact')
-  wait(`${text}?.includes('历史单集') && !${text}?.includes('测试电影')`)
-  browser('find', 'role', 'button', 'click', '--name', '查看', '--exact')
+  assert.deepEqual(evaluate("[...document.querySelectorAll('[role=option]')].map(item=>item.textContent)"),['全部类型','电影','电视剧'])
+  browser('press', 'End')
+  browser('press', 'Enter')
+  wait(`${text}?.includes('测试电视剧') && !${text}?.includes('测试电影')`)
+  navigate('/admin/data-center')
+  wait(`${text}?.includes('历史单集')`)
+  browser('click','main tbody tr:nth-child(2) button')
   wait("!!document.querySelector('[role=dialog]') && document.querySelector('[role=dialog]').innerText.includes('已落库的简介')")
   assert.ok(evaluate("document.querySelector('[role=dialog]').innerText.includes('历史季和集资料仅支持查看')"))
   assert.equal(evaluate("[...document.querySelectorAll('[role=dialog] button')].some(b=>b.textContent.includes('更新'))"), false)
@@ -108,6 +139,8 @@ try {
       const selector=width<1280?'main article button':'main tbody tr button'
       browser('click',selector)
       wait("document.querySelector('[role=dialog]')?.innerText.includes('已落库的简介')")
+      wait("document.querySelector('[role=dialog] img')?.naturalWidth > 0")
+      assert.ok(evaluate("document.querySelector('[role=dialog] img').getAttribute('src').includes('maxWidth=600')"))
       assert.equal(evaluate("document.querySelector('[role=dialog] details').open"), false)
       browser('click','[role=dialog] summary')
       browser('wait','250')
@@ -128,6 +161,7 @@ try {
   assert.ok(evaluate("document.querySelector('[role=dialog] footer button').disabled"))
   evaluate("window.doubanProbe.hold=''; window.doubanProbe.releases.splice(0).forEach(resolve=>resolve()); true")
   wait("document.querySelector('[role=dialog]')?.innerText.includes('9.2')")
+  wait("document.querySelector('[role=dialog] img')?.getAttribute('src').includes('2026-10-11') && document.querySelector('[role=dialog] img')?.naturalWidth > 0")
   evaluate("window.doubanProbe.refreshMode='failure'; true")
   click('更新豆瓣资料')
   wait("document.querySelector('[role=dialog]')?.innerText.includes('模拟读取失败') && !document.querySelector('[role=dialog] footer button').disabled")
@@ -177,11 +211,11 @@ try {
   assert.ok(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').at(-1).aborted"))
   evaluate("window.doubanProbe.hold=''; window.doubanProbe.releases.splice(0).forEach(resolve=>resolve()); true")
   assert.equal(browser('errors').trim(), '')
-  console.log('通过：管理员入口、URL/分页/类型、质量/空态、详情/JSON、强刷/失败/降级、防重复、取消/会话隔离、深浅主题和响应式布局')
+  console.log('通过：管理员入口、URL/分页/电影电视剧筛选、本地海报加载/失败占位/版本更新、详情/JSON、强刷/失败/降级、防重复、取消/会话隔离、深浅主题和响应式布局')
 } catch(error) {
   console.error(browser('snapshot','-i'))
   console.error(browser('errors'))
   throw error
 } finally {
-  browser('close')
+  try { browser('close') } finally { await fixture.terminate() }
 }

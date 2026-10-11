@@ -125,7 +125,7 @@ func (v *imageVariants) serveFile(w http.ResponseWriter, r *http.Request, key, p
 		return false
 	}
 	source := fmt.Sprintf("%s:%d:%d", path, stat.Size(), stat.ModTime().UnixNano())
-	if v.serve(w, r, source, path, o, func() ([]byte, error) {
+	if v.serve(w, r, source, path, cacheControl, o, func() ([]byte, error) {
 		f, err := os.Open(path)
 		if err != nil {
 			return nil, err
@@ -139,7 +139,7 @@ func (v *imageVariants) serveFile(w http.ResponseWriter, r *http.Request, key, p
 }
 
 // serve 合并同一变体的生成；等待并发名额和其它请求时响应取消。
-func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source, sourcePath string, o imageVariantOptions, read func() ([]byte, error)) bool {
+func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source, sourcePath, cacheControl string, o imageVariantOptions, read func() ([]byte, error)) bool {
 	identity := "v1:" + source
 	key := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s:%+v", identity, o))))
 	version := fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
@@ -149,7 +149,7 @@ func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source, so
 		if r.Context().Err() != nil {
 			return true
 		}
-		if serveImageFile(w, r, key, path, imageBrowserCacheControl) {
+		if serveImageFile(w, r, key, path, cacheControl) {
 			return true
 		}
 		v.mu.Lock()
@@ -175,7 +175,7 @@ func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source, so
 	}
 	defer func() { <-v.slots }()
 	// 另一个请求可能在取得生成所有权前已经写入缓存。
-	if serveImageFile(w, r, key, path, imageBrowserCacheControl) {
+	if serveImageFile(w, r, key, path, cacheControl) {
 		return true
 	}
 	data, err := read()
@@ -192,7 +192,7 @@ func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source, so
 	if err := writeStoredImage(path, data, ".variant-*.tmp"); err != nil {
 		return false
 	}
-	return serveImageFile(w, r, key, path, imageBrowserCacheControl)
+	return serveImageFile(w, r, key, path, cacheControl)
 }
 
 // sourceGroup 保留 DataDir 下的图片层级，其他来源只保留不可逆标识。

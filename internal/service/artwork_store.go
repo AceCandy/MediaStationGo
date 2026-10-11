@@ -207,6 +207,26 @@ func (s *ArtworkStore) prepareAsset(metadataID, artworkType string, data []byte)
 	if !validArtworkType(artworkType) {
 		return nil, errors.New("invalid artwork type")
 	}
+	return s.prepareImageAsset(data)
+}
+
+// importRemoteAsset 为独立资料保存原图，不创建媒体图片关联。
+func (s *ArtworkStore) importRemoteAsset(ctx context.Context, sourceURL string) (*model.ArtworkAsset, error) {
+	if s.imageProxy == nil {
+		return nil, errors.New("image proxy is unavailable")
+	}
+	data, _, err := s.imageProxy.Fetch(ctx, sourceURL)
+	if err != nil {
+		return nil, err
+	}
+	asset, err := s.prepareImageAsset(data)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.SaveAsset(ctx, asset)
+}
+
+func (s *ArtworkStore) prepareImageAsset(data []byte) (*model.ArtworkAsset, error) {
 	stored, err := prepareStoredImage(data)
 	if err != nil {
 		return nil, err
@@ -262,6 +282,10 @@ func localArtworkFileAvailable(path string) (bool, error) {
 }
 
 func (s *ArtworkStore) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, assetID string) error {
+	return s.serve(ctx, w, r, assetID, imageBrowserCacheControl)
+}
+
+func (s *ArtworkStore) serve(ctx context.Context, w http.ResponseWriter, r *http.Request, assetID, cacheControl string) error {
 	if s.repo == nil {
 		return ErrArtworkNotFound
 	}
@@ -276,10 +300,29 @@ func (s *ArtworkStore) Serve(ctx context.Context, w http.ResponseWriter, r *http
 	if err != nil {
 		return ErrArtworkNotFound
 	}
-	if !s.imageProxy.serveImageFile(w, r, asset.ID, path, imageBrowserCacheControl) {
+	if !s.imageProxy.serveImageFile(w, r, asset.ID, path, cacheControl) {
 		return ErrArtworkNotFound
 	}
 	return nil
+}
+
+func (s *ArtworkStore) assetAvailable(ctx context.Context, assetID *string) (*model.ArtworkAsset, error) {
+	if assetID == nil || s.repo == nil {
+		return nil, nil
+	}
+	asset, err := s.repo.FindAssetByID(ctx, *assetID)
+	if err != nil || asset == nil {
+		return nil, err
+	}
+	path, err := s.pathForStorageKey(asset.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	available, err := localArtworkFileAvailable(path)
+	if err != nil || !available {
+		return nil, err
+	}
+	return asset, nil
 }
 
 func ArtworkURL(assetID string) string {

@@ -11,6 +11,7 @@ export interface DoubanSubjectSummary {
   rating: number
   quality: string
   has_payload: boolean
+  poster_url: string
   fetched_at: string | null
   last_attempt_at: string | null
   next_retry_at: string | null

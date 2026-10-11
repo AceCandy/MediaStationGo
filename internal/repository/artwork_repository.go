@@ -104,6 +104,39 @@ func (r *ArtworkRepository) SaveSelection(ctx context.Context, metadataID, artwo
 	return &saved, nil
 }
 
+// SaveAsset 只保存去重后的原图，不改变任何媒体的图片选择。
+func (r *ArtworkRepository) SaveAsset(ctx context.Context, asset *model.ArtworkAsset) (*model.ArtworkAsset, error) {
+	var saved model.ArtworkAsset
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
+			return err
+		}
+		return tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error
+	})
+	return &saved, err
+}
+
+// FindDoubanPosterAssets 从相同豆瓣身份的少量媒体关联中复用官方大图。
+func (r *ArtworkRepository) FindDoubanPosterAssets(ctx context.Context, id, kind, sourceURL string) ([]model.ArtworkAsset, error) {
+	var assets []model.ArtworkAsset
+	err := r.db.WithContext(ctx).Raw(`
+WITH owners AS (
+ SELECT mid.metadata_id FROM metadata_identifiers mid
+ JOIN metadata_items mi ON mi.id = mid.metadata_id AND mi.kind = mid.entity_kind
+ WHERE mid.provider = 'douban' AND mid.external_id = ?
+ AND COALESCE(NULLIF(mid.douban_entity_kind, ''), mid.entity_kind) = ?
+), images AS (
+ SELECT ma.asset_id FROM owners JOIN metadata_artworks ma ON ma.metadata_id = owners.metadata_id
+ WHERE ma.artwork_type = 'poster' AND ma.source_provider = 'douban' AND ma.source_url = ?
+ UNION
+ SELECT mc.asset_id FROM owners JOIN metadata_artwork_candidates mc ON mc.metadata_id = owners.metadata_id
+ WHERE mc.artwork_type = 'poster' AND mc.source_provider = 'douban' AND mc.source_url = ?
+)
+SELECT aa.* FROM images JOIN artwork_assets aa ON aa.id = images.asset_id
+ORDER BY aa.id`, id, kind, sourceURL, sourceURL).Scan(&assets).Error
+	return assets, err
+}
+
 // SaveCatalogSelection 只填补空缺或悬空 selection，不覆盖手工或本地选择。
 func (r *ArtworkRepository) SaveCatalogSelection(ctx context.Context, metadataID, artworkType, sourceProvider, sourceURL string, asset *model.ArtworkAsset) (*model.ArtworkAsset, bool, error) {
 	var saved model.ArtworkAsset

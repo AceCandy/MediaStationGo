@@ -238,7 +238,7 @@ func TestImageVariantConcurrentGeneration(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			w := httptest.NewRecorder()
-			if !v.serve(w, httptest.NewRequest("GET", "/", nil), "same", "", imageVariantOptions{MaxWidth: 40, Quality: 80, Format: "webp"}, func() ([]byte, error) { reads.Add(1); return data, nil }) {
+			if !v.serve(w, httptest.NewRequest("GET", "/", nil), "same", "", imageBrowserCacheControl, imageVariantOptions{MaxWidth: 40, Quality: 80, Format: "webp"}, func() ([]byte, error) { reads.Add(1); return data, nil }) {
 				t.Error("not served")
 			}
 			if w.Header().Get("Content-Type") != "image/webp" {

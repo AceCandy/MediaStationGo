@@ -69,3 +69,27 @@ func doubanSubjectHandler(svc *service.Container, refresh bool) gin.HandlerFunc 
 		Success(c, result)
 	}
 }
+
+func doubanSubjectPosterHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		id := c.Param("id")
+		if _, err := uuid.Parse(id); err != nil {
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		if svc == nil || svc.Douban == nil || svc.Artwork == nil {
+			c.Status(http.StatusServiceUnavailable)
+			return
+		}
+		err := svc.Douban.ServeSubjectPoster(c.Request.Context(), c.Writer, c.Request, id, svc.Artwork)
+		if err == nil {
+			return
+		}
+		if errors.Is(err, service.ErrDoubanSubjectMissing) || errors.Is(err, service.ErrArtworkNotFound) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Status(http.StatusInternalServerError)
+	}
+}

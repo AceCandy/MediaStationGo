@@ -23,6 +23,10 @@ type DoubanSubject struct {
 	FetchedAt     *time.Time `gorm:"index"`
 	LastAttemptAt *time.Time
 	NextRetryAt   *time.Time `gorm:"index"`
+	// PosterAssetID 独立引用本地原图，未绑定媒体的资料也可保存海报。
+	PosterAssetID   *string       `gorm:"size:36;index"`
+	PosterSourceURL string        `gorm:"type:text;not null;default:''"`
+	PosterAsset     *ArtworkAsset `gorm:"foreignKey:PosterAssetID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"-"`
 }
 
 // DoubanQueryCache 保存搜索和榜单响应；查询结果不作为完整条目资料。

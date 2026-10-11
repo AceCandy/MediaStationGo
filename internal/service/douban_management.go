@@ -32,7 +32,11 @@ type DoubanSubjectRefreshResult struct {
 }
 
 func (d *DoubanProvider) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int) ([]repository.DoubanSubjectSummary, int64, error) {
-	return d.dataRepo.Douban.ListSubjects(ctx, keyword, kind, page, pageSize)
+	rows, total, err := d.dataRepo.Douban.ListSubjects(ctx, keyword, kind, page, pageSize)
+	for i := range rows {
+		rows[i].PosterURL = doubanSubjectPosterURL(rows[i].ID, rows[i].HasPayload)
+	}
+	return rows, total, err
 }
 
 func (d *DoubanProvider) SubjectDetail(ctx context.Context, id string) (*DoubanSubjectDetail, error) {
@@ -47,6 +51,7 @@ func (d *DoubanProvider) SubjectDetail(ctx context.Context, id string) (*DoubanS
 		ID: subject.ID, DoubanID: subject.DoubanID, EntityKind: subject.EntityKind,
 		Rating: subject.Rating, Quality: subject.Quality, HasPayload: subject.Payload != nil,
 		FetchedAt: subject.FetchedAt, LastAttemptAt: subject.LastAttemptAt, NextRetryAt: subject.NextRetryAt,
+		PosterURL: doubanSubjectPosterURL(subject.ID, subject.Payload != nil),
 	}}
 	if subject.Payload != nil {
 		detail.RawJSON = json.RawMessage(*subject.Payload)
