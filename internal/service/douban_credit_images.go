@@ -26,7 +26,7 @@ func (d *DoubanProvider) ServeSubjectCreditImage(ctx context.Context, w http.Res
 	if !validDoubanProfileURL(credit.SourceURL) {
 		return ErrPeopleImageNotFound
 	}
-	key, err := store.ImportCached(ctx, d.ResolveArtworkURL(ctx, credit.SourceURL))
+	key, err := store.ImportCached(ctx, "douban", d.ResolveArtworkURL(ctx, credit.SourceURL))
 	if err != nil {
 		return ErrPeopleImageNotFound
 	}

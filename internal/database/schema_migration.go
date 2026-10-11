@@ -20,6 +20,12 @@ func AutoMigrate(db *gorm.DB) error {
 			return err
 		}
 	}
+	// 原图按体系内的存储键去重，允许不同体系保存相同内容。
+	if db.Migrator().HasIndex(&model.ArtworkAsset{}, "idx_artwork_assets_sha256") {
+		if err := db.Migrator().DropIndex(&model.ArtworkAsset{}, "idx_artwork_assets_sha256"); err != nil {
+			return err
+		}
+	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
@@ -102,6 +108,9 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	if err := EnsureTMDbRecheckTriggers(db); err != nil {
+		return err
+	}
+	if err := ensureTMDbCatalogSchema(db); err != nil {
 		return err
 	}
 	if err := EnsurePlaybackProgressRevisionTriggers(db); err != nil {

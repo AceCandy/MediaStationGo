@@ -184,7 +184,7 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 			return
 		}
 		if r.URL.Path == "/tv/12345/season/1/episode/20" && published.Load() {
-			fmt.Fprint(w, `{"id":120,"name":"新的开始","overview":"单集简介","air_date":"2026-09-06"}`)
+			fmt.Fprint(w, `{"id":120,"season_number":1,"episode_number":20,"name":"新的开始","overview":"单集简介","air_date":"2026-09-06"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -387,7 +387,11 @@ func TestSeriesInventoryEmptyIsValidButMissingListIsNot(t *testing.T) {
 		{`{"id":10,"season_number":1,"episodes":[{"id":100,"episode_number":0}]}`, false},
 		{`{"id":10,"season_number":1,"episodes":[{"id":100,"episode_number":1},{"id":101,"episode_number":1}]}`, false},
 	} {
-		if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(tc.raw), time.Now()); err != nil {
+		// 历史坏快照直接写旧表，验证兼容读取后的清单校验，不绕过中心的新写入约束。
+		if err := repos.DB.Where("metadata_id=? AND provider='tmdb'", season.ID).Delete(&model.MetadataProviderSnapshot{}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: tc.raw, FetchedAt: time.Now()}).Error; err != nil {
 			t.Fatal(err)
 		}
 		inventory, err := s.ingestSeasonInventory(t.Context(), season, 42)

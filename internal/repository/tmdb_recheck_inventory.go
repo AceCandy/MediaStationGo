@@ -44,7 +44,7 @@ func (r *MetadataRepository) RecordTMDbInventoryMissing(ctx context.Context, id,
 			return nil
 		}
 		var snapshot model.MetadataProviderSnapshot
-		err = tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("metadata_id=? AND provider='tmdb'", state.ParentID).Take(&snapshot).Error
+		err = tx.Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").Where("metadata_id=? AND provider='tmdb'", state.ParentID).Take(&snapshot).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}

@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -40,25 +39,16 @@ func (s *MediaService) SaveLibraryCover(ctx context.Context, libraryID string, s
 	if err != nil {
 		return nil, errors.Join(ErrInvalidLibraryCover, err)
 	}
-	path, err := s.libraryCoverPath(libraryID, stored.SHA256)
+	path, err := s.libraryCoverPath(libraryID, filepath.Base(stored.StorageKey))
 	if err != nil {
 		return nil, err
 	}
 	if err := writeStoredImage(path, data, ".library-cover-*.tmp"); err != nil {
 		return nil, err
 	}
-	oldVersion, hadLocalCover := libraryCoverVersion(lib.CoverURL, libraryID)
-	coverURL := libraryCoverURL(libraryID) + "?v=" + stored.SHA256
+	coverURL := libraryCoverURL(libraryID) + "?v=" + filepath.Base(stored.StorageKey)
 	if err := s.UpdateLibraryCover(ctx, libraryID, coverURL); err != nil {
-		if !hadLocalCover || oldVersion != stored.SHA256 {
-			_ = os.Remove(path)
-		}
 		return nil, err
-	}
-	if hadLocalCover && oldVersion != stored.SHA256 {
-		if oldPath, pathErr := s.libraryCoverPath(libraryID, oldVersion); pathErr == nil {
-			_ = os.Remove(oldPath)
-		}
 	}
 	return s.repo.Library.FindByID(ctx, libraryID)
 }
@@ -83,7 +73,7 @@ func (s *MediaService) ServeLibraryCover(ctx context.Context, w http.ResponseWri
 	return nil
 }
 
-// ClearLibraryCover 清除媒体库封面及对应的本地上传文件。
+// ClearLibraryCover 清除封面引用；内容寻址的原图可能被其他库或本地资料复用。
 func (s *MediaService) ClearLibraryCover(ctx context.Context, libraryID string) (*model.Library, error) {
 	lib, err := s.repo.Library.FindByID(ctx, libraryID)
 	if err != nil {
@@ -92,18 +82,8 @@ func (s *MediaService) ClearLibraryCover(ctx context.Context, libraryID string) 
 	if lib == nil {
 		return nil, ErrLibraryNotFound
 	}
-	version, hadLocalCover := libraryCoverVersion(lib.CoverURL, libraryID)
 	if err := s.UpdateLibraryCover(ctx, libraryID, ""); err != nil {
 		return nil, err
-	}
-	if hadLocalCover {
-		path, pathErr := s.libraryCoverPath(libraryID, version)
-		if pathErr != nil {
-			return nil, pathErr
-		}
-		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return nil, errors.Join(removeErr, s.UpdateLibraryCover(ctx, libraryID, lib.CoverURL))
-		}
 	}
 	return s.repo.Library.FindByID(ctx, libraryID)
 }
@@ -112,11 +92,24 @@ func (s *MediaService) libraryCoverPath(libraryID, version string) (string, erro
 	if s == nil || s.cfg == nil || strings.TrimSpace(s.cfg.App.DataDir) == "" {
 		return "", errors.New("application data directory is unavailable")
 	}
-	if len(version) != sha256.Size*2 {
+	hash := strings.TrimSuffix(version, filepath.Ext(version))
+	if len(hash) != sha256.Size*2 {
 		return "", errors.New("invalid library cover version")
 	}
-	if _, err := hex.DecodeString(version); err != nil {
+	if _, err := hex.DecodeString(hash); err != nil {
 		return "", errors.New("invalid library cover version")
+	}
+	if ext := filepath.Ext(version); ext != "" {
+		switch ext {
+		case ".jpg", ".png", ".webp", ".gif", ".bmp":
+		default:
+			return "", errors.New("invalid library cover format")
+		}
+		key, err := catalogImageKey("local", "artwork", filepath.Join(hash[:2], hash[2:4], hash[4:6], version))
+		if err != nil {
+			return "", err
+		}
+		return storedImagePath(s.cfg.App.DataDir, key)
 	}
 	sum := sha256.Sum256([]byte(libraryID))
 	return filepath.Join(s.cfg.App.DataDir, "library-covers", hex.EncodeToString(sum[:]), strings.ToLower(version)), nil
@@ -132,9 +125,10 @@ func libraryCoverVersion(rawURL, libraryID string) (string, bool) {
 		return "", false
 	}
 	version := strings.ToLower(parsed.Query().Get("v"))
-	if len(version) != sha256.Size*2 {
+	hash := strings.TrimSuffix(version, filepath.Ext(version))
+	if len(hash) != sha256.Size*2 {
 		return "", false
 	}
-	_, err = hex.DecodeString(version)
+	_, err = hex.DecodeString(hash)
 	return version, err == nil
 }

@@ -26,7 +26,7 @@ func TestEmbyItemPayloadDoubanRating(t *testing.T) {
 func TestEmbyDoubanRatingsDetailAndList(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
-	if err := db.AutoMigrate(&model.MetadataProviderSnapshot{}, &model.DoubanSubject{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	lib := model.Library{Name: "Ratings", Path: "/fixture/ratings", Type: "tv", Enabled: true}

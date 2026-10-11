@@ -41,7 +41,7 @@ const AdminEmbyAPIsPage = lazy(() =>
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const DiscoverPage = lazy(() => import('./pages/DiscoverHubPage').then((m) => ({ default: m.DiscoverHubPage })))
 const TasksPage = lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })))
-const DoubanDataCenterPage = lazy(() => import('./pages/DoubanDataCenterPage').then((m) => ({ default: m.DoubanDataCenterPage })))
+const DoubanDataCenterPage = lazy(() => import('./pages/DataCenterPage').then((m) => ({ default: m.DataCenterPage })))
 const FileManagerPage = lazy(() =>
   import('./pages/FileManagerPage').then((m) => ({ default: m.FileManagerPage })),
 )

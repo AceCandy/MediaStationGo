@@ -41,28 +41,30 @@ func TestDiscoverSearchTMDbPaginationAndIdentity(t *testing.T) {
 	}
 }
 
-func TestDiscoverSearchQueueSkipsExistingAndDeduplicates(t *testing.T) {
-	s, repos, closeUpstream := newTestScraper(t)
-	defer closeUpstream()
-	item := &model.MetadataItem{Kind: model.MetadataKindMovie, Title: "完整资料", Source: "tmdb"}
-	if err := repos.Metadata.Create(t.Context(), item, []model.MetadataIdentifier{{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "10"}}); err != nil {
-		t.Fatal(err)
-	}
-	items := []ExternalMediaResult{{Source: "tmdb", MediaType: "movie", TMDbID: 10, Title: "摘要"}, {Source: "tmdb", MediaType: "tv", TMDbID: 10, Title: "电视剧"}}
+func TestTMDbCenterDiscoverySearchOnlySummaries(t *testing.T) {
+	calls := 0
+	s, p := tmdbCenterTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{"results":[{"id":10,"media_type":"movie","title":"电影"},{"id":10,"media_type":"tv","name":"电视剧"}],"total_pages":1}`))
+	})
+	d := NewDiscoverService(zap.NewNop(), p)
 	for range 2 {
-		if err := s.QueueMissingSearchMetadata(t.Context(), items); err != nil {
-			t.Fatal(err)
+		items, _, e := d.SearchTMDb(t.Context(), "测试", "multi", 1)
+		if e != nil || len(items) != 2 {
+			t.Fatal(e)
 		}
 	}
-	var jobs []model.CatalogHydrationJob
-	if err := repos.DB.Find(&jobs).Error; err != nil {
-		t.Fatal(err)
+	if calls != 1 {
+		t.Fatalf("query not reused: %d", calls)
 	}
-	if len(jobs) != 1 || jobs[0].EntityKind != model.MetadataKindSeries {
-		t.Fatalf("jobs=%#v", jobs)
+	for _, table := range []any{&model.MetadataItem{}, &model.CatalogHydrationJob{}} {
+		var n int64
+		if e := s.repo.DB.Model(table).Count(&n).Error; e != nil || n != 0 {
+			t.Fatalf("search expanded local catalog %d %v", n, e)
+		}
 	}
-	stored, err := repos.Metadata.FindByID(t.Context(), item.ID)
-	if err != nil || stored.Title != "完整资料" {
-		t.Fatal("search overwrote existing metadata")
+	rows, n, e := s.repo.TMDb.Subjects(t.Context(), "", "", "", -1, 1, 30)
+	if e != nil || n != 2 || rows[0].Quality != 1 {
+		t.Fatalf("summaries %d %v", n, e)
 	}
 }

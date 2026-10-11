@@ -113,11 +113,7 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		if svc != nil && svc.Discover != nil {
 			svc.Discover.WarmExternalArtwork(artworkItems)
 		}
-		if svc != nil && svc.Scraper != nil {
-			if err := svc.Scraper.QueueCatalogHydrationContext(c.Request.Context(), artworkItems); err != nil && svc.Log != nil {
-				svc.Log.Warn("queue discover catalog hydration failed", zap.Error(err))
-			}
-		}
+
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -235,6 +231,7 @@ func loadDiscoverSection(parent context.Context, svc *service.Container, job dis
 	sectionCtx, cancel := context.WithTimeout(parent, sectionTimeout)
 	if job.refresh {
 		sectionCtx = service.WithDoubanFresh(sectionCtx)
+		sectionCtx = service.WithTMDbFresh(sectionCtx)
 	}
 	items, err := loadDiscoverSectionItems(sectionCtx, svc, job.provider, job.key, job.page)
 	elapsed := time.Since(started)

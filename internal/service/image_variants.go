@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"image"
 	"image/color"
@@ -124,7 +125,7 @@ func (v *imageVariants) serveFile(w http.ResponseWriter, r *http.Request, key, p
 	if err != nil || !stat.Mode().IsRegular() || stat.Size() == 0 {
 		return false
 	}
-	source := fmt.Sprintf("%s:%d:%d", path, stat.Size(), stat.ModTime().UnixNano())
+	source := imageVariantFileSource(path, stat)
 	if v.serve(w, r, source, path, cacheControl, o, func() ([]byte, error) {
 		f, err := os.Open(path)
 		if err != nil {
@@ -138,13 +139,52 @@ func (v *imageVariants) serveFile(w http.ResponseWriter, r *http.Request, key, p
 	return serveImageFile(w, r, key, path, "no-store")
 }
 
+func imageVariantFileSource(path string, stat os.FileInfo) string {
+	return fmt.Sprintf("%s:%d:%d", path, stat.Size(), stat.ModTime().UnixNano())
+}
+
+func imageVariantVersion(source string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte("v1:"+source)))
+}
+
+const catalogThumbnailVersion = "v1"
+
+// catalogVariantLocation 仅为内容寻址的资料原图提供旁置目录，避免向用户媒体目录写入。
+// 原图内容不可变，因此身份不依赖绝对路径和文件时间，整体搬迁后仍可复用。
+func (v *imageVariants) catalogVariantLocation(path string) (dir, hash string) {
+	rel, ok := relativeImagePath(v.dataDir, path)
+	if !ok {
+		return "", ""
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) != 7 || parts[0] != "catalogs" || (parts[2] != "artwork" && parts[2] != "people") {
+		return "", ""
+	}
+	ext := filepath.Ext(parts[6])
+	switch ext {
+	case ".jpg", ".png", ".webp", ".gif", ".bmp":
+	default:
+		return "", ""
+	}
+	hash = strings.TrimSuffix(parts[6], ext)
+	decoded, err := hex.DecodeString(hash)
+	if err != nil || len(decoded) != sha256.Size || hash != strings.ToLower(hash) || parts[3] != hash[:2] || parts[4] != hash[2:4] || parts[5] != hash[4:6] {
+		return "", ""
+	}
+	return filepath.Join(strings.TrimSuffix(path, ext)+".thumbnails", catalogThumbnailVersion), hash
+}
+
 // serve 合并同一变体的生成；等待并发名额和其它请求时响应取消。
 func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source, sourcePath, cacheControl string, o imageVariantOptions, read func() ([]byte, error)) bool {
 	identity := "v1:" + source
+	dir := filepath.Join(v.dir, v.sourceGroup(source, sourcePath), imageVariantVersion(source))
+	if adjacent, hash := v.catalogVariantLocation(sourcePath); adjacent != "" {
+		dir = adjacent
+		identity = catalogThumbnailVersion + ":catalog:" + hash
+	}
 	key := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s:%+v", identity, o))))
-	version := fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
 	spec := fmt.Sprintf("w%d-h%d-mw%d-mh%d-fw%d-fh%d-q%d.%s", o.Width, o.Height, o.MaxWidth, o.MaxHeight, o.FillWidth, o.FillHeight, o.Quality, o.Format)
-	path := filepath.Join(v.dir, v.sourceGroup(source, sourcePath), version, spec)
+	path := filepath.Join(dir, spec)
 	for {
 		if r.Context().Err() != nil {
 			return true

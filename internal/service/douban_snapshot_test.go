@@ -674,7 +674,7 @@ func TestDoubanEnrichmentBatchPreservesSeriesChildren(t *testing.T) {
 		if err := repos.DB.Create(&model.MetadataIdentifier{MetadataID: child.ID, Provider: "douban", EntityKind: child.Kind, ExternalID: strconv.Itoa(i + 1)}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), child.ID, "tmdb", []byte(`{"id":1}`), time.Now().UTC()); err != nil {
+		if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: child.ID, Provider: "tmdb", Payload: `{"id":1}`, FetchedAt: time.Now().UTC()}).Error; err != nil {
 			t.Fatal(err)
 		}
 		artType := model.ArtworkTypePoster

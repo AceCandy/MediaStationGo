@@ -286,13 +286,14 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
   const [saving, setSaving] = useState(false)
   const supplement = definition.key === 'hongguo_download_supplement' || definition.key === 'huangguoai_download_supplement'
   const refresh = definition.key === 'douban_data_refresh'
-  const hasCount = supplement || refresh
-  const [count, setCount] = useState(String(config.count ?? (refresh ? 100 : 10)))
+  const tmdb = definition.key === 'tmdb_data_refresh'
+  const hasCount = supplement || refresh || tmdb
+  const [count, setCount] = useState(String(config.count ?? ((refresh || tmdb) ? 100 : 10)))
   const [error, setError] = useState('')
   const unitSeconds = scheduleUnits[unit].seconds
 
   const save = async () => {
-    if (hasCount && (!Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 100)) { setError(refresh ? '每轮最多更新数量须为 1–100 条' : '每轮补充数量须为 1–100 部'); return }
+    if (hasCount && (!Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > (tmdb ? 1000 : 100))) { setError(tmdb ? '每轮接口请求预算须为 1–1000 次' : refresh ? '每轮最多更新数量须为 1–100 条' : '每轮补充数量须为 1–100 部'); return }
     setSaving(true)
     setError('')
     try {
@@ -316,6 +317,7 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
         <label><span className="mb-1 block text-xs text-ink-50">单位</span><Select className="input-field" value={unit} disabled={saving} onChange={(value) => setUnit(value as ScheduleUnit)}>{Object.entries(scheduleUnits).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</Select></label>
       </div>
       <p className="mt-2 text-xs text-ink-50">支持范围：{formatInterval(config.min_interval_seconds)} 至 {formatInterval(config.max_interval_seconds)}</p>
+      {tmdb && <><label className="mt-4 block text-sm">每轮接口请求预算<input className="input-field mt-2 w-full" type="number" min={1} max={1000} step={1} required value={count} disabled={saving} onChange={event => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">只刷新到期组件；重试和语言补充计入实际请求次数。不会覆盖本地编辑，也不会自动补齐所有摘要。</p></>}
       {refresh && <><label className="mt-4 block text-sm">每轮最多更新数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">仅更新到期的基础资料与评分，不抓取网页补充。每轮最多处理 1–100 条，剩余条目留到下一轮；代理重试可能增加接口请求次数。</p></>}
       {supplement && <><label className="mt-4 block text-sm">每轮补充数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">每轮新增 1–100 部，不是保持队列数量；已有任务和资料不齐的作品跳过。默认关闭，启用后才周期执行。</p></>}
       {error && <p className="mt-3 text-sm text-red-500" role="alert">{error}</p>}

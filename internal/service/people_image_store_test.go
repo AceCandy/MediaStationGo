@@ -43,15 +43,15 @@ func TestPeopleImageStorePersistsShardedImageAndServesPerson(t *testing.T) {
 	if err := os.WriteFile(source, want, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	key, err := store.Import(t.Context(), source)
+	key, err := store.Import(t.Context(), "tmdb", source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	parts := strings.Split(filepath.ToSlash(key), "/")
-	if len(parts) != 4 || parts[0] != "sha256" || len(parts[1]) != 2 || len(parts[2]) != 2 {
+	if len(parts) != 7 || parts[0] != "catalogs" || parts[1] != "tmdb" || parts[2] != "people" || len(parts[3]) != 2 || len(parts[4]) != 2 || len(parts[5]) != 2 {
 		t.Fatalf("storage key = %q, want sharded sha256 key", key)
 	}
-	path := filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(key))
+	path := filepath.Join(cfg.App.DataDir, filepath.FromSlash(key))
 	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, want) {
 		t.Fatalf("stored image mismatch: err=%v bytes=%d", err, len(got))
 	}
@@ -69,7 +69,7 @@ func TestPeopleImageStorePersistsShardedImageAndServesPerson(t *testing.T) {
 		t.Fatalf("served image mismatch: got %d bytes, want %d", rec.Body.Len(), len(want))
 	}
 
-	secondKey, err := store.Import(t.Context(), source)
+	secondKey, err := store.Import(t.Context(), "tmdb", source)
 	if err != nil || secondKey != key {
 		t.Fatalf("repeat import key=%q err=%v, want %q", secondKey, err, key)
 	}
@@ -82,17 +82,17 @@ func TestPeopleImageStoreRepairsSameSizeCorruption(t *testing.T) {
 	if err := os.WriteFile(source, want, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	key, err := store.Import(t.Context(), source)
+	key, err := store.Import(t.Context(), "tmdb", source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(key))
+	path := filepath.Join(cfg.App.DataDir, filepath.FromSlash(key))
 	corrupt := append([]byte(nil), want...)
 	corrupt[len(corrupt)-1] ^= 0xff
 	if err := os.WriteFile(path, corrupt, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Import(t.Context(), source); err != nil {
+	if _, err := store.Import(t.Context(), "tmdb", source); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, want) {
@@ -123,14 +123,14 @@ func TestPeopleImageStoreRemoteImportBypassesImageCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := store.Import(t.Context(), source)
+	key, err := store.Import(t.Context(), "tmdb", source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("upstream calls = %d, want direct fetch despite cache failure marker", got)
 	}
-	if got, err := os.ReadFile(filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(key))); err != nil || !bytes.Equal(got, want) {
+	if got, err := os.ReadFile(filepath.Join(cfg.App.DataDir, filepath.FromSlash(key))); err != nil || !bytes.Equal(got, want) {
 		t.Fatalf("stored people image mismatch: err=%v", err)
 	}
 	entries, err := os.ReadDir(filepath.Join(cfg.Cache.CacheDir, "images"))
@@ -198,12 +198,12 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 	if err := repos.DB.First(&person).Error; err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(person.ProfileImageKey))
+	path := filepath.Join(cfg.App.DataDir, filepath.FromSlash(person.ProfileImageKey))
 	// 有效但内容不同的图片也不能冒充缓存键对应的原图。
 	if err := os.WriteFile(path, testArtworkPNG(t, 4, 2), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	key, err := store.ImportCached(t.Context(), credits[0].ProfileURL)
+	key, err := store.ImportCached(t.Context(), "tmdb", credits[0].ProfileURL)
 	if err != nil || key != person.ProfileImageKey {
 		t.Fatalf("repair key=%q err=%v", key, err)
 	}
@@ -213,7 +213,7 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ImportCached(t.Context(), credits[0].ProfileURL); err != nil {
+	if _, err := store.ImportCached(t.Context(), "tmdb", credits[0].ProfileURL); err != nil {
 		t.Fatal(err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 3 {
@@ -230,7 +230,7 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 	reject.Store(true)
 	changedURL := "https://image.tmdb.org/t/p/original/changed.png"
 	for i := 0; i < 2; i++ {
-		if _, err := store.ImportCached(t.Context(), changedURL); err == nil {
+		if _, err := store.ImportCached(t.Context(), "tmdb", changedURL); err == nil {
 			t.Fatal("expected upstream failure")
 		}
 	}
@@ -238,23 +238,23 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 		t.Fatalf("failed import cooldown downloads = %d, want 4", got)
 	}
 	reject.Store(false)
-	if _, err := store.Import(t.Context(), changedURL); err != nil {
+	if _, err := store.Import(t.Context(), "tmdb", changedURL); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
+	if _, err := store.ImportCached(t.Context(), "tmdb", changedURL); err != nil {
 		t.Fatal(err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 5 {
 		t.Fatalf("explicit recovery downloads = %d, want 5", got)
 	}
 	// 冷却到期后自动入口恢复请求，不需要重启或手动清理。
-	store.sources.SetJSON(t.Context(), changedURL, peopleImageSource{Failed: true}, time.Minute)
+	store.sources.SetJSON(t.Context(), "tmdb:"+changedURL, peopleImageSource{Failed: true}, time.Minute)
 	store.sources.mu.Lock()
-	entry := store.sources.memory[changedURL]
+	entry := store.sources.memory["tmdb:"+changedURL]
 	entry.expiresAt = time.Now().Add(-time.Second)
-	store.sources.memory[changedURL] = entry
+	store.sources.memory["tmdb:"+changedURL] = entry
 	store.sources.mu.Unlock()
-	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
+	if _, err := store.ImportCached(t.Context(), "tmdb", changedURL); err != nil {
 		t.Fatal(err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 6 {
@@ -297,7 +297,7 @@ func TestRefreshCreditsImportsOnlyChangedOrBrokenProfiles(t *testing.T) {
 	if got := refresh(1); got.Name != "演员" {
 		t.Fatalf("translation lost: %q", got.Name)
 	}
-	path := filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(person.ProfileImageKey))
+	path := filepath.Join(cfg.App.DataDir, filepath.FromSlash(person.ProfileImageKey))
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestPersistCreditsStoresAndPreservesPersonImageKey(t *testing.T) {
 		t.Fatal("person image key is empty")
 	}
 	oldKey := saved.ProfileImageKey
-	if _, err := os.Stat(filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(oldKey))); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg.App.DataDir, filepath.FromSlash(oldKey))); err != nil {
 		t.Fatalf("persisted person image missing: %v", err)
 	}
 	missing := filepath.Join(cfg.App.DataDir, "missing.png")
@@ -374,5 +374,34 @@ func TestPersistCreditsStoresAndPreservesPersonImageKey(t *testing.T) {
 	}
 	if saved.ProfileImageKey != oldKey || saved.ProfileURL != missing {
 		t.Fatalf("failed refresh key=%q source=%q, want key=%q source=%q", saved.ProfileImageKey, saved.ProfileURL, oldKey, missing)
+	}
+}
+
+func TestTMDbCenterAvatarReuseSurvivesMemoryCacheReset(t *testing.T) {
+	store, repos, cfg := newPeopleImageStoreTest(t)
+	if e := repos.DB.AutoMigrate(&model.TMDbPersonProfile{}); e != nil {
+		t.Fatal(e)
+	}
+	source := filepath.Join(cfg.App.DataDir, "avatar.png")
+	if e := os.WriteFile(source, testArtworkPNG(t, 4, 4), 0600); e != nil {
+		t.Fatal(e)
+	}
+	key, e := store.Import(t.Context(), "tmdb", source)
+	if e != nil {
+		t.Fatal(e)
+	}
+	person := model.Person{Name: "演员", NormalizedName: "actor"}
+	if e = repos.DB.Create(&person).Error; e != nil {
+		t.Fatal(e)
+	}
+	profile := model.TMDbPersonProfile{TMDbID: 5, PersonID: person.ID, Name: "演员", Fields: "{}", ProfilePath: "/avatar.png", ImageSourcePath: "/avatar.png", ImageKey: key, ImageStatus: "ready"}
+	if e = repos.DB.Create(&profile).Error; e != nil {
+		t.Fatal(e)
+	}
+	restarted := NewPeopleImageStore(cfg, repos.Person, nil)
+	restarted.tmdbRepo = repos.TMDb
+	reused, e := restarted.ImportCached(t.Context(), "tmdb", "https://image.tmdb.org/t/p/original/avatar.png")
+	if e != nil || reused != key {
+		t.Fatalf("persistent avatar not reused %s %v", reused, e)
 	}
 }

@@ -53,10 +53,11 @@ func catalogArtworkSnapshotCurrent(tx *gorm.DB, item model.MetadataItem, snapsho
 		return ErrCatalogArtworkChanged
 	}
 	var currentSnapshot model.MetadataProviderSnapshot
-	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
-		Where("metadata_id = ? AND provider = 'tmdb' AND fetched_at = ?", item.ID, snapshot.FetchedAt).
+	err := tx.Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").
+		Select("metadata_provider_snapshots.*").
+		Where("metadata_id = ? AND provider = 'tmdb' AND fetched_at = ? AND payload = ?::jsonb", item.ID, snapshot.FetchedAt, snapshot.Payload).
 		Where(`EXISTS (SELECT 1 FROM metadata_identifiers mi WHERE mi.metadata_id = metadata_provider_snapshots.metadata_id AND mi.provider = 'tmdb' AND mi.entity_kind = ? AND mi.external_id = metadata_provider_snapshots.payload->>'id')`, item.Kind).
-		First(&currentSnapshot).Error
+		Take(&currentSnapshot).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrCatalogArtworkChanged
 	}

@@ -129,7 +129,7 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 			if err != nil {
 				return result, err
 			}
-			asset, err = s.artwork.prepareAsset(metadataID, model.ArtworkTypePoster, data)
+			asset, err = s.artwork.prepareAsset(metadataID, model.ArtworkTypePoster, "douban", data)
 			if err != nil {
 				return result, err
 			}

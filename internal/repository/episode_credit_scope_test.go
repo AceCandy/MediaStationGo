@@ -59,7 +59,7 @@ func TestSeasonDerivedSnapshotPreservesFullEpisode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataProviderSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}); err != nil {
 		t.Fatal(err)
 	}
 	series := model.MetadataItem{Kind: "series", Title: "Series", Source: "tmdb"}
@@ -74,26 +74,42 @@ func TestSeasonDerivedSnapshotPreservesFullEpisode(t *testing.T) {
 	if err := db.Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}
-	repo := New(db).Metadata
-	full := `{"id":123,"episode_number":1,"name":"Old","videos":{"results":[]},"unknown":true}`
-	for _, step := range []struct{ payload, want string }{
-		{full, full},
-		{`{"id":123,"episode_number":1,"name":"New"}`, full},
-		{`{"id":124,"episode_number":1,"name":"Different"}`, `{"id":124,"episode_number":1,"name":"Different"}`},
+
+	for _, ident := range []model.MetadataIdentifier{
+		{MetadataID: series.ID, Provider: "tmdb", EntityKind: "series", ExternalID: "10"},
+		{MetadataID: season.ID, Provider: "tmdb", EntityKind: "season", ExternalID: "11"},
+		{MetadataID: item.ID, Provider: "tmdb", EntityKind: "episode", ExternalID: "123"},
 	} {
-		if err := repo.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(step.payload), time.Now()); err != nil {
+		if err := db.Create(&ident).Error; err != nil {
 			t.Fatal(err)
 		}
-		snapshot, err := repo.FindProviderSnapshot(t.Context(), item.ID, "tmdb")
-		if err != nil || snapshot == nil {
-			t.Fatalf("snapshot err=%v", err)
-		}
-		var equal bool
-		if err := db.Raw("SELECT ?::jsonb = ?::jsonb", snapshot.Payload, step.want).Scan(&equal).Error; err != nil {
-			t.Fatal(err)
-		}
-		if !equal {
-			t.Fatalf("payload=%s want=%s", snapshot.Payload, step.want)
-		}
+	}
+	repo := New(db).Metadata
+	full := `{"id":123,"season_number":0,"episode_number":1,"name":"Old","videos":{"results":[]},"unknown":true}`
+	at := time.Now()
+	if err := repo.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(full), at); err != nil {
+		t.Fatal(err)
+	}
+	derived := `{"id":123,"season_number":0,"episode_number":1,"name":"New"}`
+	if err := repo.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(derived), at.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var detail model.TMDbPayload
+	if err := db.Where("component='detail'").First(&detail).Error; err != nil {
+		t.Fatal(err)
+	}
+	var equal bool
+	if err := db.Raw("SELECT ?::jsonb = ?::jsonb", detail.Body, full).Scan(&equal).Error; err != nil || !equal {
+		t.Fatalf("original detail lost: %s %v", detail.Body, err)
+	}
+	snapshot, err := repo.FindProviderSnapshot(t.Context(), item.ID, "tmdb")
+	if err != nil || snapshot == nil {
+		t.Fatalf("snapshot %v", err)
+	}
+	if err = db.Raw("SELECT (?::jsonb)->>'name'='New' AND (?::jsonb)->>'unknown'='true'", snapshot.Payload, snapshot.Payload).Scan(&equal).Error; err != nil || !equal {
+		t.Fatalf("merged fields lost: %s %v", snapshot.Payload, err)
+	}
+	if err = repo.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(`{"id":124,"season_number":0,"episode_number":1}`), at); err == nil {
+		t.Fatal("accepted mismatched binding")
 	}
 }

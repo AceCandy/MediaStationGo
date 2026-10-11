@@ -285,7 +285,7 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 				if state.Kind == "season" {
 					kind = model.ArtworkTypePoster
 				}
-				asset, err = s.artwork.prepareAsset(state.MetadataID, kind, bytes)
+				asset, err = s.artwork.prepareAsset(state.MetadataID, kind, "tmdb", bytes)
 			}
 		}
 		err = recordTMDbRecheckStage(metrics, "image", "图片下载及落盘", stageStarted, err)

@@ -163,7 +163,7 @@ func TestDoubanPosterReusesMediaAssetWithoutSelectingIt(t *testing.T) {
 	subject := saveDoubanPosterSubject(t, repos, source, time.Now().UTC())
 	// 本地作品为电影、豆瓣实际条目也为电影；只按明确身份及来源复用。
 	local := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "movie", Title: "本地标题", Rating: 6, Source: "tmdb"}, model.MetadataIdentifier{Provider: "douban", EntityKind: "movie", ExternalID: "100"})
-	prepared, err := store.prepareAsset(local.ID, "poster", testArtworkPNG(t, 40, 60))
+	prepared, err := store.prepareAsset(local.ID, "poster", "douban", testArtworkPNG(t, 40, 60))
 	if err != nil {
 		t.Fatal(err)
 	}

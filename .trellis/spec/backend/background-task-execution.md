@@ -952,3 +952,22 @@ Applies to the Season/Episode recheck and media-scrape issue dialogs shown from 
 Wrong: debounce every keystroke into count-plus-page SQL or add pending counts to the frequent task snapshot.
 
 Correct: submit keyword explicitly, keep recheck items and summary independent, read the indicator snapshot on page entry, and recompute it only on cold load or explicit refresh.
+
+## TMDb source maintenance
+
+`tmdb_data_refresh` and `tmdb_center_migration` are common tasks independent of
+media ownership. Existing artwork/episode/snapshot maintenance keys remain stable.
+Source periodic refresh defaults off, runs hourly when enabled, and uses 100 real
+HTTP attempts per run (configurable 1–1000). Each attempt consumes admission budget;
+images are separate. Requests share concurrency 2, 250 ms start spacing, persisted
+retry/cooldown and 5-minute leases. 429 respects the full Retry-After across restart.
+
+Explicit ensure work has `explicit_pending=true`. The 3-second worker only handles
+that class; exhausted periodic work cannot escape the run budget through it. A
+periodic run may also satisfy explicit work under its own budget. Completed work
+clears the requester/quota slot. Single-episode extensions are not periodic targets.
+Migration creates ready maintenance slots only for successfully loaded components,
+using their original times; identity/search summaries never become automatic full
+fetches. Task metrics distinguish selected entities/scopes, actual HTTP attempts,
+updated, failed, cache hits and deferred work. Partial request failure is not a
+successful all-updated run; old source records remain readable.

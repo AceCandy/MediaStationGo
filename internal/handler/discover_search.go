@@ -27,7 +27,7 @@ func discoverSearchHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		c.Header("Cache-Control", "private, no-store")
-		if svc.Discover == nil || svc.Scraper == nil || !discoverProviderEnabled(c.Request.Context(), svc, "tmdb") {
+		if svc.Discover == nil || !discoverProviderEnabled(c.Request.Context(), svc, "tmdb") {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "TMDb 搜索暂不可用"})
 			return
 		}
@@ -36,10 +36,7 @@ func discoverSearchHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "TMDb 搜索失败，请重试"})
 			return
 		}
-		if err := svc.Scraper.QueueMissingSearchMetadata(c.Request.Context(), items); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "搜索资料登记失败，请重试"})
-			return
-		}
+
 		c.JSON(http.StatusOK, gin.H{"items": items, "has_next": hasNext, "page": input.Page})
 	}
 }

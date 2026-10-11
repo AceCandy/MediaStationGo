@@ -37,11 +37,18 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 28 {
-		t.Fatalf("definitions = %d, want 28", len(response.Definitions))
+	if len(response.Definitions) != 30 {
+		t.Fatalf("definitions = %d, want 30", len(response.Definitions))
 	}
 	foundRefresh, foundEnrichment := false, false
+	foundTMDb, foundMigration := false, false
 	for _, definition := range response.Definitions {
+		if definition.Key == service.TaskKindTMDbDataRefresh {
+			foundTMDb = definition.Name == "TMDb 资料刷新"
+		}
+		if definition.Key == service.TaskKindTMDbCenterMigration {
+			foundMigration = true
+		}
 		if definition.Key == service.TaskDefinitionDoubanDataRefresh {
 			foundRefresh = definition.Name == "豆瓣资料刷新"
 		}
@@ -49,7 +56,7 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 			foundEnrichment = definition.Name == "豆瓣信息补齐"
 		}
 	}
-	if !foundRefresh || !foundEnrichment {
+	if !foundRefresh || !foundEnrichment || !foundTMDb || !foundMigration {
 		t.Fatal("douban refresh and enrichment definitions must be separate")
 	}
 

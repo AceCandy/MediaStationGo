@@ -282,7 +282,7 @@ CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS seas
 sid.external_id AS series_tm_db_id, own.external_id AS tmdb_id,
 (sid.n=1 AND COALESCE(sid.external_id,'') ~ '^[0-9]+$' AND (mi.kind='episode' OR own.n<=1)) AS identity_valid,
 CASE WHEN mi.kind='season' THEN mi.tmdb_season_checked_at ELSE mi.tmdb_episode_checked_at END AS checked_at,
-NOT EXISTS(SELECT 1 FROM metadata_provider_snapshots p WHERE p.metadata_id=mi.id AND p.provider='tmdb') AS snapshot_missing,
+NOT EXISTS(SELECT 1 FROM `+tmdbSnapshotSourceSQL+` p WHERE p.metadata_id=mi.id AND p.provider='tmdb') AS snapshot_missing,
 NOT EXISTS(SELECT 1 FROM metadata_artworks a JOIN artwork_assets aa ON aa.id=a.asset_id WHERE a.metadata_id=mi.id AND a.artwork_type=CASE WHEN mi.kind='season' THEN 'poster' ELSE 'still' END) AS artwork_missing,
 (EXISTS(SELECT 1 FROM media m WHERE m.metadata_id=mi.id) OR (mi.kind='season' AND EXISTS(
  SELECT 1 FROM metadata_items e JOIN media m ON m.metadata_id=e.id WHERE e.parent_id=mi.id AND e.kind='episode'))) AS playable,

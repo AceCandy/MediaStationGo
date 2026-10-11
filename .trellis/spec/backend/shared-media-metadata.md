@@ -485,7 +485,7 @@ db.Model(&credit).
   include a remote URL.
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
 - Task-center manual recovery target: `MediaScrapeIssue{id, title}` identifies the raw `Media` row used by manual search and apply; opening the dialog does not require `GET /api/media/:id`.
-- Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
+- Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/catalogs/<source>/artwork/aa/bb/cc/...`.
 - Library deletion: `DELETE /api/libraries/:id` -> `MediaService.DeleteLibrary(ctx, id)`.
 - Scrape entrypoints (`POST /api/media/:id/scrape`, manual apply, scan
   auto-scrape, STRM refresh, and task-center `media_scrape`) enrich metadata
@@ -2484,11 +2484,11 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 ### 2. Signatures
 
 - `Person.ProfileURL` is the source reference.
-- `Person.ProfileImageKey` is a relative key under `DataDir/people`, such as
-  `sha256/ab/cd/<hash>.jpg`.
-- `PeopleImageStore.Import(ctx, source) (key, error)` validates and atomically
+- `Person.ProfileImageKey` is a relative key under `DataDir`, such as
+  `catalogs/tmdb/people/ab/cd/ef/<hash>.jpg`.
+- `PeopleImageStore.Import(ctx, provider, source) (key, error)` validates and atomically
   stores image bytes.
-- `PeopleImageStore.ImportCached(ctx, source)` reuses successful remote imports
+- `PeopleImageStore.ImportCached(ctx, provider, source)` reuses successful remote imports
   through a private bounded in-process `RuntimeCacheService` for 24 hours.
   Credit preparation first batch-resolves provider identities and reuses valid
   persisted remote images whose `ProfileImageSourceURL` matches the incoming URL,
@@ -2500,8 +2500,10 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 
 ### 3. Contracts
 
-- Person bytes live at `App.DataDir/people/sha256/<first-two>/<next-two>/`;
-  the key is content SHA-256 based and deduplicates identical bytes.
+- Person bytes live at `App.DataDir/catalogs/<source>/people/aa/bb/cc/`;
+  the key uses content SHA-256 and deduplicates within the source. See
+  [source-owned original storage](./image-variants.md#scenario-source-owned-persistent-originals)
+  for legacy migration and source-scoped import caches.
 - Outside catalog hydration, profile downloads happen before credit persistence writes the person and
   bypass `cache/images`; image network errors are warnings and do not fail the
   authoritative scrape.
@@ -2665,7 +2667,8 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 - A zero TMDb ID removes only the identifier. Existing canonical metadata and
   snapshots are retained. Deleting media, a library root, or a library likewise
   does not delete canonical metadata, identifiers, or snapshots. Metadata graph
-  merge keeps its existing snapshot move/deduplication behavior.
+  merge first preserves source TMDb snapshots in the center, then moves/deduplicates
+  legacy rows. A preservation failure rolls back the merge.
 - Backfill candidates are all Movie/Series/Season/Episode metadata with a valid
   positive, same-kind TMDb identifier and no TMDb snapshot. Discovery never
   joins `media`; unlinked canonical metadata remains eligible.
@@ -2818,3 +2821,38 @@ Series detail separates canonical Series presentation from selected Episode and 
 - Wrong: loop through all episode files and save the Series edit payload to each.
 - Correct: submit one visible file ID with `scope: "series"`, resolve its canonical Series, and leave episode/file linkage untouched.
 - Wrong: reuse Episode-only search representative eligibility to decide whether Series detail exists. Correct: validate the current file, resolve its existing parent chain, and project the Series record directly.
+
+## TMDb independent source center
+
+`tmdb_subjects`, `tmdb_person_profiles`, `tmdb_payloads`, `tmdb_credits`,
+`tmdb_artworks`, `tmdb_query_cache`, and `tmdb_refresh_jobs` own TMDb source facts.
+The public people/person_identifiers/metadata_credits IDs and local presentation
+remain stable. Bind local works through provider+kind+external_id, never titles.
+
+- All TMDbProvider JSON reads use TMDbDataCenter; search/feed results only seed
+  summaries. Detail/base/filmography/season_episode payloads keep source language,
+  provenance and success time. Season responses split episode basics while keeping
+  full episode extensions separately. Source refresh does not apply local edits.
+- Snapshot wrappers write the center only. Their transitional read relation joins
+  identifiers to source payloads, merges newer basics over extensions, and uses
+  conservative component time. Legacy rows are a fallback only for unmigrated
+  identities. Identifier rollback/CAS and full parent coordinates still apply.
+- Source scope writes and relations are transactional. Person/subject credit
+  origins are isolated; full person filmography requires both cast and crew arrays.
+  Stable role hashes exclude display ordering. Person works group before paging.
+- API requests hold a persisted lease/token. Older component responses cannot
+  replace newer ones, but must finish their own lease using the accepted payload
+  and its real timestamp. Configuration changes retire the old request slot and
+  hand off to the current configuration; credentials never enter persisted keys.
+- Startup migration is bounded, offline and retryable. It preserves legacy success
+  time, unmatched identities and existing image references. Local text without a
+  raw response is explicitly `legacy_projection`; it is not full source detail.
+  Failed identity/parent checks remain visible and prevent a completion marker.
+- Source images use `data/catalogs/tmdb/{artwork|people}/aa/bb/cc/hash.ext`, with
+  adjacent thumbnails. Persisted source path-to-asset/key mappings survive restart;
+  source imports create no cache/images intermediate copy. Failed replacement
+  retains the prior image with private/no-store and never records new-path success.
+- Verification: TestTMDbCenter* in repository/service/handler, schema hierarchy
+  test, snapshot/season/localization/ID rollback and discovery regressions. Use an
+  isolated real PostgreSQL instance; mock upstream counts do not prove live API
+  connectivity or production migration completion.

@@ -18,7 +18,7 @@ func TestMissingTMDbSnapshotCountScopesMetadataProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, sql := range []string{
@@ -115,7 +115,7 @@ func TestListMissingTMDbSnapshotsWithoutMediaTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	items := []model.MetadataItem{
@@ -179,7 +179,7 @@ func TestListMissingTMDbSnapshotsWithoutMediaTable(t *testing.T) {
 	if next, _ := repo.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "11"); next != nil {
 		t.Fatalf("new identifier persisted after snapshot failure: %#v", next)
 	}
-	if err := db.Migrator().DropTable(&model.MetadataProviderSnapshot{}, &model.DoubanSubject{}); err != nil {
+	if err := db.Migrator().DropTable(&model.TMDbPayload{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.ReplaceIdentifierWithSnapshot(t.Context(), items[0].ID, "tmdb", model.MetadataKindMovie, "12", []byte(`{"id":12}`), time.Now().UTC()); err == nil {
@@ -344,7 +344,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteWorks(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()

@@ -95,7 +95,7 @@ func (s *ScraperService) fetchAndSaveTMDbSeasonSnapshot(ctx context.Context, epi
 	if err := s.persistCredits(ctx, seasonID, details.LoadedCreditTypes, details.Credits); err != nil {
 		return false
 	}
-	return s.persistTMDbSnapshot(ctx, seasonID, details.RawJSON)
+	return s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, seasonID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()) == nil
 }
 
 func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *model.Media, metadataID string, tmdbID int, matchYear int, options ScrapeOptions) bool {
@@ -116,10 +116,10 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 			zap.Error(err))
 		return seasonSnapshotUpdated
 	}
-	if episode == nil {
+	if episode == nil || episode.ID <= 0 || !validTMDbRefreshPosition(episode.RawJSON, m.SeasonNum, m.EpisodeNum) {
 		return seasonSnapshotUpdated
 	}
-	episodeSnapshotUpdated := s.persistTMDbSnapshot(ctx, metadataID, episode.RawJSON)
+	episodeSnapshotUpdated := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, metadataID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(episode.ID), episode.RawJSON, time.Now().UTC()) == nil
 	creditsUpdated := false
 	if len(episode.LoadedCreditTypes) > 0 {
 		if err := s.persistCredits(ctx, metadataID, episode.LoadedCreditTypes, episode.Credits); err != nil {

@@ -152,7 +152,9 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   authoritative release date. Preserve episode positions when video IDs are absent.
 - Detail updates are transactional and idempotent. Do not delete missing
   episodes merely because one response omits them. Keep only whitelisted snapshots.
-- Source images live under `DataDir/catalogs/hongguo/artwork`; public DTOs/logs
+- Source images live under `DataDir/catalogs/hongguo/artwork` for posters and
+  `DataDir/catalogs/hongguo/people` for avatars, with `aa/bb/cc/<hash>.<ext>`
+  sharding; public DTOs/logs
   exclude upstream image URLs and credentials. Retain an old image until its
   replacement succeeds. Missing local images enqueue repair.
 - Emby `ImageURL` resolves `hg-group/work/season/episode` directly against works and local

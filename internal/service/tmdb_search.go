@@ -112,6 +112,10 @@ func (t *TMDbProvider) movieSearchResultToMatch(r tmdbMovieSearchResult) *Match 
 	if len(r.ReleaseDate) >= 4 {
 		_, _ = fmt.Sscanf(r.ReleaseDate[:4], "%d", &m.Year)
 	}
+	if t.catalog != nil {
+		m.PosterURL = tmdbCatalogSubjectImage(m.MediaType, m.TMDbID, "poster")
+		m.BackdropURL = tmdbCatalogSubjectImage(m.MediaType, m.TMDbID, "backdrop")
+	}
 	return m
 }
 
@@ -195,6 +199,10 @@ func (t *TMDbProvider) tvSearchResultToMatch(r tmdbTVSearchResult) *Match {
 	m.ReleaseDate = normalizeReleaseDate(r.FirstAirDate)
 	if len(r.FirstAirDate) >= 4 {
 		_, _ = fmt.Sscanf(r.FirstAirDate[:4], "%d", &m.Year)
+	}
+	if t.catalog != nil {
+		m.PosterURL = tmdbCatalogSubjectImage(m.MediaType, m.TMDbID, "poster")
+		m.BackdropURL = tmdbCatalogSubjectImage(m.MediaType, m.TMDbID, "backdrop")
 	}
 	return m
 }

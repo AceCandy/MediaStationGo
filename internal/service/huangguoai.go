@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ type HuangGuoAIService struct {
 }
 
 func NewHuangGuoAIService(repo *repository.Container, tasks *TaskTrackerService, images *ImageProxy, dataDir string) *HuangGuoAIService {
-	return &HuangGuoAIService{repo: repo, client: huangguoai.NewClient(nil), tasks: tasks, images: images, imageRoot: filepath.Join(dataDir, "catalogs", "huangguoai", "artwork"), running: map[string]context.CancelFunc{}}
+	return &HuangGuoAIService{repo: repo, client: huangguoai.NewClient(nil), tasks: tasks, images: images, imageRoot: dataDir, running: map[string]context.CancelFunc{}}
 }
 
 // SetRuntimeCache 接入来源资料、绑定及图片变更后的公共响应失效。
@@ -338,6 +339,10 @@ func (s *HuangGuoAIService) storeArtwork(ctx context.Context, row model.HuangGuo
 	if err != nil {
 		return "", err
 	}
+	stored.StorageKey, err = catalogImageKey("huangguoai", "artwork", stored.StorageKey)
+	if err != nil {
+		return "", err
+	}
 	path, err := storedImagePath(s.imageRoot, stored.StorageKey)
 	if err != nil {
 		return "", err
@@ -352,7 +357,11 @@ func (s *HuangGuoAIService) ServeArtwork(ctx context.Context, w http.ResponseWri
 	if err != nil {
 		return err
 	}
-	path, err := storedImagePath(s.imageRoot, row.LocalKey)
+	key := row.LocalKey
+	if !strings.HasPrefix(key, "catalogs/") {
+		key = filepath.ToSlash(filepath.Join("catalogs", "huangguoai", "artwork", key))
+	}
+	path, err := storedImagePath(s.imageRoot, key)
 	if err != nil || s.images == nil || !s.images.serveImageFile(w, r, row.LocalKey, path, imageBrowserCacheControl) {
 		if e := s.repo.HuangGuoAI.ScheduleMissingArtwork(ctx, row.ID); e != nil {
 			return e

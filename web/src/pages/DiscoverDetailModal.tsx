@@ -32,20 +32,24 @@ export function DiscoverDetailModal({ item, onClose }: { item: DiscoverItem; onC
     setError(false)
     setRefreshError(false)
     setRefreshing(false)
-    void discoverAPI.detail({ tmdb_id: tmdbID, media_type: mediaType }, controller.signal)
+    const read = () => discoverAPI.detail({ tmdb_id: tmdbID, media_type: mediaType }, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return
         setDetail(data)
-        if (!isAdmin || !data.local_metadata) return
-        setRefreshing(true)
-        return discoverAPI.refresh({ tmdb_id: tmdbID, media_type: mediaType }, controller.signal)
-          .then((latest) => { if (!controller.signal.aborted) setDetail(latest) })
-          .catch(() => { if (!controller.signal.aborted) setRefreshError(true) })
-          .finally(() => { if (!controller.signal.aborted) setRefreshing(false) })
+        return data
       })
-      .catch(() => { if (!controller.signal.aborted) setError(true) })
+    void read().then(async data => {
+      if (!data?.center_id || !data.missing_scopes?.includes('detail') || data.source_error || controller.signal.aborted) return
+      await discoverAPI.ensure(data.center_id, controller.signal)
+      for (let attempt = 0; attempt < 45 && !controller.signal.aborted; attempt++) {
+        await new Promise<void>(resolve => { const finish = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', finish); resolve() }; const timer = setTimeout(finish, 2000); controller.signal.addEventListener('abort', finish, { once: true }) })
+        if (controller.signal.aborted) return
+        const latest = await read()
+        if (!latest?.missing_scopes?.includes('detail') || latest.source_error) return
+      }
+    }).catch(() => { if (!controller.signal.aborted) setError(true) })
     return controller
-  }, [isAdmin, mediaType, tmdbID])
+  }, [mediaType, tmdbID])
   useEffect(() => {
     loadDetail(false)
     return () => {
@@ -53,6 +57,14 @@ export function DiscoverDetailModal({ item, onClose }: { item: DiscoverItem; onC
       controllerRef.current = null
     }
   }, [loadDetail, revision])
+  const refreshLocal = async () => {
+    if (!identity || refreshing) return
+    const controller = new AbortController(); controllerRef.current = controller
+    setRefreshing(true); setRefreshError(false)
+    try { const latest = await discoverAPI.refresh(identity, controller.signal); if (!controller.signal.aborted) setDetail(latest) }
+    catch { if (!controller.signal.aborted) setRefreshError(true) }
+    finally { if (!controller.signal.aborted) setRefreshing(false) }
+  }
   const display: DiscoverItem = detail ? { ...item, title: detail.title, overview: detail.overview, poster_url: detail.poster_url, backdrop_url: detail.backdrop_url, rating: detail.rating, year: detail.year } : item
   const doubanID = detail ? detail.douban_id : item.douban_id
 
@@ -75,8 +87,9 @@ export function DiscoverDetailModal({ item, onClose }: { item: DiscoverItem; onC
             </div>
             {!detail && !error && <p role="status" className="text-sm text-[var(--app-muted)]">正在加载完整资料…</p>}
             {error && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm"><span>完整资料暂时不可用</span><button className="btn-outline" onClick={() => setRevision((v) => v + 1)}>重试详情</button></div>}
+            {detail?.local_metadata && isAdmin && <button className="btn-outline" disabled={refreshing} onClick={() => void refreshLocal()}>刷新本地资料</button>}
             {detail?.local_metadata && isAdmin && refreshing && <p role="status" className="text-sm text-[var(--app-muted)]">正在刷新 TMDb 最新资料…</p>}
-            {detail?.local_metadata && isAdmin && refreshError && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm"><span>TMDb 刷新失败，已保留当前资料</span><button className="btn-outline" onClick={() => loadDetail(true)}>重试刷新</button></div>}
+            {detail?.local_metadata && isAdmin && refreshError && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm"><span>TMDb 刷新失败，已保留当前资料</span><button className="btn-outline" onClick={() => void refreshLocal()}>重试刷新</button></div>}
           </>}
           <MetadataOverview overview={display.overview || '当前数据源没有返回简介。'} />
           {detail && <MetadataCategories genres={detail.genres ?? []} countries={detail.countries ?? []} languages={detail.languages ?? []} />}

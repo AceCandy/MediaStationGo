@@ -161,7 +161,7 @@ func (r *NFORepository) IngestWithResult(ctx context.Context, media *model.Media
 					return err
 				}
 				var saved model.ArtworkAsset
-				if err := tx.Where("sha256 = ?", artwork.Asset.SHA256).First(&saved).Error; err != nil {
+				if err := tx.Where("storage_key = ? AND sha256 = ?", artwork.Asset.StorageKey, artwork.Asset.SHA256).First(&saved).Error; err != nil {
 					return err
 				}
 				if artwork.Type == model.ArtworkTypePoster {

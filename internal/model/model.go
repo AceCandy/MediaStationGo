@@ -55,6 +55,7 @@ func AllModels() []interface{} {
 		&MetadataProviderSnapshot{},
 		&DoubanSubject{},
 		&DoubanQueryCache{},
+		&TMDbSubject{}, &TMDbPersonProfile{}, &TMDbPayload{}, &TMDbCredit{}, &TMDbArtwork{}, &TMDbQueryCache{}, &TMDbRefreshJob{},
 		&CatalogHydrationJob{},
 		&TaskExecution{},
 		&HongGuoDownloadWork{},

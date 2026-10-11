@@ -178,7 +178,7 @@ func (s *ScraperService) downloadCatalogImage(ctx context.Context, item model.Me
 	if err != nil {
 		return err
 	}
-	asset, err := s.artwork.prepareAsset(item.ID, kind, data)
+	asset, err := s.artwork.prepareAsset(item.ID, kind, "tmdb", data)
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (s *ScraperService) downloadCatalogProfiles(ctx context.Context, metadataID
 		if person.ProfileImageSourceURL == person.ProfileURL && s.people.hasUsableImage(person.ProfileImageKey) {
 			continue
 		}
-		key, err := s.people.ImportCached(ctx, person.ProfileURL)
+		key, err := s.people.ImportCached(ctx, person.Source, person.ProfileURL)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("person %s: %w", person.ID, err))
 			continue

@@ -78,7 +78,7 @@ type MetadataIdentifier struct {
 // ArtworkAsset 描述 DataDir 中按内容哈希保存的一份权威原图。
 type ArtworkAsset struct {
 	PermanentBase
-	SHA256     string `gorm:"size:64;not null;uniqueIndex" json:"sha256"`
+	SHA256     string `gorm:"size:64;not null" json:"sha256"`
 	StorageKey string `gorm:"size:255;not null;uniqueIndex" json:"storage_key"`
 	MimeType   string `gorm:"size:64;not null" json:"mime_type"`
 	Width      int    `json:"width"`

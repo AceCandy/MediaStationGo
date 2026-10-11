@@ -171,7 +171,7 @@ func TestCatalogArtworkRejectsStaleSnapshotAndPreservesManualSelection(t *testin
 	}
 	item, _ = repos.Metadata.FindByID(t.Context(), item.ID)
 	snapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), item.ID, "tmdb")
-	asset, err := s.artwork.prepareAsset(item.ID, model.ArtworkTypePoster, testArtworkPNG(t, 4, 3))
+	asset, err := s.artwork.prepareAsset(item.ID, model.ArtworkTypePoster, "tmdb", testArtworkPNG(t, 4, 3))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestCatalogArtworkRejectsStaleSnapshotAndPreservesManualSelection(t *testin
 	if err := repos.Metadata.CompleteCatalogArtwork(t.Context(), *item, snapshot, nil); !errors.Is(err, repository.ErrCatalogArtworkChanged) {
 		t.Fatalf("stale completion accepted: %v", err)
 	}
-	manual, err := s.artwork.prepareAsset(item.ID, model.ArtworkTypePoster, testArtworkPNG(t, 7, 5))
+	manual, err := s.artwork.prepareAsset(item.ID, model.ArtworkTypePoster, "local", testArtworkPNG(t, 7, 5))
 	if err != nil {
 		t.Fatal(err)
 	}

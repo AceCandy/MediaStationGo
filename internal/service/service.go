@@ -33,6 +33,7 @@ type Container struct {
 	FFprobe             *FFprobeService
 	MediaProbe          *MediaProbeService
 	TMDb                *TMDbProvider
+	TMDbCenter          *TMDbDataCenter
 	Bangumi             *BangumiProvider
 	TheTVDB             *TheTVDBProvider
 	Fanart              *FanartProvider
@@ -124,6 +125,11 @@ func (c *Container) Boot() {
 	}
 	_ = c.startupStep("建立媒体库目录监听", func() error { return c.Watcher.Start(c.stopCtx) })
 	_ = c.startupStep("加载资料源默认配置", func() error { return c.APIConfig.SeedDefaults(c.stopCtx) })
+	if c.TMDbCenter != nil {
+		c.TMDbCenter.Start(c.stopCtx)
+		c.TMDbCenter.wg.Add(1)
+		go func() { defer c.TMDbCenter.wg.Done(); _ = c.TMDbCenter.Migrate(c.stopCtx, c.Tasks, "startup") }()
+	}
 	if c.MediaProbe != nil {
 		_ = c.startupStep("启动媒体轨道回填", func() error { c.MediaProbe.WakeBackfill(); return nil })
 	}
@@ -160,6 +166,9 @@ func (c *Container) Close() {
 	}
 	c.bootMu.Unlock()
 	c.bootWG.Wait()
+	if c.TMDbCenter != nil {
+		c.TMDbCenter.Wait()
+	}
 	if c.Scheduler != nil {
 		c.Scheduler.Stop()
 	}

@@ -83,7 +83,7 @@ func (r *ArtworkRepository) SaveSelection(ctx context.Context, metadataID, artwo
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
+		if err := tx.Where("storage_key = ? AND sha256 = ?", asset.StorageKey, asset.SHA256).First(&saved).Error; err != nil {
 			return err
 		}
 		selection := model.MetadataArtwork{
@@ -111,7 +111,7 @@ func (r *ArtworkRepository) SaveAsset(ctx context.Context, asset *model.ArtworkA
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
-		return tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error
+		return tx.Where("storage_key = ? AND sha256 = ?", asset.StorageKey, asset.SHA256).First(&saved).Error
 	})
 	return &saved, err
 }
@@ -145,7 +145,7 @@ func (r *ArtworkRepository) SaveCatalogSelection(ctx context.Context, metadataID
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
+		if err := tx.Where("storage_key = ? AND sha256 = ?", asset.StorageKey, asset.SHA256).First(&saved).Error; err != nil {
 			return err
 		}
 		updates := map[string]any{
@@ -184,7 +184,7 @@ func (r *ArtworkRepository) SaveCandidate(ctx context.Context, metadataID, artwo
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
+		if err := tx.Where("storage_key = ? AND sha256 = ?", asset.StorageKey, asset.SHA256).First(&saved).Error; err != nil {
 			return err
 		}
 		candidate := model.MetadataArtworkCandidate{
@@ -413,7 +413,7 @@ func (r *ArtworkRepository) RepairTMDbSelection(ctx context.Context, snapshot TM
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
+		if err := tx.Where("storage_key = ? AND sha256 = ?", asset.StorageKey, asset.SHA256).First(&saved).Error; err != nil {
 			return err
 		}
 		res := tx.Model(&model.MetadataArtwork{}).
@@ -443,7 +443,7 @@ func (r *ArtworkRepository) RepairDoubanCandidate(ctx context.Context, snapshot 
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
+		if err := tx.Where("storage_key = ? AND sha256 = ?", asset.StorageKey, asset.SHA256).First(&saved).Error; err != nil {
 			return err
 		}
 		res := tx.Model(&model.MetadataArtworkCandidate{}).

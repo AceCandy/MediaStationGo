@@ -28,6 +28,7 @@ var ErrArtworkNotFound = errors.New("artwork not found")
 
 // ArtworkStore 将选中的原图保存到 DataDir，并维护共享元数据的图片关联。
 type ArtworkStore struct {
+	tmdbCenter *TMDbDataCenter
 	root       string
 	repo       *repository.ArtworkRepository
 	imageProxy *ImageProxy
@@ -36,13 +37,20 @@ type ArtworkStore struct {
 
 func NewArtworkStore(cfg *config.Config, repo *repository.ArtworkRepository, imageProxy *ImageProxy) *ArtworkStore {
 	return &ArtworkStore{
-		root:       filepath.Join(cfg.App.DataDir, "artwork"),
+		root:       cfg.App.DataDir,
 		repo:       repo,
 		imageProxy: imageProxy,
 	}
 }
 
 func (s *ArtworkStore) ImportRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, error) {
+	if provider == "tmdb" && s.tmdbCenter != nil {
+		asset, err := s.tmdbCenter.importArtworkSource(ctx, sourceURL)
+		if err != nil {
+			return nil, err
+		}
+		return s.repo.SaveSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
+	}
 	if s.imageProxy == nil {
 		return nil, errors.New("image proxy is unavailable")
 	}
@@ -58,6 +66,14 @@ func (s *ArtworkStore) importCatalogRemote(ctx context.Context, metadataID, artw
 		if selected, err := s.repo.FindSelection(ctx, metadataID, artworkType); err != nil || selected != nil {
 			return selected, true, err
 		}
+	}
+	if provider == "tmdb" && s.tmdbCenter != nil {
+		asset, err := s.tmdbCenter.importArtworkSource(ctx, sourceURL)
+		if err != nil {
+			return nil, false, err
+		}
+		asset, selected, err := s.repo.SaveCatalogSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
+		return asset, !selected, err
 	}
 	if s.imageProxy == nil {
 		return nil, false, errors.New("image proxy is unavailable")
@@ -81,7 +97,7 @@ func (s *ArtworkStore) importRemoteCandidate(ctx context.Context, metadataID, ar
 	if err != nil {
 		return nil, false, err
 	}
-	asset, err := s.prepareAsset(metadataID, artworkType, data)
+	asset, err := s.prepareAsset(metadataID, artworkType, provider, data)
 	if err != nil {
 		return nil, false, err
 	}
@@ -121,11 +137,11 @@ func (s *ArtworkStore) prepareLocalAsset(ownerID, artworkType, sourcePath string
 	if len(data) > maxArtworkBytes {
 		return nil, errors.New("artwork exceeds 32 MiB limit")
 	}
-	return s.prepareAsset(ownerID, artworkType, data)
+	return s.prepareAsset(ownerID, artworkType, "local", data)
 }
 
 func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, error) {
-	asset, err := s.prepareAsset(metadataID, artworkType, data)
+	asset, err := s.prepareAsset(metadataID, artworkType, provider, data)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +149,7 @@ func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provid
 }
 
 func (s *ArtworkStore) saveCatalog(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, bool, error) {
-	asset, err := s.prepareAsset(metadataID, artworkType, data)
+	asset, err := s.prepareAsset(metadataID, artworkType, provider, data)
 	if err != nil {
 		return nil, false, err
 	}
@@ -144,6 +160,13 @@ func (s *ArtworkStore) repairTMDbRemote(ctx context.Context, snapshot repository
 	if s == nil || s.imageProxy == nil || s.repo == nil {
 		return nil, false, errors.New("artwork repair dependencies unavailable")
 	}
+	if s.tmdbCenter != nil {
+		asset, err := s.tmdbCenter.importArtworkSource(ctx, sourceURL)
+		if err != nil {
+			return nil, false, err
+		}
+		return s.repo.RepairTMDbSelection(ctx, snapshot, sourceURL, asset)
+	}
 	if clearFailure {
 		if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
 			return nil, false, err
@@ -153,7 +176,7 @@ func (s *ArtworkStore) repairTMDbRemote(ctx context.Context, snapshot repository
 	if err != nil {
 		return nil, false, err
 	}
-	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, data)
+	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, "tmdb", data)
 	if err != nil {
 		return nil, false, err
 	}
@@ -171,7 +194,7 @@ func (s *ArtworkStore) repairDoubanCandidate(ctx context.Context, snapshot repos
 	if err != nil {
 		return nil, false, err
 	}
-	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, data)
+	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, "douban", data)
 	if err != nil {
 		return nil, false, err
 	}
@@ -200,18 +223,18 @@ func (s *ArtworkStore) doubanCandidateFileAvailable(snapshot repository.DoubanAr
 	return localArtworkFileAvailable(path)
 }
 
-func (s *ArtworkStore) prepareAsset(metadataID, artworkType string, data []byte) (*model.ArtworkAsset, error) {
+func (s *ArtworkStore) prepareAsset(metadataID, artworkType, provider string, data []byte) (*model.ArtworkAsset, error) {
 	if strings.TrimSpace(metadataID) == "" {
 		return nil, errors.New("metadata id is required")
 	}
 	if !validArtworkType(artworkType) {
 		return nil, errors.New("invalid artwork type")
 	}
-	return s.prepareImageAsset(data)
+	return s.prepareImageAsset(provider, data)
 }
 
 // importRemoteAsset 为独立资料保存原图，不创建媒体图片关联。
-func (s *ArtworkStore) importRemoteAsset(ctx context.Context, sourceURL string) (*model.ArtworkAsset, error) {
+func (s *ArtworkStore) importRemoteAsset(ctx context.Context, provider, sourceURL string) (*model.ArtworkAsset, error) {
 	if s.imageProxy == nil {
 		return nil, errors.New("image proxy is unavailable")
 	}
@@ -219,15 +242,19 @@ func (s *ArtworkStore) importRemoteAsset(ctx context.Context, sourceURL string) 
 	if err != nil {
 		return nil, err
 	}
-	asset, err := s.prepareImageAsset(data)
+	asset, err := s.prepareImageAsset(provider, data)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.SaveAsset(ctx, asset)
 }
 
-func (s *ArtworkStore) prepareImageAsset(data []byte) (*model.ArtworkAsset, error) {
+func (s *ArtworkStore) prepareImageAsset(provider string, data []byte) (*model.ArtworkAsset, error) {
 	stored, err := prepareStoredImage(data)
+	if err != nil {
+		return nil, err
+	}
+	stored.StorageKey, err = catalogImageKey(provider, "artwork", stored.StorageKey)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +360,7 @@ func ArtworkURL(assetID string) string {
 }
 
 func (s *ArtworkStore) pathForStorageKey(storageKey string) (string, error) {
-	return storedImagePath(s.root, storageKey)
+	return managedImagePath(s.root, "artwork", storageKey)
 }
 
 func validArtworkType(value string) bool {

@@ -128,21 +128,20 @@ Keep ordinary poster URLs stable and use `refresh=1` only for explicit recommend
 - Search uses TMDb paginated search summaries, excludes people/adult results,
   and deduplicates by work kind plus TMDb ID. The response contains `items`,
   `page`, and upstream-derived `has_next`, even when filtering leaves a page empty.
-- Only absent Metadata identities are registered in the existing durable catalog
-  hydration queue. Creation/details/artwork happen in its background worker;
-  repeated searches preserve job identity and retry state. Do not overwrite
-  existing metadata with summaries or create Media records. Queue failures are
-  errors, never silently successful search-and-import responses.
+- TMDb search/feeds persist summaries in the independent TMDb center. They do not
+  enqueue canonical hydration, create local Metadata/Media, fetch result details,
+  or recursively download images. Full local hydration remains an explicit
+  ingestion/maintenance action.
 - URL-owned `tmdb_query` and `tmdb_kind` are independent from HongGuo query keys.
   Abort old requests on search change/unmount; retain accumulated rows on page
   failure and retry that page. Reuse `ContentRow` badges and `DiscoverDetailModal`.
 - Tests: `TestDiscoverSearchTMDbPaginationAndIdentity`,
-  `TestDiscoverSearchQueueSkipsExistingAndDeduplicates`,
+  `TestTMDbCenterDiscoverySearchOnlySummaries`,
   `TestDiscoverSearchRejectsInvalidInput`, and discovery permission tests.
 
 ### 1. Scope
 
-TMDb discovery previews remain dialogs without season/episode lists. The detail GET is a safe read-only projection; an administrator may explicitly follow it with the separate refresh POST below. Opening the dialog must not create metadata, snapshots or media records.
+TMDb discovery previews remain dialogs without season/episode lists. The detail GET is a safe read-only projection; an administrator may explicitly follow it with the separate refresh POST below. The GET never writes local metadata or media; a separate ensure POST may persist missing source components in the center.
 
 ### 2. Signatures
 
@@ -153,7 +152,7 @@ TMDb discovery previews remain dialogs without season/episode lists. The detail 
 
 - Both routes require `can_view_discover`; successful responses use `Cache-Control: private, no-store`.
 - Detail returns public Match fields, positive deduplicated `runtime_minutes`, and `credits`; no raw provider payload or season/episode fetches. Only a unique, same-kind stored Douban identifier supplies the Douban link.
-- Detail resolves local metadata by exact TMDb ID + work kind, independently of media existence and library visibility. A local hit uses canonical work presentation, selected artwork and `MediaService.ListMetadataCredits` (saved translated `Person.Name` / `MetadataCredit.Role`, actor-first order). Ordinary users remain read-only and use that local projection; only absence of matching metadata falls back to TMDb. An administrator opening a local hit may then start the separate asynchronous refresh endpoint below; the dialog keeps the local projection visible while refreshing and retains it on failure. The discovery permission still applies; no media paths or playback targets are exposed. Library/NSFW media visibility filters belong to the ownership badge, not this shared catalog preview.
+- Detail resolves local metadata by exact TMDb ID + work kind, independently of media existence and library visibility. A local hit uses canonical work presentation, selected artwork and `MediaService.ListMetadataCredits` (saved translated `Person.Name` / `MetadataCredit.Role`, actor-first order). Ordinary users remain read-only and use that local projection; absence of matching metadata reads the TMDb center and reports missing scopes. A separate controlled ensure requests only the opened source item. An administrator must click the explicit local refresh button to use the endpoint below; the dialog keeps the local projection visible while refreshing and retains it on failure. The discovery permission still applies; no media paths or playback targets are exposed. Library/NSFW media visibility filters belong to the ownership badge, not this shared catalog preview.
 - Local movie runtime uses canonical `RuntimeSec` when positive, otherwise the stored TMDb snapshot; series runtime uses only snapshot `episode_run_time`. Never label an arbitrary episode file's duration as whole-series runtime. Remote preview uses the same snapshot runtime parser. No physical media probing is triggered.
 - Dialog and media detail share `MetadataFacts`, `MetadataOverview`, `MetadataCategories`, `ProviderBadge` and `MediaCredits`. Keep file resolution/size/container/paths and management actions out of discovery. Dialog backdrop spans the panel with a theme-aware downward gradient; do not repeat it as a small image beneath the poster.
 - Status returns `{items: [...]}` containing only exact TMDb ID + kind matches with visible media records in enabled, nondeleted libraries. Any episode, including STRM, marks the series; metadata alone does not. Apply current user/profile library and NSFW filters. This is database membership, not a physical-file/playability check.
@@ -168,8 +167,8 @@ POST /api/discover/tmdb/:kind/:id/refresh
 - The request has no body, requires both `can_view_discover` and administrator access, and accepts only `kind=movie|tv` with a positive TMDb ID.
 - The service resolves the existing same-kind metadata identifier and delegates to `ScraperService.RefreshMetadataTMDb`; it never creates metadata or media rows. The response is the refreshed `DiscoverDetail` with the same safe projection and `Cache-Control: private, no-store`.
 - Refresh reads fresh TMDb details, replaces valid metadata, artwork, provider snapshot and loaded credit scopes, and preserves non-empty local fields when TMDb omits them. Stable person identity plus unchanged original role preserves saved Chinese translations; changed or removed credits follow the provider snapshot.
-- The dialog starts this request only after an administrator receives `local_metadata=true` from the detail request. The initial detail remains visible, stale requests are aborted, and a failed refresh exposes retry while retaining the current data.
-- The discover POST skips the upstream refresh when the existing non-degraded TMDb snapshot is less than three hours old, returning local details normally. The persisted `FetchedAt` makes the cooldown shared across browsers and restarts; opening a dialog does not extend it. Missing, degraded or expired snapshots refresh normally. Failed refreshes do not advance the snapshot timestamp. The media detail manual refresh bypasses this cooldown. Remote-only previews without local metadata retain their existing read-only behavior.
+- The dialog starts this request only when an administrator explicitly clicks `刷新本地资料` after receiving `local_metadata=true`. Opening the dialog never triggers local refresh. The initial detail remains visible, stale requests are aborted, and a failed refresh exposes retry while retaining the current data.
+- The discover POST skips the upstream refresh when the existing non-degraded TMDb snapshot is less than three hours old, returning local details normally. The persisted `FetchedAt` makes the cooldown shared across browsers and restarts; opening a dialog does not extend it. Missing, degraded or expired snapshots refresh normally. Failed refreshes do not advance the snapshot timestamp. The media detail manual refresh bypasses this cooldown. Source-only previews use read-only GET plus a bounded ensure POST; this never creates local metadata.
 
 ### 4. Validation and errors
 
@@ -296,3 +295,19 @@ from keyword-switch tests alone.
 ### 7. Wrong vs Correct
 Wrong: a shared page or retry counter refetches both sources and skips a failed page.
 Correct: advance and retry the local/official cursors independently, then merge.
+
+## TMDb data center
+
+- `/admin/data-center` keeps Douban as default and switches with `provider=tmdb`.
+  Administrator permissions remain unchanged. TMDb lists movie/tv/person, with
+  quality/state/keyword/page in the URL; season/episode navigation stays in one
+  ModalShell. GETs read persisted data, and explicit search/import/ensure are POSTs.
+- Root lists and child pages contain 30 records. Person works paginate 60 distinct
+  works before loading their roles; all roles of one work appear on one card.
+  Type/cast/crew/year ordering is database-only and never refetches filmography.
+- Raw JSON is administrator-only. Public projections and image URLs do not reveal
+  storage keys, request queries or credentials. Session remount/abort guards stale
+  responses; Escape/backdrop close restores the initiating control.
+- Source refresh never edits local metadata, roles, translations or selections.
+  Source image retry is separate; ordinary page reads do not start all-season,
+  all-episode, all-person or full-filmography recursion.

@@ -49,6 +49,9 @@ func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T
 		}
 		return job
 	}
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: season.ID, Provider: "tmdb", EntityKind: "season", ExternalID: "10"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, raw := range []string{`{"id":10,"season_number":1}`, `{"id":10,"season_number":1,"episodes":[{"episode_number":20}]}`} {
 		if err := repo.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(raw), time.Now()); err != nil {
 			t.Fatal(err)

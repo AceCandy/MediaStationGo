@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,7 +53,7 @@ type HongGuoService struct {
 }
 
 func NewHongGuoService(repo *repository.Container, tasks *TaskTrackerService, images *ImageProxy, dataDir string) *HongGuoService {
-	return &HongGuoService{repo: repo, tasks: tasks, client: hongguo.NewClient(nil), images: images, imageRoot: filepath.Join(dataDir, "catalogs", "hongguo", "artwork")}
+	return &HongGuoService{repo: repo, tasks: tasks, client: hongguo.NewClient(nil), images: images, imageRoot: dataDir}
 }
 
 // SetRuntimeCache 接入来源资料、绑定及图片变更后的公共响应失效。
@@ -614,6 +615,14 @@ func (s *HongGuoService) storeArtwork(ctx context.Context, row model.HongGuoArtw
 	if err != nil {
 		return "", err
 	}
+	category := "artwork"
+	if row.PersonID != nil {
+		category = "people"
+	}
+	stored.StorageKey, err = catalogImageKey("hongguo", category, stored.StorageKey)
+	if err != nil {
+		return "", err
+	}
 	path, err := storedImagePath(s.imageRoot, stored.StorageKey)
 	if err != nil {
 		return "", err
@@ -629,7 +638,11 @@ func (s *HongGuoService) ServeArtwork(ctx context.Context, w http.ResponseWriter
 	if err != nil {
 		return err
 	}
-	path, err := storedImagePath(s.imageRoot, row.LocalKey)
+	key := row.LocalKey
+	if !strings.HasPrefix(key, "catalogs/") {
+		key = filepath.ToSlash(filepath.Join("catalogs", "hongguo", "artwork", key))
+	}
+	path, err := storedImagePath(s.imageRoot, key)
 	if err != nil || !s.images.serveImageFile(w, r, row.LocalKey, path, imageBrowserCacheControl) {
 		if scheduleErr := s.repo.HongGuo.ScheduleMissingArtwork(ctx, row.ID); scheduleErr != nil {
 			return scheduleErr

@@ -16,6 +16,7 @@ var ErrTMDbRefreshIdentity = errors.New("metadata has no unique TMDB identity")
 
 // RefreshMetadataTMDb 按当前实体身份重新读取 TMDB，不重新匹配或修改媒体文件关联。
 func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID string) error {
+	ctx = context.WithValue(ctx, tmdbForceKey{}, true)
 	if s == nil || s.tmdb == nil || s.tmdb.resolveAPIKey(ctx) == "" {
 		return errors.New("TMDB provider unavailable")
 	}
@@ -90,6 +91,9 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			next = catalogSeasonItem(series.ID, details)
 			payload, credits, loaded = details.RawJSON, details.Credits, details.LoadedCreditTypes
 			artwork[model.ArtworkTypePoster] = details.PosterURL
+			if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, season.ID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()); err != nil {
+				return err
+			}
 			if err := s.refreshSeasonEpisodesFromDetails(ctx, season, details); err != nil {
 				return err
 			}
@@ -184,7 +188,7 @@ func (s *ScraperService) refreshSeasonEpisodesFromDetails(ctx context.Context, s
 			return err
 		}
 		epPayload, err := json.Marshal(map[string]any{
-			"id": summary.ID, "episode_number": summary.EpisodeNumber, "name": summary.Name,
+			"id": summary.ID, "season_number": season.SeasonNum, "episode_number": summary.EpisodeNumber, "name": summary.Name,
 			"overview": summary.Overview, "air_date": summary.AirDate,
 			"vote_average": summary.Rating, "runtime": summary.Runtime, "still_path": summary.StillPath,
 		})

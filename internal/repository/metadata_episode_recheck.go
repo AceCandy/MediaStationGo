@@ -102,7 +102,7 @@ JOIN metadata_items episode ON episode.id = m.metadata_id AND episode.kind = 'ep
 		Where(`(COALESCE(btrim(season.overview), '') = '' OR COALESCE(btrim(season.release_date), '') = ''
 OR NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = season.id AND ma.artwork_type = 'poster')
 OR NOT EXISTS (SELECT 1 FROM metadata_identifiers mid WHERE mid.metadata_id = season.id AND mid.provider = 'tmdb' AND mid.entity_kind = 'season')
-OR NOT EXISTS (SELECT 1 FROM metadata_provider_snapshots snapshot WHERE snapshot.metadata_id = season.id AND snapshot.provider = 'tmdb'))`).
+OR NOT EXISTS (SELECT 1 FROM ` + tmdbSnapshotSourceSQL + ` snapshot WHERE snapshot.metadata_id = season.id AND snapshot.provider = 'tmdb'))`).
 		Where(`(SELECT count(*) FROM metadata_identifiers mid
  WHERE mid.metadata_id = series.id AND mid.provider = 'tmdb' AND mid.entity_kind = 'series' AND btrim(mid.external_id) ~ '^[0-9]+$') = 1`).
 		Where(`(SELECT count(*) FROM metadata_identifiers mid
@@ -118,7 +118,7 @@ series.title AS series_title, season.season_num,
  LIMIT 1) AS series_tm_db_id,
 (SELECT btrim(mid.external_id) FROM metadata_identifiers mid
  WHERE mid.metadata_id = season.id AND mid.provider = 'tmdb' AND mid.entity_kind = 'season' LIMIT 1) AS tmdb_id,
-NOT EXISTS (SELECT 1 FROM metadata_provider_snapshots snapshot
+NOT EXISTS (SELECT 1 FROM ` + tmdbSnapshotSourceSQL + ` snapshot
  WHERE snapshot.metadata_id = season.id AND snapshot.provider = 'tmdb') AS snapshot_missing,
 NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id
  WHERE ma.metadata_id = season.id AND ma.artwork_type = 'poster') AS artwork_missing`).

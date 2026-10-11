@@ -236,6 +236,10 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 				}
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/tv/20/season/1" && !isSeason {
+					fmt.Fprint(w, `{"id":30,"season_number":1,"external_ids":{},"credits":{"cast":[],"crew":[]},"episodes":[]}`)
+					return
+				}
 				wantPath := "/tv/20/season/1/episode/1"
 				if isSeason {
 					wantPath = "/tv/20/season/1"
@@ -248,16 +252,19 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 					return
 				}
 				if mode == "wrong_identity" {
-					fmt.Fprint(w, `{"id":40,"season_number":2,"episode_number":1,"name":"测试单集"}`)
+					fmt.Fprint(w, `{"id":40,"season_number":2,"episode_number":1,"name":"测试单集","external_ids":{},"credits":{"cast":[],"crew":[]}}`)
 				} else if isSeason {
-					fmt.Fprint(w, `{"id":30,"season_number":1,"name":"测试季","episodes":[{"id":40,"episode_number":1,"name":"测试单集"}]}`)
+					fmt.Fprint(w, `{"id":30,"season_number":1,"name":"测试季","external_ids":{},"credits":{"cast":[],"crew":[]},"episodes":[{"id":40,"season_number":1,"episode_number":1,"name":"测试单集"}]}`)
 				} else {
-					fmt.Fprint(w, `{"id":40,"season_number":1,"episode_number":1,"name":"测试单集"}`)
+					fmt.Fprint(w, `{"id":40,"season_number":1,"episode_number":1,"name":"测试单集","external_ids":{},"credits":{"cast":[],"crew":[]}}`)
 				}
 			}))
 			defer server.Close()
 			cfg := &config.Config{Secrets: config.SecretsConfig{TMDbAPIKey: "test-key", TMDbAPIProxy: server.URL}}
 			s := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, nil)
+			s.tmdb.catalog = NewTMDbDataCenter(repos, s.tmdb)
+			s.tmdb.catalog.ctx = t.Context()
+			t.Cleanup(s.tmdb.catalog.Wait)
 			target := episode
 			if isSeason {
 				target = season
@@ -356,6 +363,10 @@ func TestDiscoverTMDbRefreshCooldown(t *testing.T) {
 	id := repository.DiscoverIdentity{TMDbID: 10, MediaType: "movie"}
 	for _, age := range []time.Duration{time.Hour, 3*time.Hour - time.Minute, 3 * time.Hour, 4 * time.Hour} {
 		if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(`{"id":10}`), time.Now().Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+		// 模拟时钟推进；旧正文重放不会倒退来源成功时间。
+		if err := db.Model(&model.TMDbPayload{}).Where("component='detail'").Update("fetched_at", time.Now().Add(-age)).Error; err != nil {
 			t.Fatal(err)
 		}
 		before := requests

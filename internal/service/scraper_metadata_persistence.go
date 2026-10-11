@@ -295,7 +295,7 @@ func (s *ScraperService) prepareCreditInputs(ctx context.Context, credits []Pers
 			if len(refreshImages) > 0 && refreshImages[0] {
 				importImage = s.people.Import
 			}
-			if key, err := importImage(ctx, input.ProfileURL); err != nil {
+			if key, err := importImage(ctx, input.Provider, input.ProfileURL); err != nil {
 				if s.log != nil {
 					s.log.Warn("people image localization failed during scrape", zap.String("person", input.Name), zap.Error(err))
 				}

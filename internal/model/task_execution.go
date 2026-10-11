@@ -14,7 +14,7 @@ const (
 )
 
 // CommonTaskKinds 是不依赖具体媒体项的公共任务。
-var CommonTaskKinds = []string{"organize", "probe", "scan", "watch", "cleanup", "douban_data_refresh"}
+var CommonTaskKinds = []string{"organize", "probe", "scan", "watch", "cleanup", "douban_data_refresh", "tmdb_data_refresh", "tmdb_center_migration"}
 
 // TaskSystemForKind 同时服务新执行写入和历史空归属记录的兼容读取。
 func TaskSystemForKind(kind string) string {

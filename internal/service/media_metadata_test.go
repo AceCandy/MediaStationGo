@@ -102,12 +102,19 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 	title := "Own episode title"
 	tmdbID := 9876
 	tmdb := newMediaMetadataTMDbProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tv/500/season/1" {
+			_, _ = w.Write([]byte(`{"id":501,"season_number":1,"external_ids":{},"credits":{"cast":[],"crew":[]},"episodes":[]}`))
+			return
+		}
 		if r.URL.Path != "/tv/500/season/1/episode/1" {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": 9876, "name": "Own episode title", "future_field": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 9876, "season_number": 1, "episode_number": 1, "name": "Own episode title", "future_field": true, "external_ids": map[string]any{}, "credits": map[string]any{"cast": []any{}, "crew": []any{}}})
 	})
+	tmdb.catalog = NewTMDbDataCenter(repos, tmdb)
+	tmdb.catalog.ctx = t.Context()
+	t.Cleanup(tmdb.catalog.Wait)
 	updated, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).SetTMDbProvider(tmdb).UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
 		Title: &title, TMDbID: &tmdbID,
 	})

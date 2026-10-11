@@ -11,6 +11,9 @@ import (
 
 // DiscoverDetail 只包含电影/整剧资料；时长来自资料源而非媒体探测。
 type DiscoverDetail struct {
+	CenterID      string   `json:"center_id,omitempty"`
+	MissingScopes []string `json:"missing_scopes,omitempty"`
+	SourceError   bool     `json:"source_error,omitempty"`
 	*Match
 	RuntimeMinutes []int         `json:"runtime_minutes"`
 	Credits        []MediaCredit `json:"credits"`
@@ -64,6 +67,9 @@ func (s *MediaService) DiscoverTMDbDetail(ctx context.Context, id repository.Dis
 	if s.tmdb == nil {
 		return nil, errors.New("TMDb 未配置")
 	}
+	if s.tmdb.catalog != nil {
+		return s.tmdb.catalog.discoverDetail(ctx, id.MediaType, id.TMDbID)
+	}
 	var match *Match
 	if id.MediaType == "movie" {
 		match, err = s.tmdb.GetMovieMatch(ctx, id.TMDbID)
@@ -76,8 +82,15 @@ func (s *MediaService) DiscoverTMDbDetail(ctx context.Context, id repository.Dis
 	if match == nil || match.TMDbID != id.TMDbID {
 		return nil, errors.New("TMDb 未返回对应作品详情")
 	}
+	if s.tmdb.catalog != nil {
+		match.PosterURL = tmdbCatalogSubjectImage(id.MediaType, id.TMDbID, "poster")
+		match.BackdropURL = tmdbCatalogSubjectImage(id.MediaType, id.TMDbID, "backdrop")
+	}
 	detail := &DiscoverDetail{Match: match, Credits: []MediaCredit{}, RuntimeMinutes: discoverRuntimeMinutes(match.RawJSON, id.MediaType)}
 	for _, credit := range match.Credits {
+		if s.tmdb.catalog != nil {
+			credit.ProfileURL = "/api/catalogs/tmdb/images/person/" + credit.ExternalID + "/profile"
+		}
 		detail.Credits = append(detail.Credits, MediaCredit{PersonID: "tmdb-" + credit.ExternalID, Name: credit.Name, Role: credit.OriginalRole, Type: credit.Type, ProfileURL: credit.ProfileURL})
 	}
 	// 本地无对应元数据时才请求远端预览。

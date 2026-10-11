@@ -114,21 +114,29 @@ a primary-key conflict still fails and preserves the existing row.
 ### Concurrent Artwork Asset Reuse
 
 `ArtworkRepository`'s five asset writers and `NFORepository.Ingest` share
-`artwork_assets`, whose `sha256` and `storage_key` are both unique. Use
+`artwork_assets`, whose source/category-scoped `storage_key` is unique. Use
 `clause.OnConflict{DoNothing: true}` without a conflict target, then reload
-the asset by SHA-256 in the same transaction before saving any association.
-`ON CONFLICT (sha256) DO NOTHING` can still raise `23505` on the storage-key
-index during concurrent insertion of identical images. Keep both indexes;
-do not overwrite the existing asset or substitute a pre-insert existence check.
+the asset by storage key AND SHA-256 in the same transaction before saving any
+association. SHA-256 alone is no longer unique across providers. Keep the storage
+key index; do not overwrite the existing asset or substitute a pre-insert
+existence check.
 
-Identical content must reuse one asset across independent metadata and NFO
-associations. A conflict without a matching SHA-256 must remain an error and
+Identical content reuses one asset within a source/category; different sources
+keep separate assets. A conflict without a matching SHA-256 must remain an error and
 roll back the association, never select an asset by storage key alone.
 `TestArtworkAssetConcurrentReuse` exercises all six writers with independent
 PostgreSQL connections over repeated synchronized starts, checking shared IDs,
 selection/candidate/NFO links, unchanged asset attributes, and invalid-conflict
 rollback. Configure each connection's isolated schema explicitly; the default
 test connection pool of one cannot exercise concurrent database writes.
+
+Startup image migration looks up ownership by asset ID. Keep individual indexes
+on `poster_asset_id` and `backdrop_asset_id` in both `nfo_items` and
+`nfo_media_bindings`, declared on their shared `NFOFields`. Otherwise every old
+artwork performs two full NFO table scans before the server can accept requests.
+`TestArtworkStorageMigrationAddsNFOReferenceIndexes` checks existing-table upgrade
+and repeated migration. Review per-row migration queries against their actual
+indexes; small correctness fixtures do not establish acceptable startup cost.
 
 ### Hard-Delete Tables in Hand-Written SQL
 

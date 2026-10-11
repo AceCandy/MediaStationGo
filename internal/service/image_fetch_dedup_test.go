@@ -146,7 +146,7 @@ func TestPeopleImageTimeoutCooldown(t *testing.T) {
 	store := NewPeopleImageStore(cfg, nil, proxy)
 	source := "https://image.tmdb.org/timeout.png"
 	for i := 0; i < 2; i++ {
-		if _, err := store.ImportCached(t.Context(), source); err == nil {
+		if _, err := store.ImportCached(t.Context(), "tmdb", source); err == nil {
 			t.Fatal("expected timeout/cooldown")
 		}
 	}
@@ -156,11 +156,11 @@ func TestPeopleImageTimeoutCooldown(t *testing.T) {
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
 	other := "https://image.tmdb.org/canceled.png"
-	if _, err := store.ImportCached(canceled, other); err != context.Canceled {
+	if _, err := store.ImportCached(canceled, "tmdb", other); err != context.Canceled {
 		t.Fatalf("cancel err=%v", err)
 	}
 	var cached peopleImageSource
-	if store.sources.GetJSON(t.Context(), other, &cached) {
+	if store.sources.GetJSON(t.Context(), "tmdb:"+other, &cached) {
 		t.Fatal("caller cancellation must not populate cooldown")
 	}
 }

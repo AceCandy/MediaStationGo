@@ -217,7 +217,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 			if err := db.Model(season).Update("title", "Season 3").Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(`{"id":203}`), time.Now().UTC()); err != nil {
+			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(`{"id":203,"season_number":3}`), time.Now().UTC()); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -270,7 +270,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": returnedID, "season_number": returnedNumber, "name": "补全的季", "overview": "",
 			"air_date": "2026-09-07", "vote_average": 8, "poster_path": "/poster.png",
-			"episodes": []any{map[string]any{"id": 999, "season_number": number, "episode_number": 99, "name": "不能创建的目录集", "overview": "目录集简介"}},
+			"episodes": []any{map[string]any{"id": 990 + number, "season_number": number, "episode_number": 99, "name": "不能创建的目录集", "overview": "目录集简介"}},
 			"credits":  map[string]any{"cast": []any{map[string]any{"id": 101, "name": "季演员", "character": "角色"}}, "crew": []any{}},
 		})
 	}))
@@ -333,7 +333,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	if err != nil || poster == nil {
 		t.Fatal("season poster not saved", err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.App.DataDir, "artwork", poster.StorageKey)); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg.App.DataDir, poster.StorageKey)); err != nil {
 		t.Fatal("season poster bytes missing", err)
 	}
 	preservedPoster, err := repos.Artwork.FindSelection(t.Context(), seasons[1].ID, model.ArtworkTypePoster)
@@ -419,7 +419,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	}
 	mode.Store(1)
 	if err := db.Exec(`CREATE FUNCTION reject_recheck_snapshot() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'snapshot write failed'; END; $$ LANGUAGE plpgsql;
-CREATE TRIGGER reject_recheck_snapshot BEFORE INSERT OR UPDATE ON metadata_provider_snapshots FOR EACH ROW EXECUTE FUNCTION reject_recheck_snapshot()`).Error; err != nil {
+CREATE TRIGGER reject_recheck_snapshot BEFORE INSERT OR UPDATE ON tmdb_payloads FOR EACH ROW EXECUTE FUNCTION reject_recheck_snapshot()`).Error; err != nil {
 		t.Fatal(err)
 	}
 	details, err := s.recheckTMDbMetadata(t.Context(), candidates[0], time.Now().UTC(), map[string]int64{})

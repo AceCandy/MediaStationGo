@@ -589,7 +589,7 @@ subjects with no local media association.
 List/detail JSON reads perform no download. Image reads parse root/subject/data
 through the existing official-large-image rules, reuse an available current
 asset or matching local Douban media artwork, then download through ImageProxy
-into the existing DataDir artwork store. No startup backfill or arbitrary URL
+into `DataDir/catalogs/douban/artwork/aa/bb/cc/`. No startup backfill or arbitrary URL
 input exists. Persist only valid downloaded images. Subject upserts preserve
 poster fields; poster operations never advance freshness/retry timestamps,
 change rating/quality, create media metadata or change artwork selections.
@@ -653,7 +653,7 @@ Administrator subject detail fields, public webpage supplement refresh and cache
 - Profile images resolve only saved credit indices via authenticated admin
   GET/HEAD `/douban/subjects/:id/credits/:index/image`; no arbitrary source URL.
   Official HTTPS doubanio `/view/` sources import lazily through ImageProxy into
-  PeopleImageStore's persistent `DataDir/people`; local keys remain in rich data,
+  PeopleImageStore's persistent `DataDir/catalogs/douban/people/aa/bb/cc/`; local keys remain in rich data,
   without creating canonical people/media rows. Preserve keys when sources are
   unchanged, CAS references after download, and reject changed-person late
   results. Missing originals repair through ImportCached; errors show placeholders.

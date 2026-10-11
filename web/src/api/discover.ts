@@ -34,6 +34,9 @@ export interface DiscoverDetail extends Omit<DiscoverItem, 'genres' | 'countries
   languages?: string[]
   runtime_minutes: number[]
   credits: MediaCredit[]
+  center_id?: string
+  missing_scopes?: string[]
+  source_error?: boolean
   local_metadata?: boolean
 }
 
@@ -68,6 +71,7 @@ export interface DiscoverResp {
 }
 
 export const discoverAPI = {
+  ensure: (id: string, signal?: AbortSignal) => api.post(`/catalogs/tmdb/subjects/${id}/ensure`, undefined, { signal }),
   search: (query: string, kind: string, page: number, signal?: AbortSignal) => api.post<{ items: DiscoverItem[]; has_next: boolean; page: number }>('/discover/search', { query, kind, page }, { signal }).then((response) => response.data),
   detail: (item: DiscoverIdentity, signal?: AbortSignal) => api.get<DiscoverDetail>(`/discover/tmdb/${item.media_type}/${item.tmdb_id}`, { signal }).then((r) => r.data),
   refresh: (item: DiscoverIdentity, signal?: AbortSignal) => api.post<DiscoverDetail>(`/discover/tmdb/${item.media_type}/${item.tmdb_id}/refresh`, undefined, { signal, timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),

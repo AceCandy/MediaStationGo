@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"errors"
 
 	"gorm.io/gorm"
@@ -126,6 +127,12 @@ func mergeMetadataProviderSnapshots(tx *gorm.DB, sourceID, targetID string) erro
 		return err
 	}
 	for i := range rows {
+		// 先保全独立来源，失败则回滚合并，防止迁移期间删除唯一旧快照。
+		if rows[i].Provider == "tmdb" {
+			if err := (&MetadataRepository{db: tx}).saveTMDbSnapshot(tx.Statement.Context, sourceID, json.RawMessage(rows[i].Payload), rows[i].FetchedAt, rows[i].Degraded); err != nil {
+				return err
+			}
+		}
 		var existing model.MetadataProviderSnapshot
 		err := tx.Where("metadata_id = ? AND provider = ?", targetID, rows[i].Provider).First(&existing).Error
 		if err == nil {

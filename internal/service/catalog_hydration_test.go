@@ -171,8 +171,8 @@ func TestCatalogHydrationDoesNotSkipLegacyRootOnlySeries(t *testing.T) {
 	if len(seasons) != 1 || seasons[0].SeasonNum != 1 {
 		t.Fatalf("legacy series seasons = %#v, want season one shell", seasons)
 	}
-	var snapshot model.MetadataProviderSnapshot
-	if err := repos.DB.Where("metadata_id = ? AND provider = ?", series.ID, "tmdb").First(&snapshot).Error; err != nil {
+	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), series.ID, "tmdb")
+	if err != nil || snapshot == nil {
 		t.Fatalf("legacy series snapshot: %v", err)
 	}
 }
@@ -269,8 +269,8 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 			t.Fatalf("episode own overview = %#v", episode)
 		}
 	}
-	var snapshots []model.MetadataProviderSnapshot
-	if err := repos.DB.Find(&snapshots).Error; err != nil {
+	snapshots, err := repos.Metadata.ListProviderSnapshotsAfter(t.Context(), "tmdb", []string{"movie", "series", "season", "episode"}, "", 100)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(snapshots) != 6 {
@@ -323,13 +323,13 @@ func TestLocalizeTMDbCatalogSnapshotsBackfillsProviderOwnedChildren(t *testing.T
 	now := time.Now().UTC()
 	seasonPayload := json.RawMessage(`{"name":"第 1 季","overview":"","season_number":1,"translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"First Contact","overview":"Season overview"}}]}}`)
 	episodePayload := json.RawMessage(`{"name":"第 1 集","overview":"","episode_number":1,"translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"Arrival","overview":"Episode overview"}}]}}`)
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", seasonPayload, now); err != nil {
+	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: string(seasonPayload), FetchedAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), episode.ID, "tmdb", episodePayload, now); err != nil {
+	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: episode.ID, Provider: "tmdb", Payload: string(episodePayload), FetchedAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), manualEpisode.ID, "tmdb", episodePayload, now); err != nil {
+	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: manualEpisode.ID, Provider: "tmdb", Payload: string(episodePayload), FetchedAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -371,7 +371,7 @@ func TestLocalizeTMDbCatalogSnapshotsRepairsUnrelatedSeasonTranslation(t *testin
 		t.Fatal(err)
 	}
 	payload := json.RawMessage(`{"name":"第 1 季","season_number":1,"translations":{"translations":[{"iso_639_1":"th","iso_3166_1":"TH","data":{"name":"ซีซั่น 1"}}]}}`)
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", payload, time.Now().UTC()); err != nil {
+	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: string(payload), FetchedAt: time.Now().UTC()}).Error; err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {

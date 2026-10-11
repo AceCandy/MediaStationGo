@@ -62,7 +62,7 @@ func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 	if first.Width != 3 || first.Height != 2 || first.SizeBytes != int64(len(data)) {
 		t.Fatalf("unexpected asset metadata: %#v", first)
 	}
-	wantPath := filepath.Join(dataDir, "artwork", filepath.FromSlash(first.StorageKey))
+	wantPath := filepath.Join(dataDir, filepath.FromSlash(first.StorageKey))
 	stored, err := os.ReadFile(wantPath)
 	if err != nil {
 		t.Fatal(err)

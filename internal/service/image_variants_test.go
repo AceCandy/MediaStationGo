@@ -157,11 +157,16 @@ func TestImageVariantCacheLayout(t *testing.T) {
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
 	cacheDir := filepath.Join(dataDir, "cache")
-	path := filepath.Join(dataDir, "artwork", "sha256", "ab", "cd", "poster.png")
+	data := variantPNG(t, 120, 60)
+	stored, err := prepareStoredImage(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dataDir, "catalogs", "douban", "artwork", stored.StorageKey)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, variantPNG(t, 120, 60), 0o600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	v := newImageVariants(cacheDir, dataDir)
@@ -171,7 +176,7 @@ func TestImageVariantCacheLayout(t *testing.T) {
 			t.Fatal("not served")
 		}
 	}
-	files, _ := filepath.Glob(filepath.Join(v.dir, "artwork", "sha256", "ab", "cd", "poster", "*", "*.webp"))
+	files, _ := filepath.Glob(filepath.Join(filepath.Dir(path), stored.SHA256+".thumbnails", "v1", "*.webp"))
 	if len(files) != 2 || filepath.Dir(files[0]) != filepath.Dir(files[1]) {
 		t.Fatalf("cache layout: %v", files)
 	}
@@ -182,6 +187,67 @@ func TestImageVariantCacheLayout(t *testing.T) {
 	localHash := fmt.Sprintf("%x", sha256.Sum256([]byte(localPath)))
 	if got := v.sourceGroup("source", localPath); got != filepath.Join("local", localHash) {
 		t.Fatalf("local group: %s", got)
+	}
+}
+
+func TestImageVariantCatalogSurvivesRelocation(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	data := variantPNG(t, 120, 60)
+	stored, _ := prepareStoredImage(data)
+	key := filepath.Join("catalogs", "tmdb", "people", stored.StorageKey)
+	path := filepath.Join(dataDir, key)
+	if err := writeStoredImage(path, data, ".test-*"); err != nil {
+		t.Fatal(err)
+	}
+	v := newImageVariants(t.TempDir(), dataDir)
+	serve := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		if !v.serveFile(w, httptest.NewRequest("GET", "/?maxWidth=40&format=png", nil), "source", path, imageBrowserCacheControl) {
+			t.Fatal("not served")
+		}
+		return w
+	}
+	first := serve()
+	cachePath := filepath.Join(filepath.Dir(path), stored.SHA256+".thumbnails", "v1", "w0-h0-mw40-mh0-fw0-fh0-q80.png")
+	cached := append(append([]byte{}, first.Body.Bytes()...), []byte("reuse-after-moving")...)
+	if err := os.WriteFile(cachePath, cached, 0600); err != nil {
+		t.Fatal(err)
+	}
+	first = serve()
+	moved := filepath.Join(root, "moved-data")
+	if err := os.Rename(dataDir, moved); err != nil {
+		t.Fatal(err)
+	}
+	path = filepath.Join(moved, key)
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	v = newImageVariants(t.TempDir(), moved)
+	if got := serve(); !bytes.Equal(got.Body.Bytes(), cached) || got.Header().Get("ETag") != first.Header().Get("ETag") {
+		t.Fatal("moving data or touching original invalidated catalog thumbnail")
+	}
+	// 新内容有独立原图哈希，不会命中上一张图的缩略图。
+	changed := variantPNG(t, 60, 120)
+	next, _ := prepareStoredImage(changed)
+	path = filepath.Join(moved, "catalogs", "tmdb", "people", next.StorageKey)
+	if err := writeStoredImage(path, changed, ".test-*"); err != nil {
+		t.Fatal(err)
+	}
+	if got := serve(); bytes.Equal(got.Body.Bytes(), cached) || got.Header().Get("ETag") == first.Header().Get("ETag") {
+		t.Fatal("new content reused old thumbnail")
+	}
+	// 旁置目录不可写时仍按原有规则返回原图，不在别处悄悄写缓存。
+	blocked := filepath.Join(filepath.Dir(path), next.SHA256+".thumbnails")
+	if err := os.RemoveAll(blocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, []byte("blocked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := serve(); !bytes.Equal(got.Body.Bytes(), changed) || got.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("adjacent write failure did not fall back to original")
 	}
 }
 

@@ -67,11 +67,14 @@ func TestTMDbRecheckPassReusesScatteredSeasons(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		fmt.Fprintf(w, `{"id":%d,"season_number":%d,"episodes":[{"id":%d,"season_number":%d,"episode_number":1,"name":"上篇","overview":"中文简介","air_date":"2026-01-01"},{"id":%d,"season_number":%d,"episode_number":2,"name":"下篇","overview":"中文简介","air_date":"2026-01-02"}]}`, season+100, season, season*10+1, season, season*10+2, season)
+		fmt.Fprintf(w, `{"id":%d,"season_number":%d,"external_ids":{},"credits":{"cast":[],"crew":[]},"episodes":[{"id":%d,"season_number":%d,"episode_number":1,"name":"上篇","overview":"中文简介","air_date":"2026-01-01"},{"id":%d,"season_number":%d,"episode_number":2,"name":"下篇","overview":"中文简介","air_date":"2026-01-02"}]}`, season+100, season, season*10+1, season, season*10+2, season)
 	}))
 	defer server.Close()
 	repos := repository.New(db)
 	s := &ScraperService{repo: repos, tmdb: newTMDbTestProvider(server.URL), artwork: NewArtworkStore(&config.Config{}, repos.Artwork, nil)}
+	s.tmdb.catalog = NewTMDbDataCenter(repos, s.tmdb)
+	s.tmdb.catalog.ctx = t.Context()
+	t.Cleanup(s.tmdb.catalog.Wait)
 	metrics := map[string]int64{}
 	if err := s.runTMDbRecheckQueue(t.Context(), metrics, nil); err != nil {
 		t.Fatal(err)

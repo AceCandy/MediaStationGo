@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,10 +25,11 @@ type peopleImageSource struct {
 	Failed bool
 }
 
-// PeopleImageStore 将人物头像持久化到 DataDir/people，并只从该目录对外服务。
+// PeopleImageStore 按来源持久化人物头像，并兼容迁移前的本地键。
 type PeopleImageStore struct {
 	root       string
 	repo       *repository.PersonRepository
+	tmdbRepo   *repository.TMDbCatalogRepository
 	imageProxy *ImageProxy
 	mu         sync.Mutex
 	sources    *RuntimeCacheService
@@ -34,7 +37,7 @@ type PeopleImageStore struct {
 
 func NewPeopleImageStore(cfg *config.Config, repo *repository.PersonRepository, imageProxy *ImageProxy) *PeopleImageStore {
 	return &PeopleImageStore{
-		root:       filepath.Join(cfg.App.DataDir, "people"),
+		root:       cfg.App.DataDir,
 		repo:       repo,
 		imageProxy: imageProxy,
 		sources:    NewRuntimeCacheService(nil, nil),
@@ -42,14 +45,25 @@ func NewPeopleImageStore(cfg *config.Config, repo *repository.PersonRepository, 
 }
 
 // ImportCached 复用近期成功导入的远程头像；文件缺失或损坏时重新下载。
-func (s *PeopleImageStore) ImportCached(ctx context.Context, source string) (string, error) {
+func (s *PeopleImageStore) ImportCached(ctx context.Context, provider, source string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	source = strings.TrimSpace(source)
+	if s != nil && s.tmdbRepo != nil && provider == "tmdb" && isHTTPish(source) {
+		if u, e := url.Parse(source); e == nil {
+			key, e := s.tmdbRepo.PersonImageSource(ctx, "/"+path.Base(u.Path))
+			if e != nil {
+				return "", e
+			}
+			if s.hasUsableImage(key) {
+				return key, nil
+			}
+		}
+	}
 	if s != nil && isHTTPish(source) {
 		var cached peopleImageSource
-		if s.sources.GetJSON(ctx, source, &cached) {
+		if s.sources.GetJSON(ctx, provider+":"+source, &cached) {
 			if cached.Failed {
 				return "", errors.New("recent people image import failure; retry after cooldown")
 			}
@@ -58,15 +72,15 @@ func (s *PeopleImageStore) ImportCached(ctx context.Context, source string) (str
 			}
 		}
 	}
-	key, err := s.Import(ctx, source)
+	key, err := s.Import(ctx, provider, source)
 	if s != nil && isHTTPish(source) && err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
-		s.sources.SetJSON(ctx, source, peopleImageSource{Failed: true}, time.Minute)
+		s.sources.SetJSON(ctx, provider+":"+source, peopleImageSource{Failed: true}, time.Minute)
 	}
 	return key, err
 }
 
 // Import fetches and stores one profile image, returning its content-hash key.
-func (s *PeopleImageStore) Import(ctx context.Context, source string) (string, error) {
+func (s *PeopleImageStore) Import(ctx context.Context, provider, source string) (string, error) {
 	if s == nil {
 		return "", ErrPeopleImageNotFound
 	}
@@ -79,7 +93,11 @@ func (s *PeopleImageStore) Import(ctx context.Context, source string) (string, e
 	if err != nil {
 		return "", err
 	}
-	path, err := storedImagePath(s.root, stored.StorageKey)
+	stored.StorageKey, err = catalogImageKey(provider, "people", stored.StorageKey)
+	if err != nil {
+		return "", err
+	}
+	path, err := managedImagePath(s.root, "people", stored.StorageKey)
 	if err != nil {
 		return "", err
 	}
@@ -98,7 +116,7 @@ func (s *PeopleImageStore) Import(ctx context.Context, source string) (string, e
 	}
 	if isHTTPish(source) {
 		// 仅缓存成功来源，重启或过期后重新下载一次；图片本身仍独立持久保存。
-		s.sources.SetJSON(ctx, source, peopleImageSource{Key: stored.StorageKey}, 24*time.Hour)
+		s.sources.SetJSON(ctx, provider+":"+source, peopleImageSource{Key: stored.StorageKey}, 24*time.Hour)
 	}
 	return stored.StorageKey, nil
 }
@@ -157,7 +175,7 @@ func (s *PeopleImageStore) ServePerson(ctx context.Context, w http.ResponseWrite
 	if key == "" || !s.hasUsableImage(key) {
 		return true, ErrPeopleImageNotFound
 	}
-	path, err := storedImagePath(s.root, key)
+	path, err := managedImagePath(s.root, "people", key)
 	if err != nil || !s.imageProxy.serveImageFile(w, r, key, path, imageBrowserCacheControl) {
 		return true, ErrPeopleImageNotFound
 	}
@@ -168,7 +186,7 @@ func (s *PeopleImageStore) hasUsableImage(key string) bool {
 	if strings.TrimSpace(key) == "" {
 		return false
 	}
-	path, err := storedImagePath(s.root, key)
+	path, err := managedImagePath(s.root, "people", key)
 	if err != nil {
 		return false
 	}
@@ -186,7 +204,16 @@ func (s *PeopleImageStore) hasUsableImage(key string) bool {
 		return false
 	}
 	stored, err := prepareStoredImage(data)
-	return err == nil && stored.StorageKey == key
+	if err != nil {
+		return false
+	}
+	if strings.HasPrefix(key, "catalogs/") {
+		parts := strings.Split(key, "/")
+		expected, err := catalogImageKey(parts[1], "people", stored.StorageKey)
+		return err == nil && expected == key
+	}
+	legacy := "sha256/" + stored.SHA256[:2] + "/" + stored.SHA256[2:4] + "/" + strings.Split(stored.StorageKey, "/")[3]
+	return key == legacy
 }
 
 // serveStoredImage 仅服务已验证的本地头像，复用缩略图与响应缓存规则。
@@ -194,7 +221,7 @@ func (s *PeopleImageStore) serveStoredImage(w http.ResponseWriter, r *http.Reque
 	if !s.hasUsableImage(key) {
 		return ErrPeopleImageNotFound
 	}
-	path, err := storedImagePath(s.root, key)
+	path, err := managedImagePath(s.root, "people", key)
 	if err != nil || !s.imageProxy.serveImageFile(w, r, key, path, cacheControl) {
 		return ErrPeopleImageNotFound
 	}

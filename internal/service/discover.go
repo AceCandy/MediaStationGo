@@ -8,7 +8,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -129,20 +128,8 @@ func (d *DiscoverService) Fetch(ctx context.Context, path string, pages ...int) 
 		Results []result `json:"results"`
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("tmdb %s: %d", path, resp.StatusCode)
-	}
 	var p page
-	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+	if err := d.tmdb.getJSON(ctx, u, &p); err != nil {
 		return nil, err
 	}
 	out := make([]Match, 0, len(p.Results))
@@ -170,6 +157,14 @@ func (d *DiscoverService) Fetch(ctx context.Context, path string, pages ...int) 
 		}
 		if len(date) >= 4 {
 			_, _ = fmt.Sscanf(date[:4], "%d", &m.Year)
+		}
+		if d.tmdb.catalog != nil {
+			kind := "movie"
+			if strings.Contains(path, "/tv/") {
+				kind = "tv"
+			}
+			m.PosterURL = tmdbCatalogSubjectImage(kind, m.TMDbID, "poster")
+			m.BackdropURL = tmdbCatalogSubjectImage(kind, m.TMDbID, "backdrop")
 		}
 		out = append(out, m)
 	}

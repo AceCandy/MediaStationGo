@@ -200,7 +200,7 @@ func TestApplyProviderMatchReplacesSelectedArtwork(t *testing.T) {
 	if selection == nil || selection.ID == oldAssetID || view.PosterURL != ArtworkURL(selection.ID) {
 		t.Fatalf("selected poster not replaced: selection=%#v view=%q", selection, view.PosterURL)
 	}
-	path := filepath.Join(scraper.cfg.App.DataDir, "artwork", filepath.FromSlash(selection.StorageKey))
+	path := filepath.Join(scraper.cfg.App.DataDir, filepath.FromSlash(selection.StorageKey))
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("managed poster does not exist: %v", err)
 	}

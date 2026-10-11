@@ -40,11 +40,13 @@ type TMDbProvider struct {
 	base      string
 	imgCDN    string
 	apiConfig *APIConfigService
+	catalog   *TMDbDataCenter
 }
 
 type tmdbHTTPStatusError struct {
 	Path       string
 	StatusCode int
+	RetryAfter time.Duration
 }
 
 func (e *tmdbHTTPStatusError) Error() string {
@@ -142,13 +144,20 @@ func (t *TMDbProvider) getJSON(ctx context.Context, url string, out any) error {
 }
 
 func (t *TMDbProvider) getJSONRaw(ctx context.Context, rawURL string, out any) ([]byte, error) {
+	if t.catalog != nil {
+		return t.catalog.Fetch(ctx, rawURL, out)
+	}
+	return t.getJSONNetwork(ctx, rawURL, out)
+}
+
+func (t *TMDbProvider) getJSONNetwork(ctx context.Context, rawURL string, out any) ([]byte, error) {
 	const maxAttempts = 4
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		body, retryAfter, err := t.getJSONAttempt(ctx, rawURL, out)
 		if err == nil {
 			return body, nil
 		}
-		if retryAfter < 0 || attempt == maxAttempts-1 {
+		if retryAfter < 0 || attempt == maxAttempts-1 || t.catalog != nil {
 			return nil, err
 		}
 		if retryAfter == 0 {
@@ -169,6 +178,13 @@ func (t *TMDbProvider) getJSONRaw(ctx context.Context, rawURL string, out any) (
 }
 
 func (t *TMDbProvider) getJSONAttempt(ctx context.Context, rawURL string, out any) ([]byte, time.Duration, error) {
+	if t.catalog != nil {
+		release, err := t.catalog.admit(ctx)
+		if err != nil {
+			return nil, -1, err
+		}
+		defer release()
+	}
 	if batch := tmdbSeasonBatchFromContext(ctx); batch != nil {
 		batch.requests.Add(1)
 	}
@@ -189,9 +205,12 @@ func (t *TMDbProvider) getJSONAttempt(ctx context.Context, rawURL string, out an
 		if resp.StatusCode == http.StatusTooManyRequests {
 			retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 		}
-		return nil, retryAfter, &tmdbHTTPStatusError{Path: req.URL.Path, StatusCode: resp.StatusCode}
+		return nil, retryAfter, &tmdbHTTPStatusError{Path: req.URL.Path, StatusCode: resp.StatusCode, RetryAfter: retryAfter}
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (32<<20)+1))
+	if len(body) > 32<<20 {
+		return nil, -1, errors.New("TMDb response exceeds size limit")
+	}
 	if err != nil {
 		return nil, -1, err
 	}

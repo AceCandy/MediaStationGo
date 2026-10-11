@@ -61,7 +61,7 @@ func (d *DoubanProvider) subjectPoster(ctx context.Context, id string, store *Ar
 			}
 		}
 		if err == nil && asset == nil {
-			asset, err = store.importRemoteAsset(ctx, sourceURL)
+			asset, err = store.importRemoteAsset(ctx, "douban", sourceURL)
 		}
 	}
 	if asset == nil || err != nil {

@@ -18,6 +18,7 @@ type Container struct {
 	MediaView     *MediaViewRepository
 	Metadata      *MetadataRepository
 	Douban        *DoubanRepository
+	TMDb          *TMDbCatalogRepository
 	HongGuo       *HongGuoRepository
 	HuangGuoAI    *HuangGuoAIRepository
 	NFO           *NFORepository
@@ -58,6 +59,7 @@ func New(db *gorm.DB) *Container {
 		MediaView:     mediaView,
 		Metadata:      &MetadataRepository{db: db, view: mediaView},
 		Douban:        &DoubanRepository{db: db},
+		TMDb:          &TMDbCatalogRepository{db: db},
 		HongGuo:       hongGuo,
 		HuangGuoAI:    &HuangGuoAIRepository{db: db},
 		NFO:           &NFORepository{db: db},

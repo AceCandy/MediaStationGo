@@ -73,6 +73,8 @@ func (b *serviceContainerBuilder) initProviderServices() {
 	b.c.APIConfig = NewAPIConfigService(b.log, b.repos, b.c.Crypto)
 	b.c.ProxyPool = NewProxyPoolService(b.repos, b.c.Crypto)
 	b.c.TMDb = NewTMDbProvider(b.cfg, b.log, b.c.APIConfig)
+	b.c.TMDbCenter = NewTMDbDataCenter(b.repos, b.c.TMDb)
+	b.c.TMDb.catalog = b.c.TMDbCenter
 	b.c.Bangumi = NewBangumiProvider(b.cfg, b.log)
 	b.c.TheTVDB = NewTheTVDBProvider(b.cfg, b.log)
 	b.c.Douban = NewDoubanProvider(b.c.APIConfig)
@@ -151,6 +153,7 @@ func (b *serviceContainerBuilder) initAccessAndStorageServices() {
 		b.log, b.repos, b.c.Scan, b.c.Organizer, b.c.WSHub,
 	)
 	b.c.Scheduler.SetTaskTracker(b.c.Tasks)
+	b.c.Scheduler.tmdbCenter = b.c.TMDbCenter
 	b.c.Scheduler.SetOrganizePipeline(b.c.OrganizePipeline)
 }
 
@@ -182,6 +185,10 @@ func (b *serviceContainerBuilder) initImageProxy() {
 	b.c.Scraper.SetArtworkStore(b.c.Artwork)
 	b.c.Scraper.SetPeopleImageStore(b.c.PeopleImages)
 	b.c.Discover.SetImageProxy(b.c.ImageProxy)
+	b.c.TMDbCenter.artwork = b.c.Artwork
+	b.c.Artwork.tmdbCenter = b.c.TMDbCenter
+	b.c.TMDbCenter.people = b.c.PeopleImages
+	b.c.PeopleImages.tmdbRepo = b.repos.TMDb
 }
 
 func (b *serviceContainerBuilder) libraryRoots() []string {
@@ -209,4 +216,5 @@ func (b *serviceContainerBuilder) libraryRoots() []string {
 
 func (b *serviceContainerBuilder) attachRuntimeContext() {
 	b.c.stopCtx, b.c.stopCancel = context.WithCancel(context.Background())
+	b.c.TMDbCenter.ctx = b.c.stopCtx
 }

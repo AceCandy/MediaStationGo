@@ -221,7 +221,7 @@ func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *mode
 		available[episode.EpisodeNumber] = true
 	}
 	if snapshot == nil {
-		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, season.ID, "tmdb", details.RawJSON, time.Now().UTC()); err != nil {
+		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, season.ID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()); err != nil {
 			return nil, err
 		}
 	}

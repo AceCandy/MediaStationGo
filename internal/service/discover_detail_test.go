@@ -110,7 +110,7 @@ func TestDiscoverDetailUsesMetadataWithoutMedia(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), work.ID, "tmdb", []byte(`{"runtime":100,"episode_run_time":[45,50]}`), time.Now()); err != nil {
+			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), work.ID, "tmdb", []byte(`{"id":123,"runtime":100,"episode_run_time":[45,50]}`), time.Now()); err != nil {
 				t.Fatal(err)
 			}
 			var requests atomic.Int32

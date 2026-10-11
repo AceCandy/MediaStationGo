@@ -67,24 +67,3 @@ func (d *DiscoverService) SearchTMDb(ctx context.Context, query, kind string, pa
 	}
 	return dedupeExternalMedia(items), page < result.TotalPages && page < 500, nil
 }
-
-// QueueMissingSearchMetadata 只为尚无 Metadata 的搜索结果登记持久化补齐任务。
-func (s *ScraperService) QueueMissingSearchMetadata(ctx context.Context, items []ExternalMediaResult) error {
-	for _, item := range items {
-		kind, ok := catalogEntityKind(item.MediaType)
-		if !ok || !isTMDbCatalogItem(item) {
-			continue
-		}
-		existing, err := s.repo.Metadata.FindByIdentifier(ctx, "tmdb", kind, strconv.Itoa(item.TMDbID))
-		if err != nil {
-			return err
-		}
-		if existing != nil {
-			continue
-		}
-		if err := s.QueueCatalogHydrationContext(ctx, []ExternalMediaResult{item}); err != nil {
-			return err
-		}
-	}
-	return nil
-}

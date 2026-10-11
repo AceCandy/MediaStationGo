@@ -61,6 +61,8 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindTMDbDataRefresh, Name: "TMDb 资料刷新", Description: "按组件到期时间限量刷新来源；不覆盖本地编辑，每次实际接口请求计入预算", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindTMDbDataRefresh}, schedulerJob: TaskKindTMDbDataRefresh},
+	{TaskDefinition: TaskDefinition{Key: TaskKindTMDbCenterMigration, Name: "TMDb 历史资料迁移", Description: "离线导入旧快照、人物及图片引用，失败保留旧资料", Trigger: "启动一次 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindTMDbCenterMigration}, schedulerJob: TaskKindTMDbCenterMigration},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISupplement, Name: "黄果 AI 补充下载", Description: "按本地发现时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISupplement}, schedulerJob: TaskKindHuangGuoAISupplement},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIDownload, Name: "黄果 AI 视频下载", Description: "完整校验后发布到下载目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIDownload}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISync, Name: "黄果 AI 作品发现", Description: "分页扫描四类作品，保存摘要与断点", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISync}, schedulerJob: TaskKindHuangGuoAISync},

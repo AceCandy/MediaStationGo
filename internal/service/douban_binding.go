@@ -189,7 +189,7 @@ func (s *ScraperService) BindDouban(ctx context.Context, metadataID string, req 
 		if fetchErr != nil {
 			return false, fetchErr
 		}
-		asset, err = s.artwork.prepareAsset(metadataID, model.ArtworkTypePoster, data)
+		asset, err = s.artwork.prepareAsset(metadataID, model.ArtworkTypePoster, "douban", data)
 		if err != nil {
 			return false, err
 		}

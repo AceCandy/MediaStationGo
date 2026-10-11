@@ -76,7 +76,7 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enab
 	interval := time.Duration(intervalSeconds) * time.Second
 	count := j.count
 	if len(counts) > 0 {
-		if j.countKey == "" || len(counts) != 1 || counts[0] < 1 || counts[0] > 100 {
+		if j.countKey == "" || len(counts) != 1 || counts[0] < 1 || counts[0] > max(100, j.maxCount) {
 			s.mu.Unlock()
 			return ErrSchedulerCountInvalid
 		}

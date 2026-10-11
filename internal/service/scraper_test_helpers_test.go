@@ -56,13 +56,15 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 			})
 		case r.URL.Path == "/tv/12345/season/2/episode/1":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":           2234501,
-				"name":         "任务代号: 猫",
-				"overview":     "单集剧情",
-				"still_path":   "/still.jpg",
-				"air_date":     "2023-10-07",
-				"vote_average": 9.1,
-				"runtime":      24,
+				"id":             2234501,
+				"season_number":  2,
+				"episode_number": 1,
+				"name":           "任务代号: 猫",
+				"overview":       "单集剧情",
+				"still_path":     "/still.jpg",
+				"air_date":       "2023-10-07",
+				"vote_average":   9.1,
+				"runtime":        24,
 			})
 		case r.URL.Path == "/tv/12345/season/2":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -168,6 +170,7 @@ func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
 	models := []any{
 		&model.Library{}, &model.DoubanSubject{}, &model.DoubanQueryCache{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.MetadataProviderSnapshot{}, &model.CatalogHydrationJob{},
+		&model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{},
 		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.MetadataArtworkRecheck{}, &model.Media{}, &model.MediaProbeMetadata{},
 		&model.Favorite{}, &model.PlaybackHistory{}, &model.PlaylistItem{},

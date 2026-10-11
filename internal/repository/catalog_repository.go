@@ -199,6 +199,9 @@ func (r *MetadataRepository) upsertProviderSnapshot(ctx context.Context, metadat
 	if strings.EqualFold(strings.TrimSpace(provider), "douban") {
 		return r.saveDoubanSubject(ctx, metadataID, payload, fetchedAt, degraded)
 	}
+	if strings.EqualFold(strings.TrimSpace(provider), "tmdb") {
+		return r.saveTMDbSnapshot(ctx, metadataID, payload, fetchedAt, degraded)
+	}
 	payloadText := string(payload)
 	snapshot := model.MetadataProviderSnapshot{MetadataID: metadataID, Provider: strings.ToLower(strings.TrimSpace(provider)), Payload: payloadText, Degraded: degraded, FetchedAt: fetchedAt}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
@@ -246,12 +249,18 @@ func (r *MetadataRepository) InsertMissingTMDbSnapshot(ctx context.Context, cand
 		).First(&identifier).Error; err != nil {
 			return err
 		}
-		snapshot := model.MetadataProviderSnapshot{
-			MetadataID: candidate.MetadataID, Provider: "tmdb", Payload: string(payload), FetchedAt: fetchedAt,
+		// 与所有中心写入共用事务锁，避免请求期间已补入的来源被旧结果覆盖。
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext('tmdb_catalog_write'))").Error; err != nil {
+			return err
 		}
-		return tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "metadata_id"}, {Name: "provider"}}, DoNothing: true,
-		}).Create(&snapshot).Error
+		var count int64
+		if err := tx.Table(tmdbSnapshotSourceSQL+" AS snapshots").Where("metadata_id = ? AND provider = 'tmdb'", candidate.MetadataID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+		return (&MetadataRepository{db: tx}).saveTMDbSnapshot(ctx, candidate.MetadataID, payload, fetchedAt, false)
 	})
 }
 
@@ -273,7 +282,7 @@ func (r *MetadataRepository) missingTMDbSnapshotQuery(ctx context.Context) *gorm
             SELECT 1 FROM metadata_identifiers AS missing
             WHERE missing.metadata_id = mi.id AND missing.provider = 'tmdb' AND missing.entity_kind = mi.kind
               AND NOT EXISTS (
-                SELECT 1 FROM metadata_provider_snapshots AS snapshot
+                SELECT 1 FROM ` + tmdbSnapshotSourceSQL + ` AS snapshot
                 WHERE snapshot.metadata_id = missing.metadata_id AND snapshot.provider = 'tmdb'
               )
         )`)
@@ -329,7 +338,7 @@ func (r *MetadataRepository) FindProviderSnapshot(ctx context.Context, metadataI
 			Degraded: subject.Quality == model.DoubanQualityDegraded, FetchedAt: *subject.FetchedAt}, nil
 	}
 	var snapshot model.MetadataProviderSnapshot
-	err := r.db.WithContext(ctx).Where("metadata_id = ? AND provider = ?", metadataID, strings.ToLower(strings.TrimSpace(provider))).First(&snapshot).Error
+	err := r.db.WithContext(ctx).Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").Where("metadata_id = ? AND provider = ?", metadataID, strings.ToLower(strings.TrimSpace(provider))).Take(&snapshot).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -352,7 +361,7 @@ func (r *MetadataRepository) UpdateLocalizedMetadata(ctx context.Context, item *
 
 func (r *MetadataRepository) CountLocalCorrectionSnapshots(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).
+	err := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").
 		Joins("JOIN metadata_items AS m ON m.id = metadata_provider_snapshots.metadata_id").
 		Where("metadata_provider_snapshots.provider = ? AND m.source = ? AND m.kind IN ?", "tmdb", "tmdb", []string{model.MetadataKindSeason, model.MetadataKindEpisode}).Count(&count).Error
 	return count, err
@@ -367,7 +376,8 @@ func (r *MetadataRepository) ListProviderSnapshotsAfter(ctx context.Context, pro
 		limit = 200
 	}
 	var snapshots []model.MetadataProviderSnapshot
-	q := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).
+	q := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").
+		Select("metadata_provider_snapshots.*").
 		Joins("JOIN metadata_items AS snapshot_metadata ON snapshot_metadata.id = metadata_provider_snapshots.metadata_id").
 		Where("metadata_provider_snapshots.provider = ? AND snapshot_metadata.source = ? AND snapshot_metadata.kind IN ?", provider, provider, kinds)
 	if strings.TrimSpace(afterID) != "" {

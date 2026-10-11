@@ -73,8 +73,8 @@ func TestLibraryCoverUploadServeAndClear(t *testing.T) {
 	if cleared.CoverURL != "" {
 		t.Fatalf("cleared cover URL = %q", cleared.CoverURL)
 	}
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("cleared cover file error = %v", err)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("shared content must survive clearing one cover: %v", err)
 	}
 	for _, id := range []string{lib.ID, "00000000-0000-0000-0000-000000000000"} {
 		if err := svc.ServeLibraryCover(t.Context(), httptest.NewRecorder(), request, id); !errors.Is(err, ErrLibraryCoverNotFound) {
