@@ -1917,3 +1917,39 @@ Emby 条目有自身独立豆瓣评分时平级返回 DoubanRating，无评分�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 232: TMDb 资料中心与统一图片存储提交归档
+<!-- trellis-session: v=2 fp=b3d42798b9f35733 -->
+
+**Date**: 2026-10-11
+**Task**: TMDb 资料中心与统一图片存储提交归档
+**Branch**: `main`
+
+### Summary
+
+实现独立 TMDb 作品、季集及人物资料中心，统一请求、图片与历史迁移；提交并归档两个关联任务。
+
+### Main Changes
+
+- 资料中心管理页面支持作品层级、人物履历及来源刷新，保留本地编辑和人物身份。
+- 图片统一到 catalogs 来源目录，缩略图旁置，历史迁移支持批处理、复用和文件克隆。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8893352` | feat(tmdb): 建立资料中心并统一图片资源与历史迁移 |
+
+### Testing
+
+- [OK] 真实隔离 PostgreSQL 专项及并发测试、26个相关失败用例补跑、前端 lint/build、Go vet 和模拟数据浏览器检查通过。
+- [OK] 全包测试曾超时；Emby 分页用例在未修改主干复现既有失败，未改其逻辑。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 核验用户重启后的生产迁移任务、来源引用及真实 TMDb 联调；旧数据清理另行处理。
