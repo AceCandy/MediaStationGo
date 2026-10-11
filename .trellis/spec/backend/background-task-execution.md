@@ -955,6 +955,11 @@ Correct: submit keyword explicitly, keep recheck items and summary independent, 
 
 ## TMDb source maintenance
 
+Startup automatic snapshot backfill waits for successful offline center migration
+in the same background goroutine. Migration failure or cancellation must not
+start backfill; service readiness does not wait for this chain. Preserve the
+completed migration checkpoint and idempotent retry behavior.
+
 `tmdb_data_refresh` and `tmdb_center_migration` are common tasks independent of
 media ownership. Existing artwork/episode/snapshot maintenance keys remain stable.
 Source periodic refresh defaults off, runs hourly when enabled, and uses 100 real

@@ -288,3 +288,75 @@ func TestTMDbCenterFailedAvatarRefreshKeepsOldImage(t *testing.T) {
 		t.Fatalf("old image/cache semantics: calls=%d cache=%s", calls, w.Header().Get("Cache-Control"))
 	}
 }
+
+func TestTMDbStartupBackfillWaitsForMigration(t *testing.T) {
+	for _, outcome := range []string{"success", "failure", "cancel"} {
+		t.Run(outcome, func(t *testing.T) {
+			var calls atomic.Int32
+			s, p := tmdbCenterTest(t, func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				fmt.Fprint(w, `{"id":11,"title":"补齐来源","credits":{"cast":[],"crew":[]},"external_ids":{}}`)
+			})
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			item := model.MetadataItem{Kind: "movie", Title: "保留本地标题"}
+			if err := s.repo.DB.Create(&item).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := s.repo.DB.Create(&model.MetadataIdentifier{MetadataID: item.ID, Provider: "tmdb", EntityKind: "movie", ExternalID: "11"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "failure" {
+				bad := model.MetadataItem{Kind: "movie"}
+				if err := s.repo.DB.Create(&bad).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := s.repo.DB.Create(&model.MetadataProviderSnapshot{MetadataID: bad.ID, Provider: "tmdb", Payload: `{"id":0}`, FetchedAt: time.Now()}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			tasks := NewTaskTrackerService(zap.NewNop(), nil)
+			scraper := NewScraperService(p.cfg, zap.NewNop(), s.repo, p, nil, nil, nil, nil)
+			scraper.tasks = tasks
+			c := &Container{TMDbCenter: s, Scraper: scraper, Tasks: tasks, stopCtx: ctx}
+			s.migrationMu.Lock()
+			done := make(chan error, 1)
+			go func() { done <- c.migrateTMDbAndStartBackfill() }()
+			select {
+			case err := <-done:
+				s.migrationMu.Unlock()
+				t.Fatalf("startup bypassed blocked migration: %v", err)
+			case <-time.After(30 * time.Millisecond):
+			}
+			if calls.Load() != 0 || tasks.IsKindRunning(TaskKindTMDbSnapshotBackfill) {
+				t.Error("backfill started before migration")
+			}
+			if outcome == "cancel" {
+				cancel()
+			}
+			s.migrationMu.Unlock()
+			select {
+			case err := <-done:
+				if (err == nil) != (outcome == "success") {
+					t.Fatalf("unexpected migration result: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("startup maintenance stuck")
+			}
+			if outcome != "success" {
+				if calls.Load() != 0 || tasks.IsKindRunning(TaskKindTMDbSnapshotBackfill) {
+					t.Fatal("unsuccessful migration started backfill")
+				}
+				return
+			}
+			result := waitForTMDbSnapshotTask(t, tasks, 2)
+			if result.Kind != TaskKindTMDbSnapshotBackfill || result.Status != TaskStatusCompleted || calls.Load() != 1 {
+				t.Fatalf("backfill not resumed after migration: %+v, calls=%d", result, calls.Load())
+			}
+			state, err := s.repo.Setting.Get(ctx, "metadata.tmdb_center_migration_v1")
+			if err != nil || state != "complete" {
+				t.Fatalf("migration checkpoint missing: %q, %v", state, err)
+			}
+		})
+	}
+}

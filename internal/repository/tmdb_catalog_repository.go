@@ -545,6 +545,26 @@ func saveTMDbCredits(tx *gorm.DB, s *model.TMDbSubject, p *model.TMDbPersonProfi
 		if !group.loaded {
 			continue
 		}
+		// 关系不按语言分表；旧正文仍可入库，但不能覆盖较新的有效列表（含空列表）。
+		newer := tx.Model(&model.TMDbPayload{}).Where("language IN ('zh-CN','und') AND fetched_at > ?", at)
+		if s != nil {
+			newer = newer.Where("subject_id = ?", s.ID)
+		} else {
+			newer = newer.Where("person_profile_id = ?", p.ID)
+		}
+		seasonField := group.category
+		if group.category == "cast" {
+			seasonField = "guest_stars"
+		}
+		var n int64
+		if err := newer.Where(`((component IN ('credits','filmography') AND jsonb_typeof(body -> ?) = 'array')
+			OR jsonb_typeof(body -> 'credits' -> ?) = 'array'
+			OR (component = 'season_episode' AND jsonb_typeof(body -> ?) = 'array'))`, group.category, group.category, seasonField).Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
 		q := tx.Where("origin = ? AND category = ?", origin, group.category)
 		if s != nil {
 			q = q.Where("subject_id = ?", s.ID)

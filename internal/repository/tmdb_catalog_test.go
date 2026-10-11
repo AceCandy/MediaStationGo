@@ -258,3 +258,121 @@ func TestTMDbCenterOlderResponseReleasesLease(t *testing.T) {
 		t.Fatal("stale projected over current")
 	}
 }
+
+func TestTMDbCenterCreditsDoNotRegressAcrossLanguages(t *testing.T) {
+	for _, tc := range []struct {
+		name, component, language, newer string
+		wantCast, wantCrew               string
+	}{
+		{"detail", "detail", "zh-CN", `{"id":12,"credits":{"cast":[{"id":5,"name":"Actor","character":"new"}],"crew":[]}}`, "new", ""},
+		{"empty credits", "credits", "zh-CN", `{"id":12,"cast":[],"crew":[]}`, "", ""},
+		{"partial group", "detail", "zh-CN", `{"id":12,"credits":{"cast":[]}}`, "", "old"},
+		{"base without credits", "base", "zh-CN", `{"id":12,"title":"New title"}`, "old", "old"},
+		{"secondary language", "detail", "en-US", `{"id":12,"credits":{"cast":[],"crew":[]}}`, "old", "old"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := tmdbTestRepo(t)
+			ctx := t.Context()
+			at := time.Now().UTC().Truncate(time.Microsecond)
+			if err := r.TMDb.SaveResponse(ctx, TMDbSourceRequest{Kind: "movie", TMDbID: 12, Component: "summary", Language: "und"}, []byte(`{"id":12}`), at.Add(-2*time.Hour), ""); err != nil {
+				t.Fatal(err)
+			}
+			newReq := TMDbSourceRequest{Kind: "movie", TMDbID: 12, Component: tc.component, Language: tc.language}
+			if err := r.TMDb.SaveResponse(ctx, newReq, []byte(tc.newer), at, ""); err != nil {
+				t.Fatal(err)
+			}
+			oldReq := TMDbSourceRequest{Kind: "movie", TMDbID: 12, Component: "detail", Language: "und", Origin: "legacy"}
+			old := []byte(`{"id":12,"credits":{"cast":[{"id":6,"name":"Old actor","character":"old"}],"crew":[{"id":7,"name":"Old crew","job":"old"}]}}`)
+			if err := r.TMDb.SaveResponse(ctx, oldReq, old, at.Add(-time.Hour), ""); err != nil {
+				t.Fatal(err)
+			}
+			subject, err := r.TMDb.SubjectIdentity(ctx, "movie", 12)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, _, err := r.TMDb.Credits(ctx, subject.ID, false, 1, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]string{}
+			for _, row := range rows {
+				if row.Category == "cast" {
+					got["cast"] = row.Character
+				} else {
+					got["crew"] = row.Job
+				}
+			}
+			if got["cast"] != tc.wantCast || got["crew"] != tc.wantCrew {
+				t.Fatalf("relationships regressed: %v", got)
+			}
+			payloads, err := r.TMDb.Payloads(ctx, subject.ID, false)
+			if err != nil || len(payloads) != 3 {
+				t.Fatalf("old payload not retained: %d, %v", len(payloads), err)
+			}
+			// 正常的较新 und 更新仍可清空关系。
+			if err := r.TMDb.SaveResponse(ctx, oldReq, []byte(`{"id":12,"credits":{"cast":[],"crew":[]}}`), at.Add(time.Hour), ""); err != nil {
+				t.Fatal(err)
+			}
+			_, count, err := r.TMDb.Credits(ctx, subject.ID, false, 1, 100)
+			if err != nil || count != 0 {
+				t.Fatalf("new response blocked: %d, %v", count, err)
+			}
+		})
+	}
+}
+
+func TestTMDbCenterPersonAndEpisodeCreditsDoNotRegress(t *testing.T) {
+	r := tmdbTestRepo(t)
+	ctx := t.Context()
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	personReq := TMDbSourceRequest{Kind: "person", TMDbID: 5, Component: "detail", Language: "zh-CN"}
+	if err := r.TMDb.SaveResponse(ctx, personReq, []byte(`{"id":5,"name":"Actor"}`), at, ""); err != nil {
+		t.Fatal(err)
+	}
+	personReq.Component = "filmography"
+	if err := r.TMDb.SaveResponse(ctx, personReq, []byte(`{"id":5,"cast":[],"crew":[]}`), at, ""); err != nil {
+		t.Fatal(err)
+	}
+	personReq.Language = "und"
+	if err := r.TMDb.SaveResponse(ctx, personReq, []byte(`{"id":5,"cast":[{"id":12,"media_type":"movie","character":"old"}],"crew":[]}`), at.Add(-time.Hour), ""); err != nil {
+		t.Fatal(err)
+	}
+	person, err := r.TMDb.PersonIdentity(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, n, err := r.TMDb.Credits(ctx, person.ID, true, 1, 100)
+	if err != nil || n != 0 {
+		t.Fatalf("empty filmography regressed: %d, %v", n, err)
+	}
+	seasonReq := TMDbSourceRequest{Kind: "season", TMDbID: 30, SeriesID: 20, Season: 1, Component: "detail", Language: "zh-CN"}
+	season := []byte(`{"id":30,"season_number":1,"episodes":[{"id":40,"season_number":1,"episode_number":1,"guest_stars":[],"crew":[]}]}`)
+	if err := r.TMDb.SaveResponse(ctx, seasonReq, season, at, ""); err != nil {
+		t.Fatal(err)
+	}
+	epReq := TMDbSourceRequest{Kind: "episode", TMDbID: 40, SeriesID: 20, Season: 1, Episode: 1, Component: "detail", Language: "und"}
+	old := []byte(`{"id":40,"season_number":1,"episode_number":1,"credits":{"cast":[{"id":5,"character":"old"}],"crew":[]}}`)
+	if err := r.TMDb.SaveResponse(ctx, epReq, old, at.Add(-time.Hour), ""); err != nil {
+		t.Fatal(err)
+	}
+	ep, err := r.TMDb.SubjectIdentity(ctx, "episode", 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, n, err = r.TMDb.Credits(ctx, ep.ID, false, 1, 100)
+	if err != nil || n != 0 {
+		t.Fatalf("empty season episode credits regressed: %d, %v", n, err)
+	}
+	// 反向覆盖也受保护：较旧的整季数据不能覆盖较新单集演职员。
+	if err := r.TMDb.SaveResponse(ctx, epReq, old, at.Add(time.Hour), ""); err != nil {
+		t.Fatal(err)
+	}
+	seasonReq.Language = "und"
+	if err := r.TMDb.SaveResponse(ctx, seasonReq, season, at, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, n, err = r.TMDb.Credits(ctx, ep.ID, false, 1, 100)
+	if err != nil || n != 1 {
+		t.Fatalf("new episode credits cleared by older season: %d, %v", n, err)
+	}
+}
