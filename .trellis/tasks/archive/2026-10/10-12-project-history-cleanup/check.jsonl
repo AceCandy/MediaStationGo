@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "现行PostgreSQL schema与配置存储"}
+{"file": ".trellis/spec/backend/image-variants.md", "reason": "当前catalog图片布局与旁置缩略图"}
+{"file": ".trellis/spec/backend/douban-cookie-config.md", "reason": "配置加密与豆瓣运行revision"}
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "任务归属与现行扫描定义"}
+{"file": ".trellis/spec/frontend/routing-and-loading-contracts.md", "reason": "现行路由、权限和默认跳转"}
