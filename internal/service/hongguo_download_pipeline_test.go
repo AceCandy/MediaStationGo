@@ -19,7 +19,7 @@ import (
 )
 
 func TestHongGuoDownloadPreservesEpisodeIdentity(t *testing.T) {
-	for _, mode := range []string{"queued", "retry", "bulk", "stable", "unassigned", "missing", "detail-failed"} {
+	for _, mode := range []string{"queued", "retry", "bulk", "stable", "original", "unassigned", "missing", "detail-failed"} {
 		t.Run(mode, func(t *testing.T) {
 			s := newDownloadTestService(t)
 			seed := seedDownload(t, s)
@@ -32,12 +32,16 @@ func TestHongGuoDownloadPreservesEpisodeIdentity(t *testing.T) {
 			if err := s.repo.DB.Model(&model.HongGuoEpisode{}).Where("number = 1").Update("source_video_id", "").Error; err != nil {
 				t.Fatal(err)
 			}
-			if mode == "retry" || mode == "bulk" {
+			if mode == "retry" || mode == "bulk" || mode == "original" {
 				if err := s.repo.DB.Model(&seed).Update("status", "failed").Error; err != nil {
 					t.Fatal(err)
 				}
-				if mode == "retry" {
-					if err := s.Action(ctx, seed.ID, "retry"); err != nil {
+				if mode == "retry" || mode == "original" {
+					action := "retry"
+					if mode == "original" {
+						action = "retry-original"
+					}
+					if err := s.Action(ctx, seed.ID, action); err != nil {
 						t.Fatal(err)
 					}
 				} else if added, skipped, err := s.RetryFailedWork(ctx, seed.SourceID); err != nil || added != 1 || skipped != 0 {
@@ -46,7 +50,7 @@ func TestHongGuoDownloadPreservesEpisodeIdentity(t *testing.T) {
 			}
 			details, players := 0, 0
 			videoID := "789"
-			if mode == "stable" {
+			if mode == "stable" || mode == "original" {
 				videoID = seed.VideoID
 			}
 			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
@@ -79,10 +83,10 @@ func TestHongGuoDownloadPreservesEpisodeIdentity(t *testing.T) {
 			}
 			var downloaded, total atomic.Int64
 			err = s.executeDownload(ctx, row, &downloaded, &total, nil, "official")
-			if details != 1 {
+			if (mode == "original" && details != 0) || (mode != "original" && details != 1) {
 				t.Fatalf("detail calls: %d", details)
 			}
-			if mode != "unassigned" && mode != "stable" {
+			if mode != "unassigned" && mode != "stable" && mode != "original" {
 				if err == nil || errors.Is(err, errHongGuoAwaitVerification) || players != 0 {
 					t.Fatalf("stale fallback: %v players=%d", err, players)
 				}

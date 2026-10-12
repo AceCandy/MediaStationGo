@@ -249,17 +249,23 @@ func (s *HongGuoDownloadService) executeDownload(ctx context.Context, row *model
 	}
 	row.StagingPath = readyRel
 	task.Update(TaskUpdate{Stage: "downloading", Message: "使用" + hongguo.DownloadSourceName(source) + "下载"})
-	// 红果按 S01 集号复核，已记录的视频身份和暂存文件的密钥保持一致。
-	work, err := s.latestDownloadDetail(ctx, *row)
-	if err != nil {
-		return err
-	}
-	if err := checkHongGuoDownloadEpisode(work, *row); err != nil {
-		return err
-	}
-	row.VideoID = work.VideoIDs[row.Episode-1]
-	if err := s.repo.HongGuo.UpdateHongGuoDownload(ctx, row.ID, row.LeaseToken, map[string]any{"video_id": row.VideoID}); err != nil {
-		return err
+	if row.UseOriginalVideoID {
+		if !hongguo.ValidID(row.VideoID) {
+			return errors.New("原视频 ID 无效，无法按原视频下载")
+		}
+	} else {
+		// 红果按 S01 集号复核，已记录的视频身份和暂存文件的密钥保持一致。
+		work, err := s.latestDownloadDetail(ctx, *row)
+		if err != nil {
+			return err
+		}
+		if err := checkHongGuoDownloadEpisode(work, *row); err != nil {
+			return err
+		}
+		row.VideoID = work.VideoIDs[row.Episode-1]
+		if err := s.repo.HongGuo.UpdateHongGuoDownload(ctx, row.ID, row.LeaseToken, map[string]any{"video_id": row.VideoID}); err != nil {
+			return err
+		}
 	}
 	media, err := s.client.ResolveDownloadSource(ctx, row.SourceID, row.VideoID, source)
 	if err != nil {

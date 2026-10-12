@@ -33,9 +33,14 @@ func newReconcileTestService(t *testing.T) (*HongGuoDownloadService, model.HongG
 }
 
 func TestHongGuoDownloadUnavailableConfirmation(t *testing.T) {
-	for _, mode := range []string{"removed", "recovered", "search-found", "search-failed", "network", "partial", "raw", "published", "media", "stale-lease", "rollback"} {
+	for _, mode := range []string{"removed", "removed-original", "recovered", "search-found", "search-failed", "network", "partial", "raw", "published", "media", "stale-lease", "rollback"} {
 		t.Run(mode, func(t *testing.T) {
 			s, row := newReconcileTestService(t)
+			if mode == "removed-original" {
+				if err := s.repo.DB.Model(&row).Update("use_original_video_id", true).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
 			ctx := t.Context()
 			work, err := s.repo.HongGuo.FindBySourceID(ctx, row.SourceID)
 			if err != nil {
@@ -109,7 +114,7 @@ CREATE TRIGGER reject_hg_delete BEFORE DELETE ON hongguo_works FOR EACH ROW EXEC
 				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 			})})
 			_, err = s.latestDownloadDetail(ctx, row)
-			removed := mode == "removed" || mode == "partial" || mode == "raw" || mode == "published" || mode == "media"
+			removed := mode == "removed" || mode == "removed-original" || mode == "partial" || mode == "raw" || mode == "published" || mode == "media"
 			if errors.Is(err, errHongGuoDownloadRemoved) != removed {
 				t.Fatalf("removed=%v err=%v", removed, err)
 			}
@@ -121,7 +126,7 @@ CREATE TRIGGER reject_hg_delete BEFORE DELETE ON hongguo_works FOR EACH ROW EXEC
 				t.Fatalf("task count=%d err=%v", count, err)
 			}
 			for _, record := range []any{&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoRankEntry{}, &model.HongGuoSyncFailure{}, &model.HongGuoDownloadWork{}} {
-				if err := s.repo.DB.Model(record).Where("source_id = ?", row.SourceID).Count(&count).Error; err != nil || (count == 0) != (mode == "removed") {
+				if err := s.repo.DB.Model(record).Where("source_id = ?", row.SourceID).Count(&count).Error; err != nil || (count == 0) != (mode == "removed" || mode == "removed-original") {
 					t.Fatalf("%T count=%d err=%v", record, count, err)
 				}
 			}
@@ -141,7 +146,7 @@ CREATE TRIGGER reject_hg_delete BEFORE DELETE ON hongguo_works FOR EACH ROW EXEC
 }
 
 func TestHongGuoDownloadEpisodeReconciliation(t *testing.T) {
-	for _, mode := range []string{"tail", "partial-list", "unstable", "reordered", "same-count-reordered", "replaced", "completed-tail", "replaced-partial", "hole", "hole-unconfirmed", "growth"} {
+	for _, mode := range []string{"tail", "original-tail", "original-reordered", "partial-list", "unstable", "reordered", "same-count-reordered", "replaced", "completed-tail", "replaced-partial", "hole", "hole-unconfirmed", "growth"} {
 		t.Run(mode, func(t *testing.T) {
 			s, row := newReconcileTestService(t)
 			work, err := s.repo.HongGuo.FindBySourceID(t.Context(), row.SourceID)
@@ -149,6 +154,9 @@ func TestHongGuoDownloadEpisodeReconciliation(t *testing.T) {
 				t.Fatal(err)
 			}
 			tail := model.HongGuoDownload{SourceID: row.SourceID, Episode: 3, VideoID: "458", Status: "failed"}
+			if mode == "original-tail" || mode == "original-reordered" {
+				tail.UseOriginalVideoID = true
+			}
 			if mode == "completed-tail" {
 				tail.Status = "completed"
 			}
@@ -179,7 +187,7 @@ func TestHongGuoDownloadEpisodeReconciliation(t *testing.T) {
 					if calls > 1 {
 						ids = `["456","459"]`
 					}
-				case "reordered":
+				case "reordered", "original-reordered":
 					ids = `["458","456"]`
 				case "same-count-reordered":
 					ids, total = `["458","457","456"]`, 3
@@ -195,7 +203,7 @@ func TestHongGuoDownloadEpisodeReconciliation(t *testing.T) {
 			})})
 			_, err = s.latestDownloadDetail(context.Background(), row)
 			replaced := mode == "reordered" || mode == "replaced"
-			if (replaced || mode == "same-count-reordered" || mode == "replaced-partial") != (err != nil) {
+			if (replaced || mode == "same-count-reordered" || mode == "replaced-partial" || mode == "original-reordered") != (err != nil) {
 				t.Fatalf("unexpected reconciliation: %v", err)
 			}
 			if replaced && !errors.Is(err, errHongGuoDownloadRemoved) {
@@ -205,6 +213,12 @@ func TestHongGuoDownloadEpisodeReconciliation(t *testing.T) {
 			var count int64
 			if err := s.repo.DB.Model(&model.HongGuoDownload{}).Where("id = ?", tail.ID).Count(&count).Error; err != nil || (count == 0) != removed {
 				t.Fatalf("tail count=%d err=%v", count, err)
+			}
+			if tail.UseOriginalVideoID {
+				var saved model.HongGuoDownload
+				if err := s.repo.DB.First(&saved, "id = ?", tail.ID).Error; err != nil || saved.VideoID != tail.VideoID || !saved.UseOriginalVideoID || saved.Status != tail.Status {
+					t.Fatalf("manual identity lost during reconciliation: %+v %v", saved, err)
+				}
 			}
 			if err := s.repo.DB.Model(&model.HongGuoEpisode{}).Where("work_id = ? AND number = 3", work.ID).Count(&count).Error; err != nil || (count == 0) != (removed && mode != "same-count-reordered") {
 				t.Fatalf("tail metadata count=%d err=%v", count, err)

@@ -5,6 +5,7 @@ import { Download } from 'lucide-react'
 import { hongguoDownloadsAPI, type DownloadConfig, type HongGuoDownload, type HongGuoDownloadWork } from '../api/hongguoDownloads'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
 import { ModalShell } from '../components/ModalShell'
+import { confirmAction } from '../components/confirmAction'
 import { DownloadProgress } from '../components/DownloadProgress'
 import { statusLabels, statusColors } from '../utils/downloadStatus'
 import { Select } from '../components/Select'
@@ -87,10 +88,14 @@ function DownloadSpaceContent() {
     void load()
     return () => { controller.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility) }
   }, [page, status, keyword, refresh, setParams])
-  const perform = async (id: string, action: 'cancel' | 'retry' | 'work') => {
+  const perform = async (id: string, action: 'cancel' | 'retry' | 'retry-original' | 'work') => {
     if (busy) return
     setBusy(id)
     try {
+      if (action === 'retry-original') {
+        const confirmed = await confirmAction({ title: '按原视频 ID 下载', message: '沿用此任务原来的集号和视频，跳过上游集号核对。可以补齐原映射下的缺集，但不能保证真实剧情顺序。普通重试会恢复集号核对。是否继续？', confirmText: '按原视频下载' })
+        if (!confirmed || !active.current) return
+      }
       if (action === 'work') {
         const value = await hongguoDownloadsAPI.retryWork(id)
         if (active.current) toast.success(`已重新入队 ${value.added} 集${value.skipped ? `，${value.skipped} 集缺少资料，未重试` : ''}`)
@@ -159,7 +164,7 @@ function DownloadSpaceContent() {
   </div>
 }
 
-function DownloadWork({ work, refresh, busy, perform }: { work: HongGuoDownloadWork; refresh: number; busy: string; perform: (id: string, action: 'cancel' | 'retry' | 'work') => Promise<void> }) {
+function DownloadWork({ work, refresh, busy, perform }: { work: HongGuoDownloadWork; refresh: number; busy: string; perform: (id: string, action: 'cancel' | 'retry' | 'retry-original' | 'work') => Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [result, setResult] = useState<{ items: HongGuoDownload[]; total: number; page: number } | null>(null)
@@ -209,7 +214,9 @@ function DownloadWork({ work, refresh, busy, perform }: { work: HongGuoDownloadW
               <p>分辨率：{row.width && row.height ? `${row.width} × ${row.height}` : '未记录'}{row.status !== 'completed' && row.width && row.height ? '（待校验）' : ''}</p>
               <p>已下载 {(row.bytes / 1048576).toFixed(1)} MB{row.total_bytes > 0 ? ` / ${(row.total_bytes / 1048576).toFixed(1)} MB` : ''}</p>
               {row.error && <p className="break-words text-red-500">{row.error}</p>}
+              {row.use_original_video_id && <p>本次下载沿用原视频 ID，未核对上游集号。</p>}
               {Object.entries(row.source_errors ?? {}).map(([source, error]) => <p key={source} className="break-words text-ink-50">{sourceLabels[source] || '来源'}最近失败：{error}</p>)}
+              {row.status === 'failed' && <button className="btn-outline w-full" disabled={!!busy} onClick={() => void perform(row.id, 'retry-original')}>按原视频 ID 下载</button>}
             </div></details>
             {['failed', 'cancelled'].includes(row.status) ? <button className="shrink-0 px-2 py-3 font-semibold text-brand-500 disabled:opacity-50" disabled={!!busy} onClick={() => void perform(row.id, 'retry')}>重试</button> : row.status !== 'completed' && <button className="shrink-0 px-2 py-3 text-ink-50 disabled:opacity-50" aria-label={`取消第 ${row.episode} 集下载`} disabled={!!busy} onClick={() => void perform(row.id, 'cancel')}>取消下载</button>}
           </div>

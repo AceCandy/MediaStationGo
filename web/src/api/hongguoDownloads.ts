@@ -7,6 +7,7 @@ export interface HongGuoDownload {
   bytes: number; total_bytes: number; attempts: number; error: string
   source?: string; quality?: number; width?: number; height?: number; codec?: string
   source_errors?: Record<string, string> | null
+  use_original_video_id?: boolean
 }
 export type HongGuoDownloadWork = { source_id: string; title: string; total: number } & Record<HongGuoDownload['status'], number>
 
@@ -19,5 +20,5 @@ export const hongguoDownloadsAPI = {
   episodes: (source: string, page: number, signal?: AbortSignal) => api.get<{ items: HongGuoDownload[]; total: number }>(`${base}/works/${encodeURIComponent(source)}/episodes`, { params: { page }, signal }).then((r) => r.data),
   retryWork: (source: string) => api.post<{ added: number; skipped: number }>(`${base}/works/${encodeURIComponent(source)}/retry`).then((r) => r.data),
   enqueue: (source_id: string) => api.post<{ added: number }>(base, { source_id }).then((r) => r.data),
-  action: (id: string, action: 'cancel' | 'retry') => api.post(`${base}/${encodeURIComponent(id)}/${action}`),
+  action: (id: string, action: 'cancel' | 'retry' | 'retry-original') => api.post(`${base}/${encodeURIComponent(id)}/${action}`),
 }

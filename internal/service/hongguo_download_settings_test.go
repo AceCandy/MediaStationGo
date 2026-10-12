@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -191,32 +192,64 @@ func TestHongGuoDownloadSourcePriorityAndFallback(t *testing.T) {
 		{"official-http", "official", "http", []string{"official", "app", "fallback", "fallback"}},
 		{"official-truncated", "official", "truncated", []string{"official", "app", "fallback", "fallback"}},
 		{"official-corrupt", "official", "corrupt", []string{"official", "app", "fallback", "fallback"}},
+		{"original-http", "official", "http", []string{"official", "app", "fallback", "fallback"}},
+		{"original-corrupt", "official", "corrupt", []string{"official", "app", "fallback", "fallback"}},
 		{"app", "app", "", []string{"app", "app"}},
 		{"app-parse", "app", "parse", []string{"app", "fallback", "fallback"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newDownloadTestService(t)
-			seedDownload(t, s)
+			seed := seedDownload(t, s)
+			original := strings.HasPrefix(tt.name, "original-")
+			if original {
+				seed.VideoID = "987"
+				if err := s.repo.DB.Model(&seed).Updates(map[string]any{"status": "failed", "video_id": seed.VideoID}).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Action(t.Context(), seed.ID, "retry-original"); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := s.repo.Setting.Set(context.Background(), hongGuoDownloadPriorityKey, tt.priority); err != nil {
 				t.Fatal(err)
 			}
 			var visits []string
 			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
 				if response := downloadDetailTestResponse(r); response != nil {
+					if original {
+						t.Error("original video download requested episode detail")
+					}
 					return response, nil
 				}
 				source := "official"
-				body := `_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":"456","video_player_info":{"main_url":"https://media.example/official","duration":1}}}}`
+				body := fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":%q,"video_player_info":{"main_url":"https://media.example/official","duration":1}}}}`, seed.VideoID)
 				if strings.Contains(r.URL.Path, "/api/hongguo/play") {
 					source = "fallback"
+					reference, err := base64.StdEncoding.DecodeString(r.URL.Query().Get("id"))
+					var request struct {
+						SourceID string `json:"series_id"`
+						VideoID  string `json:"vid"`
+					}
+					if err != nil || json.Unmarshal(reference, &request) != nil || request.SourceID != seed.SourceID || request.VideoID != seed.VideoID {
+						t.Error("fallback request changed original video identity")
+					}
 					body = `{"key_urls":[{"name":"1080p","src":"https://media.example/fallback","kid":"00000000000000000000000000000000","spade_a":"nb8T+Vu+EvdZvhL1X7kR90G6DvVfpSbcXaUm3luiJdyloHE="}]}`
 				}
 				if r.URL.Path == "/novel/player/video_model/v1/" {
 					source = "app"
+					var request struct {
+						VideoID string `json:"video_id"`
+					}
+					if json.NewDecoder(r.Body).Decode(&request) != nil || request.VideoID != seed.VideoID {
+						t.Error("App request changed original video identity")
+					}
 					body = `{"code":101002}`
 					if tt.priority == "app" {
 						body = `{"code":0,"data":{"video_model":{"duration":1,"video_list":[{"main_url":"https://media.example/app","video_meta":{"definition":"1080p","codec_type":"h264","vwidth":1080,"vheight":1920},"encrypt_info":{"encrypt":true,"spade_a":"nb8T+Vu+EvdZvhL1X7kR90G6DvVfpSbcXaUm3luiJdyloHE="}}]}}}`
 					}
+				}
+				if source == "official" && r.URL.Path != "/player/"+seed.SourceID+"/"+seed.VideoID {
+					t.Error("official request changed original video identity")
 				}
 				visits = append(visits, source)
 				if source == tt.priority && tt.bad == "parse" {
@@ -250,6 +283,9 @@ func TestHongGuoDownloadSourcePriorityAndFallback(t *testing.T) {
 			}
 			if saved.Status != "completed" || strings.Join(visits, ",") != strings.Join(tt.want, ",") {
 				t.Fatalf("status=%s error=%s visits=%v", saved.Status, saved.Error, visits)
+			}
+			if saved.VideoID != seed.VideoID || saved.UseOriginalVideoID != original {
+				t.Fatalf("download identity or mode changed: %+v", saved)
 			}
 			if saved.Width <= 0 || saved.Height <= 0 || saved.Codec == "" {
 				t.Fatal("verified media details missing")

@@ -39,6 +39,13 @@ func TestHongGuoDownloadTableNamesMigration(t *testing.T) {
 	if err = db.Order("episode").Find(&beforeRows).Error; err != nil {
 		t.Fatal(err)
 	}
+	// 模拟尚未加入手动模式字段的旧下载表，使用真实启动入口补列。
+	if err = db.Migrator().DropColumn(&model.HongGuoDownload{}, "UseOriginalVideoID"); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasColumn(&model.HongGuoDownload{}, "UseOriginalVideoID") {
+		t.Fatal("legacy fixture still has original-video mode column")
+	}
 	pairs := [][2]string{{"hongguo_download_works", "hong_guo_download_works"}, {"hongguo_downloads", "hong_guo_downloads"}}
 	oids := make([]int64, len(pairs))
 	for i, names := range pairs {
@@ -56,6 +63,12 @@ func TestHongGuoDownloadTableNamesMigration(t *testing.T) {
 		// 使用完整启动入口，验证重命名先于 AutoMigrate，重启不会创建空的替代表。
 		if err = AutoMigrate(db); err != nil {
 			t.Fatal(err)
+		}
+		if attempt == 0 {
+			var enabledOrNull int64
+			if err = db.Model(&model.HongGuoDownload{}).Where("use_original_video_id IS NULL OR use_original_video_id = TRUE").Count(&enabledOrNull).Error; err != nil || enabledOrNull != 0 {
+				t.Fatalf("legacy tasks did not default to normal mode: count=%d err=%v", enabledOrNull, err)
+			}
 		}
 		for i, names := range pairs {
 			if db.Migrator().HasTable(names[1]) || !db.Migrator().HasTable(names[0]) {
@@ -77,6 +90,21 @@ func TestHongGuoDownloadTableNamesMigration(t *testing.T) {
 		if !reflect.DeepEqual(savedWork, beforeWork) || !reflect.DeepEqual(savedRows, beforeRows) {
 			t.Fatal("download records changed during migration")
 		}
+		if attempt == 0 {
+			// 再次启动不能清除已经保存的手动选择，也不能改动其他任务。
+			if err = db.Model(&beforeRows[1]).UpdateColumn("use_original_video_id", true).Error; err != nil {
+				t.Fatal(err)
+			}
+			beforeRows[1].UseOriginalVideoID = true
+		}
+	}
+	newRow := model.HongGuoDownload{SourceID: "123", Episode: 3, Status: "queued"}
+	if err = db.Omit("UseOriginalVideoID").Create(&newRow).Error; err != nil {
+		t.Fatal(err)
+	}
+	var defaulted int64
+	if err = db.Model(&model.HongGuoDownload{}).Where("id = ? AND use_original_video_id = FALSE", newRow.ID).Count(&defaulted).Error; err != nil || defaulted != 1 {
+		t.Fatalf("new tasks did not inherit database default: count=%d err=%v", defaulted, err)
 	}
 	for _, name := range []string{"uidx_hg_download_episode", "idx_hg_download_due", "idx_hg_download_transfer_claim", "idx_hg_download_verification_claim"} {
 		if !db.Migrator().HasIndex(&model.HongGuoDownload{}, name) {

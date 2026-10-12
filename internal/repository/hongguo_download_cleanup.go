@@ -37,6 +37,9 @@ func (r *HongGuoRepository) RemoveUnavailableHongGuoDownloads(ctx context.Contex
 		}
 		if replace {
 			for _, row := range rows {
+				if row.UseOriginalVideoID {
+					return errors.New("上游分集对应关系已变化，保留手动选择的原视频，请确认分集映射")
+				}
 				if row.Status == "completed" || row.RawSize > 0 || row.SHA256 != "" {
 					return errors.New("上游集数和分集对应关系已变化，已下载内容保留，请确认整部重下")
 				}
@@ -65,6 +68,10 @@ func (r *HongGuoRepository) RemoveUnavailableHongGuoDownloads(ctx context.Contex
 		}
 		for _, row := range rows {
 			if row.Status == "completed" || row.RawSize > 0 || row.SHA256 != "" {
+				continue
+			}
+			// 分集调整不能覆盖用户选择；确认整部下架仍按原清理规则处理。
+			if detail != nil && row.UseOriginalVideoID {
 				continue
 			}
 			if detail != nil && !replace && row.Episode > 0 && row.Episode <= len(detail.VideoIDs) && detail.VideoIDs[row.Episode-1] != "" {

@@ -364,7 +364,7 @@ func (s *HongGuoDownloadService) List(ctx context.Context, page int) ([]model.Ho
 }
 
 func (s *HongGuoDownloadService) Action(ctx context.Context, id, action string) error {
-	if action != "cancel" && action != "retry" {
+	if action != "cancel" && action != "retry" && action != "retry-original" {
 		return errors.New("下载操作无效")
 	}
 	var sourceID string
@@ -383,7 +383,16 @@ func (s *HongGuoDownloadService) Action(ctx context.Context, id, action string) 
 		if row.Status != "failed" && row.Status != "cancelled" {
 			return errors.New("只能重试失败或已取消分集")
 		}
-		return retryHongGuoDownload(tx, row)
+		if action == "retry-original" && (row.Status != "failed" || !hongguo.ValidID(row.VideoID)) {
+			return errors.New("只能对有有效原视频 ID 的失败分集执行此操作")
+		}
+		if err := retryHongGuoDownload(tx, row); err != nil {
+			return err
+		}
+		if action == "retry-original" {
+			return tx.Model(&row).Update("use_original_video_id", true).Error
+		}
+		return nil
 	})
 	if err == nil {
 		s.refreshWorkTask(ctx, sourceID)
@@ -404,7 +413,7 @@ func retryHongGuoDownload(tx *gorm.DB, row model.HongGuoDownload) error {
 	if err != nil {
 		return err
 	}
-	return tx.Model(&row).Updates(map[string]any{"status": "queued", "error": "", "source_errors": "{}", "source_tries": 0, "lease_token": "", "lease_until": nil}).Error
+	return tx.Model(&row).Updates(map[string]any{"status": "queued", "error": "", "source_errors": "{}", "source_tries": 0, "lease_token": "", "lease_until": nil, "use_original_video_id": false}).Error
 }
 
 func (s *HongGuoDownloadService) Wake() {

@@ -44,6 +44,8 @@ type HongGuoDownload struct {
 	Height       int               `json:"height"`
 	Codec        string            `gorm:"size:32" json:"codec"`
 	SourceErrors map[string]string `gorm:"serializer:json;type:text" json:"source_errors"`
+	// UseOriginalVideoID 记录本次手动下载选择，跨租约及换源仍沿用原视频身份。
+	UseOriginalVideoID bool `gorm:"not null;default:false" json:"use_original_video_id"`
 }
 
 func (HongGuoDownload) TableName() string { return "hongguo_downloads" }
