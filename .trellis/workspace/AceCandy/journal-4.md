@@ -87,3 +87,38 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 237: 项目历史依赖清理完成
+<!-- trellis-session: v=2 fp=b166aca80abc1507 -->
+
+**Date**: 2026-10-12
+**Task**: 项目历史依赖清理完成
+**Branch**: `main`
+
+### Summary
+
+完成重复 API 配置、历史迁移和图片键、任务别名、旧页面链接及日志格式清理；定向数据库清理及用户最终重启复查通过。任务已归档，保留原有 core，未推送远端。
+
+### Main Changes
+
+- 统一当前 API 配置链和现行 schema，退役历史转换与旧入口
+- 来源图片严格使用 catalogs 键，保留海报、头像、旁置缩略图和缺图重试
+- 移除旧任务归属与 Web 链接/存储/日志兼容，同步规范和当前回归
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `576d4d1` | refactor: 清理项目历史依赖与兼容入口 |
+
+### Testing
+
+- [OK] 全包编译、受影响 PostgreSQL 专项及 race、go vet 通过
+- [OK] Web lint/build、资料中心/发现/任务/媒体库专项检查通过
+- [OK] SQL 隔离回滚保护验证通过；用户执行后确认旧表、149 条退役任务和两列旧字段清除
+- [OK] 用户最终重启健康接口200、旧API404，旧结构与图片键未重建；完整登录态端到端未验证
+
+### Status
+
+[OK] **Completed**

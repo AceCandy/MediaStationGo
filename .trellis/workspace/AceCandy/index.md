@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 236
+- **Total Sessions**: 237
 - **Last Active**: 2026-10-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~89 | Active |
+| `journal-4.md` | ~124 | Active |
 | `journal-3.md` | ~1991 | Archived |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 237 | 2026-10-12 | 项目历史依赖清理完成 | `576d4d1` | `main` |
 | 236 | 2026-10-12 | 资料中心历史依赖退役 | `e727fbc` | `main` |
 | 235 | 2026-10-12 | 红果按原视频 ID 手动下载 | `c9bb4f3` | `main` |
 | 234 | 2026-10-12 | 红果异常分集隔离 | `c2e48ae` | `main` |
