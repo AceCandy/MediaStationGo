@@ -17,16 +17,6 @@ func (c *Container) NormalizeLocalLibraryPaths(ctx context.Context) error {
 		return err
 	}
 	for _, lib := range libs {
-		if len(lib.Roots) == 0 {
-			normalized := normalizePersistedLocalLibraryPath(lib.Path)
-			if sameLibraryPath(normalized, lib.Path) {
-				continue
-			}
-			if err := c.Repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": normalized}); err != nil {
-				return err
-			}
-			continue
-		}
 		primaryPath := ""
 		for i, root := range lib.Roots {
 			normalized := normalizePersistedLocalLibraryPath(root.Path)

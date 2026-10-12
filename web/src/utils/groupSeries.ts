@@ -25,8 +25,8 @@ import type { Media } from '../types'
  * 张卡(实测「遮天」90 集 = 89 个不同 tmdb_id)。而整剧目录名对全剧一致, 是最可靠的
  * 分组依据, 且对「部分集已刮削、部分未刮削」也能稳定合并。
  *
- * key 必须是「单条 media 的纯函数」且与子集无关。最终暴露给 URL/API 的
- * key 是短 hash，避免把库标识和标题这类内部分类依据塞进地址栏。
+ * key 必须是「单条 media 的纯函数」且与子集无关。内部分组使用短 hash；
+ * 导航使用作品身份，无关联身份时打开代表媒体详情。
  *
  * 同一组内取最早 created_at 的那条作为代表卡片，并带 count 表示集数。
  */
@@ -348,7 +348,7 @@ export function seriesCardLink(card: SeriesCard): string {
 		return `/library/${encodeURIComponent(targetLibraryID(card.linkMedia))}?series_id=${encodeURIComponent(card.rep.series_id)}`
 	}
 	if (card.rep.catalog_source === 'hongguo') return mediaDetailLink(card.rep)
-	if (isSeriesCard(card)) {
+	if (isSeriesCard(card) && card.key.startsWith('metadata:')) {
 		return `/library/${encodeURIComponent(targetLibraryID(card.linkMedia))}?series=${encodeURIComponent(card.key)}`
 	}
 	return mediaDetailLink(card.rep)

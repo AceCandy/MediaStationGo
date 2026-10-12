@@ -50,7 +50,7 @@ func TestScannerReconcilesMediaPartsAndRestoresSingleton(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &library); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	part1 := filepath.Join(root, "Movie Part 1.mkv")
@@ -107,7 +107,7 @@ func TestScannerSkipsUnrelatedPartReconciliation(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &library); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	queries := 0
@@ -175,7 +175,7 @@ func TestScannerPartRenameReconcilesBothDirectories(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &library); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"before/Movie-part1.mkv", "before/Movie-part2.mkv", "after/Movie-part1.mkv"} {
@@ -407,7 +407,7 @@ func TestScannerKeepsEpisodeIdentityForMediaParts(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	library := model.Library{Name: "TV", Path: root, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &library); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"Show.S01E01-part1.mkv", "Show.S01E01-part2.mkv"} {

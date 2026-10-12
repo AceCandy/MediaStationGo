@@ -25,6 +25,8 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 
 	for _, want := range []string{
 		"GET /api/me",
+		"GET /api/events",
+		"GET /api/system/scheduler",
 		"GET /api/auth/permissions",
 		"GET /api/libraries",
 		"GET /api/libraries/:id/cover",
@@ -54,6 +56,12 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"GET /api/system/config",
+		"GET /api/settings/schema",
+		"GET /api/system/events/ticket",
+		"GET /api/scheduler/tasks",
+		"POST /api/scheduler/tasks/:id/run",
+		"GET /api/scheduler/status",
 		"GET /api/public/ui-config",
 		"GET /api/downloads",
 		"POST /api/downloads",

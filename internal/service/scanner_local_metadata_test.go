@@ -33,7 +33,7 @@ func TestScanLibraryUsesLocalMetadata(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "TV", Path: root, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,7 +83,7 @@ func TestScanLibraryDoesNotMarkArtworkOnlyAsMatched(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Adult", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,7 +119,7 @@ func TestScanLibraryRefreshesArtworkOnlyMetadata(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -173,7 +173,7 @@ func TestScanLibraryDoesNotParseEpisodesForMovieTypedLibrary(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "综艺", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,7 +208,7 @@ func TestScanLibraryReconcilesDirtyMovieEpisodes(t *testing.T) {
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
 	movieMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Correct Movie"}
 	seriesMetadata := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Wrong Series"}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&[]*model.MetadataItem{&movieMetadata, &seriesMetadata}).Error; err != nil {
@@ -282,7 +282,7 @@ func TestScanLibraryRefreshesStaleNoMatchDerivedMetadata(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "综艺", Path: root, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
@@ -322,7 +322,7 @@ func TestScanLibraryPrunesMissingMedia(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "TV", Path: root, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	stale := model.Media{

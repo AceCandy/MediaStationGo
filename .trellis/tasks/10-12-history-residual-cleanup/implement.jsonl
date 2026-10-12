@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Current schema and directory write contracts"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Current links and route access contracts"}
+{"file":".trellis/tasks/10-12-history-residual-cleanup/design.md","reason":"Approved removal boundaries and retained behavior"}

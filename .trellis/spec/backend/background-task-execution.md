@@ -957,8 +957,8 @@ Correct: submit keyword explicitly, keep recheck items and summary independent, 
 
 TMDb/Douban source data comes exclusively from their centers. There is no startup
 legacy import, failure queue, snapshot fallback or whole-library snapshot backfill.
-`retireCatalogHistory` removes obsolete tables and settings at startup; their
-models must never be registered again. Per-request fills and periodic component
+Retired tables and settings are not registered or transformed at startup.
+Per-request fills and periodic component
 refresh remain normal source-center operations, independent of local media.
 
 The payload insert notification joins local identifiers by provider, kind and
@@ -1018,3 +1018,9 @@ roots. Task executions persist `system` on creation; database and memory filters
 compare that value directly instead of inferring ownership when it is empty.
 NFO libraries use the public `scan`/`watch` tasks and definitions. There are no
 `nfo_scan`/`nfo_watch` aliases or NFO-specific task execution endpoints.
+
+Current manual scheduler controls use `/admin/scheduler/:name/run` and task
+definition routes. There are no `/scheduler/tasks`, `/scheduler/status` or
+`/admin/system/scheduler/:name/trigger` aliases. Current `/events` uses the
+authenticated stream; no obsolete Vue configuration/schema or ticket endpoints,
+ticket stores or unused ticket validation methods are retained.

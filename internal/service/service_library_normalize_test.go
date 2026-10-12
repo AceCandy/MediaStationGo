@@ -51,3 +51,20 @@ func TestNormalizePersistedLocalLibraryPathKeepsEmptyPathEmpty(t *testing.T) {
 		t.Fatalf("normalizePersistedLocalLibraryPath(empty) = %q, want empty", got)
 	}
 }
+
+func TestNormalizeLocalLibraryPathsDoesNotRewriteLibraryWithoutRoots(t *testing.T) {
+	t.Setenv("MEDIASTATION_MEDIA_CONTAINER_DIR", t.TempDir())
+	db := newServiceTestDB(t, &model.Library{})
+	repos := repository.New(db)
+	lib := model.Library{Path: filepath.Join("media", "节目"), Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Container{Repo: repos}).NormalizeLocalLibraryPaths(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repos.Library.FindByID(t.Context(), lib.ID)
+	if err != nil || got == nil || got.Path != lib.Path || len(got.Roots) != 0 {
+		t.Fatalf("rootless library changed: %+v err=%v", got, err)
+	}
+}

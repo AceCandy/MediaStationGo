@@ -40,7 +40,7 @@ func TestIngestPathAddsSingleFile(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "Some Movie (2021).mkv")
@@ -85,7 +85,7 @@ func TestScanLibraryImportsISOImage(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	isoPath := filepath.Join(root, "Movie.Name.2026.iso")
@@ -113,7 +113,7 @@ func TestScanLibraryUsesISOParentFolderForScrapeIdentity(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	movieDir := filepath.Join(root, "Dune.Part.Two.2024")
@@ -145,7 +145,7 @@ func TestScanLibraryRepairsPreviouslyUnmatchedGenericISO(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	movieDir := filepath.Join(root, "Dune.Part.Two.2024")
@@ -206,7 +206,7 @@ func TestScanLibraryInvalidatesProbeDocumentWhenFileChanges(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &library); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, "movie.mkv")
@@ -256,7 +256,7 @@ func TestScanLibraryReadsLocalSTRMTarget(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "STRM", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	strmPath := filepath.Join(root, "Remote Movie.strm")
@@ -283,7 +283,7 @@ func TestScanLibraryReadsLocalSTRMFileTarget(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "STRM", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(root, "Local Movie.mkv")
@@ -321,7 +321,7 @@ func TestScanLibraryReadsTMDbHintFromMovieParent(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	movieDir := filepath.Join(root, "白雪公主和七个小矮人 (1938) [tmdbid=408]")
@@ -370,7 +370,7 @@ func TestScanLibraryReusesTMDbMetadataFromMovieParent(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Provider title", Overview: "Provider overview", Source: "tmdb"}
@@ -418,7 +418,7 @@ func TestScanLibrarySkipsUnchangedExistingLocalMedia(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "Already In Library (2024).mkv")
@@ -448,7 +448,7 @@ func TestScanLibrarySkipsUnchangedSTRMByFileFingerprint(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "STRM", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, "Remote Movie.strm")
@@ -531,10 +531,10 @@ func TestScanLibraryUpdatesExistingPathFromOverlappingLibrary(t *testing.T) {
 	}
 	firstLib := model.Library{Name: "Movies A", Path: root, Type: "movie", Enabled: true}
 	secondLib := model.Library{Name: "Movies B", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &firstLib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &firstLib, []model.LibraryRoot{{Path: firstLib.Path, Enabled: firstLib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Library.Create(t.Context(), &secondLib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &secondLib, []model.LibraryRoot{{Path: secondLib.Path, Enabled: secondLib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -561,7 +561,7 @@ func TestScanLibrarySkipsUnchangedLocalMetadata(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "Local Metadata (2024).mkv")
@@ -619,7 +619,7 @@ func TestScanLibrarySkipsUnchangedExistingLocalMediaWithMissingTrackMetadata(t *
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "Already In Library Missing Tracks (2024).mkv")
@@ -647,7 +647,7 @@ func TestScanLibraryImportsNewLocalMediaWithoutSynchronousProbe(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "New Movie (2026).mkv")
@@ -668,7 +668,7 @@ func TestScanLibraryReportsPerFileUpsertErrors(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Broken DB", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "Cannot Insert (2024).mkv")
@@ -710,7 +710,7 @@ func TestScanLibraryMapsPersistedHostLibraryPath(t *testing.T) {
 	t.Setenv("MEDIASTATION_MEDIA_CONTAINER_DIR", containerRoot)
 
 	lib := model.Library{Name: "国产剧", Path: `Q:\media\电视剧\国产剧`, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	res, err := sc.ScanLibrary(t.Context(), lib.ID)
@@ -735,7 +735,7 @@ func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	sc.SetRuntimeCache(cache)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(root, "Gone (2020).mkv")
@@ -804,7 +804,7 @@ func TestScanSkipsHardlinkDuplicate(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	orig := filepath.Join(root, "Movie (2019).mkv")

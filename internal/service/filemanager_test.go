@@ -18,7 +18,7 @@ func newFileManagerTestServiceWithRepo(t *testing.T, root string) (*FileManagerS
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "downloads", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{}
@@ -414,6 +414,22 @@ func TestFileManagerIncludesConfiguredOrganizeRoots(t *testing.T) {
 		if got[label] != want {
 			t.Fatalf("root %s = %q, want %q; roots=%#v", label, got[label], want, listing.Roots)
 		}
+	}
+}
+
+func TestFileManagerDoesNotAllowLibraryPathWithoutRoots(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{})
+	repos := repository.New(db)
+	lib := model.Library{Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.App.DataDir = t.TempDir()
+	cfg.Cache.CacheDir = t.TempDir()
+	svc := NewFileManagerService(cfg, zap.NewNop(), repos)
+	if _, err := svc.List(lib.Path, 100); !errors.Is(err, ErrPathOutOfBounds) {
+		t.Fatalf("rootless library path granted file access: %v", err)
 	}
 }
 

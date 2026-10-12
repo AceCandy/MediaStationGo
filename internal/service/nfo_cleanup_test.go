@@ -15,8 +15,8 @@ func TestNFODeletePathsClearEmptyWorks(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			scanner, repos := newScannerTestEnv(t)
 			root := t.TempDir()
-			lib := model.Library{Name: "NFO", Path: root, Type: model.LibraryTypeNFOMovie}
-			if err := repos.Library.Create(t.Context(), &lib); err != nil {
+			lib := model.Library{Name: "NFO", Path: root, Type: model.LibraryTypeNFOMovie, Enabled: true}
+			if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Base: model.Base{ID: "fixture-root"}, Path: root, Enabled: true}}); err != nil {
 				t.Fatal(err)
 			}
 			m := model.Media{Path: filepath.Join(root, "removed.mkv"), LibraryID: lib.ID, LibraryRootID: "fixture-root", CatalogSource: model.CatalogSourceNFO, ScrapeStatus: "matched"}

@@ -36,7 +36,7 @@ func TestWatcherRefreshMapsHostLibraryPathToContainerPath(t *testing.T) {
 		Type:    "tv",
 		Enabled: true,
 	}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	fw, err := fsnotify.NewWatcher()
@@ -55,6 +55,28 @@ func TestWatcherRefreshMapsHostLibraryPathToContainerPath(t *testing.T) {
 	}
 	if _, ok := watcher.watched[filepath.Clean(lib.Path)]; ok {
 		t.Fatalf("host path should not be watched inside container: %#v", watcher.watched)
+	}
+}
+
+func TestWatcherRefreshDoesNotUsePathWithoutRoots(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{})
+	repos := repository.New(db)
+	lib := model.Library{Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	fw, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fw.Close()
+	watcher := NewWatcherService(zap.NewNop(), repos, nil, nil)
+	watcher.watcher = fw
+	if err := watcher.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(watcher.watched) != 0 || len(fw.WatchList()) != 0 {
+		t.Fatalf("rootless library is watched: %+v", watcher.watched)
 	}
 }
 

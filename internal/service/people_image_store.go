@@ -25,7 +25,7 @@ type peopleImageSource struct {
 	Failed bool
 }
 
-// PeopleImageStore 按来源持久化人物头像，并兼容迁移前的本地键。
+// PeopleImageStore 按来源持久化人物头像，只读取当前资料目录中的图片。
 type PeopleImageStore struct {
 	root       string
 	repo       *repository.PersonRepository

@@ -104,7 +104,7 @@ func TestSchedulerOrganizeSourceSyncsVisibilityWhenTargetAlreadyExists(t *testin
 		}
 	}
 	lib := model.Library{Name: "国产剧", Path: filepath.Join(dest, "电视剧", "国产剧"), Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)

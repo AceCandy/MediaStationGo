@@ -22,9 +22,6 @@ func (r *LibraryRepository) Create(ctx context.Context, l *model.Library) error 
 }
 
 func (r *LibraryRepository) CreateWithRoots(ctx context.Context, l *model.Library, roots []model.LibraryRoot) error {
-	if !r.hasLibraryRootsTable() {
-		return r.Create(ctx, l)
-	}
 	return r.readCache.invalidateAfterWrite(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(l).Error; err != nil {
 			return err
@@ -53,12 +50,9 @@ func (r *LibraryRepository) CreateWithRoots(ctx context.Context, l *model.Librar
 // List returns all enabled+disabled libraries.
 func (r *LibraryRepository) List(ctx context.Context) ([]model.Library, error) {
 	var ls []model.Library
-	q := r.db.WithContext(ctx).Order("created_at asc")
-	if r.hasLibraryRootsTable() {
-		q = q.Preload("Roots", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc, created_at asc")
-		})
-	}
+	q := r.db.WithContext(ctx).Order("created_at asc").Preload("Roots", func(db *gorm.DB) *gorm.DB {
+		return db.Order("sort_order asc, created_at asc")
+	})
 	err := q.Find(&ls).Error
 	return ls, err
 }
@@ -86,12 +80,9 @@ func (r *LibraryRepository) FindBasicByID(ctx context.Context, id string) (*mode
 // FindByID returns the library, or (nil, nil) when missing.
 func (r *LibraryRepository) FindByID(ctx context.Context, id string) (*model.Library, error) {
 	var l model.Library
-	q := r.db.WithContext(ctx).Where("id = ?", id)
-	if r.hasLibraryRootsTable() {
-		q = q.Preload("Roots", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc, created_at asc")
-		})
-	}
+	q := r.db.WithContext(ctx).Where("id = ?", id).Preload("Roots", func(db *gorm.DB) *gorm.DB {
+		return db.Order("sort_order asc, created_at asc")
+	})
 	err := q.First(&l).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -125,9 +116,6 @@ func (r *LibraryRepository) UpdateFields(ctx context.Context, id string, updates
 }
 
 func (r *LibraryRepository) ListRoots(ctx context.Context, libraryID string) ([]model.LibraryRoot, error) {
-	if !r.hasLibraryRootsTable() {
-		return nil, nil
-	}
 	var roots []model.LibraryRoot
 	err := r.db.WithContext(ctx).
 		Where("library_id = ?", libraryID).
@@ -137,9 +125,6 @@ func (r *LibraryRepository) ListRoots(ctx context.Context, libraryID string) ([]
 }
 
 func (r *LibraryRepository) FindRootByID(ctx context.Context, libraryID, rootID string) (*model.LibraryRoot, error) {
-	if !r.hasLibraryRootsTable() {
-		return nil, nil
-	}
 	var root model.LibraryRoot
 	q := r.db.WithContext(ctx).Where("id = ?", rootID)
 	if strings.TrimSpace(libraryID) != "" {
@@ -156,9 +141,6 @@ func (r *LibraryRepository) FindRootByID(ctx context.Context, libraryID, rootID 
 }
 
 func (r *LibraryRepository) CreateRoot(ctx context.Context, root *model.LibraryRoot) error {
-	if !r.hasLibraryRootsTable() {
-		return nil
-	}
 	enabled := root.Enabled
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(root).Error; err != nil {
@@ -175,9 +157,6 @@ func (r *LibraryRepository) CreateRoot(ctx context.Context, root *model.LibraryR
 }
 
 func (r *LibraryRepository) UpdateRoot(ctx context.Context, root *model.LibraryRoot, updates map[string]any) error {
-	if !r.hasLibraryRootsTable() {
-		return nil
-	}
 	if root == nil || strings.TrimSpace(root.ID) == "" || len(updates) == 0 {
 		return nil
 	}
@@ -185,12 +164,5 @@ func (r *LibraryRepository) UpdateRoot(ctx context.Context, root *model.LibraryR
 }
 
 func (r *LibraryRepository) DeleteRoot(ctx context.Context, libraryID, rootID string) error {
-	if !r.hasLibraryRootsTable() {
-		return nil
-	}
 	return r.db.WithContext(ctx).Where("library_id = ?", libraryID).Delete(&model.LibraryRoot{}, "id = ?", rootID).Error
-}
-
-func (r *LibraryRepository) hasLibraryRootsTable() bool {
-	return r != nil && r.db != nil && r.db.Migrator().HasTable(&model.LibraryRoot{})
 }

@@ -2,11 +2,7 @@
 package service
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"sync"
-	"time"
 
 	"go.uber.org/zap"
 )
@@ -18,8 +14,6 @@ type SSEHub struct {
 	register   chan chan SSEEvent
 	unregister chan chan SSEEvent
 	log        *zap.Logger
-	tickets    map[string]*sseTicket
-	ticketMu   sync.RWMutex
 	stopCh     chan struct{}
 }
 
@@ -30,19 +24,13 @@ type SSEEvent struct {
 
 // SSEEvent 事件类型常量。
 const (
-	EventTypeScan             = "scan"
-	EventTypeTask             = "task"
-	EventTypeSystem           = "system"
-	EventTypeAuth             = "auth"
+	EventTypeScan   = "scan"
+	EventTypeTask   = "task"
+	EventTypeSystem = "system"
+	EventTypeAuth   = "auth"
 )
 
 const EventTypePlayerRequestLog = "player_request_log_changed"
-
-// sseTicket 是一次性 OTP 票据。
-type sseTicket struct {
-	UserID    string
-	ExpiresAt time.Time
-}
 
 // NewSSEHub 创建 SSE Hub 实例。
 func NewSSEHub(log *zap.Logger) *SSEHub {
@@ -51,7 +39,6 @@ func NewSSEHub(log *zap.Logger) *SSEHub {
 		broadcast:  make(chan SSEEvent, 256),
 		register:   make(chan chan SSEEvent),
 		unregister: make(chan chan SSEEvent),
-		tickets:    make(map[string]*sseTicket),
 		log:        log,
 		stopCh:     make(chan struct{}),
 	}
@@ -150,79 +137,4 @@ func (h *SSEHub) closeAll() {
 		close(client)
 	}
 	h.clients = make(map[chan SSEEvent]bool)
-}
-
-// GenerateTicket 生成一次性 SSE 连接票据（用于无 JWT 场景下的安全连接）。
-func (h *SSEHub) GenerateTicket(userID string) (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	ticket := hex.EncodeToString(buf)
-
-	h.ticketMu.Lock()
-	defer h.ticketMu.Unlock()
-
-	h.tickets[ticket] = &sseTicket{
-		UserID:    userID,
-		ExpiresAt: time.Now().Add(10 * time.Second),
-	}
-
-	return ticket, nil
-}
-
-// ValidateTicket 验证 SSE 连接票据，返回关联的用户 ID。
-func (h *SSEHub) ValidateTicket(ticket string) (string, error) {
-	h.ticketMu.Lock()
-	defer h.ticketMu.Unlock()
-
-	t, ok := h.tickets[ticket]
-	if !ok {
-		return "", ErrInvalidTicket
-	}
-
-	if time.Now().After(t.ExpiresAt) {
-		delete(h.tickets, ticket)
-		return "", ErrTicketExpired
-	}
-
-	userID := t.UserID
-	delete(h.tickets, ticket)
-
-	return userID, nil
-}
-
-// CleanupTickets 清理过期的票据。
-func (h *SSEHub) CleanupTickets() {
-	h.ticketMu.Lock()
-	defer h.ticketMu.Unlock()
-
-	now := time.Now()
-	for ticket, t := range h.tickets {
-		if now.After(t.ExpiresAt) {
-			delete(h.tickets, ticket)
-		}
-	}
-}
-
-// SSE Hub 错误定义。
-var (
-	ErrInvalidTicket = &SSEError{Message: "invalid ticket"}
-	ErrTicketExpired = &SSEError{Message: "ticket expired"}
-)
-
-// SSEError SSE 相关错误。
-type SSEError struct {
-	Message string
-}
-
-func (e *SSEError) Error() string {
-	return e.Message
-}
-
-// ClientCount 返回当前连接的客户端数量。
-func (h *SSEHub) ClientCount() int {
-	h.ticketMu.RLock()
-	defer h.ticketMu.RUnlock()
-	return len(h.clients)
 }

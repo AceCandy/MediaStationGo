@@ -825,3 +825,15 @@ otherwise retain exact qualification. State filters always remain effective.
 ## Playback progress revision invariant
 
 `AutoMigrate` installs `playback_progress_revisions` and the four state-table triggers via `EnsurePlaybackProgressRevisionTriggers`. State and revision must share one transaction. Keep the state→revision lock order for CAS and ordinary writes; never lock revision first. DELETE retains revision tombstones; changes to logical identity increment both old and new identities. No historical backfill is required (initial revision zero). See [exact progress contract](progress-sync-contracts.md) and the real-PostgreSQL revision/concurrent-first-write tests.
+
+## Current library directory schema
+
+`LibraryRoot` is part of the mandatory startup schema. Directory reads/writes
+operate on that table directly; a missing table propagates the database error,
+and failed library-plus-root creation rolls back the library. Reading directories
+never creates roots from `Library.Path`. Scanning, watching, file access and image
+path providers use enabled root records; an empty root list never grants access
+to Path. Path normalization updates real roots and their primary projection only.
+Keep Path as the current primary-root projection and create new libraries with
+roots in one transaction. Shared test fixtures must include the current root
+model, and filesystem test libraries must create real roots.

@@ -1209,8 +1209,8 @@ rename/merge path is retained. Archived historical SQL is not an active contract
 
 ### 1. Scope / Trigger
 
-HongGuo transfer, verification, queue actions, restart and historical execution
-compaction. Download Space retains its existing history endpoint and authorization.
+HongGuo transfer, verification, queue actions and restart. Download Space retains
+its existing history endpoint and authorization.
 
 ### 2. Signatures
 
@@ -1219,9 +1219,6 @@ compaction. Download Space retains its existing history endpoint and authorizati
 - Existing `task_executions` primary key is UUID v5 using NameSpaceURL and
   `hongguo_download:<sourceID>`; `source_path=hongguo://<sourceID>` identifies
   resumable summaries without changing schema.
-- Operational command:
-  `go run ./cmd/hongguo-task-compact -cutoff <past RFC3339 time> [-apply]`.
-  It uses existing database configuration; default is read-only preview.
 
 ### 3. Contracts
 
@@ -1244,23 +1241,11 @@ rows, entering tracker active/recent, or publishing episode task events. Summary
 errors are logged with a bounded two-second context and never change business
 success/failure. Generic task persistence semantics remain unchanged.
 
-Compaction scans identifiable ended legacy records once and groups their primary
-keys. Both created_at and finished_at must precede the fixed cutoff; exclude
-soft-deleted, running, unrecognized, other kinds and hongguo:// summary rows.
-Each at-most-20000-ID transaction rechecks source/status/time predicates, refreshes
-or creates a work summary, preserves earliest start and hard-deletes only selected
-legacy rows. Existing queues determine completion; queue-less histories are
-explicitly historical/interrupted. Never mutate downloads, checkpoints, files or
-other task kinds. No automatic startup or scheduled historical compaction.
-Old binaries may keep creating post-cutoff records until rollout; preview/apply
-with the same cutoff is repeatable. Do not claim disk is returned to the filesystem
-after DELETE; ordinary vacuum reuses space, table rewrites require separate planning.
+The one-time legacy execution compaction is complete. Its CLI and dedicated
+repository methods are retired; current summaries derive only from download rows.
 
 ### 4. Validation & Error Matrix
 
-Invalid/future/empty cutoff or extra positional arguments abort before database
-access. Missing connection or scan failure causes no writes. Summary/delete failure
-rolls back its batch, retaining original history; prior committed batches remain.
 Unknown/missing queue rows never justify fabricated completed summaries.
 Cancelled or old-lease workers cannot set a work result from their own outcome;
 only current queue counts determine the summary.
@@ -1285,11 +1270,7 @@ changes the download queue.
   table cannot stop hash-checkpoint publication; episode logs survive without
   tracker active/recent entries.
 - `TestHongGuoDownloadRemovedWorkTask`: removed queue remains interrupted.
-- `TestHongGuoDownloadLegacyTaskCompaction`: cutoff/status/source isolation,
-  idempotence, queue-first result, no invented completion, queue preservation and
-  transactional rollback after rejected deletion.
-Run real isolated PostgreSQL regressions and race checks. Measure production-size
-preview before applying; it holds grouped legacy IDs in memory.
+Run real isolated PostgreSQL regressions and race checks.
 
 ### 7. Wrong vs Correct
 

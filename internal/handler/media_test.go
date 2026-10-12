@@ -855,6 +855,7 @@ func TestEmptyLibraryListsReturnEmptyArraysNotNull(t *testing.T) {
 
 func migrateMediaHandlerTestDB(db *gorm.DB, models ...any) error {
 	models = append(models,
+		&model.LibraryRoot{},
 		&model.MediaProbeMetadata{},
 		&model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.ArtworkAsset{}, &model.MetadataArtwork{},

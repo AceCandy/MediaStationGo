@@ -277,13 +277,6 @@ LEFT JOIN cards ON TRUE ORDER BY cards.sort_date DESC, cards.metadata_id DESC`, 
 	return summaries, total, err
 }
 
-// LibrarySeriesMetadataIDs 只用于解析旧哈希深链，不读取全库文件展示数据。
-func (r *MediaViewRepository) LibrarySeriesMetadataIDs(ctx context.Context, libraryID string, filter MediaQueryFilter) ([]string, error) {
-	var ids []string
-	err := r.libraryMetadataScope(ctx, libraryID, model.MetadataKindSeries, "", filter).Distinct("work.id").Pluck("work.id", &ids).Error
-	return ids, err
-}
-
 // ListLibrarySeriesViews 仅加载指定作品在当前库内的可见关联文件。
 func (r *MediaViewRepository) ListLibrarySeriesViews(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]model.MediaView, error) {
 	return r.listLibrarySeriesViews(ctx, libraryID, metadataID, nil, filter)

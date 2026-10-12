@@ -517,9 +517,9 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 		}
 	}
 	legacy := compactSeriesKey("series:" + first.Rep.SeriesID)
-	legacyCards, _, err := web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", legacy, visibility)
-	if err != nil || len(legacyCards) != 1 || legacyCards[0].Key != legacy {
-		t.Fatalf("legacy link=%+v err=%v", legacyCards, err)
+	legacyCards, legacyTotal, err := web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", legacy, visibility)
+	if err != nil || legacyTotal != 0 || len(legacyCards) != 0 {
+		t.Fatalf("retired hash link=%+v total=%d err=%v", legacyCards, legacyTotal, err)
 	}
 	if _, err := web.GetMediaSeriesVisible(t.Context(), first.Rep.ID, visibility); err != nil {
 		t.Fatal(err)
@@ -595,7 +595,7 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 		t.Fatalf("series detail=%+v err=%v", detail, err)
 	}
 
-	// 电影库混合列表仍先按作品统一分页，第一页只包含整剧时不读取文件详情。
+	// 显式按首播日期分页，第一页只包含整剧时不读取文件详情。
 	if err := db.Model(&lib).Update("type", "movie").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -606,11 +606,11 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 		}
 	}
 	reads.fileRows = 0
-	result, err = emby.Items(t.Context(), ItemsParams{ParentID: lib.ID, Limit: 1, Fields: []string{"Overview"}})
+	result, err = emby.Items(t.Context(), ItemsParams{ParentID: lib.ID, Limit: 1, Fields: []string{"Overview"}, SortBy: "PremiereDate", SortOrder: "Descending"})
 	if err != nil || result["TotalRecordCount"] != 3 || len(result["Items"].([]map[string]any)) != 1 || reads.fileRows != 0 {
 		t.Fatalf("mixed=%+v files=%d err=%v", result, reads.fileRows, err)
 	}
-	result, err = emby.Items(t.Context(), ItemsParams{ParentID: lib.ID, StartIndex: 2, Limit: 1, Fields: []string{"Overview"}})
+	result, err = emby.Items(t.Context(), ItemsParams{ParentID: lib.ID, StartIndex: 2, Limit: 1, Fields: []string{"Overview"}, SortBy: "PremiereDate", SortOrder: "Descending"})
 	if err != nil || result["Items"].([]map[string]any)[0]["Id"] != movie.ID {
 		t.Fatalf("mixed last=%+v err=%v", result, err)
 	}

@@ -44,3 +44,15 @@ func TestServiceBuilderLibraryRootsIncludesAllEnabledRoots(t *testing.T) {
 		t.Fatalf("missing enabled roots %v from %#v", want, got)
 	}
 }
+
+func TestServiceBuilderLibraryRootsDoesNotUsePathWithoutRoots(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{})
+	repos := repository.New(db)
+	lib := model.Library{Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if roots := (&serviceContainerBuilder{repos: repos}).libraryRoots(); len(roots) != 0 {
+		t.Fatalf("rootless library supplied image roots: %v", roots)
+	}
+}

@@ -13,7 +13,7 @@ func TestWatcherNFORefreshPreservesConfirmedIdentityAndProbe(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, "movie.mkv")
@@ -70,7 +70,7 @@ func TestWatcherNFORefreshRetriesUnmatchedAndIsolatesSources(t *testing.T) {
 	for _, typ := range []string{"movie", model.LibraryTypeHongGuo, model.LibraryTypeNFOMovie} {
 		root := t.TempDir()
 		lib := model.Library{Name: typ, Path: root, Type: typ, Enabled: true}
-		if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 			t.Fatal(err)
 		}
 		path := filepath.Join(root, "movie.mkv")
@@ -108,7 +108,7 @@ func TestWatcherNFORefreshWaitsForRunningScrape(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Path: root, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, "S01E02.mkv")

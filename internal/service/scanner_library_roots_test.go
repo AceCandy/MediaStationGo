@@ -134,3 +134,23 @@ func removeTestPath(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+func TestScanLibraryDoesNotUsePathWithoutRoots(t *testing.T) {
+	scanner, repos := newScannerTestEnv(t)
+	lib := model.Library{Name: "无目录库", Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(lib.Path, "movie.mkv")
+	writeTestFile(t, path, "video")
+	res, err := scanner.ScanLibrary(t.Context(), lib.ID)
+	if err == nil || err.Error() != "library has no enabled paths" || res == nil || res.Visited != 0 {
+		t.Fatalf("rootless scan: result=%+v err=%v", res, err)
+	}
+	if _, err := scanner.IngestPath(t.Context(), lib.ID, path); err == nil || err.Error() != "library has no enabled paths" {
+		t.Fatalf("rootless ingest: %v", err)
+	}
+	if got := countMedia(t, repos); got != 0 {
+		t.Fatalf("rootless library imported %d files", got)
+	}
+}

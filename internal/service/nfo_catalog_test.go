@@ -30,7 +30,7 @@ func TestNFOFreshStartupAndScan(t *testing.T) {
 	writeOrgFile(t, path, "video")
 	writeOrgFile(t, filepath.Join(filepath.Dir(path), "movie.nfo"), `<movie><title>本地旅行</title><tmdbid>123</tmdbid></movie>`)
 	lib := model.Library{Name: "本地", Type: model.LibraryTypeNFOMovie, Path: root, Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	log := zap.NewNop()
@@ -159,7 +159,7 @@ func TestNFOSeriesHierarchyAndStateIsolation(t *testing.T) {
 	repos := repository.New(db)
 	root := t.TempDir()
 	lib := model.Library{Name: "本地剧集", Type: model.LibraryTypeNFOTV, Path: root, Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	show := filepath.Join(root, "本地节目")

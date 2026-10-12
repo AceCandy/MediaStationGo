@@ -18,7 +18,7 @@ func TestScannerProbeScopeKeepsAllCommittedChanges(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Type: "movie", Path: root, Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	oldPath := filepath.Join(root, "old.mkv")
@@ -124,7 +124,7 @@ func TestMediaProbeScopedWakeWaitsAndPreservesLaterEvents(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Type: "movie", Path: root, Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	ids := make([]string, 3)

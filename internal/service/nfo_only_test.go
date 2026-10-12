@@ -58,7 +58,7 @@ func TestNFOOnlyMoviePersistsValidNFOAndReportsBrokenNFO(t *testing.T) {
 		scraper, repos, providerCalls := newNFOOnlyTestScraper(t)
 		root := t.TempDir()
 		library := model.Library{Name: "个人短片", Path: root, Type: model.LibraryTypeNFOMovie, Enabled: true}
-		if err := repos.DB.Create(&library).Error; err != nil {
+		if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 			t.Fatal(err)
 		}
 		mediaPath := filepath.Join(root, "旅行记录.mkv")
@@ -82,7 +82,7 @@ func TestNFOOnlyMoviePersistsValidNFOAndReportsBrokenNFO(t *testing.T) {
 		scraper, repos, providerCalls := newNFOOnlyTestScraper(t)
 		root := t.TempDir()
 		library := model.Library{Name: "个人短片", Path: root, Type: model.LibraryTypeNFOMovie, Enabled: true}
-		if err := repos.DB.Create(&library).Error; err != nil {
+		if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 			t.Fatal(err)
 		}
 		mediaPath := filepath.Join(root, "损坏.mkv")
@@ -122,7 +122,7 @@ func TestNFOOnlyTVPersistsShowAndEpisodeNFO(t *testing.T) {
 		t.Fatal(err)
 	}
 	library := model.Library{Name: "自制节目", Path: root, Type: model.LibraryTypeNFOTV, Enabled: true}
-	if err := repos.DB.Create(&library).Error; err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{LibraryID: library.ID, Title: "raw", Path: mediaPath, ScrapeStatus: "pending"}
@@ -160,7 +160,7 @@ func TestNFOOnlyTVGroupReadsEachEpisodeNFO(t *testing.T) {
 		}
 	}
 	library := model.Library{Name: "自制节目", Path: root, Type: model.LibraryTypeNFOTV, Enabled: true}
-	if err := repos.DB.Create(&library).Error; err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &library, []model.LibraryRoot{{Path: library.Path, Enabled: library.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	rows := []model.Media{

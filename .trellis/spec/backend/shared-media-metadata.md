@@ -131,7 +131,7 @@ supersedes older requirements for per-Episode extended responses and credits.
 
 - File associations establish library membership and visibility; unlinked catalog metadata does not enter library cards.
 - Web movie cards return `version_count`, not expanded `versions`. Concrete `id` remains usable for operations; `metadata_id` owns movie navigation and favorite display identity.
-- Series cards use `metadata:<series-id>` keys, preserve concrete `rep.id`/`linkMedia.id`, and display Series-owned metadata. Explicit old hashed links resolve using only Series IDs.
+- Series cards use `metadata:<series-id>` keys, preserve concrete `rep.id`/`linkMedia.id`, and display Series-owned metadata. Old hashed links are rejected without enumerating work IDs. Client grouping hashes are internal only; navigation uses canonical identity or the representative media detail.
 - Count, filtering and page selection share one scoped query. Missing-poster/title filters apply to the displayed work, not its representative episode.
 - Emby summary counts must never overwrite complete Series/Season group caches. Load current-page movie/episode versions only where payload compatibility requires them.
 - SQL still scans/aggregates matching associations for totals and ordering; bounded file hydration is not a constant-time database guarantee.
@@ -217,7 +217,7 @@ supersedes older requirements for per-Episode extended responses and credits.
 
 ### 6. Tests Required
 
-- `TestLibraryMetadataPaginationBoundsFileReads`: page-sized file reads, logical totals, cross-library isolation, filters, adult-library restrictions, old links, multipart counts, empty pages and complete detail after summaries.
+- `TestLibraryMetadataPaginationBoundsFileReads`: page-sized file reads, logical totals, cross-library isolation, filters, adult-library restrictions, retired-link rejection, multipart counts, empty pages and complete detail after summaries.
 - `TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries`: all 2001 episodes remain available when selecting that Series.
 - `TestEmbyContainerDetailBoundsReadsAndPreservesPayload`: compare full legacy
   payloads with bounded detail reads for large multi-version series, Parts,
@@ -2632,11 +2632,11 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 - Local metadata deletion/merge moves local associations only. It never deletes
   independent center data. Shared people, local display overrides, media and
   artwork selections remain business records.
-- Startup `retireCatalogHistory` drops `metadata_provider_snapshots` and
-  `tmdb_migration_failures` plus retired migration/backfill settings, without
-  CASCADE. Center tables and local associations remain intact. Removed historical
-  task definitions/actions must not be accepted by the task API.
-- Verify with real PostgreSQL: clean and repeated startup, old-schema retirement,
+- Startup maintains only the current schema; retired source tables and settings
+  were removed by a completed one-time operation. There is no startup retirement
+  or import chain. Center tables and local associations remain intact. Removed
+  historical task definitions/actions must not be accepted by the task API.
+- Verify with real PostgreSQL: clean and repeated startup, current schema baseline,
   data/identifier preservation, missing-provider results, center reads/updates,
   optional fill concurrency, manual identity rollback and local graph merge.
 

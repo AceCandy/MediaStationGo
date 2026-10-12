@@ -28,7 +28,6 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 	for _, want := range []string{
 		"GET /api/admin/users",
 		"GET /api/admin/users/:id/permissions",
-		"POST /api/admin/system/scheduler/:name/trigger",
 		"GET /api/admin/notify/channels",
 		"GET /api/admin/telegram/webhook",
 		"GET /api/admin/organize/sources",
@@ -43,6 +42,7 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		"POST /api/admin/api-proxy-pool/check",
 		"POST /api/admin/api-proxy-pool/cleanup",
 		"POST /api/admin/scheduler/:name/run",
+		"GET /api/admin/scheduler",
 		"POST /api/media/:id/douban-enrichment",
 		"GET /api/tasks/definitions/:key/executions",
 		"GET /api/tasks/definitions/:key/pending",
@@ -55,6 +55,7 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		}
 	}
 	for _, retired := range []string{
+		"/api/admin/system/scheduler/:name/trigger",
 		"/api/admin/download/clients",
 		"/api/admin/storage/status",
 		"/api/admin/storage/:type",

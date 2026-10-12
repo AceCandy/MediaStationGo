@@ -48,12 +48,6 @@ func registerAuthedSearchRoutes(authed *gin.RouterGroup, svc *service.Container)
 	authed.GET("/search/tmdb", searchTMDbHandler(svc))
 }
 
-func registerAuthedSystemExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.GET("/system/config", listSystemConfigHandler(svc))
-	authed.GET("/settings/schema", schemaHandler(svc))
-	authed.GET("/system/events/ticket", systemEventsTicketHandler(svc))
-}
-
 func registerAuthedStatsExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/stats/user/:id", middleware.AdminRequired(), statsUserHandler(svc))
 	authed.GET("/stats/top-users", middleware.AdminRequired(), statsTopUsersHandler(svc))

@@ -120,3 +120,71 @@ func TestCreateLibraryWithRootsRejectsInaccessibleRoot(t *testing.T) {
 		t.Fatal("expected inaccessible library root to be rejected")
 	}
 }
+
+func TestListLibraryRootsDoesNotBackfillPath(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "无目录记录", Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	roots, err := svc.ListLibraryRoots(t.Context(), lib.ID)
+	if err != nil || len(roots) != 0 {
+		t.Fatalf("directory read created rows from Path: roots=%+v err=%v", roots, err)
+	}
+	var count int64
+	if err := db.Model(&model.LibraryRoot{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("directory read wrote rows: count=%d err=%v", count, err)
+	}
+}
+
+func TestLibraryRootUpdateAndDeleteKeepsPrimaryPath(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	repos := repository.New(db)
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	lib, err := svc.CreateLibraryWithRoots(t.Context(), "多路径库", "movie", []LibraryRootInput{
+		{Path: t.TempDir()}, {Path: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := svc.ListLibraryRoots(t.Context(), lib.ID)
+	if err != nil || len(roots) != 2 {
+		t.Fatalf("roots=%+v err=%v", roots, err)
+	}
+	newPath := t.TempDir()
+	disabled := false
+	updated, err := svc.UpdateLibraryRoot(t.Context(), lib.ID, roots[0].ID, LibraryRootInput{Path: newPath, Enabled: &disabled})
+	if err != nil || updated == nil || updated.Enabled || updated.Path != newPath {
+		t.Fatalf("updated root=%+v err=%v", updated, err)
+	}
+	got, err := repos.Library.FindByID(t.Context(), lib.ID)
+	if err != nil || got == nil || got.Path != newPath || len(got.Roots) != 2 {
+		t.Fatalf("updated primary path=%+v err=%v", got, err)
+	}
+	files := []model.Media{
+		{LibraryID: lib.ID, LibraryRootID: roots[0].ID, Path: filepath.Join(newPath, "a.mkv")},
+		{LibraryID: lib.ID, LibraryRootID: roots[1].ID, Path: filepath.Join(roots[1].Path, "b.mkv")},
+	}
+	if err := db.Create(&files).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteLibraryRoot(t.Context(), lib.ID, roots[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repos.Library.FindByID(t.Context(), lib.ID)
+	if err != nil || got == nil || got.Path != roots[1].Path || len(got.Roots) != 1 || got.Roots[0].ID != roots[1].ID {
+		t.Fatalf("remaining primary path=%+v err=%v", got, err)
+	}
+	if err := svc.DeleteLibraryRoot(t.Context(), lib.ID, roots[1].ID); err == nil {
+		t.Fatal("last directory was deleted")
+	}
+	var remaining []model.Media
+	if err := db.Find(&remaining).Error; err != nil || len(remaining) != 1 || remaining[0].ID != files[1].ID {
+		t.Fatalf("directory deletion affected other media: %+v err=%v", remaining, err)
+	}
+	if root, err := repos.Library.FindRootByID(t.Context(), lib.ID, roots[1].ID); err != nil || root == nil {
+		t.Fatalf("last directory was not preserved: %+v err=%v", root, err)
+	}
+}

@@ -62,23 +62,6 @@ func getNotifyChannelHandler(svc *service.Container) gin.HandlerFunc {
 	return h.Get
 }
 
-// ─── Scheduler Handler 包装 ──────────────────────────────────────────────────
-
-func schedulerListTasksHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewSchedulerHandler(svc, svc.Log)
-	return h.ListTasks
-}
-
-func schedulerRunTaskHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewSchedulerHandler(svc, svc.Log)
-	return h.RunTask
-}
-
-func schedulerGetStatusHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewSchedulerHandler(svc, svc.Log)
-	return h.GetStatus
-}
-
 // ─── SSE Handler ──────────────────────────────────────────────────────────────
 
 func sseHandler(svc *service.Container) gin.HandlerFunc {

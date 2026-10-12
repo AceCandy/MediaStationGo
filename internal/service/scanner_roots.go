@@ -23,13 +23,6 @@ func (s *ScannerService) localLibraryScanRoots(ctx context.Context, lib *model.L
 			return nil, err
 		}
 	}
-	if len(roots) == 0 && strings.TrimSpace(lib.Path) != "" {
-		roots = []model.LibraryRoot{{
-			LibraryID: lib.ID,
-			Path:      lib.Path,
-			Enabled:   lib.Enabled,
-		}}
-	}
 	out := roots[:0]
 	for _, root := range roots {
 		if !root.Enabled || strings.TrimSpace(root.Path) == "" {
@@ -81,10 +74,7 @@ func (s *ScannerService) resolveLocalLibraryRootPath(ctx context.Context, lib *m
 		}
 	}
 	if lib != nil {
-		if strings.TrimSpace(root.ID) == "" {
-			_ = s.repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": resolved})
-			lib.Path = resolved
-		} else if roots, err := s.repo.Library.ListRoots(ctx, lib.ID); err == nil && len(roots) > 0 && roots[0].ID == root.ID {
+		if roots, err := s.repo.Library.ListRoots(ctx, lib.ID); err == nil && len(roots) > 0 && roots[0].ID == root.ID {
 			_ = s.repo.Library.UpdateFields(ctx, lib.ID, map[string]any{"path": resolved})
 			lib.Path = resolved
 		}

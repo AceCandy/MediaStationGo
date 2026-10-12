@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"Retained scheduler and task controls"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Canonical navigation and current source links"}
+{"file":".trellis/tasks/10-12-history-residual-cleanup/prd.md","reason":"Acceptance criteria and read-only production boundary"}

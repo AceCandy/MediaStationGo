@@ -50,7 +50,7 @@ func TestRemovePathPreservesOfflineRoot(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := filepath.Join(t.TempDir(), "offline")
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{LibraryID: lib.ID, Path: filepath.Join(root, "movie.mkv")}
@@ -72,7 +72,7 @@ func TestScanUnreadableSubdirectoryPreservesRootRecords(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	stale := model.Media{LibraryID: lib.ID, Path: filepath.Join(root, "vanished.mkv")}
@@ -120,7 +120,7 @@ func TestWatcherRecoversMovedDirectoryAndDeletedFiles(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	fw, err := fsnotify.NewWatcher()
@@ -182,11 +182,11 @@ func TestWatcherOfflineRecoveryDoesNotReviveDisabledLibrary(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Name: "disabled", Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	offline := model.Library{Name: "offline", Path: filepath.Join(t.TempDir(), "offline"), Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &offline); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &offline, []model.LibraryRoot{{Path: offline.Path, Enabled: offline.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	fw, err := fsnotify.NewWatcher()
@@ -232,7 +232,7 @@ func TestWatcherFilesystemDirectoryEvents(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
 	root := t.TempDir()
 	lib := model.Library{Path: root, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	fw, err := fsnotify.NewWatcher()

@@ -123,22 +123,13 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 	return cards, total, nil
 }
 
-// resolveLibrarySeriesKey 接受 canonical ID；旧哈希链接只扫描作品 ID，不读取分集。
+// resolveLibrarySeriesKey 只解析当前作品身份和来源身份。
 func (s *MediaService) resolveLibrarySeriesKey(ctx context.Context, libraryID, key string, visibility MediaVisibility) (string, error) {
 	if strings.HasPrefix(key, "hongguo:") {
 		return s.repo.MediaView.HongGuoSeriesForSource(ctx, libraryID, strings.TrimPrefix(key, "hongguo:"), repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 	}
 	if strings.HasPrefix(key, "metadata:") {
 		return strings.TrimPrefix(key, "metadata:"), nil
-	}
-	ids, err := s.repo.MediaView.LibrarySeriesMetadataIDs(ctx, libraryID, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
-	if err != nil {
-		return "", err
-	}
-	for _, id := range ids {
-		if key == compactSeriesKey("series:"+id) || key == compactSeriesKey("metadata:"+id) {
-			return id, nil
-		}
 	}
 	return "", nil
 }

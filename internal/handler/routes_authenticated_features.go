@@ -60,9 +60,3 @@ func registerAuthedRealtimeRoutes(authed *gin.RouterGroup, svc *service.Containe
 	authed.GET("/ws", wsHandler(svc))
 	authed.GET("/events", sseHandler(svc))
 }
-
-func registerAuthedSchedulerRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.GET("/scheduler/tasks", schedulerListTasksHandler(svc))
-	authed.POST("/scheduler/tasks/:id/run", middleware.AdminRequired(), schedulerRunTaskHandler(svc))
-	authed.GET("/scheduler/status", schedulerGetStatusHandler(svc))
-}

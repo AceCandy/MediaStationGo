@@ -25,6 +25,7 @@ func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 	}
 	if len(models) > 0 {
 		models = append(models,
+			&model.LibraryRoot{},
 			&model.MediaProbeMetadata{}, &model.MetadataArtworkRecheck{},
 			&model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{},
 			&model.DoubanSubject{}, &model.DoubanQueryCache{}, &model.MetadataItem{}, &model.MetadataIdentifier{},

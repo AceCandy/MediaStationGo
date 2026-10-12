@@ -95,9 +95,6 @@ func (s *MediaService) appendLibraryRoots(ctx context.Context, lib *model.Librar
 	if lib == nil {
 		return nil, nil, errors.New("library not found")
 	}
-	if err := s.ensureLibraryRoots(ctx, lib.ID); err != nil {
-		return nil, nil, err
-	}
 	existing, err := s.repo.Library.ListRoots(ctx, lib.ID)
 	if err != nil {
 		return nil, nil, err
@@ -163,9 +160,6 @@ func normalizeLibraryRootInputs(inputs []LibraryRootInput, requirePath bool) ([]
 }
 
 func (s *MediaService) ListLibraryRoots(ctx context.Context, libraryID string) ([]model.LibraryRoot, error) {
-	if err := s.ensureLibraryRoots(ctx, libraryID); err != nil {
-		return nil, err
-	}
 	return s.repo.Library.ListRoots(ctx, libraryID)
 }
 
@@ -256,20 +250,6 @@ func (s *MediaService) DeleteLibraryRoot(ctx context.Context, libraryID, rootID 
 		return err
 	}
 	return s.syncLibraryPrimaryRoot(ctx, libraryID)
-}
-
-func (s *MediaService) ensureLibraryRoots(ctx context.Context, libraryID string) error {
-	lib, err := s.repo.Library.FindByID(ctx, libraryID)
-	if err != nil || lib == nil || len(lib.Roots) > 0 || strings.TrimSpace(lib.Path) == "" {
-		return err
-	}
-	root := &model.LibraryRoot{
-		LibraryID: libraryID,
-		Path:      lib.Path,
-		Enabled:   lib.Enabled,
-		SortOrder: 0,
-	}
-	return s.repo.Library.CreateRoot(ctx, root)
 }
 
 func (s *MediaService) syncLibraryPrimaryRoot(ctx context.Context, libraryID string) error {

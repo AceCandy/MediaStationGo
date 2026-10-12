@@ -90,6 +90,10 @@ Viewer composition state is URL owned:
 - Library series details use `series_id` or a source-scoped `series` key. The
   retired `hongguo_id` parameter has no reader or conversion path. Keep season,
   episode and version normalization on current links.
+  Hashes used for client-side grouping never enter navigation URLs. Cards with
+  a real Series identity and detail/player back links use that identity; a card
+  without one opens its representative media, and its back link opens the library.
+  Canonical `metadata:` card keys remain valid for source-scoped library selection.
 - Download Space: absent `status` defaults to `downloading`; explicit `status=` selects all states. Keep the explicit empty value when selecting all so reload and pagination do not revert to the default. Existing named status links retain their selection.
 - Download Space keeps one source switch; do not repeat the selected navigation
   title or add a separate task heading. Search, work status and management actions

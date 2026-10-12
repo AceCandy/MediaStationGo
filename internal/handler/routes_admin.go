@@ -15,7 +15,6 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	registerTMDbCenterRoutes(admin.Group("/tmdb"), svc, true)
 	registerAdminUserRoutes(admin, svc)
 	registerAdminPermissionRoutes(admin, svc)
-	registerAdminSystemRoutes(admin, svc)
 	registerAdminNotificationRoutes(admin, svc)
 	registerAdminTelegramRoutes(admin, svc)
 	registerAdminOrganizerRoutes(admin, svc)
@@ -52,10 +51,6 @@ func registerAdminPermissionRoutes(admin *gin.RouterGroup, svc *service.Containe
 	admin.GET("/users/:id/permissions", getUserPermissionsHandler(svc))
 	admin.PUT("/users/:id/permissions", updateUserPermissionsHandler(svc))
 	admin.POST("/users/:id/permissions/reset", resetUserPermissionsHandler(svc))
-}
-
-func registerAdminSystemRoutes(admin *gin.RouterGroup, svc *service.Container) {
-	admin.POST("/system/scheduler/:name/trigger", schedulerTriggerHandler(svc))
 }
 
 func registerAdminNotificationRoutes(admin *gin.RouterGroup, svc *service.Container) {

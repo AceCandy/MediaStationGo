@@ -123,11 +123,7 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 		if !l.Enabled {
 			continue
 		}
-		roots := l.Roots
-		if len(roots) == 0 && l.Path != "" {
-			roots = []model.LibraryRoot{{LibraryID: l.ID, Path: l.Path, Enabled: true}}
-		}
-		for _, root := range roots {
+		for _, root := range l.Roots {
 			if !root.Enabled {
 				continue
 			}

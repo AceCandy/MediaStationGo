@@ -24,7 +24,7 @@ func TestSchedulerPeriodicLocalScanRunsEveryInvocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	lib := model.Library{Name: "本地剧集", Path: libraryPath, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	log := zap.NewNop()
@@ -66,7 +66,7 @@ func TestSchedulerManualLocalScanBypassesDisabledSchedule(t *testing.T) {
 		t.Fatal(err)
 	}
 	lib := model.Library{Name: "手动本地剧集", Path: libraryPath, Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: lib.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	log := zap.NewNop()
@@ -103,10 +103,10 @@ func TestSchedulerLibraryScanTargetsOneLibraryWhilePeriodicScansAll(t *testing.T
 	repos := repository.New(db)
 	libA := model.Library{Name: "媒体库 A", Path: pathA, Type: "movie", Enabled: true}
 	libB := model.Library{Name: "媒体库 B", Path: pathB, Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &libA); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &libA, []model.LibraryRoot{{Path: libA.Path, Enabled: libA.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Library.Create(t.Context(), &libB); err != nil {
+	if err := repos.Library.CreateWithRoots(t.Context(), &libB, []model.LibraryRoot{{Path: libB.Path, Enabled: libB.Enabled}}); err != nil {
 		t.Fatal(err)
 	}
 	log := zap.NewNop()

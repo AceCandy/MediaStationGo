@@ -135,7 +135,8 @@ func TestScannerPruningWaitsForProbeRestoration(t *testing.T) {
 			scanner.SetMediaProbe(probe)
 			dir := t.TempDir()
 			lib := model.Library{Name: "Movies", Path: dir, Type: "movie", Enabled: true}
-			if err := repos.Library.Create(t.Context(), &lib); err != nil {
+			roots := []model.LibraryRoot{{Path: dir, Enabled: true}}
+			if err := repos.Library.CreateWithRoots(t.Context(), &lib, roots); err != nil {
 				t.Fatal(err)
 			}
 			path := filepath.Join(dir, "movie.mp4")
@@ -156,7 +157,7 @@ func TestScannerPruningWaitsForProbeRestoration(t *testing.T) {
 					_, err := scanner.pruneMissingMedia(t.Context(), lib.ID, nil)
 					return err
 				default:
-					_, _, err := scanner.pruneMissingMediaForRoot(t.Context(), lib.ID, "", dir, nil)
+					_, _, err := scanner.pruneMissingMediaForRoot(t.Context(), lib.ID, roots[0].ID, dir, nil)
 					return err
 				}
 			}
