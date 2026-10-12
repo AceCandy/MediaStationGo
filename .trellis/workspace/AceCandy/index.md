@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 234
+- **Total Sessions**: 235
 - **Last Active**: 2026-10-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~37 | Active |
+| `journal-4.md` | ~67 | Active |
 | `journal-3.md` | ~1991 | Archived |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 235 | 2026-10-12 | 红果按原视频 ID 手动下载 | `c9bb4f3` | `main` |
 | 234 | 2026-10-12 | 红果异常分集隔离 | `c2e48ae` | `main` |
 | 233 | 2026-10-12 | TMDb 历史迁移与回填安全修复 | `ede129d` | `main` |
 | 232 | 2026-10-11 | TMDb 资料中心与统一图片存储提交归档 | `8893352` | `main` |
