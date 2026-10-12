@@ -57,7 +57,15 @@ func (s *HongGuoDownloadService) latestDownloadDetail(ctx context.Context, row m
 		return work, fmt.Errorf("%w: 分集变化复核失败：%v", errHongGuoDownloadSource, err)
 	}
 	if !completeDownloadEpisodes(confirmed) || !slices.Equal(work.VideoIDs, confirmed.VideoIDs) {
-		return work, errors.New("上游分集列表尚不稳定，保留原下载任务")
+		// 其他集变化不阻止当前集；两份响应都必须与当前任务身份一致。
+		if checkHongGuoDownloadEpisode(work, row) == nil && checkHongGuoDownloadEpisode(confirmed, row) == nil && work.VideoIDs[row.Episode-1] == confirmed.VideoIDs[row.Episode-1] {
+			return work, nil
+		}
+		return work, fmt.Errorf("第 %d 集上游映射不稳定，集号待确认，保留原下载任务", row.Episode)
+	}
+	if reordered && previous[len(previous)-1].Episode == len(confirmed.VideoIDs) {
+		// 同集数换位只隔离受影响分集，不删除或重建整部下载队列。
+		return work, checkHongGuoDownloadEpisode(confirmed, row)
 	}
 	oldRows := make(map[int]model.HongGuoDownload, len(previous))
 	for _, old := range previous {
@@ -72,15 +80,26 @@ func (s *HongGuoDownloadService) latestDownloadDetail(ctx context.Context, row m
 			continue
 		}
 		if !hongguo.ValidID(old.VideoID) {
-			return work, errors.New("分集列表存在空位但缺少下架证据，保留原下载任务")
+			return work, checkHongGuoDownloadEpisode(confirmed, row)
 		}
 		for range 2 {
 			if _, err := s.client.ResolveDownloadSource(ctx, row.SourceID, old.VideoID, hongguo.DownloadApp); !errors.Is(err, hongguo.ErrVideoTakenDown) {
-				return work, errors.New("分集空位未确认下架，保留原下载任务")
+				return work, checkHongGuoDownloadEpisode(confirmed, row)
 			}
 		}
 	}
 	return work, s.removeUnavailableDownloads(ctx, row, &confirmed)
+}
+
+// checkHongGuoDownloadEpisode 防止重试和来源切换静默改变任务已记录的视频身份。
+func checkHongGuoDownloadEpisode(work hongguo.Work, row model.HongGuoDownload) error {
+	if row.Episode < 1 || row.Episode > len(work.VideoIDs) || !hongguo.ValidID(work.VideoIDs[row.Episode-1]) {
+		return fmt.Errorf("第 %d 集上游没有有效视频 ID，集号待确认，保留原下载任务", row.Episode)
+	}
+	if hongguo.ValidID(row.VideoID) && row.VideoID != work.VideoIDs[row.Episode-1] {
+		return fmt.Errorf("第 %d 集对应视频已变化，集号待确认，保留原视频 ID", row.Episode)
+	}
+	return nil
 }
 
 // 只有完结总数、已更新集数和完整视频列表一致，才能据此删除过期尾集。

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -193,8 +194,8 @@ func TestHongGuoDownloadEpisodeReconciliation(t *testing.T) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 			})})
 			_, err = s.latestDownloadDetail(context.Background(), row)
-			replaced := mode == "reordered" || mode == "same-count-reordered" || mode == "replaced"
-			if (mode == "unstable" || replaced || mode == "replaced-partial" || mode == "hole-unconfirmed") != (err != nil) {
+			replaced := mode == "reordered" || mode == "replaced"
+			if (replaced || mode == "same-count-reordered" || mode == "replaced-partial") != (err != nil) {
 				t.Fatalf("unexpected reconciliation: %v", err)
 			}
 			if replaced && !errors.Is(err, errHongGuoDownloadRemoved) {
@@ -223,6 +224,80 @@ func TestHongGuoDownloadEpisodeReconciliation(t *testing.T) {
 			if mode == "hole" {
 				if _, err := s.latestDownloadDetail(t.Context(), row); err != nil {
 					t.Fatalf("removed hole blocks remaining episodes: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestHongGuoDownloadUnstableEpisodesAreIsolated(t *testing.T) {
+	for _, mode := range []string{"unaffected", "stable-unaffected", "changed", "changed-on-confirmation", "stable-reorder", "completed-sibling"} {
+		t.Run(mode, func(t *testing.T) {
+			s, row := newReconcileTestService(t)
+			rows := []model.HongGuoDownload{
+				{SourceID: row.SourceID, Episode: 2, VideoID: "457", Status: "failed"},
+				{SourceID: row.SourceID, Episode: 3, VideoID: "458", Status: "failed"},
+			}
+			if mode == "completed-sibling" {
+				rows[0].Status = "completed"
+				rows[0].Root, rows[0].RelativePath = row.Root, "protected.mp4"
+				if err := os.MkdirAll(filepath.Join(row.Root, "completed"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(row.Root, "completed", rows[0].RelativePath), []byte("保留"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.repo.DB.Create(&rows).Error; err != nil {
+				t.Fatal(err)
+			}
+			calls, players := 0, 0
+			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Path != "/detail" {
+					players++
+					if r.URL.Path != "/player/123/456" {
+						t.Errorf("unexpected player: %s", r.URL.Path)
+					}
+					body := `_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":"456","video_player_info":{"main_url":"https://media.example/current","duration":1}}}}`
+					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+				}
+				calls++
+				ids := `["456","458","457"]`
+				if mode == "changed" || mode == "stable-reorder" {
+					ids = `["457","456","458"]`
+				}
+				if calls == 2 && mode != "stable-reorder" && mode != "stable-unaffected" {
+					ids = `["456","457","458"]`
+					if mode == "changed-on-confirmation" {
+						ids = `["457","456","458"]`
+					}
+				}
+				body := fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_name":"测试剧","vid_list":%s,"episode_cnt":3,"episode_right_text":"全3集"}}}}`, ids)
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+			})})
+			s.http = &http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("media")), ContentLength: 5, Header: make(http.Header), Request: r}, nil
+			})}
+			original := row
+			var downloaded, total atomic.Int64
+			err := s.executeDownload(t.Context(), &row, &downloaded, &total, nil, "official")
+			blocked := mode == "changed" || mode == "changed-on-confirmation" || mode == "stable-reorder"
+			if calls != 2 || (blocked && (err == nil || errors.Is(err, errHongGuoAwaitVerification) || players != 0 || row.RawSize != 0)) || (!blocked && (!errors.Is(err, errHongGuoAwaitVerification) || players != 1 || row.RawSize != 5)) {
+				t.Fatalf("blocked=%v calls=%d err=%v", blocked, calls, err)
+			}
+			if blocked && !strings.Contains(err.Error(), "集号待确认") {
+				t.Fatalf("missing episode diagnosis: %v", err)
+			}
+			for _, old := range append(rows, original) {
+				var saved model.HongGuoDownload
+				if err := s.repo.DB.First(&saved, "id = ?", old.ID).Error; err != nil || saved.VideoID != old.VideoID || saved.Status != old.Status {
+					t.Fatalf("task changed: %+v %v", saved, err)
+				}
+			}
+			if mode == "completed-sibling" {
+				content, err := os.ReadFile(filepath.Join(row.Root, "completed", rows[0].RelativePath))
+				if err != nil || string(content) != "保留" {
+					t.Fatalf("completed file changed: %q %v", content, err)
 				}
 			}
 		})

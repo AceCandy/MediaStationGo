@@ -394,7 +394,7 @@ func (s *HongGuoDownloadService) Action(ctx context.Context, id, action string) 
 
 var errDownloadEpisodeMissing = errors.New("该集资料不存在，请先刷新作品资料")
 
-// 重试只核对分集身份；新传输解析最新视频 ID，已有暂存文件保留原视频 ID 以恢复密钥。
+// 重试只核对分集存在，保留任务原视频 ID；执行阶段复核上游映射。
 func retryHongGuoDownload(tx *gorm.DB, row model.HongGuoDownload) error {
 	var episode model.HongGuoEpisode
 	err := tx.Joins("JOIN hongguo_works w ON w.id = hongguo_episodes.work_id").Where("w.source_id = ? AND hongguo_episodes.number = ?", row.SourceID, row.Episode).First(&episode).Error

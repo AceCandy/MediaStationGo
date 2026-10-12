@@ -249,13 +249,13 @@ func (s *HongGuoDownloadService) executeDownload(ctx context.Context, row *model
 	}
 	row.StagingPath = readyRel
 	task.Update(TaskUpdate{Stage: "downloading", Message: "使用" + hongguo.DownloadSourceName(source) + "下载"})
-	// 红果按 S01 集号定位；仅新传输刷新 ID，暂存文件恢复必须沿用原视频的密钥。
+	// 红果按 S01 集号复核，已记录的视频身份和暂存文件的密钥保持一致。
 	work, err := s.latestDownloadDetail(ctx, *row)
 	if err != nil {
 		return err
 	}
-	if row.Episode < 1 || row.Episode > len(work.VideoIDs) || !hongguo.ValidID(work.VideoIDs[row.Episode-1]) {
-		return errors.New("上游当前分集列表中没有该集的有效视频 ID")
+	if err := checkHongGuoDownloadEpisode(work, *row); err != nil {
+		return err
 	}
 	row.VideoID = work.VideoIDs[row.Episode-1]
 	if err := s.repo.HongGuo.UpdateHongGuoDownload(ctx, row.ID, row.LeaseToken, map[string]any{"video_id": row.VideoID}); err != nil {

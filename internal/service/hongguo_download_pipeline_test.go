@@ -18,12 +18,17 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func TestHongGuoDownloadResolvesLatestEpisode(t *testing.T) {
-	for _, mode := range []string{"queued", "retry", "bulk", "missing", "detail-failed"} {
+func TestHongGuoDownloadPreservesEpisodeIdentity(t *testing.T) {
+	for _, mode := range []string{"queued", "retry", "bulk", "stable", "unassigned", "missing", "detail-failed"} {
 		t.Run(mode, func(t *testing.T) {
 			s := newDownloadTestService(t)
 			seed := seedDownload(t, s)
 			ctx := t.Context()
+			if mode == "unassigned" {
+				if err := s.repo.DB.Model(&seed).Update("video_id", "").Error; err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := s.repo.DB.Model(&model.HongGuoEpisode{}).Where("number = 1").Update("source_video_id", "").Error; err != nil {
 				t.Fatal(err)
 			}
@@ -40,12 +45,16 @@ func TestHongGuoDownloadResolvesLatestEpisode(t *testing.T) {
 				}
 			}
 			details, players := 0, 0
+			videoID := "789"
+			if mode == "stable" {
+				videoID = seed.VideoID
+			}
 			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
 				status := 200
-				body := `_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":"789","video_player_info":{"main_url":"https://media.example/current","duration":1}}}}`
+				body := fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":%q,"video_player_info":{"main_url":"https://media.example/current","duration":1}}}}`, videoID)
 				if r.URL.Path == "/detail" {
 					details++
-					ids := `["789"]`
+					ids := fmt.Sprintf(`[%q]`, videoID)
 					if mode == "missing" {
 						ids = `[]`
 					}
@@ -55,7 +64,7 @@ func TestHongGuoDownloadResolvesLatestEpisode(t *testing.T) {
 					body = fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_name":"测试剧","vid_list":%s}}}}`, ids)
 				} else {
 					players++
-					if r.URL.Path != "/player/123/789" {
+					if r.URL.Path != "/player/123/"+videoID {
 						t.Errorf("used stale video: %s", r.URL.Path)
 					}
 				}
@@ -73,9 +82,13 @@ func TestHongGuoDownloadResolvesLatestEpisode(t *testing.T) {
 			if details != 1 {
 				t.Fatalf("detail calls: %d", details)
 			}
-			if mode == "missing" || mode == "detail-failed" {
+			if mode != "unassigned" && mode != "stable" {
 				if err == nil || errors.Is(err, errHongGuoAwaitVerification) || players != 0 {
 					t.Fatalf("stale fallback: %v players=%d", err, players)
+				}
+				var saved model.HongGuoDownload
+				if err := s.repo.DB.First(&saved, "id = ?", seed.ID).Error; err != nil || saved.VideoID != seed.VideoID || saved.RawSize != 0 {
+					t.Fatalf("identity changed before transfer: %+v %v", saved, err)
 				}
 				return
 			}
@@ -83,7 +96,7 @@ func TestHongGuoDownloadResolvesLatestEpisode(t *testing.T) {
 				t.Fatalf("transfer: %v players=%d", err, players)
 			}
 			var saved model.HongGuoDownload
-			if err := s.repo.DB.First(&saved, "id = ?", seed.ID).Error; err != nil || saved.VideoID != "789" || saved.RawSize != 5 {
+			if err := s.repo.DB.First(&saved, "id = ?", seed.ID).Error; err != nil || saved.VideoID != videoID || saved.RawSize != 5 {
 				t.Fatalf("checkpoint: %+v %v", saved, err)
 			}
 		})
