@@ -65,3 +65,25 @@
 ### Next Steps
 
 - 更新前后端后使用失败集详情中的按原视频 ID 下载；未操作生产队列、未重启服务、未验证真实剧情顺序。
+
+
+## Session 236: 资料中心历史依赖退役
+<!-- trellis-session: v=2 fp=2428017b49f62363 -->
+
+**Date**: 2026-10-12
+**Task**: 资料中心历史依赖退役
+**Branch**: `main`
+
+### Summary
+
+完成TMDb来源保存优化并退役旧快照、迁移失败队列和全库回填。部署后只读确认旧表与设置已清除；专项真实PostgreSQL及race验证已有记录，提交前全包编译、前端类型和diff检查再次通过。后续全项目历史清理另建任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e727fbc` | refactor(metadata): 退役旧快照和历史回填依赖 |
+
+### Status
+
+[OK] **Completed**
