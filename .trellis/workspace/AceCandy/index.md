@@ -7,8 +7,8 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-3.md`
-- **Total Sessions**: 233
+- **Active File**: `journal-4.md`
+- **Total Sessions**: 234
 - **Last Active**: 2026-10-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1991 | Active |
+| `journal-4.md` | ~37 | Active |
+| `journal-3.md` | ~1991 | Archived |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 234 | 2026-10-12 | 红果异常分集隔离 | `c2e48ae` | `main` |
 | 233 | 2026-10-12 | TMDb 历史迁移与回填安全修复 | `ede129d` | `main` |
 | 232 | 2026-10-11 | TMDb 资料中心与统一图片存储提交归档 | `8893352` | `main` |
 | 231 | 2026-10-11 | 豆瓣资料详情与限量基础刷新 | `75fb2cb` | `main` |
