@@ -38,7 +38,7 @@ const doubanSummaryYearSQL = `COALESCE(payload #>> '{subject,year}', payload #>>
 
 // ListSubjects 对共享资料直接筛选分页，失败占位记录同样可见。
 func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int) ([]DoubanSubjectSummary, int64, error) {
-	q := r.db.WithContext(ctx).Model(&model.DoubanSubject{})
+	q := r.db.WithContext(ctx).Model(&model.DoubanSubject{}).Where("entity_kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries})
 	if kind != "" {
 		q = q.Where("entity_kind = ?", kind)
 	}
@@ -124,7 +124,7 @@ func (r *DoubanRepository) Save(ctx context.Context, id, kind string, payload []
 
 // SaveWithResult 同时报告新资料是否被接纳，迟到或降级写入不计为更新。
 func (r *DoubanRepository) SaveWithResult(ctx context.Context, id, kind string, payload []byte, quality string, fetchedAt time.Time) (bool, error) {
-	if strings.TrimSpace(id) == "" || (kind != model.MetadataKindMovie && kind != model.MetadataKindSeries && kind != model.MetadataKindSeason && kind != model.MetadataKindEpisode) || !model.DoubanPayloadMatchesIdentity(payload, id, kind) || (quality != model.DoubanQualityComplete && quality != model.DoubanQualityDegraded && quality != model.DoubanQualityPartial) {
+	if strings.TrimSpace(id) == "" || (kind != model.MetadataKindMovie && kind != model.MetadataKindSeries) || !model.DoubanPayloadMatchesIdentity(payload, id, kind) || (quality != model.DoubanQualityComplete && quality != model.DoubanQualityDegraded && quality != model.DoubanQualityPartial) {
 		return false, errors.New("invalid douban subject")
 	}
 	text := string(payload)
@@ -148,6 +148,9 @@ AND (douban_subjects.quality <> 'degraded' OR excluded.quality <> 'partial')`}}}
 }
 
 func (r *DoubanRepository) RecordFailure(ctx context.Context, id, kind string, at, retryAt time.Time) error {
+	if strings.TrimSpace(id) == "" || (kind != model.MetadataKindMovie && kind != model.MetadataKindSeries) {
+		return errors.New("invalid douban subject")
+	}
 	subject := model.DoubanSubject{DoubanID: id, EntityKind: kind, LastAttemptAt: &at, NextRetryAt: &retryAt}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "douban_id"}, {Name: "entity_kind"}},

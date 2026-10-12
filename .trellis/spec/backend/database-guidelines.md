@@ -130,13 +130,11 @@ selection/candidate/NFO links, unchanged asset attributes, and invalid-conflict
 rollback. Configure each connection's isolated schema explicitly; the default
 test connection pool of one cannot exercise concurrent database writes.
 
-Startup image migration looks up ownership by asset ID. Keep individual indexes
-on `poster_asset_id` and `backdrop_asset_id` in both `nfo_items` and
-`nfo_media_bindings`, declared on their shared `NFOFields`. Otherwise every old
-artwork performs two full NFO table scans before the server can accept requests.
-`TestArtworkStorageMigrationAddsNFOReferenceIndexes` checks existing-table upgrade
-and repeated migration. Review per-row migration queries against their actual
-indexes; small correctness fixtures do not establish acceptable startup cost.
+Keep individual indexes on `poster_asset_id` and `backdrop_asset_id` in both
+`nfo_items` and `nfo_media_bindings`, declared on shared `NFOFields`, for current
+reference lookups. `TestArtworkStorageSchemaHasNFOReferenceIndexes` verifies
+fresh-schema indexes and repeated maintenance. Managed images use the current
+catalog layout without a startup migration or old-key fallback.
 
 ### Hard-Delete Tables in Hand-Written SQL
 
@@ -144,8 +142,7 @@ Models embedding `PermanentBase` have no `deleted_at` column. Before adding a
 raw SQL or string-based GORM condition, verify the model base type; joins to a
 hard-delete table must not copy the `deleted_at IS NULL` filter used by soft-delete
 tables. When a model changes to `PermanentBase`, search production SQL for both
-the table name and its aliases. Compatibility migrations may reference the
-retired column only behind an explicit `HasColumn` guard.
+the table name and its aliases. Retired columns must not appear in runtime queries or startup maintenance.
 
 ```go
 // Wrong: metadata_items uses PermanentBase.
@@ -239,11 +236,9 @@ Change expansion uses `idx_tmdb_recheck_changes_pending_id` on
 `tm_db_recheck_changes(metadata_id) WHERE pending`. A partial index on the boolean
 `pending` alone does not satisfy `ORDER BY metadata_id LIMIT 1`: PostgreSQL may
 repeatedly scan the processed primary-key prefix, making a draining queue slower.
-Create the replacement before dropping `idx_tmdb_recheck_changes_pending`.
 `TestTMDbRecheckPendingIndexSkipsProcessedPrefix` checks repeated migration and
 the generic prepared plan with `FOR UPDATE SKIP LOCKED` on a mostly processed
-queue. Existing deployments can build the new index concurrently before upgrade;
-startup model migration uses ordinary index creation.
+queue. Startup establishes the current partial index directly without an old-index retirement step.
 
 ### HongGuo Download Claim Indexes
 
@@ -539,23 +534,25 @@ db.Where("id = ANY(?)", &ids)
 ## Media-level adult flags removed
 
 1. Scope: ordinary metadata, NFO items/bindings, API projections, editing, imports and search.
-2. Schema: `removeUnusedLegacyColumns` drops `nsfw` from `metadata_items`, `nfo_items` and `nfo_media_bindings`; PostgreSQL removes dependent indexes. No data conversion or compatibility field is retained.
+2. Schema: current models have no item-level `nsfw` column or compatibility field; startup does not convert old schemas.
 3. Contract: `adult.library_ids`, user HideAdult and profile AllowAdult still own library access. With no configured IDs, the existing library name/path fallback applies consistently to file and library entry points. Never infer adult libraries from a media item.
 4. Errors: use the normal migration error path; never run ad-hoc production column deletion or rewrite existing NFO sidecars as part of this change.
 5. Cases: ordinary-library items remain visible regardless of adult-looking titles; hidden adult-library files remain inaccessible. Removing item flags must not remove profile scope or locked-empty handling.
-6. Tests: `TestAutoMigrateRemovesMediaNSFW` repeats complete migration, checks all retired columns/indexes absent and adult-library settings preserved. Media visibility, playback and handler tests cover library boundaries.
+6. Tests: fresh schema must not create item-level flags. Media visibility, playback and handler tests cover adult-library boundaries.
 7. Wrong: retain an ignored NSFW API/model field for old data. Correct: remove the field and its read/write/filter consumers, retaining only library authorization.
 
 ## Migrations
 
 - Store provider/NFO/AI free-form text as `text` unless the upstream contract
   defines a real maximum. Do not infer `varchar(255)` from typical samples.
-- When multiple GORM models map to the same table, every shared column must use
-  the same type tag. Search `AllModels()` and both explicit and default table
-  names before changing one model; a later model can otherwise undo the first
-  model's migration in the same `AutoMigrate` call.
-- When changing a PostgreSQL column type, include an idempotent compatibility
-  statement and a PostgreSQL schema assertion.
+- Use one current model per persistent entity. `AutoMigrate` establishes current
+  tables and fields plus business constraints, indexes, partitions and triggers;
+  it has no legacy data-conversion or retirement chain.
+- GORM v1.25.7 check-tag names do not support digits. Current constraints with
+  numeric names use explicit idempotent SQL rather than an invalid model tag.
+- Verify fresh-schema creation and repeated maintenance against real PostgreSQL,
+  preserving existing current data. A retired table/setting cleanup is a one-time
+  authorized operation with precise scope; do not keep its startup code forever.
 
 ### Scenario: Local Media Scan Fingerprints and Hard Delete
 
@@ -599,12 +596,11 @@ Use this contract when changing local media discovery, media deletion, or the `m
 - `scan_file_mtime_ns = 0` -> process once and persist the fingerprint.
 - Size or mtime differs -> process and update the fingerprint.
 - Size and mtime match -> skip unless path-derived metadata changed.
-- Historical `deleted_at IS NOT NULL` row -> purge during migration; a database error aborts migration.
 
 #### 5. Good/Base/Bad Cases
 
 - Good: an unchanged `.strm` is skipped without reading or probing its target.
-- Base: a legacy row is updated once, then skipped on the next unchanged scan.
+- Base: a row without a scan fingerprint is updated once, then skipped on the next unchanged scan.
 - Bad: comparing `.strm` sidecar size with `media_probe_metadata.size_bytes`, causing every scan to update.
 
 #### 6. Tests Required
@@ -612,7 +608,7 @@ Use this contract when changing local media discovery, media deletion, or the `m
 - Assert unchanged regular files and `.strm` files are skipped and keep `updated_at` unchanged.
 - Assert a size or nanosecond-mtime change updates the row.
 - Assert hard delete removes probe metadata but retains shared metadata and user-state rows.
-- Run migration twice and assert historical soft-deleted media stays absent, active media remains, and `media.deleted_at` is removed.
+- Fresh schema has no `media.deleted_at`; repeating maintenance preserves current active media.
 
 #### 7. Wrong vs Correct
 
@@ -620,15 +616,6 @@ Wrong: call scoped `Delete(&model.Media{})` or special-case `.strm` to update on
 
 Correct: compare the dedicated scan fingerprint and use `Unscoped().Delete(&model.Media{})` for every media deletion path.
 
-### Scenario: Retired Setting Cleanup
-
-1. Scope / Trigger: when a removed feature owns keys in the shared `settings` table, clean up only those retired keys during `AutoMigrate`.
-2. Signatures: add an unexported `func remove<Feature>Settings(db *gorm.DB) error` and call it from `AutoMigrate`.
-3. Contracts: use exact key names; keep the shared `settings` table and every unrelated row.
-4. Validation & Error Matrix: a database error aborts migration; absent keys are a successful no-op.
-5. Good/Base/Bad Cases: delete all owned keys; repeated execution succeeds; prefix-wide deletion that can remove another feature's keys is invalid.
-6. Tests Required: run the full `AutoMigrate` path twice on PostgreSQL, then assert retired keys are absent and an unrelated setting remains unchanged.
-7. Wrong vs Correct: wrong is leaving unused settings indefinitely or deleting with a broad prefix; correct is an idempotent exact-key deletion covered by a PostgreSQL test.
 
 ### PostgreSQL Prepared Plan Safety
 

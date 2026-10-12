@@ -106,11 +106,3 @@ func tokenFromMediaBrowserAuth(value string) string {
 	}
 	return ""
 }
-
-// GetEmbyUserID 从上下文中获取 Emby 用户 ID。
-func GetEmbyUserID(c *gin.Context) string {
-	if uid, exists := c.Get(EmbyCtxUserID); exists {
-		return uid.(string)
-	}
-	return ""
-}

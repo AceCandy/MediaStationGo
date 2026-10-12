@@ -204,72 +204,44 @@ func TestHongGuoListOrdersByFirstVisibleBeforePagination(t *testing.T) {
 	}
 }
 
-func TestHongGuoArtworkOwnershipMigration(t *testing.T) {
+func TestHongGuoArtworkOwnershipConstraints(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatal(err)
-	}
-	work, err := New(db).HongGuo.SaveDetail(t.Context(), hongguo.Work{SourceID: "9300000000000000001", Title: "旧版海报", EpisodeCount: 1, CoverURL: "https://example.invalid/legacy", Snapshot: json.RawMessage(`{}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range []string{
-		"ALTER TABLE hongguo_artworks DROP CONSTRAINT chk_hongguo_artwork_owner_v2",
-		"DROP INDEX uidx_hongguo_artwork_source",
-		"ALTER TABLE hongguo_artworks DROP COLUMN source_id",
-		"ALTER TABLE hongguo_artworks ADD CONSTRAINT chk_hongguo_artwork_owner CHECK ((work_id IS NULL) <> (person_id IS NULL))",
-	} {
-		if err := db.Exec(statement).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Migrator().DropIndex(&model.HongGuoWork{}, "SourceID"); err != nil {
-		t.Fatal(err)
-	}
-	duplicateWork := model.HongGuoWork{SourceID: work.SourceID, Kind: model.MetadataKindSeries, Title: "重复来源", Tags: "[]", RefreshedAt: time.Now()}
-	if err := db.Create(&duplicateWork).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Omit("source_id").Create(&model.HongGuoArtwork{WorkID: &duplicateWork.ID, SourceURL: "https://example.invalid/duplicate"}).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := database.AutoMigrate(db); err == nil {
-		t.Fatal("duplicate source posters passed migration")
-	}
-	if db.Migrator().HasColumn(&model.HongGuoArtwork{}, "SourceID") {
-		t.Fatal("failed artwork migration left source_id behind")
-	}
-	if err := db.Delete(&model.HongGuoArtwork{}, "work_id = ?", duplicateWork.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Delete(&duplicateWork).Error; err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := database.AutoMigrate(db); err != nil {
 			t.Fatal(err)
 		}
 	}
-	var migrated model.HongGuoArtwork
-	if err := db.First(&migrated, "work_id = ?", work.ID).Error; err != nil || migrated.SourceID == nil || *migrated.SourceID != work.SourceID {
-		t.Fatalf("legacy poster source ID not restored: %+v %v", migrated, err)
-	}
 	sourceID := "9300000000000000002"
-	if err := db.Create(&model.HongGuoArtwork{SourceID: &sourceID, SourceURL: "https://example.invalid/discovery"}).Error; err != nil {
-		t.Fatalf("source-only discovery poster rejected: %v", err)
+	source := model.HongGuoArtwork{SourceID: &sourceID, SourceURL: "https://example.invalid/discovery"}
+	if err := db.Create(&source).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.HongGuoArtwork{SourceID: &sourceID, SourceURL: "https://example.invalid/duplicate"}).Error; err == nil {
+		t.Fatal("duplicate source poster accepted")
 	}
 	if err := db.Create(&model.HongGuoArtwork{SourceURL: "https://example.invalid/orphan"}).Error; err == nil {
 		t.Fatal("ownerless artwork accepted")
 	}
-	legacyWork := model.HongGuoWork{SourceID: "9300000000000000003", Kind: model.MetadataKindSeries, Title: "回滚兼容", Tags: "[]", RefreshedAt: time.Now()}
-	if err := db.Create(&legacyWork).Error; err != nil {
+	work := model.HongGuoWork{SourceID: "9300000000000000003", Kind: model.MetadataKindSeries, Title: "作品海报", Tags: "[]", RefreshedAt: time.Now()}
+	if err := db.Create(&work).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.HongGuoArtwork{WorkID: &legacyWork.ID, SourceURL: "https://example.invalid/work-only"}).Error; err != nil {
-		t.Fatalf("legacy work-only poster rejected: %v", err)
+	if err := db.Create(&model.HongGuoArtwork{WorkID: &work.ID, SourceURL: "https://example.invalid/work-only"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	person := model.HongGuoPerson{SourceID: "person-1", Name: "演员"}
+	if err := db.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	mixedSourceID := "source-mixed"
+	if err := db.Create(&model.HongGuoArtwork{PersonID: &person.ID, SourceID: &mixedSourceID, SourceURL: "https://example.invalid/mixed"}).Error; err == nil {
+		t.Fatal("mixed artwork owners accepted")
+	}
+	if err := db.Create(&model.HongGuoArtwork{PersonID: &person.ID, SourceURL: "https://example.invalid/portrait"}).Error; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -279,10 +251,6 @@ func TestHongGuoSingleEpisodeAndSeriesConstraint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(model.HongGuoModels()...); err != nil {
-		t.Fatal(err)
-	}
-	// 模拟现有库的宽松约束，升级必须真正收紧且可重复执行。
-	if err := db.Exec("ALTER TABLE hongguo_works DROP CONSTRAINT chk_hongguo_work_series, ADD CONSTRAINT chk_hongguo_work_kind CHECK (kind IN ('movie','series'))").Error; err != nil {
 		t.Fatal(err)
 	}
 	r := New(db).HongGuo

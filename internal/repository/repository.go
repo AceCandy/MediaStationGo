@@ -32,7 +32,6 @@ type Container struct {
 	Log           *AccessLogRepository
 	Permission    *PermissionRepository
 	RefreshToken  *RefreshTokenRepository
-	ApiConfig     *ApiConfigRepository
 	NotifyChannel *NotifyChannelRepository
 	STRM          *STRMRepository
 	PlayProfile   *PlayProfileRepository
@@ -73,7 +72,6 @@ func New(db *gorm.DB) *Container {
 		Log:           &AccessLogRepository{db: db},
 		Permission:    &PermissionRepository{db: db},
 		RefreshToken:  &RefreshTokenRepository{db: db},
-		ApiConfig:     &ApiConfigRepository{db: db},
 		NotifyChannel: &NotifyChannelRepository{db: db},
 		STRM:          &STRMRepository{db: db},
 		PlayProfile:   &PlayProfileRepository{db: db, readCache: readCache},

@@ -66,7 +66,7 @@ func TestDoubanManagementRefreshKeepsLocalDataAndOldSuccessOnFailure(t *testing.
 	}
 }
 
-func TestDoubanManagementDegradedReadbackAndHistoricalReadOnly(t *testing.T) {
+func TestDoubanManagementDegradedReadbackAndKindValidation(t *testing.T) {
 	var calls atomic.Int64
 	provider, repos := newDoubanCacheTestProvider(t, func(req *http.Request) (*http.Response, error) {
 		calls.Add(1)
@@ -83,16 +83,17 @@ func TestDoubanManagementDegradedReadbackAndHistoricalReadOnly(t *testing.T) {
 	if err != nil || !result.Degraded || result.Subject.Title != "旧完整资料" || result.Subject.Rating != 9 || result.Subject.Quality != "complete" || result.Subject.NextRetryAt == nil {
 		t.Fatalf("downgrade readback %#v %v", result, err)
 	}
-	if err := repos.Douban.Save(t.Context(), "200", "episode", []byte(`{"data":{"title":"历史单集","intro":"单集简介"}}`), model.DoubanQualityPartial, time.Now()); err != nil {
+	payload := `{"data":{"title":"非法类型","intro":"类型校验"}}`
+	invalid := &model.DoubanSubject{DoubanID: "200", EntityKind: "invalid", Payload: &payload, Quality: model.DoubanQualityPartial}
+	if err := repos.DB.Create(invalid).Error; err != nil {
 		t.Fatal(err)
 	}
-	historical, _ := repos.Douban.Find(t.Context(), "200", "episode")
-	detail, err := provider.SubjectDetail(t.Context(), historical.ID)
-	if err != nil || detail.Title != "历史单集" || detail.Overview != "单集简介" {
-		t.Fatalf("historical details %#v %v", detail, err)
+	detail, err := provider.SubjectDetail(t.Context(), invalid.ID)
+	if !errors.Is(err, ErrDoubanSubjectKind) || detail != nil {
+		t.Fatalf("invalid detail exposed: %v", err)
 	}
-	if _, err := provider.RefreshSubject(t.Context(), historical.ID); !errors.Is(err, ErrDoubanSubjectReadOnly) || calls.Load() != 2 {
-		t.Fatalf("historical refresh caused network calls=%d err=%v", calls.Load(), err)
+	if _, err := provider.RefreshSubject(t.Context(), invalid.ID); !errors.Is(err, ErrDoubanSubjectKind) || calls.Load() != 2 {
+		t.Fatalf("invalid refresh caused network calls=%d err=%v", calls.Load(), err)
 	}
 	if err := repos.Douban.RecordFailure(t.Context(), "300", "movie", time.Now(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)

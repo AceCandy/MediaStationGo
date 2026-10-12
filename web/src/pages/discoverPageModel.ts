@@ -14,7 +14,6 @@ export const discoverRowsStorageKey = 'mediastation.discover.rows'
 const discoverStorageVersion = 3
 const discoverRowsStorageVersion = 1
 const discoverRowsCacheMaxAgeMs = 6 * 60 * 60 * 1000
-const legacyDefaultAdditions = ['tmdb_latest_movie', 'tmdb_latest_tv']
 
 interface CachedDiscoverRow {
   page: number
@@ -48,15 +47,8 @@ export function readSavedSections(sections: DiscoverSection[]): string[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     const allowed = new Set(sections.map((section) => section.key))
-    if (Array.isArray(parsed)) {
-      return orderSectionKeys(addLegacyDefaults(parsed, allowed), sections)
-    }
-    if (!parsed || !Array.isArray(parsed.selected)) return []
-    const selected = sanitizeSectionKeys(parsed.selected, allowed)
-    if (parsed.version === discoverStorageVersion) {
-      return orderSectionKeys(selected, sections)
-    }
-    return orderSectionKeys(addLegacyDefaults(selected, allowed), sections)
+    if (!parsed || parsed.version !== discoverStorageVersion || !Array.isArray(parsed.selected)) return []
+    return orderSectionKeys(sanitizeSectionKeys(parsed.selected, allowed), sections)
   } catch {
     return []
   }
@@ -147,16 +139,6 @@ function emptyDiscoverRowsCache(): CachedDiscoverRowsPayload {
 
 function sanitizeSectionKeys(keys: unknown[], allowed: Set<string>): string[] {
   return keys.filter((key): key is string => typeof key === 'string' && allowed.has(key))
-}
-
-function addLegacyDefaults(keys: unknown[], allowed: Set<string>): string[] {
-  const out = sanitizeSectionKeys(keys, allowed)
-  for (const key of legacyDefaultAdditions) {
-    if (allowed.has(key) && !out.includes(key)) {
-      out.push(key)
-    }
-  }
-  return out
 }
 
 function orderSectionKeys(keys: string[], sections: DiscoverSection[]): string[] {

@@ -48,9 +48,9 @@ try {
     const {api}=await import('/src/api/client.ts');
     const {useAuthStore}=await import('/src/stores/auth.ts');
     const probe=window.doubanProbe={calls:[],hold:'',releases:[],failList:false,failDetail:false,refreshMode:'success',role:'admin',updated:false,emptyList:false};
-    const subject=(id,kind,quality='complete',has_payload=true)=>({id,douban_id:id.startsWith('111')?'100':id.slice(0,3),entity_kind:kind,title:kind==='movie'?'测试电影'+ '很长的标题'.repeat(8):kind==='series'?'测试电视剧':'历史单集',year:'2026',rating:probe.updated?9.2:8.1,quality,has_payload,poster_url:has_payload?'/api/admin/douban/subjects/'+id+'/poster':'',fetched_at:has_payload?(probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z'):null,last_attempt_at:'2026-10-10T12:00:00Z',next_retry_at:null});
+    const subject=(id,kind,quality='complete',has_payload=true)=>({id,douban_id:id.startsWith('111')?'100':id.slice(0,3),entity_kind:kind,title:kind==='movie'?'测试电影'+ '很长的标题'.repeat(8):'测试电视剧',year:'2026',rating:probe.updated?9.2:8.1,quality,has_payload,poster_url:has_payload?'/api/admin/douban/subjects/'+id+'/poster':'',fetched_at:has_payload?(probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z'):null,last_attempt_at:'2026-10-10T12:00:00Z',next_retry_at:null});
     probe.movie=subject('11111111-1111-4111-8111-111111111111','movie');
-    probe.episode=subject('22222222-2222-4222-8222-222222222222','episode');
+    probe.series=subject('22222222-2222-4222-8222-222222222222','series');
     api.defaults.adapter=async config=>{
       if(config.url==='/auth/permissions') return {data:{permissions:{can_view_discover:true},role:probe.role,is_super:probe.role==='admin'},status:200,headers:{},config};
       if(config.url==='/play-profiles') return {data:[],status:200,headers:{},config};
@@ -64,11 +64,11 @@ try {
       let data;
       if(kind==='list'){
         const p=config.params, empty=p.keyword==='empty'||probe.emptyList;
-        let rows=p.page===2?[subject('33333333-3333-4333-8333-333333333333','series')]:[subject(probe.movie.id,'movie'),probe.episode,subject('33333333-3333-4333-8333-333333333333','series'),subject('44444444-4444-4444-8444-444444444444','movie','degraded'),subject('55555555-5555-4555-8555-555555555555','movie','partial'),subject('66666666-6666-4666-8666-666666666666','movie','',false)];
+        let rows=p.page===2?[subject('33333333-3333-4333-8333-333333333333','series')]:[subject(probe.movie.id,'movie'),probe.series,subject('33333333-3333-4333-8333-333333333333','series'),subject('44444444-4444-4444-8444-444444444444','movie','degraded'),subject('55555555-5555-4555-8555-555555555555','movie','partial'),subject('66666666-6666-4666-8666-666666666666','movie','',false)];
         if(p.type) rows=rows.filter(row=>row.entity_kind===p.type);
         data={data:empty?[]:rows,total:empty?0:p.type?rows.length:31,page:p.page,page_size:30};
       }else{
-        const item=config.url.includes(probe.episode.id)?probe.episode:config.url.includes('66666666')?subject('66666666-6666-4666-8666-666666666666','movie','',false):subject(probe.movie.id,'movie');
+        const item=config.url.includes(probe.series.id)?probe.series:config.url.includes('66666666')?subject('66666666-6666-4666-8666-666666666666','movie','',false):subject(probe.movie.id,'movie');
         const detail={...item,original_name:'Original title',overview:'已落库的简介',release_date:'2026-01-01',genres:['剧情'],languages:['中文'],countries:['中国'],directors:['导演甲'],writers:['编剧乙'],actors:['演员甲','演员乙'],durations:['141分钟'],aliases:['别名甲'],release_dates:['2026-01-01(中国大陆)','2026-02-01(中国香港)'],imdb_id:'tt34610311',rating_count:613808,rating_distribution:[{stars:5,percent:27.3},{stars:4,percent:48.1}],credits:[{person_id:'cast-1',name:'演员甲',role:'饰 黄德忠',type:'Actor',profile_url:'/api/admin/douban/subjects/'+item.id+'/credits/0/image?v='+(probe.updated?'2026-10-11':'2026-10-10')}],awards:[{event:'第44届电影奖',category:'最佳男主角',people:'演员甲'}],honors:[{title:'犯罪片榜',rank:10}],rich_fetched_at:probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z',raw_json:{title:item.title,intro:'已落库的简介',private_detail:'原始资料'}};
         if(kind==='refresh') {if(probe.refreshMode==='success') probe.updated=true; detail.rating=probe.updated?9.2:8.1; data={data:{subject:detail,degraded:probe.refreshMode==='degraded',supplement_unavailable:probe.refreshMode==='supplement'}};}
         else data={data:detail};
@@ -132,11 +132,11 @@ try {
   browser('press', 'Enter')
   wait(`${text}?.includes('测试电视剧') && !${text}?.includes('测试电影')`)
   navigate('/admin/data-center')
-  wait(`${text}?.includes('历史单集')`)
+  wait(`${text}?.includes('测试电视剧')`)
   browser('click','main tbody tr:nth-child(2) button')
   wait("!!document.querySelector('[role=dialog]') && document.querySelector('[role=dialog]').innerText.includes('已落库的简介')")
-  assert.ok(evaluate("document.querySelector('[role=dialog]').innerText.includes('历史季和集资料仅支持查看')"))
-  assert.equal(evaluate("[...document.querySelectorAll('[role=dialog] button')].some(b=>b.textContent.includes('更新'))"), false)
+  assert.ok(evaluate("document.querySelector('[role=dialog]').innerText.includes('电视剧')"))
+  assert.equal(evaluate("[...document.querySelectorAll('[role=dialog] button')].some(b=>b.textContent.includes('更新'))"), true)
   click('关闭详情')
 
   navigate('/admin/data-center')

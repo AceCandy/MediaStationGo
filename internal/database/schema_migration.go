@@ -9,99 +9,27 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// AutoMigrate creates tables for every model registered in the model package.
+// AutoMigrate 建立现行模型、业务约束和增量维护，不转换旧版数据结构。
 func AutoMigrate(db *gorm.DB) error {
-	if err := migrateHongGuoDownloadTableNames(db); err != nil {
-		return err
-	}
-	hadHongGuoArtwork := db.Migrator().HasTable(&model.HongGuoArtwork{})
-	if hadHongGuoArtwork {
-		if err := ensureHongGuoArtworkOwnership(db); err != nil {
-			return err
-		}
-	}
-	// 原图按体系内的存储键去重，允许不同体系保存相同内容。
-	if db.Migrator().HasIndex(&model.ArtworkAsset{}, "idx_artwork_assets_sha256") {
-		if err := db.Migrator().DropIndex(&model.ArtworkAsset{}, "idx_artwork_assets_sha256"); err != nil {
-			return err
-		}
-	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
 	if err := ensureHuangGuoAIBindingIdentity(db); err != nil {
 		return err
 	}
-	if err := migrateHongGuoFavorites(db); err != nil {
-		return err
-	}
-	// 人工聚合已退役；先删成员表，不级联删除其他业务对象。
-	if err := db.Exec("DROP TABLE IF EXISTS hongguo_group_members, hongguo_groups").Error; err != nil {
-		return err
-	}
-	if !hadHongGuoArtwork {
-		if err := ensureHongGuoArtworkOwnership(db); err != nil {
-			return err
-		}
-	}
-	if err := migrateLegacyTMDbEpisodeCheckedAt(db); err != nil {
-		return err
-	}
-	if err := purgeRetiredMediaRecycleRows(db); err != nil {
+	// 当前 GORM 不识别带数字的约束名，显式维护现行海报归属约束。
+	if err := db.Exec(`DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_hongguo_artwork_owner_v2' AND conrelid='hongguo_artworks'::regclass) THEN
+ ALTER TABLE hongguo_artworks ADD CONSTRAINT chk_hongguo_artwork_owner_v2 CHECK (
+ (person_id IS NOT NULL AND work_id IS NULL AND source_id IS NULL) OR
+ (person_id IS NULL AND (source_id IS NOT NULL OR work_id IS NOT NULL)));
+ END IF; END $$`).Error; err != nil {
 		return err
 	}
 	if err := ensurePlayerRequestLogSchema(db); err != nil {
 		return err
 	}
-	if err := removeLegacyMetadataIdentityConstraint(db); err != nil {
-		return err
-	}
-	if err := migrateLegacyEpisodeTitle(db); err != nil {
-		return err
-	}
-	if err := retireMetadataSoftDeletes(db); err != nil {
-		return err
-	}
-	if err := retireMediaAndCreditSoftDeletes(db); err != nil {
-		return err
-	}
-	if err := retireEpisodeCredits(db); err != nil {
-		return err
-	}
-	if err := ensureAPIConfigColumns(db); err != nil {
-		return err
-	}
-	if err := ensurePostgresColumnCompatibility(db); err != nil {
-		return err
-	}
-	if err := enforceTelegramBindingOneToOne(db); err != nil {
-		return err
-	}
 	if err := ensurePerformanceIndexes(db); err != nil {
-		return err
-	}
-	if err := removeTranscodeSettings(db); err != nil {
-		return err
-	}
-	if err := ensureLibraryRootsCompatibility(db); err != nil {
-		return err
-	}
-	if err := removeDownloadSubscriptionSchema(db); err != nil {
-		return err
-	}
-	if err := removeSystemUpdateSettings(db); err != nil {
-		return err
-	}
-	if err := removeRetiredScrapeSettings(db); err != nil {
-		return err
-	}
-	if err := removePTSiteSchema(db); err != nil {
-		return err
-	}
-	if err := removeUnusedLegacyColumns(db); err != nil {
-		return err
-	}
-	if err := retireCatalogHistory(db); err != nil {
 		return err
 	}
 	if err := EnsureTMDbRecheckTriggers(db); err != nil {
@@ -116,240 +44,6 @@ func AutoMigrate(db *gorm.DB) error {
 	return EnsureLatestMediaAddedTriggers(db)
 }
 
-// migrateHongGuoDownloadTableNames 在自动建表前统一红果下载表名，原地保留数据与索引。
-func migrateHongGuoDownloadTableNames(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		for _, names := range [][2]string{
-			{"hong_guo_download_works", "hongguo_download_works"},
-			{"hong_guo_downloads", "hongguo_downloads"},
-		} {
-			if !tx.Migrator().HasTable(names[0]) {
-				continue
-			}
-			if tx.Migrator().HasTable(names[1]) {
-				return fmt.Errorf("红果下载表重命名冲突：%s 与 %s 同时存在", names[0], names[1])
-			}
-			if err := tx.Migrator().RenameTable(names[0], names[1]); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-// migrateHongGuoFavorites 合并旧成员收藏；新表已有状态优先，避免重启复活已取消的收藏。
-func migrateHongGuoFavorites(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`INSERT INTO hongguo_favorites (user_id, item_id, favorite, updated_at)
-SELECT s.user_id, CASE WHEN w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0
- THEN 'hg-group-' || w.related_album_id ELSE s.source_id END,
- BOOL_OR(s.favorite), MAX(s.updated_at)
-FROM hongguo_user_states s LEFT JOIN hongguo_works w ON w.source_id = s.source_id
-WHERE s.episode_number = 0 GROUP BY 1, 2
-ON CONFLICT (user_id, item_id) DO NOTHING`).Error; err != nil {
-			return err
-		}
-		return tx.Exec("DELETE FROM hongguo_user_states WHERE episode_number = 0").Error
-	})
-}
-
-// ensureHongGuoArtworkOwnership lets discovery posters enter the existing artwork queue.
-func ensureHongGuoArtworkOwnership(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		if !tx.Migrator().HasColumn(&model.HongGuoArtwork{}, "SourceID") {
-			if err := tx.Exec(`ALTER TABLE hongguo_artworks ADD COLUMN source_id varchar(32)`).Error; err != nil {
-				return err
-			}
-		}
-		if err := tx.Exec(`UPDATE hongguo_artworks AS a
-SET source_id = w.source_id
-FROM hongguo_works AS w
-WHERE a.work_id = w.id AND a.source_id IS NULL`).Error; err != nil {
-			return err
-		}
-		var invalid int64
-		if err := tx.Raw(`SELECT COUNT(*) FROM hongguo_artworks
-WHERE person_id IS NULL AND work_id IS NOT NULL AND source_id IS NULL`).Scan(&invalid).Error; err != nil {
-			return err
-		}
-		if invalid > 0 {
-			return fmt.Errorf("cannot migrate hongguo artwork ownership: %d work posters lack a source ID", invalid)
-		}
-		var duplicates int64
-		if err := tx.Raw(`SELECT COUNT(*) FROM (
-  SELECT source_id FROM hongguo_artworks
-  WHERE source_id IS NOT NULL
-  GROUP BY source_id HAVING COUNT(*) > 1
-) AS duplicate_sources`).Scan(&duplicates).Error; err != nil {
-			return err
-		}
-		if duplicates > 0 {
-			return fmt.Errorf("cannot migrate hongguo artwork ownership: %d source IDs have duplicate posters", duplicates)
-		}
-		if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uidx_hongguo_artwork_source ON hongguo_artworks (source_id)`).Error; err != nil {
-			return err
-		}
-		if tx.Migrator().HasConstraint(&model.HongGuoArtwork{}, "chk_hongguo_artwork_owner") {
-			if err := tx.Migrator().DropConstraint(&model.HongGuoArtwork{}, "chk_hongguo_artwork_owner"); err != nil {
-				return err
-			}
-		}
-		if tx.Migrator().HasConstraint(&model.HongGuoArtwork{}, "chk_hongguo_artwork_owner_v2") {
-			return nil
-		}
-		return tx.Exec(`ALTER TABLE hongguo_artworks ADD CONSTRAINT chk_hongguo_artwork_owner_v2 CHECK (
-  (person_id IS NOT NULL AND work_id IS NULL AND source_id IS NULL)
-  OR (person_id IS NULL AND (source_id IS NOT NULL OR work_id IS NOT NULL))
-)`).Error
-	})
-}
-
-// retireEpisodeCredits 只清理集级人物关系，保留共享人物和来源快照。
-func retireEpisodeCredits(db *gorm.DB) error {
-	return db.Exec(`DELETE FROM metadata_credits
-WHERE metadata_id IN (SELECT id FROM metadata_items WHERE kind = 'episode')`).Error
-}
-
-// migrateLegacyTMDbEpisodeCheckedAt 保留 GORM 错误拆分 TMDb 缩写时写入的检查时间。
-func migrateLegacyTMDbEpisodeCheckedAt(db *gorm.DB) error {
-	if !db.Migrator().HasColumn("metadata_items", "tm_db_episode_checked_at") {
-		return nil
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`
-UPDATE metadata_items
-SET tmdb_episode_checked_at = COALESCE(tmdb_episode_checked_at, tm_db_episode_checked_at)
-WHERE tm_db_episode_checked_at IS NOT NULL
-`).Error; err != nil {
-			return err
-		}
-		return tx.Exec(`ALTER TABLE metadata_items DROP COLUMN tm_db_episode_checked_at`).Error
-	})
-}
-
-// retireMetadataSoftDeletes removes recycle-bin semantics from the canonical
-// metadata graph without silently discarding externally referenced metadata.
-func retireMetadataSoftDeletes(db *gorm.DB) error {
-	if !db.Migrator().HasColumn(&model.MetadataItem{}, "deleted_at") {
-		return nil
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		var referenced int64
-		if err := tx.Raw(`
-SELECT COUNT(*)
-FROM metadata_items AS retired
-WHERE retired.deleted_at IS NOT NULL
-  AND (
-    EXISTS (SELECT 1 FROM metadata_items child WHERE child.parent_id = retired.id AND child.deleted_at IS NULL)
-    OR EXISTS (SELECT 1 FROM media WHERE metadata_id = retired.id)
-    OR EXISTS (SELECT 1 FROM playback_histories WHERE metadata_id = retired.id)
-    OR EXISTS (SELECT 1 FROM playback_events WHERE metadata_id = retired.id)
-    OR EXISTS (SELECT 1 FROM favorites WHERE metadata_id = retired.id)
-    OR EXISTS (SELECT 1 FROM playlist_items WHERE metadata_id = retired.id)
-    OR EXISTS (SELECT 1 FROM metadata_credits WHERE metadata_id = retired.id AND deleted_at IS NULL)
-  )`).Scan(&referenced).Error; err != nil {
-			return err
-		}
-		if referenced > 0 {
-			return fmt.Errorf("cannot retire metadata soft deletes: %d metadata items are still referenced", referenced)
-		}
-
-		statements := []string{
-			`DELETE FROM metadata_credits WHERE deleted_at IS NOT NULL`,
-			`UPDATE artwork_assets SET deleted_at = NULL WHERE deleted_at IS NOT NULL`,
-			`UPDATE metadata_items AS mi
-SET catalog_artwork_hydrated_at = NULL
-WHERE EXISTS (
-    SELECT 1 FROM metadata_artworks AS ma
-    LEFT JOIN artwork_assets AS aa ON aa.id = ma.asset_id
-    WHERE ma.metadata_id = mi.id
-      AND (ma.deleted_at IS NOT NULL OR aa.id IS NULL)
-)`,
-			`DELETE FROM metadata_artworks AS ma WHERE ma.deleted_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM artwork_assets AS aa WHERE aa.id = ma.asset_id)`,
-			`DELETE FROM metadata_identifiers WHERE deleted_at IS NOT NULL`,
-			`DELETE FROM catalog_hydration_jobs WHERE deleted_at IS NOT NULL`,
-			`DELETE FROM metadata_identifiers WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
-			`DELETE FROM metadata_artworks WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
-			`UPDATE catalog_hydration_jobs SET metadata_id = NULL WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
-			`DELETE FROM metadata_items WHERE deleted_at IS NOT NULL`,
-			`DROP INDEX IF EXISTS uidx_metadata_season`,
-			`DROP INDEX IF EXISTS uidx_metadata_episode`,
-			`DROP INDEX IF EXISTS idx_metadata_kind_release_active`,
-			`DROP INDEX IF EXISTS idx_metadata_parent_season_active`,
-			`DROP INDEX IF EXISTS idx_metadata_parent_episode_active`,
-			`DROP INDEX IF EXISTS idx_metadata_title_active`,
-			`DROP INDEX IF EXISTS idx_metadata_original_name_active`,
-		}
-		for _, stmt := range statements {
-			if err := tx.Exec(stmt).Error; err != nil {
-				return err
-			}
-		}
-		for _, table := range []string{
-			"metadata_items", "metadata_identifiers",
-			"catalog_hydration_jobs", "metadata_artworks", "artwork_assets",
-		} {
-			if err := tx.Exec("ALTER TABLE " + table + " DROP COLUMN IF EXISTS deleted_at").Error; err != nil {
-				return err
-			}
-		}
-		for _, stmt := range []string{
-			`CREATE UNIQUE INDEX uidx_metadata_season ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
-			`CREATE UNIQUE INDEX uidx_metadata_episode ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
-			`CREATE INDEX idx_metadata_kind_release_active ON metadata_items(kind, release_date DESC, year DESC)`,
-			`CREATE INDEX idx_metadata_parent_season_active ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
-			`CREATE INDEX idx_metadata_parent_episode_active ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
-			`CREATE INDEX idx_metadata_title_active ON metadata_items(title)`,
-			`CREATE INDEX idx_metadata_original_name_active ON metadata_items(original_name)`,
-		} {
-			if err := tx.Exec(stmt).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-// retireMediaAndCreditSoftDeletes removes compatibility tombstones after all
-// media deletion paths and metadata credit replacement have moved to hard delete.
-func retireMediaAndCreditSoftDeletes(db *gorm.DB) error {
-	hasMedia := db.Migrator().HasColumn(&model.Media{}, "deleted_at")
-	hasCredits := db.Migrator().HasColumn(&model.MetadataCredit{}, "deleted_at")
-	if !hasMedia && !hasCredits {
-		return nil
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		if hasMedia {
-			if err := tx.Exec("DELETE FROM media WHERE deleted_at IS NOT NULL").Error; err != nil {
-				return err
-			}
-			if err := tx.Exec("ALTER TABLE media DROP COLUMN deleted_at").Error; err != nil {
-				return err
-			}
-		}
-		if hasCredits {
-			for _, stmt := range []string{
-				"DELETE FROM metadata_credits WHERE deleted_at IS NOT NULL",
-				"DROP INDEX IF EXISTS uidx_metadata_credit",
-				"ALTER TABLE metadata_credits DROP COLUMN deleted_at",
-				"CREATE UNIQUE INDEX uidx_metadata_credit ON metadata_credits(metadata_id, person_id, type, original_role)",
-			} {
-				if err := tx.Exec(stmt).Error; err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-}
-
-func purgeRetiredMediaRecycleRows(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&model.Media{}) || !db.Migrator().HasColumn(&model.Media{}, "deleted_at") {
-		return nil
-	}
-	return db.Unscoped().Where("deleted_at IS NOT NULL").Delete(&model.Media{}).Error
-}
-
 func ensurePlayerRequestLogSchema(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		// 串行化多实例的序列与分区迁移，避免重复初始化。
@@ -357,7 +51,9 @@ func ensurePlayerRequestLogSchema(db *gorm.DB) error {
 			return err
 		}
 		for _, stmt := range []string{
+			`CREATE SEQUENCE IF NOT EXISTS player_request_logs_serial_no_seq AS bigint`,
 			`CREATE TABLE IF NOT EXISTS player_request_logs (
+	serial_no bigint NOT NULL DEFAULT nextval('player_request_logs_serial_no_seq'),
 	id varchar(36) NOT NULL,
 	requested_at timestamptz NOT NULL,
 	method varchar(16) NOT NULL,
@@ -372,13 +68,8 @@ func ensurePlayerRequestLogSchema(db *gorm.DB) error {
 	response_body text NOT NULL DEFAULT '',
 	PRIMARY KEY (id, requested_at)
 ) PARTITION BY RANGE (requested_at)`,
-			`CREATE SEQUENCE IF NOT EXISTS player_request_logs_serial_no_seq AS bigint`,
-			// nextval 默认值同时为历史分区补号；重复迁移不重置序列或已有编号。
-			`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS serial_no bigint NOT NULL DEFAULT nextval('player_request_logs_serial_no_seq')`,
 			`ALTER SEQUENCE player_request_logs_serial_no_seq OWNED BY player_request_logs.serial_no`,
 			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_serial_no ON player_request_logs (serial_no)`,
-			`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS body text NOT NULL DEFAULT ''`,
-			`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS response_body text NOT NULL DEFAULT ''`,
 			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_requested_at ON player_request_logs (requested_at DESC, id DESC)`,
 			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_method_time ON player_request_logs (method, requested_at DESC)`,
 			`CREATE INDEX IF NOT EXISTS idx_player_request_logs_status_time ON player_request_logs (status, requested_at DESC)`,
@@ -408,168 +99,6 @@ func EnsurePlayerRequestLogPartitions(db *gorm.DB, at time.Time) error {
 	return nil
 }
 
-// removePTSiteSchema permanently removes retired tracker credentials and
-// their dedicated permission without changing any other user permissions.
-func removePTSiteSchema(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		for _, stmt := range []string{
-			`DROP TABLE IF EXISTS sites CASCADE`,
-			`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_sites`,
-		} {
-			if err := tx.Exec(stmt).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-// removeTranscodeSettings 保留独立的已退役转码设置清理，不扫描媒体或库路径。
-func removeTranscodeSettings(db *gorm.DB) error {
-	return db.Exec(`DELETE FROM settings
-WHERE LOWER(key) LIKE 'transcode.%'
-   OR LOWER(key) LIKE 'transcoder.%'
-   OR LOWER(key) IN ('ffmpeg.path', 'app.ffmpeg_path')`).Error
-}
-
-// removeLegacyMetadataIdentityConstraint removes the old named check after
-// AutoMigrate has installed its replacement.
-func removeLegacyMetadataIdentityConstraint(db *gorm.DB) error {
-	const name = "chk_metadata_identity"
-	if !db.Migrator().HasConstraint(&model.MetadataItem{}, name) {
-		return nil
-	}
-	return db.Migrator().DropConstraint(&model.MetadataItem{}, name)
-}
-
-// migrateLegacyEpisodeTitle preserves old Episode names before removing the
-// redundant column. The update and drop are atomic to avoid partial upgrades.
-func migrateLegacyEpisodeTitle(db *gorm.DB) error {
-	if !db.Migrator().HasColumn(&model.MetadataItem{}, "episode_title") {
-		return nil
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`
-UPDATE metadata_items
-SET title = BTRIM(episode_title)
-WHERE kind = 'episode'
-  AND BTRIM(COALESCE(episode_title, '')) <> ''
-`).Error; err != nil {
-			return err
-		}
-		return tx.Exec(`ALTER TABLE metadata_items DROP COLUMN episode_title`).Error
-	})
-}
-
-// removeDownloadSubscriptionSchema removes the tables and columns owned by
-// the retired subscription/download feature. AutoMigrate only creates or
-// alters models, so these explicitly destructive removals are kept here as a
-// one-time compatibility migration for existing installations.
-func removeDownloadSubscriptionSchema(db *gorm.DB) error {
-	statements := []string{
-		`DROP TABLE IF EXISTS download_tasks CASCADE`,
-		`DROP TABLE IF EXISTS download_clients CASCADE`,
-		`DROP TABLE IF EXISTS subscriptions CASCADE`,
-		`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_downloads`,
-		`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_subscriptions`,
-		`DELETE FROM settings WHERE key LIKE 'subscription.%' OR key LIKE 'qbittorrent.%' OR key LIKE 'transmission.%' OR key LIKE 'aria2.%' OR key IN ('organize.keep_seeding', 'downloads.smart_classify', 'organizer.auto_after_download')`,
-	}
-	for _, stmt := range statements {
-		if err := db.Exec(stmt).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// removeSystemUpdateSettings 删除已退役系统更新功能留下的配置。
-func removeSystemUpdateSettings(db *gorm.DB) error {
-	return db.Exec(`DELETE FROM settings WHERE key IN ('system.update.image', 'system.update.watchtower_image', 'system.update.command', 'system.update.compose_dir')`).Error
-}
-
-func removeRetiredScrapeSettings(db *gorm.DB) error {
-	return db.Exec(`DELETE FROM settings WHERE key IN (
-'scrape.auto_on_scan',
-'metadata.artwork_backfill_enabled',
-'metadata.artwork_backfill_interval_seconds',
-'internal.metadata_artwork_integrity_cursor',
-'internal.tmdb_artwork_local_repair_cursor',
-'internal.tmdb_artwork_missing_recheck_cursor'
-)`).Error
-}
-
-// removeUnusedLegacyColumns removes columns that have no current model or
-// runtime consumer. AutoMigrate never drops columns removed from a model.
-func removeUnusedLegacyColumns(db *gorm.DB) error {
-	for _, stmt := range []string{
-		`ALTER TABLE IF EXISTS metadata_items DROP COLUMN IF EXISTS nsfw`,
-		`ALTER TABLE IF EXISTS nfo_items DROP COLUMN IF EXISTS nsfw`,
-		`ALTER TABLE IF EXISTS nfo_media_bindings DROP COLUMN IF EXISTS nsfw`,
-		`ALTER TABLE IF EXISTS people DROP COLUMN IF EXISTS profile_image_source`,
-		`ALTER TABLE IF EXISTS user_devices DROP COLUMN IF EXISTS warnings`,
-		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS duration_sec`,
-		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS size_bytes`,
-		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS container`,
-		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS width`,
-		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS height`,
-		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS video_codec`,
-		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS audio_codec`,
-	} {
-		if err := db.Exec(stmt).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ensureAPIConfigColumns covers databases created before the API config model
-// gained editable fields or allowed credentials longer than 512 characters.
-func ensureAPIConfigColumns(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&model.APIConfig{}) {
-		return nil
-	}
-	for _, column := range []string{
-		"Model",
-		"ImageDirect",
-		"UseProxyPool",
-		"ProxyPoolType",
-		"ResinProxyURL",
-		"ResinProxyToken",
-		"ResinAccount",
-		"WebSearchEnabled",
-	} {
-		if db.Migrator().HasColumn(&model.APIConfig{}, column) {
-			continue
-		}
-		if err := db.Migrator().AddColumn(&model.APIConfig{}, column); err != nil {
-			return err
-		}
-	}
-	return db.Exec(`ALTER TABLE api_configs ALTER COLUMN api_key TYPE text`).Error
-}
-
-func ensurePostgresColumnCompatibility(db *gorm.DB) error {
-	statements := []string{
-		`ALTER TABLE media ALTER COLUMN series_hint TYPE varchar(128)`,
-		`ALTER TABLE media ALTER COLUMN duplicate_of TYPE varchar(128)`,
-		`ALTER TABLE media ALTER COLUMN metadata_id DROP NOT NULL`,
-		`ALTER TABLE playback_histories ALTER COLUMN media_id TYPE varchar(128)`,
-		`ALTER TABLE favorites ALTER COLUMN media_id TYPE varchar(128)`,
-		`ALTER TABLE playlist_items ALTER COLUMN media_id TYPE varchar(128)`,
-		`ALTER TABLE strm_records ALTER COLUMN media_id TYPE varchar(128)`,
-		`ALTER TABLE metadata_credits ALTER COLUMN original_role TYPE text`,
-		`ALTER TABLE metadata_credits ALTER COLUMN role TYPE text`,
-		`ALTER TABLE translation_caches ALTER COLUMN source_text TYPE text`,
-		`ALTER TABLE translation_caches ALTER COLUMN translated_text TYPE text`,
-	}
-	for _, stmt := range statements {
-		if err := db.Exec(stmt).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func ensurePerformanceIndexes(db *gorm.DB) error {
 	statements := []string{
 		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC)`,
@@ -577,7 +106,6 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_media_recent_metadata ON media(created_at DESC, id DESC) WHERE metadata_id IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_people_pending_translation ON people(id) WHERE deleted_at IS NULL AND original_name <> '' AND name = original_name AND original_name !~ '[一-鿿]'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_credits_type_pending_translation ON metadata_credits(type, metadata_id, id) WHERE original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`,
-		`DROP INDEX IF EXISTS idx_metadata_credits_pending_translation`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_scan_year_active ON media(library_id, scan_year DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_episode_active ON media(library_id, season_num, episode_num, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_root_active ON media(library_id, library_root_id)`,
@@ -636,40 +164,4 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		}
 	}
 	return nil
-}
-
-func enforceTelegramBindingOneToOne(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&model.TelegramBinding{}) {
-		return nil
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`
-DELETE FROM telegram_bindings
-WHERE deleted_at IS NULL
-  AND user_id IN (
-    SELECT user_id
-    FROM telegram_bindings
-    WHERE deleted_at IS NULL
-    GROUP BY user_id
-    HAVING COUNT(*) > 1
-  )
-  AND id NOT IN (
-    SELECT id
-    FROM (
-      SELECT id,
-             ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY updated_at DESC, created_at DESC, id DESC) AS rn
-      FROM telegram_bindings
-      WHERE deleted_at IS NULL
-    ) AS ranked_bindings
-    WHERE rn = 1
-  )
-`).Error; err != nil {
-			return err
-		}
-		return tx.Exec(`
-CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_bindings_user_id_active
-ON telegram_bindings(user_id)
-WHERE deleted_at IS NULL
-`).Error
-	})
 }

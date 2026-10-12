@@ -75,7 +75,7 @@ func DoubanRating(payload string) float32 {
 	return 0
 }
 
-// DoubanPayloadQuality 识别旧摘要包装，避免迁移或兼容写入把摘要标为完整详情。
+// DoubanPayloadQuality 区分摘要包装与详情响应，避免将摘要标为完整资料。
 func DoubanPayloadQuality(payload []byte, degraded bool) string {
 	if degraded {
 		return DoubanQualityDegraded
@@ -93,7 +93,7 @@ func DoubanPayloadQuality(payload []byte, degraded bool) string {
 }
 
 // DoubanPayloadMatchesIdentity 拒绝将明确属于其他条目的响应关联到当前豆瓣身份。
-// 历史响应未提供身份字段时，保留按请求或旧关联确定的身份。
+// 响应未提供身份字段时，使用已验证的请求身份。
 func DoubanPayloadMatchesIdentity(payload []byte, id, kind string) bool {
 	var subject map[string]json.RawMessage
 	if json.Unmarshal(payload, &subject) != nil || subject == nil {

@@ -113,19 +113,6 @@ func main() {
 		logger.Fatal("database not ready after migration", zap.Error(err))
 	}
 
-	imageMigration, err := service.MigrateCatalogImages(context.Background(), db, cfg.App.DataDir)
-	if err != nil {
-		logger.Fatal("catalog image migration failed", zap.Error(err))
-	}
-	if imageMigration.Migrated > 0 || imageMigration.Missing > 0 {
-		logger.Info("catalog image migration completed", zap.Int("migrated", imageMigration.Migrated), zap.Int("missing_or_invalid", imageMigration.Missing))
-	}
-	variantCount, err := service.MigrateCatalogImageVariants(context.Background(), cfg.App.DataDir, cfg.Cache.CacheDir)
-	if err != nil {
-		logger.Warn("catalog image variant migration incomplete", zap.Int("copied", variantCount), zap.Error(err))
-	} else if variantCount > 0 {
-		logger.Info("catalog image variant migration completed", zap.Int("copied", variantCount))
-	}
 	repos := repository.New(db)
 	services := service.New(cfg, logger, repos)
 	applyCPUThreadLimit(cfg, logger)

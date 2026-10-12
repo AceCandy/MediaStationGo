@@ -39,7 +39,7 @@ func requireTasksReady(c *gin.Context, svc *service.Container) bool {
 func tasksHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		system := c.Query("system")
-		if system != "" && system != model.TaskSystemCommon && system != model.TaskSystemCatalog && system != model.TaskSystemHongGuo && system != model.TaskSystemNFO && system != model.TaskSystemHuangGuoAI {
+		if system != "" && system != model.TaskSystemCommon && system != model.TaskSystemCatalog && system != model.TaskSystemHongGuo && system != model.TaskSystemHuangGuoAI {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task system"})
 			return
 		}
@@ -202,7 +202,7 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusAccepted, gin.H{"status": "queued", "count": queued, "libraries": processedLibraries})
 			return
 		}
-		if key == service.TaskDefinitionLibraryScan || key == service.TaskKindNFOScan {
+		if key == service.TaskDefinitionLibraryScan {
 			if svc == nil || svc.Scheduler == nil || svc.Repo == nil || svc.Repo.Library == nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "library scan unavailable"})
 				return
@@ -226,11 +226,6 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 			}
 			if library == nil {
 				c.JSON(http.StatusNotFound, gin.H{"error": "library not found"})
-				return
-			}
-			libraryType := strings.ToLower(strings.TrimSpace(library.Type))
-			if key == service.TaskKindNFOScan && libraryType != model.LibraryTypeNFOMovie && libraryType != model.LibraryTypeNFOTV {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "NFO scan requires an NFO library"})
 				return
 			}
 			if !triggerLibraryScanJob(c, svc, request.LibraryID) {

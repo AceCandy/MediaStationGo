@@ -23,9 +23,8 @@ confirmed there are no existing NFO libraries.
 - Scans and file events use common kinds `scan`/`watch` and definitions
   `library_scan`/`library_watch`, including NFO and HongGuo libraries.
 - `POST /api/tasks/definitions/library_scan/run` requires `{library_id: string}`.
-  The legacy `nfo_scan/run` action still accepts NFO targets and creates a common scan.
-- Task Center redirects the legacy `system=nfo` URL to `system=common`;
-  invalid/duplicate system values retain existing canonicalization behavior.
+- Task Center accepts current task systems only; invalid/duplicate system values
+  use the normal canonical default. NFO scan/watch tasks belong to `common`.
 
 ## 3. Contracts
 
@@ -47,9 +46,8 @@ confirmed there are no existing NFO libraries.
 - Each scheduled scan or watcher batch creates one common execution across
   library types. NFO scans share the common timer and library selector. Catalog
   isolation does not require separate scan/watch tasks or timers.
-- Legacy `nfo_scan`/`nfo_watch` definitions are hidden from the task list, but
-  their history/log APIs remain readable without rewriting stored records.
-  The legacy NFO action retains its non-NFO target rejection.
+- Retired `nfo_scan`/`nfo_watch` aliases and endpoints are absent; public scan
+  validates the selected library and handles its type.
 - NFO network-scrape exclusion depends on library type, never task kind;
   this also applies to STRM refresh after generation.
 - If watcher library lookup fails, requeue both video candidates and NFO/image
@@ -180,7 +178,6 @@ confirmed there are no existing NFO libraries.
 
 | Condition | Result |
 | --- | --- |
-| `nfo_scan` targets ordinary library | HTTP 400; no execution |
 | Public scan targets an NFO library | Common scan execution; local NFO ingestion |
 | Mixed ordinary/HongGuo/NFO file events | One common watch execution |
 | Same file and snapshot scanned twice | Second ingest returns changed=false |

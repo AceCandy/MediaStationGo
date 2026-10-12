@@ -20,7 +20,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react'
-import { Navigate, Outlet, useSearchParams } from 'react-router-dom'
+import { Navigate, Outlet } from 'react-router-dom'
 
 const HomePage = lazy(() => import('./pages/HomePage').then((m) => ({ default: m.HomePage })))
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then((m) => ({ default: m.LibraryPage })))
@@ -109,27 +109,6 @@ export function resolveAppRoutes(
   })
 }
 
-function AdminEntryPage() {
-  const [searchParams] = useSearchParams()
-  const tabs = searchParams.getAll('tab')
-  if (tabs.length === 0) return <Navigate to="/admin/media" replace />
-  if (tabs.length !== 1) return <Navigate to="/admin/media" replace />
-
-  const target = {
-    library: '/admin/media',
-    users: '/admin/integrations/users',
-    api: '/admin/integrations/apis',
-  }[tabs[0]]
-  return <Navigate to={target ?? '/admin/media'} replace />
-}
-
-function LegacyHongGuoPage() {
-  const [params] = useSearchParams()
-  const next = new URLSearchParams(params)
-  next.set('system', 'hongguo')
-  return <Navigate to={`/discover?${next.toString()}`} replace />
-}
-
 export const appRoutes: AppRoute[] = [
   {
     id: 'home',
@@ -174,7 +153,6 @@ export const appRoutes: AppRoute[] = [
     },
   },
   { id: 'search', path: 'search', element: <SearchPage /> },
-  { id: 'hongguo', path: 'hongguo', element: <LegacyHongGuoPage />, permission: 'can_view_discover' },
   {
     id: 'me',
     path: 'me',
@@ -224,11 +202,6 @@ export const appRoutes: AppRoute[] = [
     },
   },
 
-  { id: 'legacy-poster-wall', path: 'poster-wall', element: <Navigate to="/libraries?view=poster" replace /> },
-  { id: 'legacy-favourites', path: 'favourites', element: <Navigate to="/me?tab=favourites" replace /> },
-  { id: 'legacy-playlists', path: 'playlists', element: <Navigate to="/me?tab=playlists" replace /> },
-  { id: 'legacy-history', path: 'history', element: <Navigate to="/me?tab=history" replace /> },
-  { id: 'legacy-ai', path: 'ai', element: <Navigate to="/search?mode=ai" replace /> },
 
   {
     id: 'admin-root',
@@ -236,7 +209,7 @@ export const appRoutes: AppRoute[] = [
     element: <Outlet />,
     adminOnly: true,
     children: [
-      { id: 'admin-overview', index: true, element: <AdminEntryPage /> },
+      { id: 'admin-overview', index: true, element: <Navigate to="/admin/media" replace /> },
       {
         id: 'admin-media',
         path: 'media',
@@ -312,11 +285,6 @@ export const appRoutes: AppRoute[] = [
         navigation: { scope: 'files', label: '外部 API', icon: KeyRound, to: '/admin/integrations/apis', order: 70 },
       },
       {
-        id: 'admin-integrations-emby-legacy',
-        path: 'integrations/emby',
-        element: <Navigate to="/admin/emby/interfaces" replace />,
-      },
-      {
         id: 'admin-emby',
         path: 'emby',
         element: <Navigate to="/admin/emby/interfaces" replace />,
@@ -373,16 +341,4 @@ export const appRoutes: AppRoute[] = [
     ],
   },
 
-  { id: 'legacy-files', path: 'files', element: <Navigate to="/admin/media/files" replace />, adminOnly: true },
-  { id: 'legacy-strm', path: 'strm', element: <Navigate to="/admin/media/strm" replace />, adminOnly: true },
-  { id: 'legacy-storage', path: 'storage', element: <Navigate to="/admin/storage" replace />, adminOnly: true },
-  { id: 'legacy-tools', path: 'tools', element: <Navigate to="/admin/storage" replace />, adminOnly: true },
-  { id: 'legacy-duplicates', path: 'duplicates', element: <Navigate to="/admin/storage/duplicates" replace />, adminOnly: true },
-  { id: 'legacy-tasks', path: 'tasks', element: <Navigate to="/admin/tasks" replace />, adminOnly: true },
-  { id: 'legacy-scheduler', path: 'scheduler', element: <Navigate to="/admin/tasks?panel=scheduler" replace />, adminOnly: true },
-  { id: 'legacy-stats', path: 'stats', element: <Navigate to="/admin/storage" replace />, adminOnly: true },
-  { id: 'legacy-notify', path: 'notify-channels', element: <Navigate to="/admin/integrations/notifications" replace />, adminOnly: true },
-  { id: 'legacy-assistant', path: 'assistant', element: <Navigate to="/admin/integrations/assistant" replace />, adminOnly: true },
-  { id: 'legacy-api-configs', path: 'api-configs', element: <Navigate to="/admin/integrations/apis" replace />, adminOnly: true },
-  { id: 'legacy-settings', path: 'settings', element: <Navigate to="/admin/settings/general" replace />, adminOnly: true },
 ]

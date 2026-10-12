@@ -146,7 +146,7 @@ export function LibraryPage() {
     )
   }
 
-  if ((searchParams.has('series_id') || searchParams.has('series') || searchParams.has('hongguo_id')) && !selectedSeries) {
+  if ((searchParams.has('series_id') || searchParams.has('series')) && !selectedSeries) {
     return <div className="space-y-4 rounded-2xl border border-[var(--app-border)] p-6"><p role="status" className="text-[var(--app-muted)]">剧集不存在、加载失败或当前账号无权查看。</p><div className="flex gap-3"><button className="btn-outline" onClick={reloadCurrentLibrary}>重试</button><button className="btn-ghost" onClick={clearSelectedSeries}>返回媒体库</button></div></div>
   }
 

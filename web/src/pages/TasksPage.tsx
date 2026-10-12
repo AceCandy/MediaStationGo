@@ -95,24 +95,18 @@ const taskLogBadges = {
 } as const
 
 const taskLogMarkerPattern = /(🔺|🔻|➕|🗑️?|🔄|✅|❌|⏭️?|⚠️?|ℹ️?)/u
-const legacyTaskLogPattern = /^(\S+\s+)\[(INFO|DETAIL|ERROR)\]\s+(.*)$/u
 
 function renderLogContent(lines: string[]) {
   return lines.map((line, index) => {
-    const legacy = legacyTaskLogPattern.exec(line)
-    const visibleLine = legacy ? legacy[1] + legacy[3] : line
-    const match = taskLogMarkerPattern.exec(visibleLine)
+    const match = taskLogMarkerPattern.exec(line)
     const marker = match?.[0].replace('\uFE0F', '') as keyof typeof taskLogBadges | undefined
-    const fallback = legacy ? (legacy[2] === 'ERROR' ? '❌' : 'ℹ') : undefined
-    const badgeIndex = match?.index ?? legacy?.[1].length
-    const badgeKey = marker ?? fallback
-    if (!badgeKey || badgeIndex === undefined) return <span key={index}>{visibleLine}{index < lines.length - 1 ? '\n' : ''}</span>
-    const badge = taskLogBadges[badgeKey]
+    if (!marker || !match) return <span key={index}>{line}{index < lines.length - 1 ? '\n' : ''}</span>
+    const badge = taskLogBadges[marker]
     return (
       <span key={index}>
-        {visibleLine.slice(0, badgeIndex)}
+        {line.slice(0, match.index)}
         <span role="img" aria-label={badge[0]} className={`inline-flex h-4 w-4 items-center justify-center rounded align-[-0.15em] font-sans text-[11px] font-black leading-none text-white ${badge[2]}`}>{badge[1]}</span>
-        {visibleLine.slice(badgeIndex + (match?.[0].length ?? 0))}
+        {line.slice(match.index + match[0].length)}
         {index < lines.length - 1 ? '\n' : ''}
       </span>
     )
@@ -619,7 +613,7 @@ function ScrapeIssuesPanel({ libraries, onClose }: { libraries: Library[]; onClo
 export function TasksPage() {
 	const [params, setParams] = useSearchParams()
 	const values = params.getAll('system')
-	const system: TaskSystem = values.length === 1 && values[0] === 'nfo' ? 'common' : values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo' || values[0] === 'huangguoai') ? values[0] : 'catalog'
+	const system: TaskSystem = values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo' || values[0] === 'huangguoai') ? values[0] : 'catalog'
 	useEffect(() => {
 		if (values.length > 1 || (values.length === 1 && values[0] !== system)) {
 			const next = new URLSearchParams(params); next.set('system', system); setParams(next, { replace: true })

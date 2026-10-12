@@ -207,13 +207,9 @@ func (s *PeopleImageStore) hasUsableImage(key string) bool {
 	if err != nil {
 		return false
 	}
-	if strings.HasPrefix(key, "catalogs/") {
-		parts := strings.Split(key, "/")
-		expected, err := catalogImageKey(parts[1], "people", stored.StorageKey)
-		return err == nil && expected == key
-	}
-	legacy := "sha256/" + stored.SHA256[:2] + "/" + stored.SHA256[2:4] + "/" + strings.Split(stored.StorageKey, "/")[3]
-	return key == legacy
+	parts := strings.Split(key, "/")
+	expected, err := catalogImageKey(parts[1], "people", stored.StorageKey)
+	return err == nil && expected == key
 }
 
 // serveStoredImage 仅服务已验证的本地头像，复用缩略图与响应缓存规则。

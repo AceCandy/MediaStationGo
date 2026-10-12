@@ -29,7 +29,7 @@ func TestTMDbArtworkLocalRepairRestoresOldURLWithoutCatalogOrTMDb(t *testing.T) 
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: metadata.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "42"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	oldAsset := model.ArtworkAsset{SHA256: "missing", StorageKey: "sha256/mi/ss/missing.jpg", MimeType: "image/jpeg"}
+	oldAsset := model.ArtworkAsset{SHA256: "missing", StorageKey: "catalogs/tmdb/artwork/mi/ss/in/missing.jpg", MimeType: "image/jpeg"}
 	if err := db.Create(&oldAsset).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	if _, err := repos.Artwork.SaveSelection(t.Context(), metadata.ID, model.ArtworkTypePoster, "manual", "manual.jpg", manual); err != nil {
 		t.Fatal(err)
 	}
-	old := &model.ArtworkAsset{SHA256: "douban-small", StorageKey: "sha256/do/ub/douban-small.jpg", MimeType: "image/jpeg", Width: 270, Height: 400}
+	old := &model.ArtworkAsset{SHA256: "douban-small", StorageKey: "catalogs/douban/artwork/do/ub/an/douban-small.jpg", MimeType: "image/jpeg", Width: 270, Height: 400}
 	oldURL := "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p123.jpg"
 	if _, _, err := repos.Artwork.SaveCandidate(t.Context(), metadata.ID, model.ArtworkTypePoster, "douban", oldURL, old); err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 			if err := db.Create(&metadata).Error; err != nil {
 				t.Fatal(err)
 			}
-			old := &model.ArtworkAsset{SHA256: "douban-small-" + tt.name, StorageKey: "sha256/do/ub/" + strings.ReplaceAll(tt.name, " ", "-") + ".jpg", MimeType: "image/jpeg", Width: 270, Height: 400}
+			old := &model.ArtworkAsset{SHA256: "douban-small-" + tt.name, StorageKey: "catalogs/douban/artwork/do/ub/an/" + strings.ReplaceAll(tt.name, " ", "-") + ".jpg", MimeType: "image/jpeg", Width: 270, Height: 400}
 			oldURL := "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p123.jpg"
 			if _, _, err := repos.Artwork.SaveCandidate(t.Context(), metadata.ID, model.ArtworkTypePoster, "douban", oldURL, old); err != nil {
 				t.Fatal(err)
@@ -280,7 +280,7 @@ func TestDoubanRepairPosterURLDerivesKnownPhotoVariant(t *testing.T) {
 
 func TestTMDbArtworkLocalRepairOmitsHealthyFileDetail(t *testing.T) {
 	store := NewArtworkStore(&config.Config{App: config.AppConfig{DataDir: t.TempDir()}}, nil, nil)
-	item := repository.TMDbArtworkSelection{StorageKey: "sha256/aa/bb/healthy.jpg"}
+	item := repository.TMDbArtworkSelection{StorageKey: "catalogs/tmdb/artwork/aa/bb/cc/healthy.jpg"}
 	path, err := store.pathForStorageKey(item.StorageKey)
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +307,7 @@ func TestTMDbArtworkLocalRepairRefreshesOnlyAfter404(t *testing.T) {
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: metadata.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "42"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	oldAsset := model.ArtworkAsset{SHA256: "missing-404", StorageKey: "sha256/mi/ss/missing-404.jpg", MimeType: "image/jpeg"}
+	oldAsset := model.ArtworkAsset{SHA256: "missing-404", StorageKey: "catalogs/tmdb/artwork/mi/ss/in/missing-404.jpg", MimeType: "image/jpeg"}
 	if err := db.Create(&oldAsset).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestTMDbArtworkMissingRecheckOmitsHealthySelectionDetail(t *testing.T) {
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
 	}
-	asset := model.ArtworkAsset{SHA256: "healthy", StorageKey: "sha256/aa/bb/healthy.jpg", MimeType: "image/jpeg"}
+	asset := model.ArtworkAsset{SHA256: "healthy", StorageKey: "catalogs/tmdb/artwork/aa/bb/cc/healthy.jpg", MimeType: "image/jpeg"}
 	if err := db.Create(&asset).Error; err != nil {
 		t.Fatal(err)
 	}

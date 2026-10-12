@@ -101,8 +101,6 @@ supersedes older requirements for per-Episode extended responses and credits.
 - `TestSeasonDerivedSnapshotPreservesFullEpisode`: same-ID preservation and changed ID.
 - `TestEpisodeCreditsReadSeasonWithoutWritingEpisode`, `TestListEpisodeCreditsUsesSeason`,
   `TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople`: read/write and batch/filter scope.
-- `TestRetireEpisodeCreditsPreservesPeopleAndOtherWorks`,
-  `TestBackfillSeasonPeopleUsesHistoricalSnapshot`: migration and historical Season population.
 - Database tests must execute with `MEDIASTATION_TEST_POSTGRES_DSN`; skips do not count.
 
 ### 7. Wrong vs Correct

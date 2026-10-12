@@ -116,7 +116,7 @@ func (s *STRMService) GenerateForAllLibraries(ctx context.Context, opts Generate
 	if err != nil {
 		return nil, err
 	}
-	baseOutputDir := s.remapLegacySTRMOutputDir(resolveMappedDestinationPath(strings.TrimSpace(opts.OutputDir)))
+	baseOutputDir := resolveMappedDestinationPath(strings.TrimSpace(opts.OutputDir))
 	result := &GenerateSTRMResult{LibraryID: "*", OutputDir: baseOutputDir}
 	for _, lib := range libraries {
 		select {
@@ -147,39 +147,16 @@ func (s *STRMService) GenerateForAllLibraries(ctx context.Context, opts Generate
 }
 
 func (s *STRMService) resolveSTRMOutputDir(ctx context.Context, lib *model.Library, opts GenerateSTRMOptions) string {
-	outputDir := s.remapLegacySTRMOutputDir(resolveMappedDestinationPath(strings.TrimSpace(opts.OutputDir)))
+	outputDir := resolveMappedDestinationPath(strings.TrimSpace(opts.OutputDir))
 	if (outputDir == "" || outputDir == ".") && s.repo.Setting != nil {
 		if saved, err := s.repo.Setting.Get(ctx, "strm.output_dir"); err == nil {
-			outputDir = s.remapLegacySTRMOutputDir(resolveMappedDestinationPath(strings.TrimSpace(saved)))
+			outputDir = resolveMappedDestinationPath(strings.TrimSpace(saved))
 		}
 	}
 	if outputDir == "" || outputDir == "." {
 		outputDir = s.defaultOutputDir(lib)
 	}
 	return strmLibrarySpecificOutputDir(outputDir, lib)
-}
-
-func (s *STRMService) remapLegacySTRMOutputDir(outputDir string) string {
-	outputDir = filepath.Clean(strings.TrimSpace(outputDir))
-	if outputDir == "" || outputDir == "." || s == nil || s.cfg == nil {
-		return outputDir
-	}
-	dataDir := filepath.Clean(strings.TrimSpace(s.cfg.App.DataDir))
-	if dataDir == "" || dataDir == "." || sameLibraryPath(dataDir, "/app/data") {
-		return outputDir
-	}
-	legacy := "/app/data"
-	normalized := strings.TrimRight(cleanPathForVolumeMapping(outputDir), "/")
-	if sameLibraryPath(normalized, legacy) {
-		return dataDir
-	}
-	if strings.HasPrefix(strings.ToLower(normalized), legacy+"/") {
-		rel := strings.TrimPrefix(normalized[len(legacy):], "/")
-		if rel != "" {
-			return filepath.Join(dataDir, filepath.FromSlash(rel))
-		}
-	}
-	return outputDir
 }
 
 func (s *STRMService) saveSTRMGenerationSettings(ctx context.Context, outputDir string, opts GenerateSTRMOptions) {

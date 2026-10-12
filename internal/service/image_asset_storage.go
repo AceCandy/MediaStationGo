@@ -1,11 +1,9 @@
 package service
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,16 +64,17 @@ func catalogImageKey(provider, category, key string) (string, error) {
 	return filepath.ToSlash(filepath.Join("catalogs", provider, category, key)), nil
 }
 
-// managedImagePath 兼容尚未迁移的旧键，新键只能落在指定类别的资料目录内。
+// managedImagePath 仅接受指定类别的资料中心图片键。
 func managedImagePath(dataDir, category, key string) (string, error) {
-	if strings.HasPrefix(key, "catalogs/") {
-		parts := strings.Split(key, "/")
-		if len(parts) != 7 || parts[2] != category {
-			return "", errors.New("invalid catalog image key")
-		}
-		return storedImagePath(dataDir, key)
+	parts := strings.Split(key, "/")
+	if len(parts) != 7 || parts[0] != "catalogs" || parts[2] != category {
+		return "", errors.New("invalid catalog image key")
 	}
-	return storedImagePath(filepath.Join(dataDir, category), key)
+	canonical, err := catalogImageKey(parts[1], category, strings.Join(parts[3:], "/"))
+	if err != nil || canonical != key {
+		return "", errors.New("invalid catalog image key")
+	}
+	return storedImagePath(dataDir, key)
 }
 
 func storedImagePath(root, storageKey string) (string, error) {
@@ -94,13 +93,8 @@ func storedImagePath(root, storageKey string) (string, error) {
 	return pathAbs, nil
 }
 
+// writeStoredImage 先同步临时文件，再原子替换目标，失败时清理临时文件。
 func writeStoredImage(path string, data []byte, pattern string) error {
-	return copyStoredImage("", path, data, pattern)
-}
-
-// copyStoredImage 优先克隆已经校验的源文件；不支持或源内容变化时复制校验过的字节。
-// 目标始终先写临时文件并同步落盘，随后原子替换，不与源文件共享 inode。
-func copyStoredImage(source, path string, data []byte, pattern string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
@@ -116,32 +110,8 @@ func copyStoredImage(source, path string, data []byte, pattern string) error {
 			_ = os.Remove(tmpPath)
 		}
 	}()
-	cloned := false
-	if source != "" {
-		if src, err := os.Open(source); err == nil {
-			err = cloneImageFile(tmp, src)
-			_ = src.Close()
-			if err == nil {
-				if stat, err := tmp.Stat(); err == nil && stat.Size() == int64(len(data)) {
-					actual := make([]byte, len(data))
-					_, err := tmp.ReadAt(actual, 0)
-					cloned = err == nil && bytes.Equal(actual, data)
-				}
-			}
-		}
-	}
-	if !cloned {
-		if source != "" {
-			if err := tmp.Truncate(0); err != nil {
-				return err
-			}
-			if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-				return err
-			}
-		}
-		if _, err := tmp.Write(data); err != nil {
-			return err
-		}
+	if _, err := tmp.Write(data); err != nil {
+		return err
 	}
 	if err := tmp.Sync(); err != nil {
 		return err

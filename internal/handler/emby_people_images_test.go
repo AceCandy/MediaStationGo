@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"image"
 	"image/jpeg"
 	"net/http"
@@ -108,8 +110,10 @@ func TestEmbyPersonImageServesPersistedLocalFile(t *testing.T) {
 	proxy := service.NewImageProxy(cfg, zap.NewNop())
 	people := service.NewPeopleImageStore(cfg, repos.Person, proxy)
 	want := embyPlaceholderPNG
-	key := "sha256/aa/bb/profile.jpg"
-	path := filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(key))
+	sum := sha256.Sum256(want)
+	hash := hex.EncodeToString(sum[:])
+	key := "catalogs/tmdb/people/" + hash[:2] + "/" + hash[2:4] + "/" + hash[4:6] + "/" + hash + ".png"
+	path := filepath.Join(cfg.App.DataDir, filepath.FromSlash(key))
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}

@@ -69,7 +69,6 @@ type Container struct {
 	OrganizePipeline    *OrganizePipelineService
 	Douban              *DoubanProvider
 	Token               *TokenService
-	ApiConfig           *ApiConfigService
 	Notify              *NotifyService
 	Device              *DeviceService
 	Cache               *RuntimeCacheService

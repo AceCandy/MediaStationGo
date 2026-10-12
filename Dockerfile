@@ -43,11 +43,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ---- Stage 3: runtime ------------------------------------------------------
 FROM alpine:3.23 AS runtime-base
 # Alpine ships ffprobe in the ffmpeg package; the application invokes ffprobe
-# for media inspection and does not start ffmpeg.
+# for media inspection and ffmpeg for download decryption and merging.
 RUN apk add --no-cache \
         ffmpeg \
         libwebp-dev \
-        docker-cli \
         tzdata \
         ca-certificates \
         su-exec \

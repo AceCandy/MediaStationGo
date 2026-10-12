@@ -11,7 +11,6 @@ import { MediaCredits } from './MediaDetailCast'
 
 const kinds: Record<string, string> = { movie: '电影', series: '电视剧' }
 const qualityLabels: Record<string, string> = { complete: '完整资料', degraded: '降级资料', partial: '摘要资料' }
-const canRefresh = (subject: DoubanSubjectSummary) => ['movie', 'series'].includes(subject.entity_kind)
 const timeText = (value: string | null) => value ? new Date(value).toLocaleString() : '—'
 const ratingText = (value: number) => value > 0 ? value.toFixed(1) : '—'
 const errorText = (error: unknown, fallback: string) => (error as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback
@@ -91,7 +90,7 @@ function DoubanDataCenterContent() {
     detailTrigger.current?.focus()
   }
   const refresh = async (subject: DoubanSubjectSummary, mode: DoubanRefreshMode) => {
-    if (mutation.current || !canRefresh(subject)) return
+    if (mutation.current) return
     const controller = new AbortController()
     mutation.current = controller
     setPendingID(subject.id)
@@ -115,7 +114,7 @@ function DoubanDataCenterContent() {
   }
   const actions = (subject: DoubanSubjectSummary) => <div className="flex flex-wrap gap-2">
     <button type="button" className="btn-outline px-3 py-2 text-xs" onClick={() => openDetail(subject)}>查看</button>
-    {canRefresh(subject) ? <RefreshButtons pending={pendingID !== null} onRefresh={(mode) => void refresh(subject, mode)} subjectID={subject.douban_id} /> : <span className="self-center text-xs text-ink-50">历史资料 · 仅查看</span>}
+    <RefreshButtons pending={pendingID !== null} onRefresh={(mode) => void refresh(subject, mode)} subjectID={subject.douban_id} />
   </div>
   const rows = data?.items || []
   const pages = Math.max(1, Math.ceil((data?.total || 0) / 30))
@@ -179,7 +178,7 @@ function SubjectDetails({ subject, revision, pending, error: actionError, onClos
     <div ref={panel} tabIndex={-1} onKeyDown={trapFocus} className="space-y-6 p-5 outline-none sm:p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1 basis-60"><h2 className="break-words font-display text-2xl font-semibold text-ink-600">{item.title || '未获取标题'}{item.year && <span className="ml-2 font-normal text-ink-50">({item.year})</span>}</h2><p className="mt-2 break-words text-xs text-ink-50">{detail?.original_name && `${detail.original_name} · `}{kinds[item.entity_kind]} · 豆瓣 {item.douban_id}</p></div>
-        <div className="flex flex-wrap gap-2"><a className="btn-outline gap-1.5 px-3 py-2 text-xs" href={`https://movie.douban.com/subject/${encodeURIComponent(item.douban_id)}/`} target="_blank" rel="noopener noreferrer">豆瓣原页<ExternalLink size={13} /></a>{canRefresh(item) && <RefreshButtons pending={pending} onRefresh={onRefresh} />}</div>
+        <div className="flex flex-wrap gap-2"><a className="btn-outline gap-1.5 px-3 py-2 text-xs" href={`https://movie.douban.com/subject/${encodeURIComponent(item.douban_id)}/`} target="_blank" rel="noopener noreferrer">豆瓣原页<ExternalLink size={13} /></a><RefreshButtons pending={pending} onRefresh={onRefresh} /></div>
       </header>
       {loading && <p className="text-sm text-ink-50">正在读取详情…</p>}
       {error && <div className="flex flex-wrap items-center gap-3"><p role="alert" className="text-sm text-red-500">{error}</p><button type="button" className="btn-outline px-3 py-2 text-xs" onClick={() => setRetry((value) => value + 1)}>重试读取详情</button></div>}
@@ -195,7 +194,7 @@ function SubjectDetails({ subject, revision, pending, error: actionError, onClos
         {!!detail.awards?.length && <section><h3 className="mb-3 font-display text-base font-semibold text-ink-600">获奖与提名</h3><div className="divide-y divide-[var(--app-border)]">{detail.awards.map((award, index) => <div key={index} className="grid gap-1 py-3 text-xs sm:grid-cols-[14rem_minmax(0,1fr)] sm:gap-4"><p className="text-brand-500">{award.event}</p><p className="break-words text-ink-100">{award.category}{award.people && <span className="ml-2 text-ink-50">{award.people}</span>}</p></div>)}</div></section>}
         {!!detail.honors?.length && <section><h3 className="mb-3 font-display text-base font-semibold text-ink-600">榜单与荣誉</h3><div className="flex flex-wrap gap-2">{detail.honors.map((honor) => <span key={honor.title} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-glass)] px-3 py-2 text-xs text-ink-100">{honor.rank > 0 && <strong className="mr-2 text-gold-500">第 {honor.rank} 名</strong>}{honor.title}</span>)}</div></section>}
       </>}
-      <section className="border-t border-[var(--app-border)] pt-5"><div className="mb-3 flex items-center gap-3"><h3 className="text-sm font-medium text-ink-600">资料状态</h3><Quality subject={item} /></div><dl className="grid gap-3 text-xs sm:grid-cols-2">{[['基础资料更新', timeText(item.fetched_at)], ['补充资料更新', timeText(item.rich_fetched_at || null)], ['最近尝试', timeText(item.last_attempt_at)], ['下次可重试', timeText(item.next_retry_at)]].map(([label, value]) => <div key={label}><dt className="text-ink-50">{label}</dt><dd className="mt-1 text-ink-100">{value}</dd></div>)}</dl>{!canRefresh(item) && <p className="mt-3 text-xs text-ink-50">历史季和集资料仅支持查看</p>}</section>
+      <section className="border-t border-[var(--app-border)] pt-5"><div className="mb-3 flex items-center gap-3"><h3 className="text-sm font-medium text-ink-600">资料状态</h3><Quality subject={item} /></div><dl className="grid gap-3 text-xs sm:grid-cols-2">{[['基础资料更新', timeText(item.fetched_at)], ['补充资料更新', timeText(item.rich_fetched_at || null)], ['最近尝试', timeText(item.last_attempt_at)], ['下次可重试', timeText(item.next_retry_at)]].map(([label, value]) => <div key={label}><dt className="text-ink-50">{label}</dt><dd className="mt-1 text-ink-100">{value}</dd></div>)}</dl></section>
       {detail && (detail.has_payload ? <details className="border-t border-[var(--app-border)] pt-4"><summary className="cursor-pointer text-xs text-ink-50">原始豆瓣资料</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs text-ink-100">{JSON.stringify(detail.raw_json, null, 2)}</pre></details> : <p className="text-sm text-ink-50">该记录尚未成功获取资料。</p>)}
     </div>
   </ModalShell>

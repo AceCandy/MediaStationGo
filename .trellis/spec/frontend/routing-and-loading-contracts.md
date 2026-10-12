@@ -31,7 +31,7 @@ Required behavior:
 - Match active paths on segment boundaries: a path matches itself or descendants
   below `path/`, never an unrelated path with the same string prefix.
 - Keep canonical internal links on the maintained viewer or `/admin/*` path.
-  Legacy root paths exist only as guarded `Navigate replace` redirects.
+  Retired root paths, `/hongguo` and old administrator tab URLs have no compatibility routes.
 - Redirect `/admin` and non-content management group roots with `replace` to a
   deterministic retained leaf; redirect targets must not form cycles.
 - Keep ordinary `/search` authenticated but independent of AI permissions.
@@ -80,13 +80,16 @@ Viewer composition state is URL owned:
   full also attempts the webpage supplement. Show separate successful base and
   supplement update times in list/detail. Block duplicate submission and reread
   stored data after both
-  success and failure; Season/Episode history is read-only. Abort old reads and
+  success and failure. Season/Episode subjects are rejected. Abort old reads and
   remount on auth session generation changes, canceling pending updates.
   List and detail posters use the summary's same-origin `poster_url` with
   `imageURL` and the subject fetch time as version, native lazy loading and
   asynchronous decoding. Use 160px list and 600px detail variants; image errors
-  show a placeholder and a changed URL/version permits a new attempt. Legacy
-  Season/Episode filter URLs normalize to all; historical rows remain readable.
+  show a placeholder and a changed URL/version permits a new attempt. Invalid
+  subject-type filters normalize to all; lists and details only expose Movie/Series.
+- Library series details use `series_id` or a source-scoped `series` key. The
+  retired `hongguo_id` parameter has no reader or conversion path. Keep season,
+  episode and version normalization on current links.
 - Download Space: absent `status` defaults to `downloading`; explicit `status=` selects all states. Keep the explicit empty value when selecting all so reload and pagination do not revert to the default. Existing named status links retain their selection.
 - Download Space keeps one source switch; do not repeat the selected navigation
   title or add a separate task heading. Search, work status and management actions
@@ -99,9 +102,8 @@ Viewer composition state is URL owned:
   zero. Empty states must not replace request failures. Verify both sources and
   dark/light responsive layouts with `check-download-space.mjs`.
 - Discover: `system=catalog|hongguo|huangguoai`, default `catalog`; mount only the selected
-  catalog and rebuild it on user/profile changes. `/hongguo` is a guarded
-  replace redirect to `/discover`, preserving query parameters and setting
-  `system=hongguo`. Both routes require `can_view_discover`.
+  catalog and rebuild it on user/profile changes. `/discover` requires
+  `can_view_discover`; source selection uses its canonical `system` query.
 - Search: `mode=ai` when both permission and provider state allow it; otherwise
   ordinary search.
 
@@ -176,7 +178,7 @@ AbortController with a sequence check.
 ## Verification
 
 Run `node scripts/check-hongguo-discover.mjs` against a local Web preview on
-port 4179 (or `DISCOVER_TEST_URL`) for legacy query preservation, lazy catalog
+port 4179 (or `DISCOVER_TEST_URL`) for canonical query behavior, lazy catalog
 switching, discovery permission, image-failure fallback and responsive layouts.
 It uses mocked APIs; actual downloaded poster rendering remains deployment QA.
 

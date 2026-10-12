@@ -88,7 +88,7 @@ for (const date of ['2026-09-06', '2026-09-07']) {
   assert.equal(states[1], 1, 'successful reload resets pagination')
   assert.equal(states[0].date, date)
 }
-for (const content of ['2026-09-07 ✅ done\n', '2026-09-07 [ERROR] failed\n']) {
+for (const content of ['2026-09-07 ✅ done\n', '2026-09-07 ❌ failed\n']) {
   assert.ok(nodes(pre(render(content))).some((node) => node.props?.role === 'img'), 'log badges remain visible')
 }
 console.log('Task log pagination, ordering, badges and memo reuse checks passed')
@@ -127,16 +127,16 @@ mocks['../api/tasks'].tasksAPI.snapshot = async () => ({ definitions: [definitio
 vm.runInNewContext(ts.transpileModule(`${source}\nexport { TasksSystemPage };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports, require: (id) => id === 'react' ? react : mocks[id] ?? (id.startsWith('.') ? {} : require(id)) })
-for (const system of ['common', 'catalog', 'hongguo']) {
+for (const system of ['common', 'catalog', 'hongguo', 'huangguoai']) {
   states = []; memos = []; stateIndex = memoIndex = 0
   const changes = []
   const tree = exports.TasksSystemPage({ system, onSystemChange: (value) => changes.push(value) })
   const group = nodes(tree).find((node) => node.props?.['aria-label'] === '任务体系')
   const buttons = nodes(group).filter((node) => node.type === 'button')
-  assert.equal(buttons.length, 3)
+  assert.equal(buttons.length, 4)
   assert.equal(buttons.filter((node) => node.props['aria-pressed']).length, 1)
   buttons.forEach((button) => button.props.onClick())
-  assert.equal(JSON.stringify(changes), JSON.stringify(['common', 'catalog', 'hongguo'].filter((value) => value !== system)))
+  assert.equal(JSON.stringify(changes), JSON.stringify(['common', 'catalog', 'hongguo', 'huangguoai'].filter((value) => value !== system)))
 }
 for (const [count, libraryID] of [[0, 'library-a'], [12, 'library-a'], [0, ''], [12, ''], [undefined, '']]) {
   states = []; memos = []; stateIndex = memoIndex = 0

@@ -18,8 +18,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const sessionVersion = useAuthStore((state) => state.sessionVersion)
   const profileID = usePlayProfileStore((state) => state.activeProfileId)
   const seriesID = searchParams.get('series_id') || ''
-  const legacySourceID = searchParams.get('hongguo_id') || ''
-  const seriesKey = seriesID ? '' : searchParams.get('series') || (legacySourceID ? `hongguo:${legacySourceID}` : '')
+  const seriesKey = seriesID ? '' : searchParams.get('series') || ''
   const rawSeason = searchParams.get('season')
   const requestedSeason = rawSeason !== null && /^\d+$/.test(rawSeason) ? Number(rawSeason) : undefined
   const target = `${sessionVersion}:${userID}:${profileID}:${libraryID}:${seriesID}:${seriesKey}`

@@ -26,7 +26,7 @@ The value is encrypted in the `text` column `api_configs.api_key`. Public respon
 ## 3. Contracts
 
 - `api_configs` is the only Douban Cookie source; no `secrets.douban_cookie` field or environment key exists.
-- Both historical Go models mapped to `api_configs` must declare `api_key` as `text`; a startup compatibility migration widens legacy `varchar(512)` columns without changing stored values.
+- `model.APIConfig` is the only configuration model and declares `api_key` as `text`. The only management endpoint is `/api/admin/api-configs`; no second model/service/HTTP interface is maintained.
 - The Web UI labels the Douban credential as `Cookie`, keeps a password input, and submits it through `api_key`.
 - Every Douban search, detail attempt, and discover request resolves the current row immediately before sending.
 - Set the outbound `Cookie` header only when the resolved row is enabled and the decrypted value is non-empty.
@@ -40,7 +40,6 @@ The value is encrypted in the `text` column `api_configs.api_key`. Public respon
 | Missing row, empty credential, or disabled row | Send anonymously. |
 | Database lookup/decryption path returns an error | Log no credential data and send anonymously. |
 | Credential is updated or cleared | The next request observes the new state without restart. |
-| Legacy `api_key varchar(512)` column | Widen idempotently to `text` during startup migration. |
 
 ## 5. Good / Base / Bad Cases
 
@@ -52,7 +51,7 @@ The value is encrypted in the `text` column `api_configs.api_key`. Public respon
 
 - Exercise search, both detail attempts, and discover through a transport that checks the expected header state.
 - On one provider instance, verify missing, configured, updated, cleared, disabled, and lookup-error states.
-- Start from a PostgreSQL `varchar(512)` column, run migration twice, assert `text`, and save a value longer than 512 characters.
+- Create the current PostgreSQL schema, save a value longer than 512 characters, repeat schema maintenance and assert the `text` type and unchanged value.
 - Run Web lint/build and confirm legacy field/environment names have no product-code matches.
 
 ## 7. Wrong vs Correct
@@ -446,27 +445,12 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   `fetched_at`, `last_attempt_at` and `next_retry_at`. Its unique key is
   `(douban_id, entity_kind)`. Confirmed cross-type bindings use
   `MetadataIdentifier.DoubanEntityKind`; empty values retain the local kind.
-- Scores and compatibility snapshots follow the current unique identifier.
-  Ambiguous associations yield no subject or rating. Movie/Series data tasks
-  do not process Season/Episode; legacy own-identity scores remain supported
-  without inheritance. General metadata ratings and local artwork stay separate.
-- Startup migration chooses complete details before degraded/partial responses,
-  then the newest fetching time, in bounded keyset batches. Derive identity from
-  the snapshot itself (root, `subject` or `data`), normalize numeric IDs and map
-  `tv`/`is_tv` to Series. A current media binding is not required: unbound and
-  previously rebound snapshots still belong in the center under their own
-  identity. Only missing fields may use a unique valid legacy identifier; when
-  the snapshot has an ID, a type fallback must belong to that same normalized ID.
-  Reject conflicting identities and unidentified payloads without inventing IDs.
-  Validate each candidate before deduplication so an invalid preferred response
-  cannot hide a valid one; advance the cursor even for skipped candidates.
-  Preserve fetching time, skip existing shared identities and retain old snapshots
-  for rollback without changing media bindings. No ongoing legacy Douban writes.
-- After migration coverage is verified, an explicitly authorized operational
-  cleanup may remove only `metadata_provider_snapshots.provider = 'douban'` rows
-  covered by a nonempty shared subject of equal/better quality and no older fetch
-  time. Keep the table and every other provider's snapshot. Do not clear local
-  canonical fields previously filled from Douban or delete media/ID associations.
+- Ratings and source details follow the current unique identifier. Ambiguous
+  associations yield no subject or rating. The Douban center accepts only Movie
+  and Series; local Season/Episode metadata remains a separate business model.
+- Source data lives only in the center. Startup maintains the current schema;
+  it does not import or retain legacy snapshots. Local canonical fields already
+  filled from Douban and media/ID associations remain independent.
 
 ### Retrieval and refresh
 - The shared Provider serializes cache admission, rechecks persisted state, allows
@@ -519,8 +503,6 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   skipped, failed, remaining eligible at finish and actual HTTP attempts.
   Successful base writes preserve all rich JSON/timestamps/retry and image keys.
   Histories/logs remain independent.
-  Startup migrates only legacy `artwork` executions named “豆瓣资料刷新” to
-  the new kind/system; the definition key, daily log paths and settings stay stable.
   A temporary upstream failure stops the batch, returns the original error,
   records a failed execution/stage with a sanitized error, and increments
   `failed` and `upstream_paused`; it must not report successful completion.
@@ -547,12 +529,10 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   protection may have retained an older complete payload. Upstream failure is
   an error and keeps previous successful data, with persisted retry state.
 - No arbitrary URL/new identity, JSON editing, deletion or bulk force-refresh
-  is supported. Legacy Season/Episode rows are visible but read-only.
+  is supported. Invalid subject kinds are rejected without network requests.
 
 ### Verification
-- PostgreSQL: `TestDoubanMigrationPreservesIdentityQualityAndTime`,
-  `TestDoubanMigrationUsesSnapshotIdentityWithoutBinding`,
-  `TestDoubanMigrationPagesPastInvalidCandidates`,
+- PostgreSQL: `TestCurrentSchemaPreservesDataAndConstraints`,
   `TestDoubanSharedSubjectWriteAndAssociation`, cache/refresh tests in
   `internal/service/douban_cache_test.go`, and existing Douban/Emby rating tests.
 - Run cache concurrency and cancellation coverage with `-race` and a real
@@ -565,7 +545,7 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   `TestDoubanDataRefreshUpstreamFailureIsFailed` covers failed task history,
   batch termination, preserved old details and the five-minute retry delay.
 - `TestDoubanManagement*` covers PostgreSQL search/paging/projection, forced
-  readback, unchanged canonical data, failure preservation and history guards.
+  readback, unchanged canonical data, failure preservation and kind guards.
   Administrator route tests cover authentication, role and parameter validation.
   Run `node scripts/check-douban-data-center.mjs` from `web` against an isolated
   Vite server for UI permissions, URL state, cancellation, refresh feedback and

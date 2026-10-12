@@ -10,25 +10,12 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestEnsurePlayerRequestLogSchemaAddsResponseBody(t *testing.T) {
+func TestEnsurePlayerRequestLogSchemaPreservesSequenceAcrossPartitions(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec(`CREATE TABLE player_request_logs (
-	id varchar(36) NOT NULL,
-	requested_at timestamptz NOT NULL,
-	method varchar(16) NOT NULL,
-	route text NOT NULL,
-	status integer NOT NULL,
-	duration_ms bigint NOT NULL,
-	ip varchar(64) NOT NULL DEFAULT '',
-	path_params jsonb NOT NULL DEFAULT '{}'::jsonb,
-	headers jsonb NOT NULL DEFAULT '{}'::jsonb,
-	query jsonb NOT NULL DEFAULT '{}'::jsonb,
-	body text NOT NULL DEFAULT '',
-	PRIMARY KEY (id, requested_at)
-) PARTITION BY RANGE (requested_at)`).Error; err != nil {
+	if err := ensurePlayerRequestLogSchema(db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -36,26 +23,26 @@ func TestEnsurePlayerRequestLogSchemaAddsResponseBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`INSERT INTO player_request_logs (id, requested_at, method, route, status, duration_ms)
-VALUES ('old-january', '2026-01-15', 'GET', '/test', 200, 1),
-       ('old-february', '2026-02-15', 'GET', '/test', 200, 1)`).Error; err != nil {
+VALUES ('january', '2026-01-15', 'GET', '/test', 200, 1),
+       ('february', '2026-02-15', 'GET', '/test', 200, 1)`).Error; err != nil {
 		t.Fatal(err)
 	}
 	var first []int64
 	for i := 0; i < 2; i++ {
 		if err := ensurePlayerRequestLogSchema(db); err != nil {
-			t.Fatalf("migration %d: %v", i+1, err)
+			t.Fatalf("schema initialization %d: %v", i+1, err)
 		}
 		var numbers []int64
 		if err := db.Table("player_request_logs").Order("id").Pluck("serial_no", &numbers).Error; err != nil {
 			t.Fatal(err)
 		}
 		if len(numbers) != 2 || numbers[0] <= 0 || numbers[1] <= 0 || numbers[0] == numbers[1] {
-			t.Fatalf("historical serial numbers: %v", numbers)
+			t.Fatalf("persisted serial numbers: %v", numbers)
 		}
 		if i == 0 {
 			first = numbers
 		} else if numbers[0] != first[0] || numbers[1] != first[1] {
-			t.Fatalf("migration changed serial numbers: %v -> %v", first, numbers)
+			t.Fatalf("schema initialization changed serial numbers: %v -> %v", first, numbers)
 		}
 	}
 	if !db.Migrator().HasColumn("player_request_logs", "response_body") {
@@ -67,7 +54,7 @@ VALUES ('new', '2026-02-16', 'GET', '/test', 200, 1) RETURNING serial_no`).Scan(
 		t.Fatal(err)
 	}
 	if next <= first[0] || next <= first[1] {
-		t.Fatalf("new number %d does not follow historical numbers %v", next, first)
+		t.Fatalf("new number %d does not follow persisted numbers %v", next, first)
 	}
 	// 两个独立连接在事务尚未提交时取号，验证不会重复或因回滚复用。
 	var schema string

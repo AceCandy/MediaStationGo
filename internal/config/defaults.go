@@ -84,8 +84,4 @@ func setDefaults(v *viper.Viper) {
 		"https://raw.githubusercontent.com/Putarku/MoviePilot-Help/main/Words/TV.txt",
 		"https://raw.githubusercontent.com/Putarku/MoviePilot-Help/main/Words/anime.txt",
 	})
-
-	// API Config 默认设置
-	v.SetDefault("api_config.auto_encrypt", true)
-	v.SetDefault("api_config.default_timeout", 30)
 }

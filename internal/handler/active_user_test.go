@@ -81,7 +81,6 @@ func TestAuthenticatedRoutesUseCurrentAccount(t *testing.T) {
 			svc := &service.Container{Log: zap.NewNop(), Repo: repos, Scheduler: service.NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)}
 			router := gin.New()
 			registerAdminRoutes(router.Group("/api"), cfg, svc)
-			registerAPIConfigRoutes(router.Group("/api"), cfg, svc)
 			identity := func(c *gin.Context) { c.String(http.StatusOK, middleware.GetUserRole(c)+":"+middleware.GetUserTier(c)) }
 			router.GET("/web", middleware.AuthRequired(cfg.Secrets.JWTSecret), activeUserRequired(svc), identity)
 			router.GET("/emby", middleware.EmbyAuthRequired(cfg.Secrets.JWTSecret), activeEmbyUserRequired(svc), identity)
@@ -111,7 +110,7 @@ func TestAuthenticatedRoutesUseCurrentAccount(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, path := range []string{"/api/admin/scheduler", "/api/api-config/providers/list", "/web", "/emby"} {
+			for _, path := range []string{"/api/admin/scheduler", "/api/admin/api-configs", "/web", "/emby"} {
 				w := request(path, token)
 				if change == "demoted" && (path == "/web" || path == "/emby") {
 					if w.Code != http.StatusOK || w.Body.String() != "user:free" {

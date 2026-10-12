@@ -227,7 +227,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 		model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindEpisode, ExternalID: "tvdb-e1"},
 	)
 	assets := []model.ArtworkAsset{
-		{PermanentBase: model.PermanentBase{ID: "asset-backdrop-1"}, SHA256: "backdrop-hash-1", StorageKey: "sha256/ba/backdrop.jpg", MimeType: "image/jpeg"},
+		{PermanentBase: model.PermanentBase{ID: "asset-backdrop-1"}, SHA256: "backdrop-hash-1", StorageKey: "catalogs/tmdb/artwork/ba/ck/dr/backdrop.jpg", MimeType: "image/jpeg"},
 	}
 	if err := repos.DB.Create(&assets).Error; err != nil {
 		t.Fatal(err)

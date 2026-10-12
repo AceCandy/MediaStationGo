@@ -93,7 +93,7 @@ func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 
 func TestArtworkStoreLocalAssetAvailable(t *testing.T) {
 	store := NewArtworkStore(&config.Config{App: config.AppConfig{DataDir: t.TempDir()}}, nil, nil)
-	path, err := store.pathForStorageKey("sha256/aa/bb/image.jpg")
+	path, err := store.pathForStorageKey("catalogs/tmdb/artwork/aa/bb/cc/image.jpg")
 	if err != nil {
 		t.Fatal(err)
 	}

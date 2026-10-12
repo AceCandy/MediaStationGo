@@ -10,16 +10,7 @@ type Config struct {
 	Search    SearchConfig    `mapstructure:"search"`
 	Media     MediaConfig     `mapstructure:"media"`
 	AI        AIConfig        `mapstructure:"ai"`
-	ApiConfig ApiConfigConfig `mapstructure:"api_config"`
 	Organizer OrganizerConfig `mapstructure:"organizer"`
-}
-
-// ApiConfigConfig API 配置相关设置。
-type ApiConfigConfig struct {
-	// AutoEncrypt 是否自动加密敏感字段
-	AutoEncrypt bool `mapstructure:"auto_encrypt"`
-	// DefaultTimeout 默认请求超时（秒）
-	DefaultTimeout int `mapstructure:"default_timeout"`
 }
 
 // AppConfig 保存运行时应用参数。

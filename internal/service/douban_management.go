@@ -11,7 +11,7 @@ import (
 )
 
 var ErrDoubanSubjectMissing = errors.New("cached douban subject not found")
-var ErrDoubanSubjectReadOnly = errors.New("cached douban subject only supports reading")
+var ErrDoubanSubjectKind = errors.New("douban subject must be a movie or series")
 
 // DoubanSubjectDetail 展示共享资料及原始响应，不投影本地影片字段。
 type DoubanSubjectDetail struct {
@@ -60,6 +60,9 @@ func (d *DoubanProvider) SubjectDetail(ctx context.Context, id string) (*DoubanS
 	if subject == nil {
 		return nil, ErrDoubanSubjectMissing
 	}
+	if subject.EntityKind != model.MetadataKindMovie && subject.EntityKind != model.MetadataKindSeries {
+		return nil, ErrDoubanSubjectKind
+	}
 	detail := &DoubanSubjectDetail{DoubanSubjectSummary: repository.DoubanSubjectSummary{
 		ID: subject.ID, DoubanID: subject.DoubanID, EntityKind: subject.EntityKind,
 		Rating: subject.Rating, Quality: subject.Quality, HasPayload: subject.Payload != nil,
@@ -96,9 +99,6 @@ func (d *DoubanProvider) refreshSubject(ctx context.Context, id string, full boo
 	subject, err := d.SubjectDetail(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	if subject.EntityKind != model.MetadataKindMovie && subject.EntityKind != model.MetadataKindSeries {
-		return nil, ErrDoubanSubjectReadOnly
 	}
 	degraded := false
 	if full {

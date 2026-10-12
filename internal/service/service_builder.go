@@ -168,7 +168,6 @@ func (b *serviceContainerBuilder) initIdentityServices() {
 	b.c.TelegramBot.SetDeviceService(b.c.Device)
 	// Device enforcement notifies users through their Telegram binding before destructive actions.
 	b.c.Device.SetNotifier(b.c.TelegramBot.NotifyUserByID)
-	b.c.ApiConfig = NewApiConfigService(b.cfg, b.log, b.repos, b.c.Crypto)
 	b.c.Notify = NewNotifyService(b.log, b.repos, b.c.Crypto)
 }
 

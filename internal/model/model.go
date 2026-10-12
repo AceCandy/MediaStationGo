@@ -94,7 +94,6 @@ func AllModels() []interface{} {
 		&ProxyPoolEntry{},
 		&UserPermission{},
 		&RefreshToken{},
-		&ApiConfig{},
 		&NotifyChannel{},
 		&TelegramBinding{},
 		&STRMRecord{},

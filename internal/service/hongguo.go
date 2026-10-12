@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -638,11 +636,11 @@ func (s *HongGuoService) ServeArtwork(ctx context.Context, w http.ResponseWriter
 	if err != nil {
 		return err
 	}
-	key := row.LocalKey
-	if !strings.HasPrefix(key, "catalogs/") {
-		key = filepath.ToSlash(filepath.Join("catalogs", "hongguo", "artwork", key))
+	category := "artwork"
+	if row.PersonID != nil {
+		category = "people"
 	}
-	path, err := storedImagePath(s.imageRoot, key)
+	path, err := managedImagePath(s.imageRoot, category, row.LocalKey)
 	if err != nil || !s.images.serveImageFile(w, r, row.LocalKey, path, imageBrowserCacheControl) {
 		if scheduleErr := s.repo.HongGuo.ScheduleMissingArtwork(ctx, row.ID); scheduleErr != nil {
 			return scheduleErr

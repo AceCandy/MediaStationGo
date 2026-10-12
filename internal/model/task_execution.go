@@ -10,19 +10,15 @@ const (
 	TaskSystemCatalog    = "catalog"
 	TaskSystemHongGuo    = "hongguo"
 	TaskSystemHuangGuoAI = "huangguoai"
-	TaskSystemNFO        = "nfo"
 )
 
 // CommonTaskKinds 是不依赖具体媒体项的公共任务。
 var CommonTaskKinds = []string{"organize", "probe", "scan", "watch", "cleanup", "douban_data_refresh", "tmdb_data_refresh"}
 
-// TaskSystemForKind 同时服务新执行写入和历史空归属记录的兼容读取。
+// TaskSystemForKind 决定新任务执行记录的归属体系。
 func TaskSystemForKind(kind string) string {
 	if strings.HasPrefix(kind, "huangguoai_") {
 		return TaskSystemHuangGuoAI
-	}
-	if strings.HasPrefix(kind, "nfo_") {
-		return TaskSystemNFO
 	}
 	if strings.HasPrefix(kind, "hongguo_") {
 		return TaskSystemHongGuo

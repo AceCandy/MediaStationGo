@@ -17,7 +17,7 @@ func listDoubanSubjectsHandler(svc *service.Container) gin.HandlerFunc {
 		page, pageErr := positiveQueryInt(c.DefaultQuery("page", "1"), 1, 1_000_000)
 		pageSize, sizeErr := positiveQueryInt(c.DefaultQuery("page_size", "30"), 1, 100)
 		keyword, kind := strings.TrimSpace(c.Query("keyword")), c.Query("type")
-		if pageErr != nil || sizeErr != nil || utf8.RuneCountInString(keyword) > 200 || (kind != "" && kind != "movie" && kind != "series" && kind != "season" && kind != "episode") {
+		if pageErr != nil || sizeErr != nil || utf8.RuneCountInString(keyword) > 200 || (kind != "" && kind != "movie" && kind != "series") {
 			Error(c, http.StatusBadRequest, ErrInvalidParams, "资料查询参数无效")
 			return
 		}
@@ -65,8 +65,8 @@ func doubanSubjectHandler(svc *service.Container, refresh bool) gin.HandlerFunc 
 			switch {
 			case errors.Is(err, service.ErrDoubanSubjectMissing):
 				Error(c, http.StatusNotFound, ErrNotFound, "共享资料不存在")
-			case errors.Is(err, service.ErrDoubanSubjectReadOnly):
-				Error(c, http.StatusBadRequest, ErrInvalidParams, "历史季和集资料仅支持查看")
+			case errors.Is(err, service.ErrDoubanSubjectKind):
+				Error(c, http.StatusBadRequest, ErrInvalidParams, "豆瓣资料类型必须是电影或电视剧")
 			case errors.Is(err, service.ErrDoubanSubjectNotFound):
 				Error(c, http.StatusBadGateway, ErrExternal, "豆瓣条目不存在，已有资料已保留")
 			case errors.Is(err, service.ErrDoubanTemporarilyUnavailable):

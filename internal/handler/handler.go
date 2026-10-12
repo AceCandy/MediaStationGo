@@ -28,8 +28,6 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 
 		registerAdminRoutes(api, cfg, svc)
 
-		registerAPIConfigRoutes(api, cfg, svc)
-
 		// Emby/Jellyfin compatibility shim — routes mounted at /emby/* AND
 		// the root path so Infuse / Yamby / Hills / Senplayer 都能自动连接。
 	}
@@ -50,43 +48,6 @@ func versionInfo(c *gin.Context) {
 func getMyPermissionsHandler(svc *service.Container) gin.HandlerFunc {
 	h := NewPermissionHandler(svc, svc.Log)
 	return h.GetMyPermissions
-}
-
-// ─── API Config Handler 包装 ───────────────────────────────────────────────────
-
-func listApiConfigsHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewApiConfigHandler(svc, svc.Log)
-	return h.ListApiConfigs
-}
-
-func listProvidersHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewApiConfigHandler(svc, svc.Log)
-	return h.ListProviders
-}
-
-func getApiConfigHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewApiConfigHandler(svc, svc.Log)
-	return h.GetApiConfig
-}
-
-func getEffectiveConfigHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewApiConfigHandler(svc, svc.Log)
-	return h.GetEffectiveConfig
-}
-
-func upsertApiConfigHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewApiConfigHandler(svc, svc.Log)
-	return h.UpsertApiConfig
-}
-
-func deleteApiConfigHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewApiConfigHandler(svc, svc.Log)
-	return h.DeleteApiConfig
-}
-
-func testApiConfigHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewApiConfigHandler(svc, svc.Log)
-	return h.TestApiConfig
 }
 
 // ─── Notify Channel Handler 包装 ──────────────────────────────────────────────

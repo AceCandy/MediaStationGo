@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -357,11 +355,7 @@ func (s *HuangGuoAIService) ServeArtwork(ctx context.Context, w http.ResponseWri
 	if err != nil {
 		return err
 	}
-	key := row.LocalKey
-	if !strings.HasPrefix(key, "catalogs/") {
-		key = filepath.ToSlash(filepath.Join("catalogs", "huangguoai", "artwork", key))
-	}
-	path, err := storedImagePath(s.imageRoot, key)
+	path, err := managedImagePath(s.imageRoot, "artwork", row.LocalKey)
 	if err != nil || s.images == nil || !s.images.serveImageFile(w, r, row.LocalKey, path, imageBrowserCacheControl) {
 		if e := s.repo.HuangGuoAI.ScheduleMissingArtwork(ctx, row.ID); e != nil {
 			return e

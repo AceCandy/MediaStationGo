@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -160,129 +159,12 @@ func TestMigrationConnectionClosesBeforePreparedRuntimeQuery(t *testing.T) {
 	}
 }
 
-func TestRemoveUnusedLegacyColumns(t *testing.T) {
-	db, err := testdb.OpenPostgres(t, &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.Person{}, &model.UserDevice{}, &model.Media{}); err != nil {
-		t.Fatal(err)
-	}
-	for _, stmt := range []string{
-		`ALTER TABLE people ADD COLUMN profile_image_source text`,
-		`ALTER TABLE user_devices ADD COLUMN warnings integer`,
-		`ALTER TABLE media ADD COLUMN duration_sec integer`,
-		`ALTER TABLE media ADD COLUMN size_bytes bigint`,
-		`ALTER TABLE media ADD COLUMN container varchar(128)`,
-		`ALTER TABLE media ADD COLUMN width integer`,
-		`ALTER TABLE media ADD COLUMN height integer`,
-		`ALTER TABLE media ADD COLUMN video_codec varchar(32)`,
-		`ALTER TABLE media ADD COLUMN audio_codec varchar(32)`,
-	} {
-		if err := db.Exec(stmt).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if err := removeUnusedLegacyColumns(db); err != nil {
-		t.Fatal(err)
-	}
-	for _, column := range []struct {
-		table string
-		name  string
-	}{
-		{table: "people", name: "profile_image_source"},
-		{table: "user_devices", name: "warnings"},
-		{table: "media", name: "duration_sec"},
-		{table: "media", name: "size_bytes"},
-		{table: "media", name: "container"},
-		{table: "media", name: "width"},
-		{table: "media", name: "height"},
-		{table: "media", name: "video_codec"},
-		{table: "media", name: "audio_codec"},
-	} {
-		var count int
-		if err := db.Raw(`
-SELECT COUNT(1)
-FROM information_schema.columns
-WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`, column.table, column.name).Scan(&count).Error; err != nil {
-			t.Fatal(err)
-		}
-		if count != 0 {
-			t.Fatalf("legacy column %s.%s still exists", column.table, column.name)
-		}
-	}
-	if err := db.AutoMigrate(&model.Media{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := removeUnusedLegacyColumns(db); err != nil {
-		t.Fatal(err)
-	}
-	for _, column := range []string{"duration_sec", "size_bytes", "container", "width", "height", "video_codec", "audio_codec"} {
-		if db.Migrator().HasColumn(&model.Media{}, column) {
-			t.Fatalf("AutoMigrate restored retired media column %s", column)
-		}
-	}
-	for _, column := range []string{"scan_file_size_bytes", "scan_file_mtime_ns"} {
-		if !db.Migrator().HasColumn(&model.Media{}, column) {
-			t.Fatalf("required media scan column %s is missing", column)
-		}
-	}
-}
-
-func TestEnforceTelegramBindingOneToOneCleansDuplicatesAndAddsIndex(t *testing.T) {
-	db, err := testdb.OpenPostgres(t, &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.TelegramBinding{}); err != nil {
-		t.Fatal(err)
-	}
-	createdAt := time.Now().Add(-time.Hour)
-	rows := []model.TelegramBinding{
-		{TelegramUserID: 10001, ChatID: 10001, UserID: "user-1"},
-		{TelegramUserID: 10002, ChatID: 10002, UserID: "user-1"},
-	}
-	for i := range rows {
-		rows[i].CreatedAt = createdAt.Add(time.Duration(i) * time.Minute)
-		if err := db.Create(&rows[i]).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if err := enforceTelegramBindingOneToOne(db); err != nil {
-		t.Fatal(err)
-	}
-
-	var count int64
-	if err := db.Model(&model.TelegramBinding{}).Where("user_id = ?", "user-1").Count(&count).Error; err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Fatalf("active bindings for user-1 = %d, want 1", count)
-	}
-	var kept model.TelegramBinding
-	if err := db.First(&kept, "user_id = ?", "user-1").Error; err != nil {
-		t.Fatal(err)
-	}
-	if kept.TelegramUserID != 10002 {
-		t.Fatalf("kept telegram binding = %d, want newest 10002", kept.TelegramUserID)
-	}
-	if err := db.Create(&model.TelegramBinding{TelegramUserID: 10003, ChatID: 10003, UserID: "user-1"}).Error; err == nil {
-		t.Fatal("expected unique index to reject another active binding for the same user")
-	}
-}
-
 func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataCredit{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}, &model.HongGuoDownload{}, &model.TaskExecution{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Exec(`CREATE INDEX idx_metadata_credits_pending_translation ON metadata_credits(metadata_id, id)
-		WHERE original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := ensurePerformanceIndexes(db); err != nil {

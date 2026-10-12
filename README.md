@@ -112,7 +112,7 @@ docker compose up -d
 
 ```text
 ./postgres   PostgreSQL 主数据库，必须备份
-./data       JWT 密钥和运行配置
+./data       JWT 密钥、运行配置、资料中心原图和缩略图
 ./cache      海报和临时文件，可删除重建
 ```
 
@@ -247,7 +247,9 @@ tail -f ./data/logs/error.log
 
 如果要排查媒体搜索、自动整理或 STRM 生成问题，保持 `MEDIASTATION_LOGGING_LEVEL: info`；需要更细日志时临时改成 `debug`，确认后再改回 `info`。
 
-STRM 输出目录请使用容器内可写路径，例如 `/data/strm`，或你已经挂载进容器的媒体目录。旧版本保存过 `/app/data/strm` 的部署会在生成时自动迁移到当前 `MEDIASTATION_APP_DATA_DIR`，默认就是 `/data`。
+STRM 输出目录请使用容器内可写路径，例如 `/data/strm`，或你已经挂载进容器的媒体目录。
+
+资料中心原图统一保存在 `./data/catalogs/<来源>/artwork|people/aa/bb/cc/<内容哈希>.<扩展名>`，缩略图放在原图旁的目录中。`./cache` 仍用于远程图片代理和可重建的临时缓存。
 
 ## 更新与备份
 
@@ -276,13 +278,13 @@ docker compose -f docker-compose.search.yml up -d --no-deps mediastation-go
 
 ```text
 ./postgres   PostgreSQL 主数据库
-./data       JWT 密钥和运行配置
+./data       JWT 密钥、运行配置、资料中心原图和缩略图
 ```
 
 可重建：
 
 ```text
-./cache      图片缓存、临时文件
+./cache      远程图片代理缓存、临时文件
 ./redis      Redis 热缓存
 ./opensearch 搜索索引
 ```

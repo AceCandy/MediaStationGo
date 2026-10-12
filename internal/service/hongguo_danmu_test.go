@@ -121,11 +121,6 @@ func TestHongGuoAPIConfigIsolation(t *testing.T) {
 	if view.MaskedKey != "" || !view.HongGuoApp["cookie"] {
 		t.Fatal("unsafe/incomplete status")
 	}
-	legacy := model.ApiConfig{APIKey: "FAKE_SECRET"}
-	data, _ = json.Marshal(legacy)
-	if strings.Contains(string(data), "FAKE_SECRET") {
-		t.Fatal("legacy leaks")
-	}
 	bad := []hongguo.DanmuAppConfig{{Cookie: "x\r\ny"}, {Query: map[string]string{"host": "example.invalid"}}, {Query: map[string]string{"x-argus": "secret"}}, {DeviceID: "not-id"}, {Query: map[string]string{"aid": "oops"}}}
 	for _, app := range bad {
 		if _, err := cfg.Update(ctx, "hongguo", APIConfigPatch{HongGuoApp: &app}); err == nil {

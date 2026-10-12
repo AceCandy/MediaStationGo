@@ -453,8 +453,8 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - `TestHongGuoDiscoveryCheckpointAndRetryIsolation`: atomic page rollback,
   fixed cutoff, failure cooldown, durable pending recovery, source-category
   propagation and one source-ID artwork row per summary cover.
-- `TestHongGuoArtworkOwnershipMigration`: legacy poster source-ID backfill,
-  duplicate-source rollback, idempotence, source-only/ownerless/work-only
+- `TestHongGuoArtworkOwnershipConstraints`: current source uniqueness,
+  idempotence and source-only/person-only/ownerless/work-only/mixed ownership
   constraint behavior.
 - `TestHongGuoNotFoundIsDeferredWithoutFailingBatch`: later-item continuation,
   72-hour cooldown, deferred task metrics, no fake work, and due-retry recovery.
@@ -923,7 +923,7 @@ different album IDs or change episode UUIDs after backfill.
 
 `TestParseAlbum`, `TestAlbumRequestAndCancellation`,
 `TestHongGuoOfficialAlbumsAndBackfill`, `TestHongGuoAlbumFailureAndResume`, and
-`TestHongGuoRetireManualGroups` cover precision, validation, signed requests,
+`TestCurrentSchemaPreservesDataAndConstraints` cover precision, validation, signed requests,
 pagination, independent webpage writes, failure/cancellation/restart, lock
 exclusion and repeatable table removal preserving works. Existing search,
 binding, playback and HTTP tests cover projected fields and stable identities.
@@ -1169,10 +1169,8 @@ Good: request 10, find 3, enqueue 3 and explain the shortage. Base: none eligibl
 Wrong: delete the task definition or filter only the loaded discovery page. Correct: preserve history identity, hide its task-center row and select bounded eligible works server-side before LIMIT.
 
 HongGuo download models explicitly map to `hongguo_download_works` and
-`hongguo_downloads`. Before automatic schema creation, rename the legacy
-`hong_guo_*` tables in one transaction, preserving rows, keys and indexes. Skip
-already migrated tables; if both names exist, fail and roll back without dropping
-or merging either table. Historical archived SQL may still name legacy tables.
+`hongguo_downloads`. Startup creates the current tables directly; no old-name
+rename/merge path is retained. Archived historical SQL is not an active contract.
 
 ## Episode catch-up after metadata refresh
 
@@ -1302,15 +1300,13 @@ observability and episode detail stays in its business table and daily logs.
 ## Series-only schema contract (2026-10-06)
 
 `HongGuoWork.Kind` is always `series`; the named CHECK
-`chk_hongguo_work_series` enforces `kind = 'series'`. AutoMigrate adds this new
-constraint even when the older `chk_hongguo_work_kind` allows movie/series.
-Existing movie rows cause upgrade validation to fail; never silently convert or
-delete works, episode IDs, bindings or user state. Before rollout check legacy
-kinds. Code rollback does not remove this CHECK; schema rollback requires
-explicit removal. No production schema/data migration is part of this task.
+`chk_hongguo_work_series` enforces `kind = 'series'` in the current model.
+Repeated schema maintenance preserves this constraint and never converts or
+deletes works, episode IDs, bindings or user state. Removing the CHECK requires
+an explicit schema operation.
 
 `TestHongGuoSingleEpisodeAndSeriesConstraint` verifies single-episode identity,
-upgrade from the older CHECK, idempotent migration and rejection of movie writes.
+repeated current-schema maintenance and rejection of movie writes.
 `TestHongGuoLibraryPagingAndLatest` covers actual SenPlayer mixed types,
 Movie-only/unsupported-only empties and SortBy priority. The large page-plan
 fixture uses the same public Items request and bounds page hydration reads.

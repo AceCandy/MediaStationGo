@@ -338,7 +338,7 @@ tail -f ./data/logs/error.log
 
 The compose templates keep full application logs in `./data/logs/app.log` and split warnings/errors into `warn.log` and `error.log`. Keep `MEDIASTATION_LOGGING_LEVEL=info` while diagnosing media search, organizer, or STRM generation issues; temporarily switch to `debug` only when deeper tracing is needed.
 
-Use a writable container path for STRM output, such as `/data/strm` or a mounted media path. Deployments that previously saved `/app/data/strm` are migrated automatically to the configured `MEDIASTATION_APP_DATA_DIR`, which defaults to `/data`.
+Use a writable container path for STRM output, such as `/data/strm` or a mounted media path.
 
 ### Backup
 
@@ -349,7 +349,7 @@ data/
 postgres/
 ```
 
-`postgres/` is the primary database and contains users, libraries, settings, and media metadata. `data/` stores the JWT secret and runtime files.
+`postgres/` is the primary database and contains users, libraries, settings, and media metadata. `data/` stores the JWT secret, runtime files and catalog originals/thumbnails. Managed originals use `catalogs/<provider>/<artwork|people>/aa/bb/cc/<content-hash>.<extension>`, with thumbnails stored beside them.
 
 If you enabled the extended modes, these are optional:
 
@@ -358,7 +358,7 @@ redis/        # hot cache, safe to rebuild
 opensearch/   # search index, rebuildable; backing it up can save reindex time on huge libraries
 ```
 
-`cache/` is usually not important.
+`cache/` holds rebuildable remote image proxy caches and temporary files.
 
 ### Stop
 

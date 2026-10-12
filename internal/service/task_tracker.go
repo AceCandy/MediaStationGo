@@ -30,8 +30,6 @@ const (
 	TaskKindProbe                 = "probe"
 	TaskKindScan                  = "scan"
 	TaskKindWatch                 = "watch"
-	TaskKindNFOScan               = "nfo_scan"
-	TaskKindNFOWatch              = "nfo_watch"
 	TaskKindScrape                = "scrape"
 	TaskKindPeople                = "people"
 	TaskKindArtwork               = "artwork"
@@ -487,9 +485,6 @@ func taskExecutionUpdates(task BackgroundTask) map[string]any {
 }
 
 func backgroundFromTaskExecution(row model.TaskExecution) BackgroundTask {
-	if row.System == "" {
-		row.System = model.TaskSystemForKind(row.Kind)
-	}
 	metrics := map[string]int64{}
 	_ = json.Unmarshal([]byte(row.Metrics), &metrics)
 	if len(metrics) == 0 {

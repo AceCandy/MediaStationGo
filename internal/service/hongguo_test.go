@@ -250,9 +250,9 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 	}
 }
 
-func TestTaskSystemLegacyMemoryCompatibility(t *testing.T) {
+func TestTaskSystemMemoryFilterUsesExplicitSystem(t *testing.T) {
 	for _, tc := range []struct{ kind, system string }{{TaskKindScan, model.TaskSystemCommon}, {TaskKindScrape, model.TaskSystemCatalog}, {TaskKindHongGuoRefresh, model.TaskSystemHongGuo}} {
-		task := BackgroundTask{Kind: tc.kind}
+		task := BackgroundTask{Kind: tc.kind, System: tc.system}
 		for _, system := range []string{model.TaskSystemCommon, model.TaskSystemCatalog, model.TaskSystemHongGuo} {
 			if got := taskMatchesFilter(task, repository.TaskExecutionFilter{System: system}); got != (system == tc.system) {
 				t.Fatalf("kind=%s system=%s got=%v", tc.kind, system, got)

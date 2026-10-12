@@ -129,3 +129,30 @@ func TestDoubanSubjectSuccessPreservesNewerFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestDoubanWritesRejectInvalidIdentity(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DoubanSubject{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := New(db).Douban
+	at := time.Now()
+	for _, identity := range []struct{ id, kind string }{{"", "movie"}, {" ", "series"}, {"100", "season"}, {"100", "episode"}, {"100", "invalid"}} {
+		if err := repo.Save(t.Context(), identity.id, identity.kind, []byte(`{"title":"Test"}`), model.DoubanQualityComplete, at); err == nil {
+			t.Fatalf("invalid subject saved: %#v", identity)
+		}
+		if err := repo.RecordFailure(t.Context(), identity.id, identity.kind, at, at.Add(time.Hour)); err == nil {
+			t.Fatalf("invalid placeholder saved: %#v", identity)
+		}
+	}
+	var count int64
+	if err := db.Model(&model.DoubanSubject{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("invalid writes created %d rows", count)
+	}
+}

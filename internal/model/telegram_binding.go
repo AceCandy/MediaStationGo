@@ -8,5 +8,5 @@ type TelegramBinding struct {
 	TelegramUserID int64  `gorm:"uniqueIndex;not null" json:"telegram_user_id"`
 	TelegramName   string `gorm:"size:128" json:"telegram_name,omitempty"`
 	ChatID         int64  `gorm:"index" json:"chat_id"`
-	UserID         string `gorm:"index;size:36;not null" json:"user_id"`
+	UserID         string `gorm:"index;size:36;not null;uniqueIndex:idx_telegram_bindings_user_id_active,where:deleted_at IS NULL" json:"user_id"`
 }

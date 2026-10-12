@@ -1009,3 +1009,12 @@ covers duplicate roles, the second-batch failure and transaction rollback.
 New Season/Episode responses require explicit valid coordinates; no origin flag
 relaxes that validation. Applying an already accepted center response validates
 its source parent coordinate without changing the raw body or source timestamp.
+
+## Current schema and task ownership
+
+Startup maintains current models, constraints, indexes, partitions and business
+triggers. It does not convert retired tables, settings, image keys or library
+roots. Task executions persist `system` on creation; database and memory filters
+compare that value directly instead of inferring ownership when it is empty.
+NFO libraries use the public `scan`/`watch` tasks and definitions. There are no
+`nfo_scan`/`nfo_watch` aliases or NFO-specific task execution endpoints.

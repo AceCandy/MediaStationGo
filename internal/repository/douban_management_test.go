@@ -25,26 +25,32 @@ func TestDoubanManagementListSearchAndPaging(t *testing.T) {
 		{"100", "movie", `{"title":"Alpha Movie","year":"2020","rating":7.5,"private_detail":"not-in-list"}`},
 		{"200", "series", `{"subject":{"title":"Alpha Series","year":"2021","rating":8.5}}`},
 		{"300", "movie", `{"data":{"name":"100%_Ready","year":"2022","rating":8.1}}`},
-		{"400", "season", `{"title":"Historical Season"}`},
 	} {
 		if err := repo.Save(t.Context(), fixture.id, fixture.kind, []byte(fixture.payload), model.DoubanQualityComplete, at.Add(time.Duration(index)*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 	}
+	invalidPayload := `{"title":"Invalid subject"}`
+	if err := db.Create(&model.DoubanSubject{DoubanID: "400", EntityKind: "season", Payload: &invalidPayload}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.RecordFailure(t.Context(), "500", "movie", at, at.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	first, total, err := repo.ListSubjects(t.Context(), "", "", 1, 2)
-	if err != nil || total != 5 || len(first) != 2 || first[0].DoubanID != "400" || first[1].DoubanID != "300" {
+	if err != nil || total != 4 || len(first) != 2 || first[0].DoubanID != "300" || first[1].DoubanID != "200" {
 		t.Fatalf("first page %#v total=%d err=%v", first, total, err)
 	}
 	second, total, err := repo.ListSubjects(t.Context(), "", "", 2, 2)
-	if err != nil || total != 5 || len(second) != 2 || second[0].DoubanID != "200" || second[1].DoubanID != "100" {
+	if err != nil || total != 4 || len(second) != 2 || second[0].DoubanID != "100" || second[1].DoubanID != "500" {
 		t.Fatalf("second page %#v total=%d err=%v", second, total, err)
 	}
+	if second[1].HasPayload || second[1].FetchedAt != nil || second[1].NextRetryAt == nil {
+		t.Fatalf("failed placeholder: %#v", second[1])
+	}
 	last, _, err := repo.ListSubjects(t.Context(), "", "", 3, 2)
-	if err != nil || len(last) != 1 || last[0].HasPayload || last[0].FetchedAt != nil || last[0].NextRetryAt == nil {
-		t.Fatalf("failed placeholder %#v %v", last, err)
+	if err != nil || len(last) != 0 {
+		t.Fatalf("past last page: %#v %v", last, err)
 	}
 	for _, filter := range []struct {
 		keyword, kind string
@@ -58,10 +64,10 @@ func TestDoubanManagementListSearchAndPaging(t *testing.T) {
 		}
 	}
 	encoded, err := json.Marshal(second)
-	if err != nil || strings.Contains(string(encoded), "private_detail") || strings.Contains(string(encoded), `"payload":`) || second[0].Year != "2021" {
+	if err != nil || strings.Contains(string(encoded), "private_detail") || strings.Contains(string(encoded), `"payload":`) || first[1].Year != "2021" {
 		t.Fatalf("list exposed raw detail or lost nested year: %s %v", encoded, err)
 	}
-	if subject, err := repo.FindSubjectByID(t.Context(), first[0].ID); err != nil || subject == nil || subject.EntityKind != "season" {
+	if subject, err := repo.FindSubjectByID(t.Context(), first[0].ID); err != nil || subject == nil || subject.EntityKind != "movie" {
 		t.Fatalf("subject by row id %#v %v", subject, err)
 	}
 }

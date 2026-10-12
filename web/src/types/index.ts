@@ -1,6 +1,5 @@
 // Domain types mirrored from the Go backend (internal/model).
 
-export * from './api'
 export * from './auth'
 export * from './discover'
 export * from './events'

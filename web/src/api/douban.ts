@@ -3,7 +3,7 @@ import type { MediaCredit } from '../types'
 
 export type DoubanRefreshMode = 'base' | 'full'
 
-export type DoubanSubjectKind = 'movie' | 'series' | 'season' | 'episode'
+export type DoubanSubjectKind = 'movie' | 'series'
 
 export interface DoubanSubjectSummary {
   id: string

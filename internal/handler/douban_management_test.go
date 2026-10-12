@@ -69,7 +69,7 @@ func TestDoubanManagementAdminAccessAndValidation(t *testing.T) {
 			}
 		}
 	}
-	for _, query := range []string{"page=0", "page=-1", "page=1000001", "page=x", "page_size=0", "page_size=101", "type=tv", "keyword=" + url.QueryEscape(strings.Repeat("中", 201))} {
+	for _, query := range []string{"page=0", "page=-1", "page=1000001", "page=x", "page_size=0", "page_size=101", "type=tv", "type=season", "type=episode", "keyword=" + url.QueryEscape(strings.Repeat("中", 201))} {
 		response := request(http.MethodGet, "?"+query, tokens["admin"])
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("invalid query %q: %d %s", query, response.Code, response.Body.String())

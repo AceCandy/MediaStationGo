@@ -1,6 +1,6 @@
 import { api } from './client'
 
-export type TaskSystem = 'common' | 'catalog' | 'hongguo' | 'huangguoai' | 'nfo'
+export type TaskSystem = 'common' | 'catalog' | 'hongguo' | 'huangguoai'
 
 export interface StartupStatus {
   state: 'starting' | 'ready' | 'failed'

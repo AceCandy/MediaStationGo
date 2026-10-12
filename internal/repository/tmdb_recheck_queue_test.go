@@ -34,10 +34,8 @@ func recheckQueueDB(t *testing.T) *gorm.DB {
 
 func TestTMDbRecheckPendingIndexSkipsProcessedPrefix(t *testing.T) {
 	db := recheckQueueDB(t)
-	// 模拟旧版本仅按布尔值索引，以及大部分较小 ID 已处理的队列。
+	// 较小 ID 已处理时，当前队列索引应直接定位待处理记录。
 	for _, sql := range []string{
-		`DROP INDEX idx_tmdb_recheck_changes_pending_id`,
-		`CREATE INDEX idx_tmdb_recheck_changes_pending ON tm_db_recheck_changes(pending) WHERE pending`,
 		`INSERT INTO tm_db_recheck_changes(metadata_id,pending) SELECT lpad(i::text,8,'0'),i>30000 FROM generate_series(1,40000) i`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
@@ -51,9 +49,6 @@ func TestTMDbRecheckPendingIndexSkipsProcessedPrefix(t *testing.T) {
 		if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if db.Migrator().HasIndex(&model.TMDbRecheckChange{}, "idx_tmdb_recheck_changes_pending") {
-		t.Fatal("obsolete pending-only index retained")
 	}
 	for _, sql := range []string{
 		`ANALYZE tm_db_recheck_changes`,
