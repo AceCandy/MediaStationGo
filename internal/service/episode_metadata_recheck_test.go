@@ -181,7 +181,7 @@ func TestFetchTMDbMetadataRecheckUsesSeasonCoordinates(t *testing.T) {
 }
 
 func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
+	db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
 	if err := db.AutoMigrate(&model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 			if err := db.Model(season).Update("title", "Season 3").Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(`{"id":203,"season_number":3}`), time.Now().UTC()); err != nil {
+			if err := repos.Metadata.SaveProviderData(t.Context(), season.ID, "tmdb", []byte(`{"id":203,"season_number":3}`), time.Now().UTC()); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -399,7 +399,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	mode.Store(1)
 	conflict := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 99, Title: "冲突季", Source: "tmdb"},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "299"})
-	beforeSnapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), seasons[0].ID, "tmdb")
+	beforeSnapshot, err := repos.Metadata.FindProviderData(t.Context(), seasons[0].ID, "tmdb")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	if identified, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "299"); err != nil || identified == nil || identified.ID != conflict.ID {
 		t.Fatalf("identity conflict changed the owner: %#v, %v", identified, err)
 	}
-	afterSnapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), seasons[0].ID, "tmdb")
+	afterSnapshot, err := repos.Metadata.FindProviderData(t.Context(), seasons[0].ID, "tmdb")
 	if err != nil || !reflect.DeepEqual(beforeSnapshot, afterSnapshot) {
 		t.Fatal("identity conflict changed the snapshot", err)
 	}

@@ -19,7 +19,7 @@ func TestRetireMetadataSoftDeletesRejectsReferencesAndDropsColumns(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, table := range []string{
-		"media", "metadata_items", "metadata_identifiers", "metadata_provider_snapshots",
+		"media", "metadata_items", "metadata_identifiers",
 		"catalog_hydration_jobs", "metadata_artworks", "artwork_assets", "metadata_credits",
 	} {
 		if err := db.Exec("ALTER TABLE " + table + " ADD COLUMN deleted_at timestamptz").Error; err != nil {
@@ -92,7 +92,7 @@ func TestRetireMetadataSoftDeletesRejectsReferencesAndDropsColumns(t *testing.T)
 		t.Fatalf("repeated media/credit migration: %v", err)
 	}
 	for _, table := range []string{
-		"media", "metadata_items", "metadata_identifiers", "metadata_provider_snapshots",
+		"media", "metadata_items", "metadata_identifiers",
 		"catalog_hydration_jobs", "metadata_artworks", "artwork_assets", "metadata_credits",
 	} {
 		if db.Migrator().HasColumn(table, "deleted_at") {

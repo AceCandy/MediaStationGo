@@ -51,7 +51,7 @@ func (s *MediaService) DiscoverTMDbDetail(ctx context.Context, id repository.Dis
 			}
 			detail := &DiscoverDetail{Match: &Match{TMDbID: id.TMDbID, MediaType: id.MediaType, Title: view.Title, OriginalName: view.OriginalName, Overview: view.Overview, Rating: view.Rating, Year: view.Year, ReleaseDate: view.ReleaseDate, PosterURL: view.PosterURL, BackdropURL: view.BackdropURL, DoubanID: view.DoubanID, Genres: splitCSV(view.Genres), Languages: splitCSV(view.Languages), Countries: splitCSV(view.Countries)}, Credits: credits, RuntimeMinutes: []int{}, LocalMetadata: true, TMDbStatus: view.TMDbStatus, DoubanStatus: view.DoubanStatus}
 			// 整剧只使用来源声明的单集时长，不把任一播放文件的时长当成全剧时长。
-			snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, work.ID, "tmdb")
+			snapshot, err := s.repo.Metadata.FindProviderData(ctx, work.ID, "tmdb")
 			if err != nil {
 				return nil, err
 			}

@@ -119,15 +119,17 @@ type MetadataArtworkCandidate struct {
 	Asset            ArtworkAsset `gorm:"foreignKey:AssetID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
-// MetadataProviderSnapshot 保存 provider 原始实体响应及其质量状态，避免未投影字段丢失。
-type MetadataProviderSnapshot struct {
-	PermanentBase
-	MetadataID string       `gorm:"size:36;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:1" json:"metadata_id"`
-	Provider   string       `gorm:"size:32;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:2" json:"provider"`
-	Payload    string       `gorm:"type:jsonb;not null" json:"payload"`
-	Degraded   bool         `gorm:"not null;default:false" json:"degraded"`
-	FetchedAt  time.Time    `gorm:"not null;index" json:"fetched_at"`
-	Metadata   MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+// ProviderData 是资料中心按本地ID关联的读取结果，不对应独立数据表。
+type ProviderData struct {
+	ID         string       `json:"id"`
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+	MetadataID string       `json:"metadata_id"`
+	Provider   string       `json:"provider"`
+	Payload    string       `json:"payload"`
+	Degraded   bool         `json:"degraded"`
+	FetchedAt  time.Time    `json:"fetched_at"`
+	Metadata   MetadataItem `gorm:"foreignKey:MetadataID;references:ID" json:"-"`
 }
 
 // CatalogHydrationJob 是发现页目录抓取的持久化调度状态。

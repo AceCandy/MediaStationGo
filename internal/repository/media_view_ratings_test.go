@@ -53,7 +53,7 @@ func TestMediaViewDoubanRatings(t *testing.T) {
 			}
 		}
 		if id != "unrated" {
-			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), id, "douban", []byte(`{"rating":{"value":8.6}}`), time.Now()); err != nil {
+			if err := repos.Metadata.SaveProviderData(t.Context(), id, "douban", []byte(`{"rating":{"value":8.6}}`), time.Now()); err != nil {
 				t.Fatal(err)
 			}
 		}

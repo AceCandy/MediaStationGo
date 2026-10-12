@@ -31,7 +31,7 @@ func (s *ScraperService) fetchAndSaveTMDbExtendedMetadata(ctx context.Context, m
 	if details == nil {
 		return
 	}
-	s.persistTMDbSnapshot(ctx, metadataID, details.RawJSON)
+	s.persistTMDbSourceData(ctx, metadataID, details.RawJSON)
 	updates := map[string]any{}
 	if len(details.Languages) > 0 {
 		updates["languages"] = strings.Join(details.Languages, ",")
@@ -76,7 +76,7 @@ func (s *ScraperService) fetchAndSaveTMDbSeasonSnapshot(ctx context.Context, epi
 		return false
 	}
 	seasonID := *item.ParentID
-	if snapshot, findErr := s.repo.Metadata.FindProviderSnapshot(ctx, seasonID, "tmdb"); findErr == nil && snapshot != nil {
+	if snapshot, findErr := s.repo.Metadata.FindProviderData(ctx, seasonID, "tmdb"); findErr == nil && snapshot != nil {
 		season, err := s.repo.Metadata.FindByID(ctx, seasonID)
 		if err == nil && season != nil && season.PeopleHydratedAt == nil {
 			return s.backfillSeasonPeople(ctx, seasonID) == nil
@@ -95,7 +95,7 @@ func (s *ScraperService) fetchAndSaveTMDbSeasonSnapshot(ctx context.Context, epi
 	if err := s.persistCredits(ctx, seasonID, details.LoadedCreditTypes, details.Credits); err != nil {
 		return false
 	}
-	return s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, seasonID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()) == nil
+	return s.repo.Metadata.ReplaceIdentifierWithData(ctx, seasonID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()) == nil
 }
 
 func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *model.Media, metadataID string, tmdbID int, matchYear int, options ScrapeOptions) bool {
@@ -119,7 +119,7 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 	if episode == nil || episode.ID <= 0 || !validTMDbRefreshPosition(episode.RawJSON, m.SeasonNum, m.EpisodeNum) {
 		return seasonSnapshotUpdated
 	}
-	episodeSnapshotUpdated := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, metadataID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(episode.ID), episode.RawJSON, time.Now().UTC()) == nil
+	episodeSnapshotUpdated := s.repo.Metadata.ReplaceIdentifierWithData(ctx, metadataID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(episode.ID), episode.RawJSON, time.Now().UTC()) == nil
 	creditsUpdated := false
 	if len(episode.LoadedCreditTypes) > 0 {
 		if err := s.persistCredits(ctx, metadataID, episode.LoadedCreditTypes, episode.Credits); err != nil {

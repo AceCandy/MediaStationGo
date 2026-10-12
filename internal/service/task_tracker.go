@@ -37,7 +37,6 @@ const (
 	TaskKindArtwork               = "artwork"
 	TaskKindDoubanDataRefresh     = "douban_data_refresh"
 	TaskKindCleanup               = "cleanup"
-	TaskKindTMDbSnapshotBackfill  = "tmdb_snapshot_backfill"
 	TaskKindSeriesLocalCorrection = "series_local_correction"
 )
 

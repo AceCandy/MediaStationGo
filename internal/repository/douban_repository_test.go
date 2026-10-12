@@ -28,7 +28,7 @@ func TestDoubanSharedSubjectWriteAndAssociation(t *testing.T) {
 		t.Fatal(err)
 	}
 	// JSONB 的格式变化不应把本地补齐当作一次新的资料获取。
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "douban", []byte(`{ "title": "远端剧集", "rating": {"value": 8.2} }`), time.Now()); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), item.ID, "douban", []byte(`{ "title": "远端剧集", "rating": {"value": 8.2} }`), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	for _, quality := range []string{model.DoubanQualityComplete, model.DoubanQualityDegraded, model.DoubanQualityPartial} {

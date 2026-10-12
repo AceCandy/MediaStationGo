@@ -21,7 +21,7 @@ func recheckQueueDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
+	if err = db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {

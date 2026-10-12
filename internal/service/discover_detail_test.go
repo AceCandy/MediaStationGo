@@ -88,7 +88,7 @@ func TestDiscoverDetailFieldsIdentityAndReadOnly(t *testing.T) {
 func TestDiscoverDetailUsesMetadataWithoutMedia(t *testing.T) {
 	for _, kind := range []string{"movie", "tv"} {
 		t.Run(kind, func(t *testing.T) {
-			db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.MetadataCredit{})
+			db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Person{}, &model.MetadataCredit{})
 			repos := repository.New(db)
 			id := repository.DiscoverIdentity{TMDbID: 123, MediaType: kind}
 			lib := model.Library{Name: "可见库", Path: "/fixture/discover", Type: kind, Enabled: true}
@@ -110,7 +110,7 @@ func TestDiscoverDetailUsesMetadataWithoutMedia(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), work.ID, "tmdb", []byte(`{"id":123,"runtime":100,"episode_run_time":[45,50]}`), time.Now()); err != nil {
+			if err := repos.Metadata.SaveProviderData(t.Context(), work.ID, "tmdb", []byte(`{"id":123,"runtime":100,"episode_run_time":[45,50]}`), time.Now()); err != nil {
 				t.Fatal(err)
 			}
 			var requests atomic.Int32

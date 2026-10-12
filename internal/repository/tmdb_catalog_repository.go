@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -35,8 +36,19 @@ func tmdbString(o tmdbObject, k string) string {
 	return strings.TrimSpace(s)
 }
 func tmdbInt(o tmdbObject, k string) int { var n int; _ = json.Unmarshal(o[k], &n); return n }
-func tmdbJSON(v any) string              { b, _ := json.Marshal(v); return string(b) }
-func tmdbHash(s string) string           { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+
+// 坐标必须为接口明确返回的整数，不能把空值当作0。
+func tmdbCoordinateMatches(o tmdbObject, key string, expected int) bool {
+	raw, ok := o[key]
+	if !ok {
+		return false
+	}
+	var n *int
+	return json.Unmarshal(raw, &n) == nil && n != nil && *n == expected
+}
+
+func tmdbJSON(v any) string    { b, _ := json.Marshal(v); return string(b) }
+func tmdbHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 func tmdbArray(o tmdbObject, k string) ([]tmdbObject, bool) {
 	var a []tmdbObject
 	b, ok := o[k]
@@ -76,11 +88,7 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 	if err := json.Unmarshal(raw, &o); err != nil || o == nil {
 		return errors.New("invalid TMDb response")
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 多个人物/季集的写入采用同一短事务锁，避免相反角色顺序造成死锁。
-		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext('tmdb_catalog_write'))").Error; err != nil {
-			return err
-		}
+	return withTMDbWriteTransaction(ctx, r.db, func(tx *gorm.DB) error {
 		if token != "" {
 			var j model.TMDbRefreshJob
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("key = ? AND token = ? AND lease_until > ?", req.Key, token, time.Now()).First(&j).Error; err != nil {
@@ -203,17 +211,17 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 				parent = &root.ID
 				number = &req.Season
 				if req.Kind == "episode" {
-					var season model.TMDbSubject
-					if e = tx.Where("parent_id = ? AND number = ? AND kind = 'season'", root.ID, req.Season).First(&season).Error; e != nil {
+					season, e := tmdbSourceSeason(tx, req.SeriesID, req.Season)
+					if e != nil {
 						return fmt.Errorf("TMDb episode parent: %w", e)
 					}
 					parent = &season.ID
 					number = &req.Episode
 				}
-				if req.Kind == "season" && tmdbInt(o, "season_number") != req.Season {
+				if req.Kind == "season" && !tmdbCoordinateMatches(o, "season_number", req.Season) {
 					return errors.New("TMDb season coordinate mismatch")
 				}
-				if req.Kind == "episode" && (tmdbInt(o, "season_number") != req.Season || tmdbInt(o, "episode_number") != req.Episode) {
+				if req.Kind == "episode" && (!tmdbCoordinateMatches(o, "season_number", req.Season) || !tmdbCoordinateMatches(o, "episode_number", req.Episode)) {
 					return errors.New("TMDb episode coordinate mismatch")
 				}
 			}
@@ -251,7 +259,11 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 		if !saved {
 			if token != "" {
 				next := payload.FetchedAt.Add(tmdbTTL(subject, req.Component, payload.FetchedAt))
-				return tx.Model(&model.TMDbRefreshJob{}).Where("key=? AND token=?", req.Key, token).Updates(map[string]any{"subject_id": payload.SubjectID, "person_profile_id": payload.PersonProfileID, "payload_id": payload.ID, "status": "ready", "explicit_pending": false, "requested_by": "", "token": "", "lease_until": nil, "last_success_at": payload.FetchedAt, "next_refresh_at": next, "next_attempt_at": nil, "last_error": ""}).Error
+				updates := map[string]any{"subject_id": payload.SubjectID, "person_profile_id": payload.PersonProfileID, "payload_id": payload.ID, "status": "ready", "explicit_pending": false, "requested_by": "", "token": "", "lease_until": nil, "last_success_at": payload.FetchedAt, "next_refresh_at": next, "next_attempt_at": nil, "last_error": ""}
+				if payload.FetchedAt.Equal(at) {
+					updates["attempts"] = 0
+				}
+				return tx.Model(&model.TMDbRefreshJob{}).Where("key=? AND token=?", req.Key, token).Updates(updates).Error
 			}
 			return nil
 		}
@@ -355,8 +367,17 @@ func saveTMDbSubject(tx *gorm.DB, kind string, parent *string, number *int, o tm
 		}
 	}
 	var row model.TMDbSubject
-	err := tx.Where("kind = ? AND tmdb_id = ?", kind, id).First(&row).Error
-	exists := err == nil
+	cache := tmdbTransactionCache(tx)
+	key := kind + "/" + strconv.Itoa(id)
+	loaded := false
+	if cache != nil {
+		row, loaded = cache.subjects[key]
+	}
+	var err error
+	if !loaded {
+		err = tx.Where("kind = ? AND tmdb_id = ?", kind, id).First(&row).Error
+	}
+	exists := err == nil && row.ID != ""
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -364,7 +385,16 @@ func saveTMDbSubject(tx *gorm.DB, kind string, parent *string, number *int, o tm
 		return nil, errors.New("TMDb parent conflict")
 	}
 	if exists && row.FetchedAt != nil && row.FetchedAt.After(at) {
+		if cache != nil {
+			cache.subjects[key] = row
+		}
 		return &row, nil
+	}
+	old := row
+	old.Fields = mergeTMDbFields(old.Fields, "{}", false)
+	if old.Rating != nil {
+		rating := *old.Rating
+		old.Rating = &rating
 	}
 	fill := exists && quality < 2 && quality < row.Quality
 	row.Kind, row.TMDbID = kind, id
@@ -398,8 +428,17 @@ func saveTMDbSubject(tx *gorm.DB, kind string, parent *string, number *int, o tm
 		}
 	}
 	row.Fields = mergeTMDbFields(row.Fields, tmdbFields(o), fill)
-	if err = tx.Omit("Parent").Save(&row).Error; err != nil {
-		return nil, err
+	if old.FetchedAt != nil && row.FetchedAt != nil && old.FetchedAt.Equal(*row.FetchedAt) {
+		row.FetchedAt = old.FetchedAt
+	}
+	if !exists || !reflect.DeepEqual(old, row) {
+		if err = tx.Omit("Parent").Save(&row).Error; err != nil {
+			return nil, err
+		}
+	}
+	if cache != nil {
+		cache.subjects[key] = row
+
 	}
 	for field, typ := range map[string]string{"poster_path": "poster", "backdrop_path": "backdrop", "still_path": "still"} {
 		if _, ok := o[field]; !ok {
@@ -436,7 +475,15 @@ func saveTMDbPerson(tx *gorm.DB, o tmdbObject, quality int, at time.Time) (*mode
 		return nil, errors.New("invalid TMDb person ID")
 	}
 	var row model.TMDbPersonProfile
-	err := tx.Where("tmdb_id = ?", id).First(&row).Error
+	cache := tmdbTransactionCache(tx)
+	loaded := false
+	if cache != nil {
+		row, loaded = cache.people[id]
+	}
+	var err error
+	if !loaded {
+		err = tx.Where("tmdb_id = ?", id).First(&row).Error
+	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -481,8 +528,13 @@ func saveTMDbPerson(tx *gorm.DB, o tmdbObject, quality int, at time.Time) (*mode
 		row.TMDbID, row.PersonID = id, ident.PersonID
 	}
 	if row.FetchedAt != nil && row.FetchedAt.After(at) {
+		if cache != nil {
+			cache.people[id] = row
+		}
 		return &row, nil
 	}
+	old := row
+	old.Fields = mergeTMDbFields(old.Fields, "{}", false)
 	fill := quality < row.Quality
 	for key, dst := range map[string]*string{"name": &row.Name, "original_name": &row.OriginalName, "biography": &row.Biography, "known_for_department": &row.Department} {
 		if _, ok := o[key]; ok && (!fill || *dst == "") {
@@ -505,8 +557,26 @@ func saveTMDbPerson(tx *gorm.DB, o tmdbObject, quality int, at time.Time) (*mode
 		row.Quality = quality
 		row.FetchedAt = &at
 	}
-	err = tx.Omit("Person").Save(&row).Error
-	return &row, err
+	if old.FetchedAt != nil && row.FetchedAt != nil && old.FetchedAt.Equal(*row.FetchedAt) {
+		row.FetchedAt = old.FetchedAt
+	}
+	if old.ID == "" || !reflect.DeepEqual(old, row) {
+		omit := []string{"Person"}
+		if old.ID != "" {
+			// 下载结果独立更新，来源缓存不能把预读的旧图片状态写回。
+			omit = append(omit, "ImageKey", "ImageSourcePath")
+			if old.ProfilePath == row.ProfilePath {
+				omit = append(omit, "ImageStatus", "ImageRetryAt")
+			}
+		}
+		if err = tx.Omit(omit...).Save(&row).Error; err != nil {
+			return nil, err
+		}
+	}
+	if cache != nil {
+		cache.people[id] = row
+	}
+	return &row, nil
 }
 
 func saveTMDbPayload(tx *gorm.DB, p *model.TMDbPayload) (bool, error) {
@@ -516,13 +586,21 @@ func saveTMDbPayload(tx *gorm.DB, p *model.TMDbPayload) (bool, error) {
 	} else {
 		q = q.Where("person_profile_id = ?", *p.PersonProfileID)
 	}
-	var old model.TMDbPayload
-	err := q.First(&old).Error
+	var stored struct {
+		model.TMDbPayload
+		SameBody bool
+	}
+	err := q.Model(&model.TMDbPayload{}).Select("tmdb_payloads.*, body = ?::jsonb AS same_body", p.Body).First(&stored).Error
+	old := stored.TMDbPayload
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, err
 	}
 	if err == nil {
 		if old.FetchedAt.After(p.FetchedAt) || old.Quality > p.Quality {
+			*p = old
+			return false, nil
+		}
+		if stored.SameBody && old.FetchedAt.Equal(p.FetchedAt) && old.Quality == p.Quality && old.Origin == p.Origin {
 			*p = old
 			return false, nil
 		}
@@ -565,6 +643,11 @@ func saveTMDbCredits(tx *gorm.DB, s *model.TMDbSubject, p *model.TMDbPersonProfi
 		if n > 0 {
 			continue
 		}
+		if origin == "subject" {
+			if err := preloadTMDbCreditPeople(tx, group.rows); err != nil {
+				return err
+			}
+		}
 		q := tx.Where("origin = ? AND category = ?", origin, group.category)
 		if s != nil {
 			q = q.Where("subject_id = ?", s.ID)
@@ -574,6 +657,7 @@ func saveTMDbCredits(tx *gorm.DB, s *model.TMDbSubject, p *model.TMDbPersonProfi
 		if err := q.Delete(&model.TMDbCredit{}).Error; err != nil {
 			return err
 		}
+		credits := make([]model.TMDbCredit, 0, len(group.rows))
 		for _, v := range group.rows {
 			subject, person := s, p
 			var err error
@@ -594,7 +678,10 @@ func saveTMDbCredits(tx *gorm.DB, s *model.TMDbSubject, p *model.TMDbPersonProfi
 			}
 			c := model.TMDbCredit{SubjectID: subject.ID, PersonProfileID: person.ID, Origin: origin, Category: group.category, CreditID: tmdbString(v, "credit_id"), Character: tmdbString(v, "character"), Department: tmdbString(v, "department"), Job: tmdbString(v, "job"), SortOrder: tmdbInt(v, "order")}
 			c.CreditKey = tmdbHash(tmdbJSON([]any{c.Category, c.CreditID, c.Character, c.Department, c.Job, tmdbInt(v, "episode_id"), tmdbString(v, "role_id")}))
-			if err = tx.Omit("Subject", "PersonProfile").Clauses(clause.OnConflict{DoNothing: true}).Create(&c).Error; err != nil {
+			credits = append(credits, c)
+		}
+		if len(credits) > 0 {
+			if err := tx.Omit("Subject", "PersonProfile").Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&credits, 500).Error; err != nil {
 				return err
 			}
 		}

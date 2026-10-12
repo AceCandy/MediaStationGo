@@ -159,7 +159,7 @@ func newUnboundTestScraper(t *testing.T) (*ScraperService, *repository.Container
 
 func assertServiceTestTMDbSnapshot(t *testing.T, repos *repository.Container, metadataID string) {
 	t.Helper()
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadataID, "tmdb")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), metadataID, "tmdb")
 	if err != nil || snapshot == nil || !json.Valid([]byte(snapshot.Payload)) {
 		t.Fatalf("TMDB snapshot for %q = %#v, err = %v", metadataID, snapshot, err)
 	}
@@ -169,7 +169,7 @@ func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
 	t.Helper()
 	models := []any{
 		&model.Library{}, &model.DoubanSubject{}, &model.DoubanQueryCache{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
-		&model.MetadataProviderSnapshot{}, &model.CatalogHydrationJob{},
+		&model.CatalogHydrationJob{},
 		&model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{},
 		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.MetadataArtworkRecheck{}, &model.Media{}, &model.MediaProbeMetadata{},

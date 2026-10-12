@@ -83,14 +83,14 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	}
 	defer s.invalidateMediaCache(ctx)
 	if source == "douban" && len(match.RawJSON) > 0 {
-		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, canonical.ID, "douban", match.RawJSON, doubanMatchFetchedAt(match)); err != nil {
+		if err := s.repo.Metadata.SaveProviderData(ctx, canonical.ID, "douban", match.RawJSON, doubanMatchFetchedAt(match)); err != nil {
 			return nil, err
 		}
 	}
 	if source == "tmdb" {
-		s.persistTMDbSnapshot(ctx, canonical.ID, match.RawJSON)
+		s.persistTMDbSourceData(ctx, canonical.ID, match.RawJSON)
 	} else {
-		s.ensureTMDbSnapshot(ctx, canonical.ID, entityKind, match.TMDbID)
+		s.ensureTMDbSourceData(ctx, canonical.ID, entityKind, match.TMDbID)
 	}
 	result := &persistedMetadataMatch{Target: canonical}
 	if entityKind == model.MetadataKindSeries {
@@ -178,7 +178,7 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 		return nil, err
 	}
 	defer s.invalidateMediaCache(ctx)
-	s.ensureTMDbSnapshot(ctx, canonical.ID, entityKind, match.TMDbID)
+	s.ensureTMDbSourceData(ctx, canonical.ID, entityKind, match.TMDbID)
 	result := &persistedMetadataMatch{Target: canonical}
 	if entityKind == model.MetadataKindSeries {
 		result.Series = canonical

@@ -26,7 +26,7 @@ func TestEmbyItemPayloadDoubanRating(t *testing.T) {
 func TestEmbyDoubanRatingsDetailAndList(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
-	if err := db.AutoMigrate(&model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
+	if err := db.AutoMigrate(&model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
 	lib := model.Library{Name: "Ratings", Path: "/fixture/ratings", Type: "tv", Enabled: true}
@@ -43,7 +43,7 @@ func TestEmbyDoubanRatingsDetailAndList(t *testing.T) {
 	for i := range items {
 		items[i].Title, items[i].Source, items[i].Rating = items[i].ID, "tmdb", 6
 		createServiceTestMetadata(t, db, items[i], model.MetadataIdentifier{Provider: "douban", EntityKind: items[i].Kind, ExternalID: items[i].ID})
-		if err := svc.repo.Metadata.UpsertProviderSnapshot(t.Context(), items[i].ID, "douban", []byte(fmt.Sprintf(`{"rating":{"value":%d}}`, 7+i)), time.Now()); err != nil {
+		if err := svc.repo.Metadata.SaveProviderData(t.Context(), items[i].ID, "douban", []byte(fmt.Sprintf(`{"rating":{"value":%d}}`, 7+i)), time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -64,7 +64,7 @@ func TestEmbyDoubanRatingsDetailAndList(t *testing.T) {
 			if err := db.Where("metadata_id = ?", items[0].ID).Delete(&model.MetadataIdentifier{}).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := svc.repo.Metadata.UpsertProviderSnapshot(t.Context(), seasonID, "douban", []byte(`{"rating":{"value":0}}`), time.Now()); err != nil {
+			if err := svc.repo.Metadata.SaveProviderData(t.Context(), seasonID, "douban", []byte(`{"rating":{"value":0}}`), time.Now()); err != nil {
 				t.Fatal(err)
 			}
 			if err := db.Where("douban_id = ?", items[3].ID).Delete(&model.DoubanSubject{}).Error; err != nil {

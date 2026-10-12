@@ -240,7 +240,7 @@ func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *mo
 	}
 	if media.TMDbID > 0 || (media.MetadataKind == model.MetadataKindEpisode && media.SeriesTMDbID > 0) {
 		media.TMDbStatus = providerStatusMissing
-		snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, media.MetadataID, "tmdb")
+		snapshot, err := s.repo.Metadata.FindProviderData(ctx, media.MetadataID, "tmdb")
 		if err != nil {
 			return err
 		}
@@ -258,7 +258,7 @@ func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *mo
 	}
 	if media.DoubanID != "" {
 		media.DoubanStatus = providerStatusMissing
-		snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, media.MetadataID, "douban")
+		snapshot, err := s.repo.Metadata.FindProviderData(ctx, media.MetadataID, "douban")
 		if err != nil {
 			return err
 		}

@@ -19,7 +19,7 @@ func TestNonTMDbIngestionFillsSnapshotWithoutChangingPresentation(t *testing.T) 
 	for _, source := range []string{"local", "douban"} {
 		for _, kind := range []string{model.MetadataKindMovie, model.MetadataKindSeries} {
 			t.Run(source+"/"+kind, func(t *testing.T) {
-				db := newServiceTestDB(t, &model.MetadataProviderSnapshot{}, &model.Media{}, &model.Library{})
+				db := newServiceTestDB(t, &model.Media{}, &model.Library{})
 				repos := repository.New(db)
 				var requests atomic.Int32
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +60,7 @@ func TestNonTMDbIngestionFillsSnapshotWithoutChangingPresentation(t *testing.T) 
 						t.Fatalf("presentation changed: %#v, %v", item, err)
 					}
 					assertServiceTestTMDbSnapshot(t, repos, media.MetadataID)
-					snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), media.MetadataID, "tmdb")
+					snapshot, err := repos.Metadata.FindProviderData(t.Context(), media.MetadataID, "tmdb")
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -80,7 +80,7 @@ func TestNonTMDbIngestionFillsSnapshotWithoutChangingPresentation(t *testing.T) 
 func TestTMDbSnapshotAutofillFailureKeepsIngestionRetryable(t *testing.T) {
 	for _, response := range []string{"unavailable", `{"id":99,"title":"Wrong movie"}`, `{"id":`} {
 		t.Run(response, func(t *testing.T) {
-			db := newServiceTestDB(t, &model.MetadataProviderSnapshot{}, &model.Media{}, &model.Library{})
+			db := newServiceTestDB(t, &model.Media{}, &model.Library{})
 			repos := repository.New(db)
 			var recovered atomic.Bool
 			var requests atomic.Int32
@@ -116,8 +116,8 @@ func TestTMDbSnapshotAutofillFailureKeepsIngestionRetryable(t *testing.T) {
 			if _, err := scraper.persistLocalMetadata(t.Context(), media, lib, local); err != nil {
 				t.Fatalf("optional detail failure rejected NFO: %v", err)
 			}
-			if missing, err := repos.Metadata.CountMissingTMDbSnapshots(t.Context()); err != nil || missing != 1 {
-				t.Fatalf("failed detail lost retry candidate: %d, %v", missing, err)
+			if data, err := repos.Metadata.FindProviderData(t.Context(), media.MetadataID, "tmdb"); err != nil || data != nil {
+				t.Fatalf("failed request must not create source data: %+v, %v", data, err)
 			}
 			recovered.Store(true)
 			if _, err := scraper.persistLocalMetadata(t.Context(), media, lib, local); err != nil {
@@ -134,7 +134,7 @@ func TestTMDbSnapshotAutofillFailureKeepsIngestionRetryable(t *testing.T) {
 func TestTMDbSnapshotAutofillProtectsConcurrentWrites(t *testing.T) {
 	for _, change := range []string{"identity", "snapshot"} {
 		t.Run(change, func(t *testing.T) {
-			db := newServiceTestDB(t, &model.MetadataProviderSnapshot{})
+			db := newServiceTestDB(t, &model.TMDbPayload{})
 			repos := repository.New(db)
 			item := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Local", Source: "local"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "42"})
 			started, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -153,19 +153,19 @@ func TestTMDbSnapshotAutofillProtectsConcurrentWrites(t *testing.T) {
 			scraper := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, nil)
 			go func() {
 				defer close(done)
-				scraper.ensureTMDbSnapshot(t.Context(), item.ID, item.Kind, 42)
+				scraper.ensureTMDbSourceData(t.Context(), item.ID, item.Kind, 42)
 			}()
 			<-started
 			if change == "identity" {
 				if err := repos.Metadata.ReplaceIdentifier(t.Context(), item.ID, "tmdb", item.Kind, "99"); err != nil {
 					t.Fatal(err)
 				}
-			} else if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", json.RawMessage(`{"id":42,"title":"New response"}`), time.Now().UTC()); err != nil {
+			} else if err := repos.Metadata.SaveProviderData(t.Context(), item.ID, "tmdb", json.RawMessage(`{"id":42,"title":"New response"}`), time.Now().UTC()); err != nil {
 				t.Fatal(err)
 			}
 			close(resume)
 			<-done
-			snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), item.ID, "tmdb")
+			snapshot, err := repos.Metadata.FindProviderData(t.Context(), item.ID, "tmdb")
 			if err != nil {
 				t.Fatal(err)
 			}

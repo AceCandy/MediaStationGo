@@ -51,7 +51,7 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataProviderSnapshot{}, &model.CatalogHydrationJob{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.CatalogHydrationJob{}); err != nil {
 		t.Fatal(err)
 	}
 	if !db.Migrator().HasColumn(&model.MetadataItem{}, "PeopleHydratedAt") {
@@ -73,22 +73,21 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
 	}
-	snapshot := model.MetadataProviderSnapshot{MetadataID: metadata.ID, Provider: "tmdb", Payload: `{"future":true}`, FetchedAt: time.Now().UTC()}
-	if err := db.Create(&snapshot).Error; err != nil {
+	if err := db.AutoMigrate(&model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
-	columns, err := db.Migrator().ColumnTypes(&model.MetadataProviderSnapshot{})
+	columns, err := db.Migrator().ColumnTypes(&model.TMDbPayload{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	foundJSONB := false
 	for _, column := range columns {
-		if column.Name() == "payload" && strings.EqualFold(column.DatabaseTypeName(), "jsonb") {
+		if column.Name() == "body" && strings.EqualFold(column.DatabaseTypeName(), "jsonb") {
 			foundJSONB = true
 		}
 	}
 	if !foundJSONB {
-		t.Fatal("metadata provider snapshot payload is not PostgreSQL jsonb")
+		t.Fatal("TMDb center payload body is not PostgreSQL jsonb")
 	}
 	jobs := []model.CatalogHydrationJob{
 		{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "42", Status: model.CatalogJobStatusPending, Stage: model.CatalogJobStageRoot},

@@ -39,13 +39,6 @@ END $$`,
 	`CREATE OR REPLACE FUNCTION tmdb_recheck_changed() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE before_row jsonb; after_row jsonb;
 BEGIN
- -- 快照只影响存在性，不读取或转换可能很大的 payload。
- IF TG_TABLE_NAME = 'metadata_provider_snapshots' THEN
-  IF TG_OP = 'UPDATE' AND (OLD.metadata_id,OLD.provider) IS NOT DISTINCT FROM (NEW.metadata_id,NEW.provider) THEN RETURN NULL; END IF;
-  IF TG_OP <> 'INSERT' AND OLD.provider = 'tmdb' THEN PERFORM tmdb_recheck_related(OLD.metadata_id, false); END IF;
-  IF TG_OP <> 'DELETE' AND NEW.provider = 'tmdb' THEN PERFORM tmdb_recheck_related(NEW.metadata_id, false); END IF;
-  RETURN NULL;
- END IF;
  IF TG_TABLE_NAME = 'media' THEN
   IF TG_OP = 'UPDATE' AND OLD.metadata_id IS NOT DISTINCT FROM NEW.metadata_id THEN RETURN NULL; END IF;
   IF TG_OP <> 'INSERT' THEN
@@ -95,8 +88,6 @@ END $$`,
 	`CREATE TRIGGER tmdb_recheck_metadata AFTER UPDATE OR DELETE ON metadata_items FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
 	`DROP TRIGGER IF EXISTS tmdb_recheck_identifiers ON metadata_identifiers`,
 	`CREATE TRIGGER tmdb_recheck_identifiers AFTER INSERT OR UPDATE OR DELETE ON metadata_identifiers FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
-	`DROP TRIGGER IF EXISTS tmdb_recheck_snapshots ON metadata_provider_snapshots`,
-	`CREATE TRIGGER tmdb_recheck_snapshots AFTER INSERT OR UPDATE OR DELETE ON metadata_provider_snapshots FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
 	`DROP TRIGGER IF EXISTS tmdb_recheck_artworks ON metadata_artworks`,
 	`CREATE TRIGGER tmdb_recheck_artworks AFTER INSERT OR UPDATE OR DELETE ON metadata_artworks FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
 	`DROP TRIGGER IF EXISTS tmdb_recheck_assets ON artwork_assets`,

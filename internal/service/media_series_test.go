@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
+
 	"fmt"
 	"testing"
 	"time"
@@ -13,7 +15,7 @@ import (
 )
 
 func TestSeriesSeasonPostersWithoutLoadingOtherEpisodes(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "季封面", Path: "/fixture/season-posters", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -60,7 +62,7 @@ func TestSeriesSeasonPostersWithoutLoadingOtherEpisodes(t *testing.T) {
 }
 
 func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "剧库", Path: "/fixture/series-cards", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -114,7 +116,7 @@ func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.
 }
 
 func TestMediaSeasonDetailUsesCanonicalArtworkAndVisibility(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "季封面", Path: "/fixture/season", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -162,7 +164,7 @@ func TestMediaSeasonDetailUsesCanonicalArtworkAndVisibility(t *testing.T) {
 	if err != nil || got != nil {
 		t.Fatalf("metadata ID accepted as file: %+v %v", got, err)
 	}
-	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: `{"id":456}`, FetchedAt: time.Now()}).Error; err != nil {
+	if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: `{"id":456}`, FetchedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	for _, status := range []string{providerStatusPartial, providerStatusComplete} {
@@ -227,7 +229,7 @@ func TestSeriesDisplayFallbacksStayInsideTheSeriesHierarchy(t *testing.T) {
 }
 
 func TestMediaSeriesDetailSupportsEveryAttachmentLevel(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "剧集关联测试", Path: "/fixture/series-attachment", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -264,7 +266,7 @@ func TestMediaSeriesDetailSupportsEveryAttachmentLevel(t *testing.T) {
 }
 
 func TestMediaSeriesDetailOwnsMetadataAndUserScope(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{}, &model.PlaybackHistory{}, &model.Favorite{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.PlaybackHistory{}, &model.Favorite{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "剧集", Path: "/media/series-detail-check", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {

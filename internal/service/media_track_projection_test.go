@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
+
 	"testing"
 	"time"
 
@@ -53,7 +55,7 @@ func TestGetMediaAddsCompleteTracksButListsStayScalar(t *testing.T) {
 }
 
 func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Series", Path: "/media/series", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -67,7 +69,7 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: episode.ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "200"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: episode.ID, Provider: "tmdb", Payload: `{"id":200}`, FetchedAt: time.Now().UTC()}).Error; err != nil {
+	if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: episode.ID, Provider: "tmdb", Payload: `{"id":200}`, FetchedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repos.Artwork.SaveSelection(t.Context(), episode.ID, model.ArtworkTypeStill, "tmdb", "https://image.test/still.jpg", &model.ArtworkAsset{SHA256: "tmdb-still", StorageKey: "tmdb/still.jpg", MimeType: "image/jpeg"}); err != nil {
@@ -89,7 +91,7 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	movie := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"},
 		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "1295644"},
 	)
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), movie.ID, "douban", []byte(`{"subject":{}}`), time.Now().UTC()); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), movie.ID, "douban", []byte(`{"subject":{}}`), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := repos.Artwork.SaveCandidate(t.Context(), movie.ID, model.ArtworkTypePoster, "douban", "https://image.test/poster.jpg", &model.ArtworkAsset{SHA256: "douban-poster", StorageKey: "douban/poster.jpg", MimeType: "image/jpeg"}); err != nil {
@@ -103,14 +105,14 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err != nil || movieDetail == nil || !movieDetail.DoubanSnapshot || movieDetail.DoubanID != "1295644" || movieDetail.DoubanStatus != providerStatusPartial {
 		t.Fatalf("douban provider detail = %#v, err = %v", movieDetail, err)
 	}
-	if err := repos.Metadata.UpsertDegradedProviderSnapshot(t.Context(), movie.ID, "douban", []byte(`{"title":"降级详情"}`), time.Now().UTC()); err != nil {
+	if err := repos.Metadata.SaveDegradedProviderData(t.Context(), movie.ID, "douban", []byte(`{"title":"降级详情"}`), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	movieDetail, err = NewMediaService(&config.Config{}, zap.NewNop(), repos).GetMedia(t.Context(), movieMedia.ID)
 	if err != nil || movieDetail == nil || movieDetail.DoubanStatus != providerStatusDegraded {
 		t.Fatalf("degraded douban provider detail = %#v, err = %v", movieDetail, err)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), movie.ID, "douban", []byte(`{"title":"移动端详情"}`), time.Now().UTC()); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), movie.ID, "douban", []byte(`{"title":"移动端详情"}`), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	movieDetail, err = NewMediaService(&config.Config{}, zap.NewNop(), repos).GetMedia(t.Context(), movieMedia.ID)

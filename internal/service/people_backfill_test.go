@@ -77,7 +77,7 @@ func TestBackfillSeasonPeopleUsesHistoricalSnapshot(t *testing.T) {
 	defer closeUpstream()
 	series := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "series", Title: "Series", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
 	season := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "season", ExternalID: "50"})
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(`{"id":50,"season_number":1,"credits":{"cast":[{"id":123,"name":"季演员","character":"主角"}],"crew":[]}}`), time.Now()); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), season.ID, "tmdb", []byte(`{"id":50,"season_number":1,"credits":{"cast":[{"id":123,"name":"季演员","character":"主角"}],"crew":[]}}`), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	candidates, err := scraper.pendingPeopleBackfillCandidates(t.Context())

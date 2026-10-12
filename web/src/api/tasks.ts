@@ -54,7 +54,7 @@ export interface TaskDefinition {
   schedule?: string
   current_state: 'idle' | 'running'
   next_run?: string
-  action?: 'scheduler' | 'people_backfill' | 'probe_backfill' | 'media_scrape' | 'tmdb_snapshot_backfill' | 'series_local_correction'
+  action?: 'scheduler' | 'people_backfill' | 'probe_backfill' | 'media_scrape' | 'series_local_correction'
   current?: BackgroundTask
   latest?: BackgroundTask
   schedule_config?: TaskScheduleConfig

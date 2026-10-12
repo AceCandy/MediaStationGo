@@ -18,7 +18,7 @@ func newMetadataMergeTestRepository(t *testing.T) *Container {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(
-		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{},
+		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{},
 		&model.MetadataArtworkRecheck{},
 		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 		&model.Media{}, &model.PlaybackHistory{}, &model.Favorite{}, &model.Playlist{}, &model.PlaylistItem{},
@@ -41,7 +41,7 @@ func TestUpsertCanonicalExplicitMergeMovesMovieReferences(t *testing.T) {
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), source.ID, "douban", []byte(`{"subject":{"id":"0100"}}`), time.Now()); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), source.ID, "douban", []byte(`{"subject":{"id":"0100"}}`), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	playlist := model.Playlist{UserID: "user", Name: "List"}
@@ -98,7 +98,7 @@ func TestUpsertCanonicalExplicitMergeMovesMovieReferences(t *testing.T) {
 	if err := repos.DB.First(&history, "metadata_id = ?", target.ID).Error; err != nil || history.PositionMs != 200 {
 		t.Fatalf("newer history not preserved: %#v err=%v", history, err)
 	}
-	if snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), target.ID, "douban"); err != nil || snapshot == nil {
+	if snapshot, err := repos.Metadata.FindProviderData(t.Context(), target.ID, "douban"); err != nil || snapshot == nil {
 		t.Fatalf("douban snapshot not moved: %#v err=%v", snapshot, err)
 	}
 }

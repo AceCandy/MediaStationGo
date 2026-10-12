@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"encoding/json"
 	"errors"
 
 	"gorm.io/gorm"
@@ -74,9 +73,6 @@ func mergeMetadataGraph(tx *gorm.DB, sourceID, targetID string) error {
 	if err := mergeMetadataArtworkRechecks(tx, source.ID, target.ID); err != nil {
 		return err
 	}
-	if err := mergeMetadataProviderSnapshots(tx, source.ID, target.ID); err != nil {
-		return err
-	}
 	if err := mergeMetadataCredits(tx, source.ID, target.ID); err != nil {
 		return err
 	}
@@ -106,36 +102,6 @@ func mergeMetadataArtworkRechecks(tx *gorm.DB, sourceID, targetID string) error 
 					return err
 				}
 			}
-			if err := tx.Delete(&rows[i]).Error; err != nil {
-				return err
-			}
-			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if err := tx.Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func mergeMetadataProviderSnapshots(tx *gorm.DB, sourceID, targetID string) error {
-	var rows []model.MetadataProviderSnapshot
-	if err := tx.Where("metadata_id = ?", sourceID).Find(&rows).Error; err != nil {
-		return err
-	}
-	for i := range rows {
-		// 先保全独立来源，失败则回滚合并，防止迁移期间删除唯一旧快照。
-		if rows[i].Provider == "tmdb" {
-			if err := (&MetadataRepository{db: tx}).saveTMDbSnapshot(tx.Statement.Context, sourceID, json.RawMessage(rows[i].Payload), rows[i].FetchedAt, rows[i].Degraded); err != nil {
-				return err
-			}
-		}
-		var existing model.MetadataProviderSnapshot
-		err := tx.Where("metadata_id = ? AND provider = ?", targetID, rows[i].Provider).First(&existing).Error
-		if err == nil {
 			if err := tx.Delete(&rows[i]).Error; err != nil {
 				return err
 			}

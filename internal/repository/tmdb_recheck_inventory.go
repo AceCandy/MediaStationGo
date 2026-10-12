@@ -43,8 +43,8 @@ func (r *MetadataRepository) RecordTMDbInventoryMissing(ctx context.Context, id,
 		if !state.Playable || !state.IdentityValid || state.Kind != "episode" || state.ParentID != ids[1] || state.SeriesID != seriesID || state.SeriesTMDbID != tmdbID || state.SeasonNum != season || state.EpisodeNum != episode {
 			return nil
 		}
-		var snapshot model.MetadataProviderSnapshot
-		err = tx.Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").Where("metadata_id=? AND provider='tmdb'", state.ParentID).Take(&snapshot).Error
+		var snapshot model.ProviderData
+		err = tx.Table(tmdbSourceDataSQL+" AS source_data").Where("metadata_id=? AND provider='tmdb'", state.ParentID).Take(&snapshot).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}

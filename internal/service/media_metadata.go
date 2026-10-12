@@ -281,7 +281,7 @@ func (s *MediaService) replaceManualIdentifiers(ctx context.Context, item *model
 		}
 		if entry.set {
 			if entry.provider == "tmdb" && entry.value != "" {
-				if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, entry.provider, item.Kind, entry.value, tmdbSnapshot, time.Now().UTC()); err != nil {
+				if err := s.repo.Metadata.ReplaceIdentifierWithData(ctx, item.ID, entry.provider, item.Kind, entry.value, tmdbSnapshot, time.Now().UTC()); err != nil {
 					return err
 				}
 				continue

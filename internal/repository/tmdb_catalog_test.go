@@ -91,7 +91,7 @@ func TestTMDbCenterIsolationAndScopes(t *testing.T) {
 		t.Fatal("source created local metadata")
 	}
 }
-func TestTMDbCenterSeasonAndLegacy(t *testing.T) {
+func TestTMDbCenterSeasonAndLocalIdentity(t *testing.T) {
 	r := tmdbTestRepo(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -138,16 +138,14 @@ func TestTMDbCenterSeasonAndLegacy(t *testing.T) {
 	if e = r.DB.Create(&ident).Error; e != nil {
 		t.Fatal(e)
 	}
-	if e = r.Metadata.UpsertProviderSnapshot(ctx, movie.ID, "tmdb", []byte(`{"id":90,"title":"来源"}`), now); e != nil {
+	if e = r.Metadata.SaveProviderData(ctx, movie.ID, "tmdb", []byte(`{"id":90,"title":"来源"}`), now); e != nil {
 		t.Fatal(e)
 	}
-	snap, e := r.Metadata.FindProviderSnapshot(ctx, movie.ID, "tmdb")
+	snap, e := r.Metadata.FindProviderData(ctx, movie.ID, "tmdb")
 	if e != nil || snap == nil {
-		t.Fatal("compatibility missing", e)
+		t.Fatal("center data missing", e)
 	}
-	var count int64
-	r.DB.Model(&model.MetadataProviderSnapshot{}).Where("provider='tmdb'").Count(&count)
-	if count != 0 {
+	if r.DB.Migrator().HasTable("metadata_provider_snapshots") {
 		t.Fatal("old snapshot writer active")
 	}
 	if e = r.DB.Delete(&ident).Error; e != nil {
@@ -189,7 +187,7 @@ func TestTMDbCenterApplyingSeasonEpisodePreservesSourceTime(t *testing.T) {
 	if err := r.DB.Create(&ids).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Metadata.UpsertProviderSnapshot(ctx, episode.ID, "tmdb", raw, time.Now()); err != nil {
+	if err := r.Metadata.SaveProviderData(ctx, episode.ID, "tmdb", raw, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	source, err := r.TMDb.SubjectIdentity(ctx, "episode", 40)
@@ -203,7 +201,7 @@ func TestTMDbCenterApplyingSeasonEpisodePreservesSourceTime(t *testing.T) {
 	if err := r.DB.Model(&ids[0]).Update("external_id", "21").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Metadata.UpsertProviderSnapshot(ctx, episode.ID, "tmdb", raw, time.Now()); err == nil {
+	if err := r.Metadata.SaveProviderData(ctx, episode.ID, "tmdb", raw, time.Now()); err == nil {
 		t.Fatal("cached response bypassed changed local parent identity")
 	}
 }
@@ -281,7 +279,7 @@ func TestTMDbCenterCreditsDoNotRegressAcrossLanguages(t *testing.T) {
 			if err := r.TMDb.SaveResponse(ctx, newReq, []byte(tc.newer), at, ""); err != nil {
 				t.Fatal(err)
 			}
-			oldReq := TMDbSourceRequest{Kind: "movie", TMDbID: 12, Component: "detail", Language: "und", Origin: "legacy"}
+			oldReq := TMDbSourceRequest{Kind: "movie", TMDbID: 12, Component: "detail", Language: "und", Origin: "api"}
 			old := []byte(`{"id":12,"credits":{"cast":[{"id":6,"name":"Old actor","character":"old"}],"crew":[{"id":7,"name":"Old crew","job":"old"}]}}`)
 			if err := r.TMDb.SaveResponse(ctx, oldReq, old, at.Add(-time.Hour), ""); err != nil {
 				t.Fatal(err)

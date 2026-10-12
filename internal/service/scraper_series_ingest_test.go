@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
+
 	"context"
 	"fmt"
 	"net/http"
@@ -360,7 +362,7 @@ func TestSeriesInventoryOnlySpecialsTolerateNotFound(t *testing.T) {
 							t.Fatal("inventory incorrectly marked complete", err)
 						}
 						if round < 2 {
-							snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadataID, "tmdb")
+							snapshot, err := repos.Metadata.FindProviderData(t.Context(), metadataID, "tmdb")
 							if err != nil || snapshot != nil {
 								t.Fatal("404 must not create a snapshot", err)
 							}
@@ -388,10 +390,8 @@ func TestSeriesInventoryEmptyIsValidButMissingListIsNot(t *testing.T) {
 		{`{"id":10,"season_number":1,"episodes":[{"id":100,"episode_number":1},{"id":101,"episode_number":1}]}`, false},
 	} {
 		// 历史坏快照直接写旧表，验证兼容读取后的清单校验，不绕过中心的新写入约束。
-		if err := repos.DB.Where("metadata_id=? AND provider='tmdb'", season.ID).Delete(&model.MetadataProviderSnapshot{}).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: tc.raw, FetchedAt: time.Now()}).Error; err != nil {
+
+		if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: tc.raw, FetchedAt: time.Now()}); err != nil {
 			t.Fatal(err)
 		}
 		inventory, err := s.ingestSeasonInventory(t.Context(), season, 42)

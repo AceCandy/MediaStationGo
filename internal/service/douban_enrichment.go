@@ -162,9 +162,9 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 			result.CandidateSaved = true
 		}
 		if result.Degraded {
-			return repos.Metadata.UpsertDegradedProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+			return repos.Metadata.SaveDegradedProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 		}
-		return repos.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+		return repos.Metadata.SaveProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 	})
 	if err != nil {
 		return result, err

@@ -29,7 +29,7 @@ func TestTaskStartupGuardsAndLightweightStatus(t *testing.T) {
 		{"POST", "/tasks/definitions/library_scan/run", 503},
 		{"POST", "/tasks/definitions/media_scrape/run", 503},
 		{"POST", "/tasks/definitions/probe_backfill/run", 503},
-		{"POST", "/tasks/definitions/tmdb_snapshot_backfill/run", 503},
+		{"POST", "/tasks/definitions/tmdb_data_refresh/run", 503},
 		{"POST", "/tasks/definitions/hongguo_download_supplement/run", 503},
 		{"POST", "/scheduler/organize_source/run", 503},
 		{"PUT", "/tasks/definitions/" + service.TaskDefinitionOrganize + "/schedule", 503},

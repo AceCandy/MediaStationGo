@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -12,56 +11,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
-
-func TestMissingTMDbSnapshotCountScopesMetadataProbes(t *testing.T) {
-	db, err := testdb.OpenPostgres(t, &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
-		t.Fatal(err)
-	}
-	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'scope-'||i,'movie','Movie','local' FROM generate_series(1,10000) i`,
-		`INSERT INTO metadata_identifiers(id,metadata_id,provider,entity_kind,external_id) VALUES ('scope-id','scope-1','tmdb','movie','2147483647')`,
-		`ANALYZE metadata_items`, `ANALYZE metadata_identifiers`, `ANALYZE metadata_provider_snapshots`,
-	} {
-		if err := db.Exec(sql).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	count, err := New(db).Metadata.CountMissingTMDbSnapshots(t.Context())
-	if err != nil || count != 1 {
-		t.Fatalf("count=%d err=%v", count, err)
-	}
-	query := db.ToSQL(func(tx *gorm.DB) *gorm.DB {
-		return (&MetadataRepository{db: tx}).missingTMDbSnapshotQuery(t.Context()).Count(&count)
-	})
-	var raw string
-	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + query).Scan(&raw).Error; err != nil {
-		t.Fatal(err)
-	}
-	type node struct {
-		Relation string `json:"Relation Name"`
-		Rows     int    `json:"Actual Rows"`
-		Loops    int    `json:"Actual Loops"`
-		Plans    []node `json:"Plans"`
-	}
-	var plans []struct{ Plan node }
-	if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
-		t.Fatalf("invalid plan: %s err=%v", raw, err)
-	}
-	var check func(node)
-	check = func(n node) {
-		if n.Relation == "metadata_items" && n.Rows*n.Loops > 10 {
-			t.Fatalf("count scanned unrelated metadata: %s", raw)
-		}
-		for _, child := range n.Plans {
-			check(child)
-		}
-	}
-	check(plans[0].Plan)
-}
 
 func TestListMissingCatalogArtworkWithoutMediaTable(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -107,89 +56,6 @@ func TestListMissingCatalogArtworkWithoutMediaTable(t *testing.T) {
 	}
 	if len(roots) != 1 || roots[0].MetadataID != series.ID || roots[0].ExternalID != "100" {
 		t.Fatalf("missing roots = %#v", roots)
-	}
-}
-
-func TestListMissingTMDbSnapshotsWithoutMediaTable(t *testing.T) {
-	db, err := testdb.OpenPostgres(t, &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
-		t.Fatal(err)
-	}
-	items := []model.MetadataItem{
-		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000100"}, Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"},
-		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000200"}, Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"},
-	}
-	if err := db.Create(&items).Error; err != nil {
-		t.Fatal(err)
-	}
-	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000300"}, Kind: model.MetadataKindSeason, ParentID: &items[1].ID, SeasonNum: 1, Title: "Season", Source: "tmdb"}
-	if err := db.Create(&season).Error; err != nil {
-		t.Fatal(err)
-	}
-	episode := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000400"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 2, Title: "Episode", Source: "tmdb"}
-	complete := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000500"}, Kind: model.MetadataKindMovie, Title: "Complete", Source: "tmdb"}
-	invalid := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000600"}, Kind: model.MetadataKindMovie, Title: "Invalid", Source: "tmdb"}
-	if err := db.Create(&[]model.MetadataItem{episode, complete, invalid}).Error; err != nil {
-		t.Fatal(err)
-	}
-	identifiers := []model.MetadataIdentifier{
-		{MetadataID: items[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "10"},
-		{MetadataID: items[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "2147483649"},
-		{MetadataID: items[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "2"},
-		{MetadataID: items[1].ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "20"},
-		{MetadataID: season.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "30"},
-		{MetadataID: episode.ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "40"},
-		{MetadataID: complete.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "50"},
-		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "not-a-number"},
-		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "2147483648"},
-		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "999999999999999999999999"},
-		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "01"},
-		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "60"},
-		{MetadataID: invalid.ID, Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "60"},
-	}
-	if err := db.Create(&identifiers).Error; err != nil {
-		t.Fatal(err)
-	}
-	repo := New(db).Metadata
-	if err := repo.UpsertProviderSnapshot(t.Context(), complete.ID, "tmdb", []byte(`{"id":50}`), time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	total, err := repo.CountMissingTMDbSnapshots(t.Context())
-	if err != nil || total != 4 {
-		t.Fatalf("missing snapshot total = %d, err = %v", total, err)
-	}
-	first, err := repo.ListMissingTMDbSnapshotsAfter(t.Context(), "", 2)
-	if err != nil || len(first) != 2 || first[0].TMDbID != 2 || first[1].TMDbID != 20 {
-		t.Fatalf("first page = %#v, err = %v", first, err)
-	}
-	second, err := repo.ListMissingTMDbSnapshotsAfter(t.Context(), first[1].MetadataID, 2)
-	if err != nil || len(second) != 2 || second[0].SeriesTMDbID != 20 || second[0].SeasonNum != 1 || second[1].SeriesTMDbID != 20 || second[1].EpisodeNum != 2 {
-		t.Fatalf("second page = %#v, err = %v", second, err)
-	}
-
-	if err := repo.ReplaceIdentifierWithSnapshot(t.Context(), items[0].ID, "tmdb", model.MetadataKindMovie, "11", []byte(`{`), time.Now().UTC()); err == nil {
-		t.Fatal("invalid snapshot must reject identifier replacement")
-	}
-	if old, _ := repo.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "10"); old == nil || old.ID != items[0].ID {
-		t.Fatalf("old identifier changed after snapshot failure: %#v", old)
-	}
-	if next, _ := repo.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "11"); next != nil {
-		t.Fatalf("new identifier persisted after snapshot failure: %#v", next)
-	}
-	if err := db.Migrator().DropTable(&model.TMDbPayload{}, &model.DoubanSubject{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.ReplaceIdentifierWithSnapshot(t.Context(), items[0].ID, "tmdb", model.MetadataKindMovie, "12", []byte(`{"id":12}`), time.Now().UTC()); err == nil {
-		t.Fatal("snapshot database failure must reject identifier replacement")
-	}
-	if old, _ := repo.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "10"); old == nil || old.ID != items[0].ID {
-		t.Fatalf("old identifier changed after snapshot database failure: %#v", old)
-	}
-	if next, _ := repo.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "12"); next != nil {
-		t.Fatalf("new identifier persisted after snapshot database failure: %#v", next)
 	}
 }
 
@@ -344,7 +210,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteWorks(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()

@@ -23,7 +23,7 @@ func TestTMDbRecheckAirdateCooldown(t *testing.T) {
 			{"recent", 5, 1}, {"middle", 100, 10}, {"old", 500, 20}, {"unknown", 0, 3}, {"preserve-local", 5, 1},
 		} {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
-				db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{})
+				db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{})
 				repos := repository.New(db)
 				date := ""
 				if tc.age != 0 {

@@ -77,7 +77,7 @@ func (s *ScraperService) localizeTMDbCatalogSnapshots(ctx context.Context, task 
 	if s == nil || s.repo == nil || s.repo.Metadata == nil {
 		return nil
 	}
-	total, err := s.repo.Metadata.CountLocalCorrectionSnapshots(ctx)
+	total, err := s.repo.Metadata.CountLocalCorrectionData(ctx)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (s *ScraperService) localizeTMDbCatalogSnapshots(ctx context.Context, task 
 	progress(nil)
 	afterID := ""
 	for {
-		snapshots, err := s.repo.Metadata.ListProviderSnapshotsAfter(ctx, "tmdb", []string{model.MetadataKindSeason, model.MetadataKindEpisode}, afterID, catalogSnapshotLocalizationBatchSize)
+		snapshots, err := s.repo.Metadata.ListProviderDataAfter(ctx, "tmdb", []string{model.MetadataKindSeason, model.MetadataKindEpisode}, afterID, catalogSnapshotLocalizationBatchSize)
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ func (s *ScraperService) localizeTMDbCatalogSnapshots(ctx context.Context, task 
 	}
 }
 
-func (s *ScraperService) localizeTMDbCatalogSnapshot(ctx context.Context, snapshot *model.MetadataProviderSnapshot) (bool, error) {
+func (s *ScraperService) localizeTMDbCatalogSnapshot(ctx context.Context, snapshot *model.ProviderData) (bool, error) {
 	if snapshot == nil || snapshot.Metadata.ID == "" || snapshot.Metadata.Source != "tmdb" {
 		return false, nil
 	}

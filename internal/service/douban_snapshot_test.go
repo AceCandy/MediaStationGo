@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
+
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -419,7 +421,7 @@ func TestDoubanProviderMatchPersistsSnapshotWithoutFusingDetailFields(t *testing
 	if requests != 1 {
 		t.Fatalf("douban detail requests = %d", requests)
 	}
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), persisted.Target.ID, "douban")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), persisted.Target.ID, "douban")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +465,7 @@ func TestDoubanDetailFailureKeepsAcceptedMatchWithoutSnapshot(t *testing.T) {
 	if persisted.Target.Title != "已选择标题" {
 		t.Fatalf("canonical title = %q", persisted.Target.Title)
 	}
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), persisted.Target.ID, "douban")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), persisted.Target.ID, "douban")
 	if err != nil || snapshot != nil {
 		t.Fatalf("snapshot = %#v, err = %v", snapshot, err)
 	}
@@ -491,7 +493,7 @@ func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	}
 	raw := []byte(`{"subject":{"title":"旧标题"}}`)
 	previousFetchedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", raw, previousFetchedAt); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), metadata.ID, "douban", raw, previousFetchedAt); err != nil {
 		t.Fatal(err)
 	}
 	result, err := scraper.enrichMovieFromDouban(t.Context(), metadata.ID)
@@ -508,7 +510,7 @@ func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	if updated.Rating != 8.1 || updated.Source != "tmdb" || !result.SnapshotSaved || requests != 1 {
 		t.Fatalf("existing fields or snapshot changed: metadata=%#v result=%#v", updated, result)
 	}
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), metadata.ID, "douban")
 	if err != nil || snapshot == nil || !snapshot.FetchedAt.After(previousFetchedAt) || !strings.Contains(snapshot.Payload, `"中文简介"`) {
 		t.Fatalf("refreshed snapshot = %#v, err = %v", snapshot, err)
 	}
@@ -527,13 +529,13 @@ func TestDoubanMovieEnrichmentFailureDoesNotAdvanceSnapshotCooldown(t *testing.T
 		t.Fatal(err)
 	}
 	fetchedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", []byte(`{"subject":{}}`), fetchedAt); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), metadata.ID, "douban", []byte(`{"subject":{}}`), fetchedAt); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := scraper.enrichMovieFromDouban(t.Context(), metadata.ID); err == nil {
 		t.Fatal("expected douban request failure")
 	}
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), metadata.ID, "douban")
 	if err != nil || snapshot == nil || !snapshot.FetchedAt.Equal(fetchedAt) {
 		t.Fatalf("snapshot cooldown changed after failure: %#v, err = %v", snapshot, err)
 	}
@@ -621,7 +623,7 @@ func TestEnrichFromDoubanPersistsAndClearsSeriesDegradedSnapshot(t *testing.T) {
 	if !errors.Is(err, ErrDoubanTemporarilyUnavailable) || degraded {
 		t.Fatalf("subject failure degraded = %v, err = %v", degraded, err)
 	}
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), metadata.ID, "douban")
 	if err != nil || snapshot != nil {
 		t.Fatalf("subject failure snapshot = %#v, err = %v", snapshot, err)
 	}
@@ -635,7 +637,7 @@ func TestEnrichFromDoubanPersistsAndClearsSeriesDegradedSnapshot(t *testing.T) {
 	if err != nil || updated.Title != "Existing title" || updated.Overview != "已有简介" {
 		t.Fatalf("degraded metadata = %#v, err = %v", updated, err)
 	}
-	snapshot, err = repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	snapshot, err = repos.Metadata.FindProviderData(t.Context(), metadata.ID, "douban")
 	if err != nil || snapshot == nil || !snapshot.Degraded || !strings.Contains(snapshot.Payload, "降级中文标题") {
 		t.Fatalf("degraded snapshot = %#v, err = %v", snapshot, err)
 	}
@@ -645,7 +647,7 @@ func TestEnrichFromDoubanPersistsAndClearsSeriesDegradedSnapshot(t *testing.T) {
 	if err != nil || degraded {
 		t.Fatalf("restored degraded = %v, err = %v", degraded, err)
 	}
-	snapshot, err = repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	snapshot, err = repos.Metadata.FindProviderData(t.Context(), metadata.ID, "douban")
 	if err != nil || snapshot == nil || snapshot.Degraded || !strings.Contains(snapshot.Payload, "完整中文标题") {
 		t.Fatalf("restored snapshot = %#v, err = %v", snapshot, err)
 	}
@@ -674,7 +676,7 @@ func TestDoubanEnrichmentBatchPreservesSeriesChildren(t *testing.T) {
 		if err := repos.DB.Create(&model.MetadataIdentifier{MetadataID: child.ID, Provider: "douban", EntityKind: child.Kind, ExternalID: strconv.Itoa(i + 1)}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: child.ID, Provider: "tmdb", Payload: `{"id":1}`, FetchedAt: time.Now().UTC()}).Error; err != nil {
+		if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: child.ID, Provider: "tmdb", Payload: `{"id":1}`, FetchedAt: time.Now().UTC()}); err != nil {
 			t.Fatal(err)
 		}
 		artType := model.ArtworkTypePoster
@@ -693,7 +695,7 @@ func TestDoubanEnrichmentBatchPreservesSeriesChildren(t *testing.T) {
 	unchanged := func() []string {
 		t.Helper()
 		var rows []string
-		for _, table := range []string{"metadata_items", "metadata_identifiers", "metadata_provider_snapshots", "metadata_artworks", "metadata_artwork_candidates", "media"} {
+		for _, table := range []string{"metadata_items", "metadata_identifiers", "metadata_artworks", "metadata_artwork_candidates", "media"} {
 			column := "metadata_id"
 			if table == "metadata_items" {
 				column = "id"
@@ -784,7 +786,7 @@ func TestDoubanMovieEnrichmentContinuesAfterDegradedSnapshot(t *testing.T) {
 	if got := strings.Join(requests, ","); got != "/rexxar/api/v2/movie/1,/rexxar/api/v2/subject/1,/rexxar/api/v2/movie/2" {
 		t.Fatalf("requests = %s", got)
 	}
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), "15000000-0000-0000-0000-000000000001", "douban")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), "15000000-0000-0000-0000-000000000001", "douban")
 	if err != nil || snapshot == nil || !snapshot.Degraded {
 		t.Fatalf("degraded snapshot = %#v, err = %v", snapshot, err)
 	}

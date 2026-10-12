@@ -1,8 +1,8 @@
 package service
 
 import (
-	"encoding/json"
 	"errors"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +22,7 @@ func TestSeriesLocalCorrectionProtectsConcurrentEdits(t *testing.T) {
 		if err := repos.DB.Create(&season).Error; err != nil {
 			t.Fatal(err)
 		}
-		snapshot := model.MetadataProviderSnapshot{MetadataID: season.ID, Metadata: season, Provider: "tmdb", Payload: `{"name":"第 1 季"}`}
+		snapshot := model.ProviderData{MetadataID: season.ID, Metadata: season, Provider: "tmdb", Payload: `{"name":"第 1 季"}`}
 		if source != "unchanged" {
 			if err := repos.DB.Model(&model.MetadataItem{}).Where("id = ?", season.ID).Updates(map[string]any{"source": source, "title": "用户刚保存的标题", "updated_at": season.UpdatedAt.Add(time.Second)}).Error; err != nil {
 				t.Fatal(err)
@@ -61,7 +61,7 @@ func TestSeriesLocalCorrectionTaskVersionAndRetry(t *testing.T) {
 	if err := repos.DB.Create(&season).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", json.RawMessage(`{"name":123}`), time.Now()); err != nil {
+	if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: `{"name":123}`, FetchedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.StartSeriesLocalCorrection(t.Context(), true); err != nil {
@@ -73,7 +73,7 @@ func TestSeriesLocalCorrectionTaskVersionAndRetry(t *testing.T) {
 	if version == seriesLocalCorrectionVersion || len(recent) != 1 || recent[0].Status != TaskStatusFailed || recent[0].Metrics["failed"] != 1 {
 		t.Fatalf("failed run marked complete: version=%s recent=%#v", version, recent)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", json.RawMessage(`{"name":"第 1 季"}`), time.Now()); err != nil {
+	if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: `{"name":"第 1 季"}`, FetchedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.StartSeriesLocalCorrection(t.Context(), false); err != nil {

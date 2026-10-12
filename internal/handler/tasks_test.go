@@ -37,8 +37,8 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 30 {
-		t.Fatalf("definitions = %d, want 30", len(response.Definitions))
+	if len(response.Definitions) != 28 {
+		t.Fatalf("definitions = %d, want 28", len(response.Definitions))
 	}
 	foundRefresh, foundEnrichment := false, false
 	foundTMDb, foundMigration := false, false
@@ -46,7 +46,7 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 		if definition.Key == service.TaskKindTMDbDataRefresh {
 			foundTMDb = definition.Name == "TMDb 资料刷新"
 		}
-		if definition.Key == service.TaskKindTMDbCenterMigration {
+		if definition.Key == "tmdb_center_migration" {
 			foundMigration = true
 		}
 		if definition.Key == service.TaskDefinitionDoubanDataRefresh {
@@ -56,7 +56,7 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 			foundEnrichment = definition.Name == "豆瓣信息补齐"
 		}
 	}
-	if !foundRefresh || !foundEnrichment || !foundTMDb || !foundMigration {
+	if !foundRefresh || !foundEnrichment || !foundTMDb || foundMigration {
 		t.Fatal("douban refresh and enrichment definitions must be separate")
 	}
 
@@ -111,15 +111,15 @@ func TestTasksHandlerDefinitionsOnlyPreservesTaskState(t *testing.T) {
 	}
 }
 
-func TestTaskDefinitionRunHandlerReportsTMDbSnapshotBackfillUnavailable(t *testing.T) {
+func TestTaskDefinitionRunHandlerRejectsRetiredTMDbSnapshotBackfill(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionTMDbSnapshotBackfill}}
+	ctx.Params = gin.Params{{Key: "key", Value: "tmdb_snapshot_backfill"}}
 
 	taskDefinitionRunHandler(&service.Container{})(ctx)
 
-	if recorder.Code != http.StatusServiceUnavailable {
+	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }

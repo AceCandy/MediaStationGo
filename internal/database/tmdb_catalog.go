@@ -9,7 +9,8 @@ func ensureTMDbCatalogSchema(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_tmdb_person_image_source ON tmdb_person_profiles(image_source_path) WHERE image_key<>''`,
 		`CREATE INDEX IF NOT EXISTS idx_tmdb_artwork_source ON tmdb_artworks(source_path)`,
 		`CREATE INDEX IF NOT EXISTS idx_tmdb_subject_list ON tmdb_subjects(kind,updated_at DESC,id)`,
-		`CREATE OR REPLACE FUNCTION tmdb_catalog_source_changed() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE local_id text; BEGIN IF NEW.subject_id IS NULL THEN RETURN NULL; END IF; FOR local_id IN SELECT mid.metadata_id FROM tmdb_subjects s JOIN metadata_identifiers mid ON mid.provider='tmdb' AND mid.entity_kind=s.kind AND s.tmdb_id=CASE WHEN mid.external_id ~ '^[1-9][0-9]{0,9}$' THEN mid.external_id::bigint END WHERE s.id=NEW.subject_id LOOP PERFORM tmdb_recheck_related(local_id,false); END LOOP; RETURN NULL; END $$`,
+		// 转换来源 ID，保留标识索引的完整等值条件，避免每条正文扫描同类全部标识。
+		`CREATE OR REPLACE FUNCTION tmdb_catalog_source_changed() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE local_id text; BEGIN IF NEW.subject_id IS NULL THEN RETURN NULL; END IF; FOR local_id IN SELECT mid.metadata_id FROM tmdb_subjects s JOIN metadata_identifiers mid ON mid.provider='tmdb' AND mid.entity_kind=s.kind AND mid.external_id=s.tmdb_id::text AND mid.external_id ~ '^[1-9][0-9]{0,9}$' WHERE s.id=NEW.subject_id LOOP PERFORM tmdb_recheck_related(local_id,false); END LOOP; RETURN NULL; END $$`,
 		`DROP TRIGGER IF EXISTS tmdb_catalog_source_changed ON tmdb_payloads`,
 		`CREATE TRIGGER tmdb_catalog_source_changed AFTER INSERT ON tmdb_payloads FOR EACH ROW EXECUTE FUNCTION tmdb_catalog_source_changed()`,
 	}

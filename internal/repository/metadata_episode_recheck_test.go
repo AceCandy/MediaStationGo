@@ -156,7 +156,7 @@ func TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
@@ -208,8 +208,8 @@ func TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if scenario != "snapshot" {
-			if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: `{"id":1}`, FetchedAt: now}).Error; err != nil {
+		if scenario != "snapshot" && scenario != "identifier" {
+			if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: `{"id":1}`, FetchedAt: now}); err != nil {
 				t.Fatal(err)
 			}
 		}

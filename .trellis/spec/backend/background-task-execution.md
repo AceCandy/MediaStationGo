@@ -955,13 +955,28 @@ Correct: submit keyword explicitly, keep recheck items and summary independent, 
 
 ## TMDb source maintenance
 
-Startup automatic snapshot backfill waits for successful offline center migration
-in the same background goroutine. Migration failure or cancellation must not
-start backfill; service readiness does not wait for this chain. Preserve the
-completed migration checkpoint and idempotent retry behavior.
+TMDb/Douban source data comes exclusively from their centers. There is no startup
+legacy import, failure queue, snapshot fallback or whole-library snapshot backfill.
+`retireCatalogHistory` removes obsolete tables and settings at startup; their
+models must never be registered again. Per-request fills and periodic component
+refresh remain normal source-center operations, independent of local media.
 
-`tmdb_data_refresh` and `tmdb_center_migration` are common tasks independent of
-media ownership. Existing artwork/episode/snapshot maintenance keys remain stable.
+The payload insert notification joins local identifiers by provider, kind and
+`external_id = tmdb_id::text`, retaining the positive 1–10 digit guard. Convert
+the single source ID rather than every identifier: the latter scans all same-kind
+identifiers on every imported payload. Verify the installed function's lookup
+with a generic PostgreSQL plan over a large same-kind fixture.
+
+TMDb source write caches belong to one source-write transaction and are created
+only after acquiring `tmdb_catalog_write`; never reuse them across commits or
+rollbacks. Batch-load unseen credit people, but merge every input row so later
+roles may contribute fields. Skip unchanged subject/person projection updates
+only when the source timestamp is unchanged too; preserve payloads, relationships,
+image state and job settlement. Local parent-chain lookups select each identifier
+by primary-key order, retaining missing-binding and parent-conflict checks.
+
+`tmdb_data_refresh` is a common task independent of media ownership.
+Existing artwork and episode maintenance keys remain stable.
 Source periodic refresh defaults off, runs hourly when enabled, and uses 100 real
 HTTP attempts per run (configurable 1–1000). Each attempt consumes admission budget;
 images are separate. Requests share concurrency 2, 250 ms start spacing, persisted
@@ -976,3 +991,21 @@ using their original times; identity/search summaries never become automatic ful
 fetches. Task metrics distinguish selected entities/scopes, actual HTTP attempts,
 updated, failed, cache hits and deferred work. Partial request failure is not a
 successful all-updated run; old source records remain readable.
+
+## TMDb source transactions and independent image writes
+
+Source writes acquire `tmdb_catalog_write` and keep their subject/person cache
+inside one transaction ConnPool. Never carry cached rows across commits or rollbacks.
+Existing person projection saves omit `ImageKey` and `ImageSourcePath`. With an
+unchanged `ProfilePath`, also omit `ImageStatus` and `ImageRetryAt`; a changed path
+resets only status/retry and retains the previous image fallback. New profiles
+are created completely. Image workers update conditionally by the observed path.
+
+Credits use batches of 500 while retaining per-row validation, role keys and
+merge order. `TestTMDbCatalogPreservesConcurrentPersonImage` uses independent,
+schema-pinned PostgreSQL connections; `TestTMDbCatalogBatchesCreditsAndRollsBack`
+covers duplicate roles, the second-batch failure and transaction rollback.
+`TestTMDbCatalogReusesTransactionWrites` covers cache reuse and state protection.
+New Season/Episode responses require explicit valid coordinates; no origin flag
+relaxes that validation. Applying an already accepted center response validates
+its source parent coordinate without changing the raw body or source timestamp.

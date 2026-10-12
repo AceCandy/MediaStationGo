@@ -91,7 +91,7 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			next = catalogSeasonItem(series.ID, details)
 			payload, credits, loaded = details.RawJSON, details.Credits, details.LoadedCreditTypes
 			artwork[model.ArtworkTypePoster] = details.PosterURL
-			if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, season.ID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()); err != nil {
+			if err := s.repo.Metadata.ReplaceIdentifierWithData(ctx, season.ID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()); err != nil {
 				return err
 			}
 			if err := s.refreshSeasonEpisodesFromDetails(ctx, season, details); err != nil {
@@ -142,12 +142,12 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 		}
 	}
 	if item.Kind == model.MetadataKindSeason || item.Kind == model.MetadataKindEpisode {
-		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, "tmdb", item.Kind, strconv.Itoa(tmdbID), payload, time.Now().UTC()); err != nil {
+		if err := s.repo.Metadata.ReplaceIdentifierWithData(ctx, item.ID, "tmdb", item.Kind, strconv.Itoa(tmdbID), payload, time.Now().UTC()); err != nil {
 			return err
 		}
 		return s.repo.Metadata.ConfirmTMDbRecheckFound(ctx, item.ID)
 	}
-	return s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", payload, time.Now().UTC())
+	return s.repo.Metadata.SaveProviderData(ctx, item.ID, "tmdb", payload, time.Now().UTC())
 }
 
 // validTMDbRefreshPosition 校验响应的季集坐标；缺少季号不能误判为特别篇第 0 季。
@@ -206,7 +206,7 @@ func (s *ScraperService) refreshSeasonEpisodesFromDetails(ctx context.Context, s
 				return err
 			}
 		}
-		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, episode.ID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(summary.ID), epPayload, now); err != nil {
+		if err := s.repo.Metadata.ReplaceIdentifierWithData(ctx, episode.ID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(summary.ID), epPayload, now); err != nil {
 			return err
 		}
 		if err := s.repo.Metadata.ConfirmTMDbRecheckFound(ctx, episode.ID); err != nil {
@@ -251,7 +251,7 @@ func (s *ScraperService) RefreshMetadataTMDbByIdentity(ctx context.Context, id r
 	if item == nil {
 		return ErrMediaNotFound
 	}
-	snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, item.ID, "tmdb")
+	snapshot, err := s.repo.Metadata.FindProviderData(ctx, item.ID, "tmdb")
 	if err != nil {
 		return err
 	}

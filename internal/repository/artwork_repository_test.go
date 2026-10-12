@@ -106,7 +106,7 @@ func TestRepairDoubanCandidatePreservesOtherSelectionAndUpdatesMatchingSelection
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := []any{&model.MetadataItem{}, &model.MetadataProviderSnapshot{}, &model.DoubanSubject{}, &model.MetadataIdentifier{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}}
+	models := []any{&model.MetadataItem{}, &model.DoubanSubject{}, &model.MetadataIdentifier{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}}
 	for range 2 {
 		if err := db.AutoMigrate(models...); err != nil {
 			t.Fatal(err)
@@ -137,7 +137,7 @@ func TestRepairDoubanCandidatePreservesOtherSelectionAndUpdatesMatchingSelection
 		if err := db.Create(&model.MetadataIdentifier{MetadataID: items[i].ID, Provider: "douban", EntityKind: items[i].Kind, ExternalID: items[i].ID[:20]}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := New(db).Metadata.UpsertProviderSnapshot(t.Context(), items[i].ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
+		if err := New(db).Metadata.SaveProviderData(t.Context(), items[i].ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
 			t.Fatal(err)
 		}
 	}

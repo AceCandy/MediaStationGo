@@ -25,8 +25,8 @@ type CatalogArtworkCandidate struct {
 	MissingStill    bool
 }
 
-// TMDbSnapshotBackfillCandidate 是具有合法 TMDb 标识且缺少原始快照的元数据。
-type TMDbSnapshotBackfillCandidate struct {
+// TMDbSourceIdentity 是按需获取来源资料时校验的本地绑定。
+type TMDbSourceIdentity struct {
 	MetadataID   string
 	Title        string
 	SeriesTitle  string
@@ -184,58 +184,45 @@ RETURNING xmax = 0 AS created`, uuid.NewString(), now, now, candidate.EntityKind
 	return CatalogJobRequeued, nil
 }
 
-func (r *MetadataRepository) UpsertProviderSnapshot(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time) error {
-	return r.upsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt, false)
+func (r *MetadataRepository) SaveProviderData(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time) error {
+	return r.saveProviderData(ctx, metadataID, provider, payload, fetchedAt, false)
 }
 
-func (r *MetadataRepository) UpsertDegradedProviderSnapshot(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time) error {
-	return r.upsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt, true)
+func (r *MetadataRepository) SaveDegradedProviderData(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time) error {
+	return r.saveProviderData(ctx, metadataID, provider, payload, fetchedAt, true)
 }
 
-func (r *MetadataRepository) upsertProviderSnapshot(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time, degraded bool) error {
+func (r *MetadataRepository) saveProviderData(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time, degraded bool) error {
 	if strings.TrimSpace(metadataID) == "" || strings.TrimSpace(provider) == "" || !json.Valid(payload) {
-		return errors.New("valid metadata provider snapshot is required")
+		return errors.New("valid provider data is required")
 	}
 	if strings.EqualFold(strings.TrimSpace(provider), "douban") {
 		return r.saveDoubanSubject(ctx, metadataID, payload, fetchedAt, degraded)
 	}
 	if strings.EqualFold(strings.TrimSpace(provider), "tmdb") {
-		return r.saveTMDbSnapshot(ctx, metadataID, payload, fetchedAt, degraded)
+		return r.saveTMDbSourceData(ctx, metadataID, payload, fetchedAt, degraded)
 	}
-	payloadText := string(payload)
-	snapshot := model.MetadataProviderSnapshot{MetadataID: metadataID, Provider: strings.ToLower(strings.TrimSpace(provider)), Payload: payloadText, Degraded: degraded, FetchedAt: fetchedAt}
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "metadata_id"}, {Name: "provider"}},
-		DoUpdates: clause.Assignments(map[string]any{"payload": payloadText, "degraded": degraded, "fetched_at": fetchedAt, "updated_at": time.Now()}),
-		// 整季拆出的集数据不能覆盖同一集已有的扩展快照；更换身份或手动完整刷新仍可更新。
-		Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `NOT COALESCE((
-			excluded.provider = 'tmdb'
-			AND excluded.payload ? 'episode_number'
-			AND NOT (excluded.payload ?| ARRAY['external_ids','translations','credits','videos'])
-			AND metadata_provider_snapshots.payload->>'id' = excluded.payload->>'id'
-			AND metadata_provider_snapshots.payload ?| ARRAY['external_ids','translations','credits','videos']
-		), FALSE)`}}},
-	}).Create(&snapshot).Error
+	return errors.New("unsupported catalog provider")
 }
 
-// ReplaceIdentifierWithSnapshot 在同一事务中更新 provider 标识和对应原始快照。
-func (r *MetadataRepository) ReplaceIdentifierWithSnapshot(ctx context.Context, metadataID, provider, entityKind, externalID string, payload json.RawMessage, fetchedAt time.Time) error {
+// ReplaceIdentifierWithData 在同一事务中更新 provider 标识和资料中心正文。
+func (r *MetadataRepository) ReplaceIdentifierWithData(ctx context.Context, metadataID, provider, entityKind, externalID string, payload json.RawMessage, fetchedAt time.Time) error {
 	if !json.Valid(payload) {
-		return errors.New("valid metadata provider snapshot is required")
+		return errors.New("valid provider data is required")
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := replaceMetadataIdentifier(tx, metadataID, provider, entityKind, externalID); err != nil {
 			return err
 		}
 		txRepo := &MetadataRepository{db: tx}
-		return txRepo.UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)
+		return txRepo.SaveProviderData(ctx, metadataID, provider, payload, fetchedAt)
 	})
 }
 
-// InsertMissingTMDbSnapshot 校验当前身份后只补空缺，保护请求期间的改绑和其他路径已保存的快照。
-func (r *MetadataRepository) InsertMissingTMDbSnapshot(ctx context.Context, candidate TMDbSnapshotBackfillCandidate, payload json.RawMessage, fetchedAt time.Time) error {
+// InsertMissingTMDbData 校验当前身份后只补空缺，保护请求期间的改绑和其他路径已保存的来源资料。
+func (r *MetadataRepository) InsertMissingTMDbData(ctx context.Context, candidate TMDbSourceIdentity, payload json.RawMessage, fetchedAt time.Time) error {
 	if !json.Valid(payload) || candidate.TMDbID <= 0 {
-		return errors.New("valid TMDB snapshot is required")
+		return errors.New("valid TMDB source data is required")
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var item model.MetadataItem
@@ -254,91 +241,27 @@ func (r *MetadataRepository) InsertMissingTMDbSnapshot(ctx context.Context, cand
 			return err
 		}
 		var count int64
-		if err := tx.Table(tmdbSnapshotSourceSQL+" AS snapshots").Where("metadata_id = ? AND provider = 'tmdb'", candidate.MetadataID).Count(&count).Error; err != nil {
+		if err := tx.Table(tmdbSourceDataSQL+" AS snapshots").Where("metadata_id = ? AND provider = 'tmdb'", candidate.MetadataID).Count(&count).Error; err != nil {
 			return err
 		}
 		if count > 0 {
 			return nil
 		}
-		return (&MetadataRepository{db: tx}).saveTMDbSnapshot(ctx, candidate.MetadataID, payload, fetchedAt, false)
+		return (&MetadataRepository{db: tx}).saveTMDbSourceData(ctx, candidate.MetadataID, payload, fetchedAt, false)
 	})
 }
 
-func (r *MetadataRepository) missingTMDbSnapshotQuery(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Table("metadata_items AS mi").
-		Joins(`JOIN LATERAL (
-            SELECT CASE WHEN mid.external_id ~ '^[1-9][0-9]{0,9}$' THEN mid.external_id::bigint END AS tmdb_id
-            FROM metadata_identifiers AS mid
-            WHERE mid.metadata_id = mi.id
-              AND mid.provider = 'tmdb'
-              AND mid.entity_kind = mi.kind
-              AND mid.external_id ~ '^[1-9][0-9]{0,9}$'
-            ORDER BY LENGTH(mid.external_id), mid.external_id, mid.id
-            LIMIT 1
-        ) AS own_tmdb ON own_tmdb.tmdb_id BETWEEN 1 AND 2147483647`).
-		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason, model.MetadataKindEpisode}).
-		// 先排除已有快照的标识，避免对全目录逐条挑选 TMDb ID。
-		Where(`EXISTS (
-            SELECT 1 FROM metadata_identifiers AS missing
-            WHERE missing.metadata_id = mi.id AND missing.provider = 'tmdb' AND missing.entity_kind = mi.kind
-              AND NOT EXISTS (
-                SELECT 1 FROM ` + tmdbSnapshotSourceSQL + ` AS snapshot
-                WHERE snapshot.metadata_id = missing.metadata_id AND snapshot.provider = 'tmdb'
-              )
-        )`)
-}
-
-// CountMissingTMDbSnapshots 返回当前全库缺失 TMDb 快照的合法候选数。
-func (r *MetadataRepository) CountMissingTMDbSnapshots(ctx context.Context) (int64, error) {
-	var total int64
-	err := r.missingTMDbSnapshotQuery(ctx).Count(&total).Error
-	return total, err
-}
-
-// ListMissingTMDbSnapshotsAfter 按 metadata ID 分页，且不依赖 media 关联。
-func (r *MetadataRepository) ListMissingTMDbSnapshotsAfter(ctx context.Context, afterID string, limit int) ([]TMDbSnapshotBackfillCandidate, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	limit = min(limit, 200)
-	var candidates []TMDbSnapshotBackfillCandidate
-	err := r.missingTMDbSnapshotQuery(ctx).
-		Select(`mi.id AS metadata_id, mi.title, COALESCE(series.title, '') AS series_title, mi.kind AS entity_kind,
-            own_tmdb.tmdb_id, COALESCE(series_tmdb.tmdb_id, 0) AS series_tmdb_id,
-            CASE WHEN mi.kind = 'season' THEN mi.season_num WHEN mi.kind = 'episode' THEN season.season_num ELSE 0 END AS season_num,
-            mi.episode_num`).
-		Joins("LEFT JOIN metadata_items AS season ON mi.kind = 'episode' AND season.id = mi.parent_id AND season.kind = 'season'").
-		Joins(`LEFT JOIN metadata_items AS series ON series.kind = 'series' AND series.id = CASE
-            WHEN mi.kind = 'season' THEN mi.parent_id
-            WHEN mi.kind = 'episode' THEN season.parent_id
-            ELSE NULL
-        END`).
-		Joins(`LEFT JOIN LATERAL (
-            SELECT CASE WHEN mid.external_id ~ '^[1-9][0-9]{0,9}$' THEN mid.external_id::bigint END AS tmdb_id
-            FROM metadata_identifiers AS mid
-            WHERE mid.metadata_id = series.id
-              AND mid.provider = 'tmdb'
-              AND mid.entity_kind = 'series'
-              AND mid.external_id ~ '^[1-9][0-9]{0,9}$'
-            ORDER BY LENGTH(mid.external_id), mid.external_id, mid.id
-            LIMIT 1
-        ) AS series_tmdb ON series_tmdb.tmdb_id BETWEEN 1 AND 2147483647`).
-		Where("mi.id > ?", strings.TrimSpace(afterID)).
-		Order("mi.id ASC").Limit(limit).Scan(&candidates).Error
-	return candidates, err
-}
-
-func (r *MetadataRepository) FindProviderSnapshot(ctx context.Context, metadataID, provider string) (*model.MetadataProviderSnapshot, error) {
+func (r *MetadataRepository) FindProviderData(ctx context.Context, metadataID, provider string) (*model.ProviderData, error) {
 	if strings.EqualFold(strings.TrimSpace(provider), "douban") {
 		subject, err := (&DoubanRepository{db: r.db}).FindForMetadata(ctx, metadataID)
 		if err != nil || subject == nil || subject.Payload == nil || subject.FetchedAt == nil {
 			return nil, err
 		}
-		return &model.MetadataProviderSnapshot{MetadataID: metadataID, Provider: "douban", Payload: *subject.Payload,
+		return &model.ProviderData{MetadataID: metadataID, Provider: "douban", Payload: *subject.Payload,
 			Degraded: subject.Quality == model.DoubanQualityDegraded, FetchedAt: *subject.FetchedAt}, nil
 	}
-	var snapshot model.MetadataProviderSnapshot
-	err := r.db.WithContext(ctx).Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").Where("metadata_id = ? AND provider = ?", metadataID, strings.ToLower(strings.TrimSpace(provider))).Take(&snapshot).Error
+	var snapshot model.ProviderData
+	err := r.db.WithContext(ctx).Table(tmdbSourceDataSQL+" AS source_data").Where("metadata_id = ? AND provider = ?", metadataID, strings.ToLower(strings.TrimSpace(provider))).Take(&snapshot).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -359,31 +282,31 @@ func (r *MetadataRepository) UpdateLocalizedMetadata(ctx context.Context, item *
 	return true, nil
 }
 
-func (r *MetadataRepository) CountLocalCorrectionSnapshots(ctx context.Context) (int64, error) {
+func (r *MetadataRepository) CountLocalCorrectionData(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").
-		Joins("JOIN metadata_items AS m ON m.id = metadata_provider_snapshots.metadata_id").
-		Where("metadata_provider_snapshots.provider = ? AND m.source = ? AND m.kind IN ?", "tmdb", "tmdb", []string{model.MetadataKindSeason, model.MetadataKindEpisode}).Count(&count).Error
+	err := r.db.WithContext(ctx).Model(&model.ProviderData{}).Table(tmdbSourceDataSQL+" AS source_data").
+		Joins("JOIN metadata_items AS m ON m.id = source_data.metadata_id").
+		Where("source_data.provider = ? AND m.source = ? AND m.kind IN ?", "tmdb", "tmdb", []string{model.MetadataKindSeason, model.MetadataKindEpisode}).Count(&count).Error
 	return count, err
 }
 
-func (r *MetadataRepository) ListProviderSnapshotsAfter(ctx context.Context, provider string, kinds []string, afterID string, limit int) ([]model.MetadataProviderSnapshot, error) {
+func (r *MetadataRepository) ListProviderDataAfter(ctx context.Context, provider string, kinds []string, afterID string, limit int) ([]model.ProviderData, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" || len(kinds) == 0 {
-		return []model.MetadataProviderSnapshot{}, nil
+		return []model.ProviderData{}, nil
 	}
 	if limit <= 0 {
 		limit = 200
 	}
-	var snapshots []model.MetadataProviderSnapshot
-	q := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").
-		Select("metadata_provider_snapshots.*").
-		Joins("JOIN metadata_items AS snapshot_metadata ON snapshot_metadata.id = metadata_provider_snapshots.metadata_id").
-		Where("metadata_provider_snapshots.provider = ? AND snapshot_metadata.source = ? AND snapshot_metadata.kind IN ?", provider, provider, kinds)
+	var snapshots []model.ProviderData
+	q := r.db.WithContext(ctx).Model(&model.ProviderData{}).Table(tmdbSourceDataSQL+" AS source_data").
+		Select("source_data.*").
+		Joins("JOIN metadata_items AS snapshot_metadata ON snapshot_metadata.id = source_data.metadata_id").
+		Where("source_data.provider = ? AND snapshot_metadata.source = ? AND snapshot_metadata.kind IN ?", provider, provider, kinds)
 	if strings.TrimSpace(afterID) != "" {
-		q = q.Where("metadata_provider_snapshots.id > ?", afterID)
+		q = q.Where("source_data.id > ?", afterID)
 	}
-	err := q.Preload("Metadata").Order("metadata_provider_snapshots.id ASC").Limit(limit).Find(&snapshots).Error
+	err := q.Preload("Metadata").Order("source_data.id ASC").Limit(limit).Find(&snapshots).Error
 	return snapshots, err
 }
 

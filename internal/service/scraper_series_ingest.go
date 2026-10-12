@@ -169,7 +169,7 @@ func (s *ScraperService) repairInvalidScrapeSeason(ctx context.Context, media *m
 
 // ingestSeasonInventory 每季读取一次快照或网络响应，只填基础信息，不推进完整补全检查点。
 func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *model.MetadataItem, tmdbID int, wanted ...int) (map[int]bool, error) {
-	snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, season.ID, "tmdb")
+	snapshot, err := s.repo.Metadata.FindProviderData(ctx, season.ID, "tmdb")
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *mode
 		available[episode.EpisodeNumber] = true
 	}
 	if snapshot == nil {
-		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, season.ID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()); err != nil {
+		if err := s.repo.Metadata.ReplaceIdentifierWithData(ctx, season.ID, "tmdb", model.MetadataKindSeason, strconv.Itoa(details.ID), details.RawJSON, time.Now().UTC()); err != nil {
 			return nil, err
 		}
 	}

@@ -25,7 +25,7 @@ func TestTMDbRecheckNotFoundCooldownAndIdentity(t *testing.T) {
 			if source == "season_inventory" {
 				kind = "episode"
 			}
-			db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{})
+			db := newServiceTestDB(t, &model.Media{})
 			if err := db.AutoMigrate(&model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
 				t.Fatal(err)
 			}

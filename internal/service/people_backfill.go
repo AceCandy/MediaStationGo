@@ -180,7 +180,7 @@ func (s *ScraperService) backfillSeasonPeople(ctx context.Context, metadataID st
 	if err != nil {
 		return err
 	}
-	if snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, metadataID, "tmdb"); err != nil {
+	if snapshot, err := s.repo.Metadata.FindProviderData(ctx, metadataID, "tmdb"); err != nil {
 		return err
 	} else if snapshot != nil {
 		var fields map[string]json.RawMessage
@@ -214,7 +214,7 @@ func (s *ScraperService) backfillSeasonPeople(ctx context.Context, metadataID st
 	if details == nil || details.ID != seasonID || details.SeasonNumber != season.SeasonNum {
 		return ErrTMDbRefreshIdentity
 	}
-	if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, metadataID, "tmdb", details.RawJSON, time.Now().UTC()); err != nil {
+	if err := s.repo.Metadata.SaveProviderData(ctx, metadataID, "tmdb", details.RawJSON, time.Now().UTC()); err != nil {
 		return err
 	}
 	return s.persistCredits(ctx, metadataID, details.LoadedCreditTypes, details.Credits)

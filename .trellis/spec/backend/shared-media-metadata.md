@@ -1759,7 +1759,7 @@ if snapshot.Degraded {
 - Episode count boundary: `GetEpisodeCountByID` reads `episodes_count` from the
   same mobile detail response.
 - Snapshot writes:
-  `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)` and
+  `SaveProviderData(ctx, metadataID, provider, payload, fetchedAt)` and
   `UpsertDegradedProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
 - Non-Douban snapshot identity remains `(metadata_id, provider)` with JSONB
   payloads. Douban details now live in `douban_subjects`, keyed by external ID
@@ -1931,7 +1931,7 @@ if snapshot.Degraded {
 // Wrong: a secondary provider overwrites authoritative non-empty fields or
 // hides a permission fallback inside an apparently complete snapshot.
 metadata.Overview = doubanDetail.Overview
-repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", subject.RawJSON, fetchedAt)
+repo.SaveProviderData(ctx, metadata.ID, "douban", subject.RawJSON, fetchedAt)
 
 // Correct: the Provider saves shared data before local completion. Compatibility
 // writes preserve the original fetching time; local failures retain the detail.
@@ -1939,7 +1939,7 @@ fetchedAt := detail.DoubanFetchedAt
 if degraded {
     repo.UpsertDegradedProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
 } else {
-    repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
+    repo.SaveProviderData(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
 }
 fillMissingDoubanFields(ctx, metadata.ID, metadata.Kind, detail, degraded)
 repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
@@ -2021,7 +2021,7 @@ the artwork worker downloads and completes its own checkpoint independently.
 
 - Canonical item checkpoints:
   `MetadataItem{RuntimeSec, CatalogMetadataHydratedAt, CatalogArtworkHydratedAt, CatalogHydratedAt}`.
-- Raw response: `MetadataProviderSnapshot{MetadataID, Provider, Payload JSONB, FetchedAt}`.
+- Raw response: `ProviderData{MetadataID, Provider, Payload, FetchedAt} (read DTO from provider centers)`.
 - Durable work: `CatalogHydrationJob{Provider, EntityKind, ExternalID, MetadataID, Status, Stage, Attempts, NextAttemptAt, LastError}`.
 - Queue boundary:
   `QueueCatalogHydrationContext(context.Context, []ExternalMediaResult) error`.
@@ -2614,155 +2614,34 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 }
 ```
 
-## Scenario: TMDb Detail Snapshots and Missing-Snapshot Recovery
+## Scenario: Provider Centers as the Only Source Store
 
-### 1. Scope / Trigger
+- TMDb raw responses live in `tmdb_payloads`, associated with independent
+  `tmdb_subjects` or `tmdb_person_profiles`; Douban responses live in
+  `douban_subjects`. Local `metadata_identifiers` link display metadata to them.
+- `ProviderData` is a read DTO, never an AutoMigrate model. `FindProviderData`
+  and `ListProviderDataAfter` project center payloads through current identities.
+  No old-table fallback is allowed. Summary responses retain the degraded flag;
+  newer base/season-episode data overlays full detail without erasing its extras.
+- `SaveProviderData`/`SaveDegradedProviderData` route only supported providers to
+  their centers. `ReplaceIdentifierWithData` changes the local identifier and
+  saves validated source data in one transaction. Failures roll back both.
+- Accepted NFO/cross-provider ingestion may call `ensureTMDbSourceData` for
+  immediate Movie/Series detail. Unconfigured sources skip it; failure does not
+  undo accepted local metadata. `InsertMissingTMDbData` locks and rechecks the
+  identity after fetching; concurrent source data wins. Retry happens through
+  subsequent ingestion or source-center refresh, never startup legacy backfill.
+- Local metadata deletion/merge moves local associations only. It never deletes
+  independent center data. Shared people, local display overrides, media and
+  artwork selections remain business records.
+- Startup `retireCatalogHistory` drops `metadata_provider_snapshots` and
+  `tmdb_migration_failures` plus retired migration/backfill settings, without
+  CASCADE. Center tables and local associations remain intact. Removed historical
+  task definitions/actions must not be accepted by the task API.
+- Verify with real PostgreSQL: clean and repeated startup, old-schema retirement,
+  data/identifier preservation, missing-provider results, center reads/updates,
+  optional fill concurrency, manual identity rollback and local graph merge.
 
-- Apply this contract whenever a Movie, Series, Season, or Episode TMDb detail
-  request is added or changed, a manual TMDb identifier is edited, or missing
-  provider snapshots are migrated.
-- A snapshot is the valid raw JSON returned by a complete TMDb detail endpoint.
-  Projected metadata and downloaded artwork are not substitutes for it.
-
-### 2. Signatures
-
-- Snapshot write:
-  `MetadataRepository.UpsertProviderSnapshot(ctx, metadataID, "tmdb", payload, fetchedAt)`.
-- Optional cross-provider fill:
-  `ScraperService.ensureTMDbSnapshot(ctx, metadataID, entityKind, tmdbID)` and
-  `MetadataRepository.InsertMissingTMDbSnapshot(ctx, candidate, payload, fetchedAt)`.
-- Strict manual identity write:
-  `MetadataRepository.ReplaceIdentifierWithSnapshot(ctx, metadataID, "tmdb", entityKind, externalID, payload, fetchedAt)`.
-- Backfill discovery:
-  `CountMissingTMDbSnapshots(ctx)` and
-  `ListMissingTMDbSnapshotsAfter(ctx, afterID, limit)`.
-- Backfill execution:
-  `ScraperService.StartTMDbSnapshotBackfill(ctx, automatic)` and
-  `BackfillTMDbSnapshots(ctx, progress)`.
-- Successful-pass completion setting:
-  `internal.tmdb_snapshot_backfill_completed=true`.
-- Stable task definition/action/kind: `tmdb_snapshot_backfill`.
-- Metrics: integer `processed`, `total`, `succeeded`, `failed`, and `remaining`.
-
-### 3. Contracts
-
-- Every successfully fetched complete TMDb detail writes a valid raw snapshot.
-  Movie/Series use their own TMDb ID; Season/Episode requests use the ancestor
-  Series ID plus season/episode coordinates and validate the returned entity ID
-  when an expected child ID exists.
-- Normal scrape and manual match first preserve the accepted canonical match.
-  A later optional detail or snapshot failure is best-effort and must not roll
-  back that accepted match. Search-page JSON alone is never a detail snapshot.
-- NFO and non-TMDb provider ingestion attempt an immediate Movie/Series detail
-  snapshot after saving a positive same-kind TMDb identifier. Reuse the detail
-  fetch/validation path; preserve original display fields, source and artwork.
-  Existing snapshots and unconfigured TMDb skip network requests. Failed fills
-  remain eligible for the next ingestion or startup recovery; no periodic scan.
-- Optional fill rechecks and locks the current metadata kind and identifier
-  after the request, then inserts on conflict do nothing. A changed identity
-  rejects the old response, and a concurrently saved snapshot wins.
-- Editing a TMDb ID is strict: fetch and validate the complete detail before any
-  identity write, then replace the identifier and snapshot in one repository
-  transaction. Any detail or snapshot error preserves both prior values.
-- A zero TMDb ID removes only the identifier. Existing canonical metadata and
-  snapshots are retained. Deleting media, a library root, or a library likewise
-  does not delete canonical metadata, identifiers, or snapshots. Metadata graph
-  merge first preserves source TMDb snapshots in the center, then moves/deduplicates
-  legacy rows. A preservation failure rolls back the merge.
-- Backfill candidates are all Movie/Series/Season/Episode metadata with a valid
-  positive, same-kind TMDb identifier and no TMDb snapshot. Discovery never
-  joins `media`; unlinked canonical metadata remains eligible.
-- Backfill uses bounded metadata-ID keyset pages and serial provider requests.
-  It writes snapshots only, isolates per-item failures, and uses snapshot
-  existence as the business checkpoint. Task rows and log text are observability,
-  never resume state.
-- Automatic startup skips only when completion is true and no actual snapshot
-  gaps remain. This also recovers gaps hidden by legacy completion markers.
-  Only a complete pass with no failed items writes completion; cancellation,
-  fatal queries and per-item failures do not mark a new successful pass.
-  Snapshot absence remains retry state, independent of the historical marker.
-- Automatic and manual runs share one task-kind mutex. They create the persisted
-  task execution before background work. The definition exposes current metrics
-  while running and the latest terminal metrics afterward; the Web task page
-  keeps its existing three-second refresh.
-- `remaining` is `max(total - processed, 0)` during the pass and is forced to
-  zero after complete enumeration. Failed checked items remain in `failed`, not
-  in `remaining`. Provider errors are sanitized before task details or finish.
-
-### 4. Validation & Error Matrix
-
-| Condition | Required result |
-| --- | --- |
-| Raw detail JSON is empty or invalid | Do not write a snapshot |
-| Normal scrape optional detail/snapshot fails | Keep the accepted match and log a sanitized warning |
-| Manual ID detail fetch or ID validation fails | Reject the new ID; preserve prior identifier and snapshot |
-| Manual snapshot database write fails | Roll back the identifier replacement in the same transaction |
-| Candidate has no usable ancestor Series ID/coordinates | Count it as one failed item and continue |
-| One provider request or snapshot write fails | Increment `processed` and `failed`; continue the pass |
-| Count/page query fails | Fail the task and leave the completion setting absent |
-| Service context is canceled | Mark the task interrupted and leave the completion setting absent |
-| Enumeration completes with failed items | Do not set completion; force `remaining=0` and mark the task failed |
-| Enumeration completes with no failed items | Set completion and mark the task completed |
-| Automatic start sees completion=true and no gaps | Create no task and make no TMDb request |
-| Automatic start sees completion=true but gaps exist | Retry current missing snapshots |
-| NFO/non-TMDb ingestion has a positive TMDb ID but no snapshot | Attempt detail fill without changing accepted presentation |
-| Optional fill races an identity change or snapshot write | Reject stale identity; preserve the concurrent snapshot |
-| Manual start sees completion=true | Start a new run over the currently missing snapshots |
-| Another snapshot backfill is active | Return a conflict; do not create a second execution |
-
-### 5. Good / Base / Bad Cases
-
-- Good: a search-selected Movie is linked immediately, its successful complete
-  detail overwrites no unrelated metadata and saves the raw response snapshot.
-- Good: a pass processes four kinds, records one failed provider item, leaves
-  completion unset, and exposes only that missing item to startup/manual retry.
-- Base: the first upgraded start finds no candidates; it records a zero-metric
-  completed task and writes the completion setting.
-- Base: a media file is deleted; its canonical metadata, TMDb identity, and
-  snapshot remain available for discovery/history reuse.
-- Bad: parse task logs as a cursor, join candidates through `media`, or schedule
-  a periodic full-library snapshot scan.
-- Bad: save a manually entered TMDb ID first and fetch its snapshot afterward.
-
-### 6. Tests Required
-
-- Provider persistence: known-ID and search-detail Movie/Series snapshots;
-  Season/Episode snapshots; invalid/empty raw JSON; repeat upsert behavior.
-- Repository/PostgreSQL: four-kind candidate count and keyset pages without a
-  `media` table, unlinked metadata eligibility, existing-snapshot exclusion,
-  and identifier rollback after a snapshot-stage database failure.
-- Manual edit: Movie and hierarchical Episode success, provider/JSON failure,
-  returned child-ID mismatch, and prior identifier/snapshot preservation.
-- Backfill: all four kinds, per-item failure isolation, snapshot-only writes,
-  successful checkpoint exclusion, cancellation without completion, complete
-  pass with failures, automatic no-rerun without gaps, legacy marker recovery,
-  and manual retry after completion.
-- `TestNonTMDbIngestionFillsSnapshotWithoutChangingPresentation`,
-  `TestTMDbSnapshotAutofillFailureKeepsIngestionRetryable` and
-  `TestTMDbSnapshotAutofillProtectsConcurrentWrites` exercise NFO/Douban
-  Movie/Series ingestion, repeat request exclusion, failure recovery and stale
-  response protection on PostgreSQL with simulated TMDb HTTP responses.
-- Task/API/UI: stable definition, same-kind conflict, current/latest metrics,
-  manual action status, three-second refresh, lint, and production build.
-
-### 7. Wrong vs Correct
-
-```go
-// Wrong: a partial identity remains when the snapshot write fails.
-repo.ReplaceIdentifier(ctx, metadataID, "tmdb", kind, externalID)
-repo.UpsertProviderSnapshot(ctx, metadataID, "tmdb", payload, fetchedAt)
-
-// Correct: identifier and valid snapshot are one strict manual transaction.
-repo.ReplaceIdentifierWithSnapshot(ctx, metadataID, "tmdb", kind, externalID, payload, fetchedAt)
-```
-
-```go
-// Wrong: task history is migration state.
-afterID := latestTask.Metrics["cursor"]
-
-// Correct: snapshot existence checkpoints items, including gaps after a successful pass.
-candidates := repo.ListMissingTMDbSnapshotsAfter(ctx, afterID, pageSize)
-```
 
 ## Scenario: Web Series Detail Hierarchy
 

@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
+
 	"fmt"
 	"testing"
 	"time"
@@ -68,8 +70,8 @@ func TestTMDbRecheckSeasonTimingAndPriority(t *testing.T) {
 		}
 	}
 	// 首播很久以前，但本季快照含近期已播集与远期待播集。
-	snapshot := model.MetadataProviderSnapshot{MetadataID: seasons[1].ID, Provider: "tmdb", Payload: fmt.Sprintf(`{"id":22,"season_number":2,"episodes":[{"air_date":%q},{"air_date":%q}]}`, now.AddDate(0, 0, -1).Format(time.DateOnly), now.AddDate(0, 0, 90).Format(time.DateOnly))}
-	if err := db.Create(&snapshot).Error; err != nil {
+	snapshot := model.ProviderData{MetadataID: seasons[1].ID, Provider: "tmdb", Payload: fmt.Sprintf(`{"id":22,"season_number":2,"episodes":[{"air_date":%q},{"air_date":%q}]}`, now.AddDate(0, 0, -1).Format(time.DateOnly), now.AddDate(0, 0, 90).Format(time.DateOnly))}
+	if err := testdb.SaveProviderDataFixture(db, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	order, err := repo.ListTMDbRecheckSeasonOrder(t.Context(), now)
@@ -105,7 +107,8 @@ func TestTMDbRecheckSeasonTimingAndPriority(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 错季快照不能改变该季频率，本地分集日期仍然可以。
-	if err := db.Model(&snapshot).Update("payload", `{"id":22,"season_number":99,"episodes":[{"air_date":"2026-09-14"}]}`).Error; err != nil {
+	snapshot.Payload = `{"id":22,"season_number":99,"episodes":[{"air_date":"2026-09-14"}]}`
+	if err := testdb.SaveProviderDataFixture(db, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	state, err := repo.TMDbRecheckState(t.Context(), episode.ID)

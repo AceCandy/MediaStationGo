@@ -497,7 +497,7 @@ func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.
 	}
 	now := time.Now().UTC()
 	if item.CatalogMetadataHydratedAt == nil {
-		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", match.RawJSON, now); err != nil {
+		if err := s.repo.Metadata.SaveProviderData(ctx, item.ID, "tmdb", match.RawJSON, now); err != nil {
 			return err
 		}
 		if err := s.saveCreditInputs(ctx, item.ID, match.LoadedCreditTypes, creditInputs(match.Credits)); err != nil {
@@ -563,7 +563,7 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 		if err != nil {
 			return err
 		}
-		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, season.ID, "tmdb", details.RawJSON, now); err != nil {
+		if err := s.repo.Metadata.SaveProviderData(ctx, season.ID, "tmdb", details.RawJSON, now); err != nil {
 			return err
 		}
 		if err := s.saveCreditInputs(ctx, season.ID, details.LoadedCreditTypes, creditInputs(details.Credits)); err != nil {
@@ -625,7 +625,7 @@ func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, season, epis
 		if err != nil {
 			return err
 		}
-		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, episode.ID, "tmdb", details.RawJSON, now); err != nil {
+		if err := s.repo.Metadata.SaveProviderData(ctx, episode.ID, "tmdb", details.RawJSON, now); err != nil {
 			return err
 		}
 		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_metadata_hydrated_at", now); err != nil {

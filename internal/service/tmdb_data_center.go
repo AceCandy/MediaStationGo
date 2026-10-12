@@ -37,17 +37,16 @@ type tmdbCatalogFlight struct {
 
 // TMDbDataCenter 统一来源请求的缓存、并发与持久状态；不应用本地展示字段。
 type TMDbDataCenter struct {
-	migrationMu sync.Mutex
-	repo        *repository.Container
-	provider    *TMDbProvider
-	artwork     *ArtworkStore
-	people      *PeopleImageStore
-	ctx         context.Context
-	mu          sync.Mutex
-	flights     map[string]*tmdbCatalogFlight
-	sem         chan struct{}
-	nextStart   time.Time
-	wg          sync.WaitGroup
+	repo      *repository.Container
+	provider  *TMDbProvider
+	artwork   *ArtworkStore
+	people    *PeopleImageStore
+	ctx       context.Context
+	mu        sync.Mutex
+	flights   map[string]*tmdbCatalogFlight
+	sem       chan struct{}
+	nextStart time.Time
+	wg        sync.WaitGroup
 }
 
 func NewTMDbDataCenter(repo *repository.Container, p *TMDbProvider) *TMDbDataCenter {

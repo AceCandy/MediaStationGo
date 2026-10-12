@@ -51,7 +51,7 @@ const tmdbRecheckTimingColumns = `COALESCE(timing_season.release_date,'') AS sea
 COALESCE((SELECT jsonb_agg(d.air_date) FROM (
  SELECT e.release_date AS air_date FROM metadata_items e WHERE e.parent_id=timing_season.id AND e.kind='episode'
  UNION ALL
- SELECT e->>'air_date' FROM ` + tmdbSnapshotSourceSQL + ` p,
+ SELECT e->>'air_date' FROM ` + tmdbSourceDataSQL + ` p,
  jsonb_array_elements(CASE WHEN jsonb_typeof(p.payload->'episodes')='array' THEN p.payload->'episodes' ELSE '[]'::jsonb END) e
  WHERE p.metadata_id=timing_season.id AND p.provider='tmdb'
  AND p.payload->>'season_number'=timing_season.season_num::text

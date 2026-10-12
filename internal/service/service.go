@@ -127,21 +127,11 @@ func (c *Container) Boot() {
 	_ = c.startupStep("加载资料源默认配置", func() error { return c.APIConfig.SeedDefaults(c.stopCtx) })
 	if c.TMDbCenter != nil {
 		c.TMDbCenter.Start(c.stopCtx)
-		c.TMDbCenter.wg.Add(1)
-		go func() {
-			defer c.TMDbCenter.wg.Done()
-			if err := c.migrateTMDbAndStartBackfill(); err != nil && c.Log != nil {
-				c.Log.Warn("TMDb startup maintenance incomplete", zap.Error(sanitizeTaskLogError(err)))
-			}
-		}()
 	}
 	if c.MediaProbe != nil {
 		_ = c.startupStep("启动媒体轨道回填", func() error { c.MediaProbe.WakeBackfill(); return nil })
 	}
 	if c.Scraper != nil {
-		if c.TMDbCenter == nil {
-			_ = c.startupStep("启动资料快照回填", func() error { return c.Scraper.StartTMDbSnapshotBackfill(c.stopCtx, true) })
-		}
 		_ = c.startupStep("恢复资料刮削队列", func() error { return c.Scraper.StartCatalogHydrationWorker(c.stopCtx) })
 		_ = c.startupStep("启动资料图片下载", func() error { c.Scraper.StartCatalogArtworkWorker(c.stopCtx); return nil })
 		_ = c.startupStep("启动剧集本地资料纠正", func() error { return c.Scraper.StartSeriesLocalCorrection(c.stopCtx, true) })
@@ -156,21 +146,6 @@ func (c *Container) Boot() {
 	ready = true
 }
 
-// 历史迁移失败或取消时不启动自动回填；后台串行执行不阻塞服务就绪。
-func (c *Container) migrateTMDbAndStartBackfill() error {
-	if err := c.TMDbCenter.Migrate(c.stopCtx, c.Tasks, "startup"); err != nil {
-		return err
-	}
-	if err := c.stopCtx.Err(); err != nil {
-		return err
-	}
-	if c.Scraper != nil {
-		return c.Scraper.StartTMDbSnapshotBackfill(c.stopCtx, true)
-	}
-	return nil
-}
-
-// Context is canceled when the service container is closing.
 func (c *Container) Context() context.Context {
 	if c == nil || c.stopCtx == nil {
 		return context.Background()

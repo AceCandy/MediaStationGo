@@ -41,7 +41,7 @@ func (r *MetadataRepository) RetryCatalogArtwork(ctx context.Context, item model
 		UpdateColumns(map[string]any{"catalog_artwork_due_at": next, "catalog_artwork_attempts": item.CatalogArtworkAttempts + 1}).Error
 }
 
-func catalogArtworkSnapshotCurrent(tx *gorm.DB, item model.MetadataItem, snapshot *model.MetadataProviderSnapshot) error {
+func catalogArtworkDataCurrent(tx *gorm.DB, item model.MetadataItem, snapshot *model.ProviderData) error {
 	var current model.MetadataItem
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ?", item.ID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -52,11 +52,11 @@ func catalogArtworkSnapshotCurrent(tx *gorm.DB, item model.MetadataItem, snapsho
 	if current.Source != item.Source || current.Kind != item.Kind || current.CatalogArtworkDueAt == nil || !current.CatalogArtworkDueAt.Equal(*item.CatalogArtworkDueAt) {
 		return ErrCatalogArtworkChanged
 	}
-	var currentSnapshot model.MetadataProviderSnapshot
-	err := tx.Table(tmdbSnapshotSourceSQL+" AS metadata_provider_snapshots").
-		Select("metadata_provider_snapshots.*").
+	var currentSnapshot model.ProviderData
+	err := tx.Table(tmdbSourceDataSQL+" AS source_data").
+		Select("source_data.*").
 		Where("metadata_id = ? AND provider = 'tmdb' AND fetched_at = ? AND payload = ?::jsonb", item.ID, snapshot.FetchedAt, snapshot.Payload).
-		Where(`EXISTS (SELECT 1 FROM metadata_identifiers mi WHERE mi.metadata_id = metadata_provider_snapshots.metadata_id AND mi.provider = 'tmdb' AND mi.entity_kind = ? AND mi.external_id = metadata_provider_snapshots.payload->>'id')`, item.Kind).
+		Where(`EXISTS (SELECT 1 FROM metadata_identifiers mi WHERE mi.metadata_id = source_data.metadata_id AND mi.provider = 'tmdb' AND mi.entity_kind = ? AND mi.external_id = source_data.payload->>'id')`, item.Kind).
 		Take(&currentSnapshot).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrCatalogArtworkChanged
@@ -65,10 +65,10 @@ func catalogArtworkSnapshotCurrent(tx *gorm.DB, item model.MetadataItem, snapsho
 }
 
 // SaveCatalogArtworkAsset 在网络请求结束后校验来源，仅填补空图片选择。
-func (r *MetadataRepository) SaveCatalogArtworkAsset(ctx context.Context, item model.MetadataItem, snapshot *model.MetadataProviderSnapshot, kind, source string, asset *model.ArtworkAsset) (bool, error) {
+func (r *MetadataRepository) SaveCatalogArtworkAsset(ctx context.Context, item model.MetadataItem, snapshot *model.ProviderData, kind, source string, asset *model.ArtworkAsset) (bool, error) {
 	selected := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := catalogArtworkSnapshotCurrent(tx, item, snapshot); err != nil {
+		if err := catalogArtworkDataCurrent(tx, item, snapshot); err != nil {
 			return err
 		}
 		var err error
@@ -79,9 +79,9 @@ func (r *MetadataRepository) SaveCatalogArtworkAsset(ctx context.Context, item m
 }
 
 // CompleteCatalogArtwork 图片与头像处理成功后才完成图片检查点；显式无图留给既有复查。
-func (r *MetadataRepository) CompleteCatalogArtwork(ctx context.Context, item model.MetadataItem, snapshot *model.MetadataProviderSnapshot, missing []string) error {
+func (r *MetadataRepository) CompleteCatalogArtwork(ctx context.Context, item model.MetadataItem, snapshot *model.ProviderData, missing []string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := catalogArtworkSnapshotCurrent(tx, item, snapshot); err != nil {
+		if err := catalogArtworkDataCurrent(tx, item, snapshot); err != nil {
 			return err
 		}
 		now := time.Now().UTC()

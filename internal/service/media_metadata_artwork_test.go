@@ -70,7 +70,7 @@ func TestTMDbArtworkLocalRepairRestoresOldURLWithoutCatalogOrTMDb(t *testing.T) 
 }
 
 func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelection(t *testing.T) {
-	db := newServiceTestDB(t, &model.APIConfig{}, &model.MetadataProviderSnapshot{})
+	db := newServiceTestDB(t, &model.APIConfig{})
 	repos := repository.New(db)
 	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"}
 	if err := db.Create(&metadata).Error; err != nil {
@@ -89,7 +89,7 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: metadata.ID, Provider: "douban", EntityKind: metadata.Kind, ExternalID: "123"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), metadata.ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,7 +171,7 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := newServiceTestDB(t, &model.MetadataProviderSnapshot{})
+			db := newServiceTestDB(t, &model.TMDbPayload{})
 			repos := repository.New(db)
 			metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "douban"}
 			if err := db.Create(&metadata).Error; err != nil {
@@ -187,7 +187,7 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 			if err := db.Create(&model.MetadataIdentifier{MetadataID: metadata.ID, Provider: "douban", EntityKind: metadata.Kind, ExternalID: "123"}).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
+			if err := repos.Metadata.SaveProviderData(t.Context(), metadata.ID, "douban", []byte(payload), time.Now().UTC()); err != nil {
 				t.Fatal(err)
 			}
 			root := t.TempDir()

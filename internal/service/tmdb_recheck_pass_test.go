@@ -29,7 +29,7 @@ func TestTMDbRecheckUsesDedicatedDetailsTimeout(t *testing.T) {
 }
 
 func TestTMDbRecheckPassReusesScatteredSeasons(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
+	db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{})
 	if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestTMDbRecheckPassReusesScatteredSeasons(t *testing.T) {
 func TestTMDbRecheckSeasonSharesFailuresAndReleasesCancellation(t *testing.T) {
 	for _, mode := range []string{"http_error", "timeout", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
-			db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{})
+			db := newServiceTestDB(t, &model.Media{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{})
 			series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
 			season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1})
 			past := time.Now().Add(-time.Hour)
@@ -186,7 +186,7 @@ func TestTMDbRecheckStagePreservesClassificationAndRedaction(t *testing.T) {
 func TestTMDbRecheckFailuresReportActualStage(t *testing.T) {
 	for _, stage := range []struct{ key, label string }{{"details", "详情请求"}, {"image", "图片下载及落盘"}, {"save", "数据库保存"}} {
 		t.Run(stage.key, func(t *testing.T) {
-			db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{})
+			db := newServiceTestDB(t, &model.Media{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{})
 			repos := repository.New(db)
 			series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "测试剧"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
 			season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1})
@@ -200,7 +200,7 @@ func TestTMDbRecheckFailuresReportActualStage(t *testing.T) {
 			}
 			if stage.key == "save" {
 				if err := db.Exec(`CREATE FUNCTION reject_recheck_snapshot() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'snapshot write failed'; END; $$ LANGUAGE plpgsql;
-CREATE TRIGGER reject_recheck_snapshot BEFORE INSERT ON metadata_provider_snapshots FOR EACH ROW EXECUTE FUNCTION reject_recheck_snapshot()`).Error; err != nil {
+CREATE TRIGGER reject_recheck_snapshot BEFORE INSERT ON tmdb_payloads FOR EACH ROW EXECUTE FUNCTION reject_recheck_snapshot()`).Error; err != nil {
 					t.Fatal(err)
 				}
 			}

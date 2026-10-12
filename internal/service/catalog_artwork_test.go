@@ -163,19 +163,19 @@ func TestCatalogArtworkRejectsStaleSnapshotAndPreservesManualSelection(t *testin
 	defer cleanup()
 	now := time.Now().UTC()
 	item := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "电影", Source: "tmdb", CatalogMetadataHydratedAt: &now}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "movie", ExternalID: "42"})
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(`{"id":42,"poster_path":"/old.jpg"}`), now); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), item.ID, "tmdb", []byte(`{"id":42,"poster_path":"/old.jpg"}`), now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.queueCatalogArtwork(t.Context(), item.ID); err != nil {
 		t.Fatal(err)
 	}
 	item, _ = repos.Metadata.FindByID(t.Context(), item.ID)
-	snapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), item.ID, "tmdb")
+	snapshot, _ := repos.Metadata.FindProviderData(t.Context(), item.ID, "tmdb")
 	asset, err := s.artwork.prepareAsset(item.ID, model.ArtworkTypePoster, "tmdb", testArtworkPNG(t, 4, 3))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(`{"id":42,"poster_path":"/new.jpg"}`), now.Add(time.Second)); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), item.ID, "tmdb", []byte(`{"id":42,"poster_path":"/new.jpg"}`), now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repos.Metadata.SaveCatalogArtworkAsset(t.Context(), *item, snapshot, "poster", "https://images.example.test/old.jpg", asset); !errors.Is(err, repository.ErrCatalogArtworkChanged) {
@@ -192,7 +192,7 @@ func TestCatalogArtworkRejectsStaleSnapshotAndPreservesManualSelection(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, _ = repos.Metadata.FindProviderSnapshot(t.Context(), item.ID, "tmdb")
+	snapshot, _ = repos.Metadata.FindProviderData(t.Context(), item.ID, "tmdb")
 	if selected, err := repos.Metadata.SaveCatalogArtworkAsset(t.Context(), *item, snapshot, "poster", "https://images.example.test/new.jpg", asset); err != nil || selected {
 		t.Fatalf("manual selection replaced: %v %v", selected, err)
 	}
@@ -208,7 +208,7 @@ func TestCatalogArtworkMergeAndIdleWake(t *testing.T) {
 	now := time.Now().UTC()
 	source := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "movie", Title: "来源", Source: "tmdb", CatalogMetadataHydratedAt: &now}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "movie", ExternalID: "42"})
 	target := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "movie", Title: "保留资料", Source: "tmdb", CatalogMetadataHydratedAt: &now})
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), source.ID, "tmdb", []byte(`{"id":42}`), now); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), source.ID, "tmdb", []byte(`{"id":42}`), now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.queueCatalogArtwork(t.Context(), source.ID); err != nil {
@@ -229,7 +229,7 @@ func TestCatalogArtworkMergeAndIdleWake(t *testing.T) {
 	s.tasks = NewTaskTrackerService(nil, nil)
 	s.StartCatalogArtworkWorker(ctx)
 	item := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "movie", Title: "新增资料", Source: "tmdb", CatalogMetadataHydratedAt: &now}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "movie", ExternalID: "43"})
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(`{"id":43}`), now); err != nil {
+	if err := repos.Metadata.SaveProviderData(t.Context(), item.ID, "tmdb", []byte(`{"id":43}`), now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.queueCatalogArtwork(t.Context(), item.ID); err != nil {

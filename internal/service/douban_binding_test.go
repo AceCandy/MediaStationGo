@@ -121,7 +121,7 @@ func TestDoubanBindingImmediateAndForced(t *testing.T) {
 			if poster, err := repos.Artwork.FindSelection(t.Context(), item.ID, "poster"); err != nil || poster == nil {
 				t.Fatal("poster not immediately saved")
 			}
-			if snap, err := repos.Metadata.FindProviderSnapshot(t.Context(), item.ID, "douban"); err != nil || snap == nil {
+			if snap, err := repos.Metadata.FindProviderData(t.Context(), item.ID, "douban"); err != nil || snap == nil {
 				t.Fatal("snapshot not immediately saved")
 			}
 			if len(children) > 0 {
@@ -198,7 +198,7 @@ func TestDoubanBackgroundRejectsResponseAfterRebind(t *testing.T) {
 	if got.Title != "Original" {
 		t.Fatal("stale response overwrote metadata")
 	}
-	if snapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), item.ID, "douban"); snapshot != nil {
+	if snapshot, _ := repos.Metadata.FindProviderData(t.Context(), item.ID, "douban"); snapshot != nil {
 		t.Fatal("stale snapshot persisted")
 	}
 }

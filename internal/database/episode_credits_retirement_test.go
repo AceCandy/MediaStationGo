@@ -12,7 +12,7 @@ func TestRetireEpisodeCreditsPreservesPeopleAndOtherWorks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.MetadataProviderSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}); err != nil {
 		t.Fatal(err)
 	}
 	person := model.Person{Name: "Shared", OriginalName: "Shared", NormalizedName: "shared", Source: "tmdb"}
@@ -36,16 +36,13 @@ func TestRetireEpisodeCreditsPreservesPeopleAndOtherWorks(t *testing.T) {
 		if err := db.Create(&model.MetadataCredit{MetadataID: item.ID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: item.ID, Provider: "tmdb", Payload: `{"credits":{"cast":[]}}`}).Error; err != nil {
-			t.Fatal(err)
-		}
 	}
 	for range 2 {
 		if err := retireEpisodeCredits(db); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for table, want := range map[string]int64{"metadata_credits": 3, "people": 1, "metadata_provider_snapshots": 4, "metadata_items": 4} {
+	for table, want := range map[string]int64{"metadata_credits": 3, "people": 1, "metadata_items": 4} {
 		var count int64
 		if err := db.Table(table).Count(&count).Error; err != nil {
 			t.Fatal(err)

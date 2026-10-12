@@ -231,9 +231,9 @@ func (s *ScraperService) BindDouban(ctx context.Context, metadataID string, req 
 			}
 		}
 		if degraded {
-			return repos.Metadata.UpsertDegradedProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+			return repos.Metadata.SaveDegradedProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 		}
-		return repos.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+		return repos.Metadata.SaveProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
 	})
 	if err == nil {
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataID)

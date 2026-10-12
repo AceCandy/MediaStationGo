@@ -106,7 +106,7 @@ func (s *ScraperService) downloadPendingCatalogArtwork(ctx context.Context, task
 }
 
 func (s *ScraperService) downloadCatalogArtwork(ctx context.Context, item model.MetadataItem, metrics map[string]int64) error {
-	snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, item.ID, "tmdb")
+	snapshot, err := s.repo.Metadata.FindProviderData(ctx, item.ID, "tmdb")
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (s *ScraperService) downloadCatalogArtwork(ctx context.Context, item model.
 	return s.repo.Metadata.CompleteCatalogArtwork(ctx, item, snapshot, missing)
 }
 
-func (s *ScraperService) downloadCatalogImage(ctx context.Context, item model.MetadataItem, snapshot *model.MetadataProviderSnapshot, kind, source string, metrics map[string]int64) error {
+func (s *ScraperService) downloadCatalogImage(ctx context.Context, item model.MetadataItem, snapshot *model.ProviderData, kind, source string, metrics map[string]int64) error {
 	selected, err := s.repo.Artwork.FindSelection(ctx, item.ID, kind)
 	if err != nil {
 		return err

@@ -53,7 +53,7 @@ func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T
 		t.Fatal(err)
 	}
 	for _, raw := range []string{`{"id":10,"season_number":1}`, `{"id":10,"season_number":1,"episodes":[{"episode_number":20}]}`} {
-		if err := repo.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(raw), time.Now()); err != nil {
+		if err := repo.SaveProviderData(t.Context(), season.ID, "tmdb", []byte(raw), time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		record()
@@ -62,7 +62,7 @@ func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T
 			t.Fatalf("invalid/present inventory marked missing: %d %v", count, err)
 		}
 	}
-	if err := repo.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(`{"id":10,"season_number":1,"episodes":[]}`), time.Now()); err != nil {
+	if err := repo.SaveProviderData(t.Context(), season.ID, "tmdb", []byte(`{"id":10,"season_number":1,"episodes":[]}`), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	future := time.Now().Add(time.Hour)

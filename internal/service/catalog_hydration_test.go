@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -171,7 +173,7 @@ func TestCatalogHydrationDoesNotSkipLegacyRootOnlySeries(t *testing.T) {
 	if len(seasons) != 1 || seasons[0].SeasonNum != 1 {
 		t.Fatalf("legacy series seasons = %#v, want season one shell", seasons)
 	}
-	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), series.ID, "tmdb")
+	snapshot, err := repos.Metadata.FindProviderData(t.Context(), series.ID, "tmdb")
 	if err != nil || snapshot == nil {
 		t.Fatalf("legacy series snapshot: %v", err)
 	}
@@ -269,7 +271,7 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 			t.Fatalf("episode own overview = %#v", episode)
 		}
 	}
-	snapshots, err := repos.Metadata.ListProviderSnapshotsAfter(t.Context(), "tmdb", []string{"movie", "series", "season", "episode"}, "", 100)
+	snapshots, err := repos.Metadata.ListProviderDataAfter(t.Context(), "tmdb", []string{"movie", "series", "season", "episode"}, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +294,7 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 
 func TestLocalizeTMDbCatalogSnapshotKeepsNewerEpisodeMetadata(t *testing.T) {
 	fetched := time.Now().Add(-time.Hour)
-	snapshot := &model.MetadataProviderSnapshot{FetchedAt: fetched, Payload: `{"name":"Old title","overview":"Old overview"}`,
+	snapshot := &model.ProviderData{FetchedAt: fetched, Payload: `{"name":"Old title","overview":"Old overview"}`,
 		Metadata: model.MetadataItem{PermanentBase: model.PermanentBase{ID: "episode", UpdatedAt: fetched.Add(time.Minute)}, Kind: model.MetadataKindEpisode, Source: "tmdb", Title: "新标题", Overview: "新简介"}}
 	changed, err := (&ScraperService{}).localizeTMDbCatalogSnapshot(t.Context(), snapshot)
 	if err != nil || changed || snapshot.Metadata.Title != "新标题" || snapshot.Metadata.Overview != "新简介" {
@@ -323,13 +325,13 @@ func TestLocalizeTMDbCatalogSnapshotsBackfillsProviderOwnedChildren(t *testing.T
 	now := time.Now().UTC()
 	seasonPayload := json.RawMessage(`{"name":"第 1 季","overview":"","season_number":1,"translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"First Contact","overview":"Season overview"}}]}}`)
 	episodePayload := json.RawMessage(`{"name":"第 1 集","overview":"","episode_number":1,"translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"Arrival","overview":"Episode overview"}}]}}`)
-	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: string(seasonPayload), FetchedAt: now}).Error; err != nil {
+	if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: string(seasonPayload), FetchedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: episode.ID, Provider: "tmdb", Payload: string(episodePayload), FetchedAt: now}).Error; err != nil {
+	if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: episode.ID, Provider: "tmdb", Payload: string(episodePayload), FetchedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: manualEpisode.ID, Provider: "tmdb", Payload: string(episodePayload), FetchedAt: now}).Error; err != nil {
+	if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: manualEpisode.ID, Provider: "tmdb", Payload: string(episodePayload), FetchedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -371,7 +373,7 @@ func TestLocalizeTMDbCatalogSnapshotsRepairsUnrelatedSeasonTranslation(t *testin
 		t.Fatal(err)
 	}
 	payload := json.RawMessage(`{"name":"第 1 季","season_number":1,"translations":{"translations":[{"iso_639_1":"th","iso_3166_1":"TH","data":{"name":"ซีซั่น 1"}}]}}`)
-	if err := repos.DB.Create(&model.MetadataProviderSnapshot{MetadataID: season.ID, Provider: "tmdb", Payload: string(payload), FetchedAt: time.Now().UTC()}).Error; err != nil {
+	if err := testdb.SaveProviderDataFixture(repos.DB, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: string(payload), FetchedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
@@ -399,7 +401,7 @@ func TestLocalizeTMDbCatalogSnapshotsSkipsBadItemAndContinuesNextPage(t *testing
 	}
 
 	items := make([]model.MetadataItem, 0, catalogSnapshotLocalizationBatchSize+1)
-	snapshots := make([]model.MetadataProviderSnapshot, 0, catalogSnapshotLocalizationBatchSize+1)
+	snapshots := make([]model.ProviderData, 0, catalogSnapshotLocalizationBatchSize+1)
 	now := time.Now().UTC()
 	for i := 0; i <= catalogSnapshotLocalizationBatchSize; i++ {
 		suffix := strconv.Itoa(1000 + i)
@@ -413,16 +415,18 @@ func TestLocalizeTMDbCatalogSnapshotsSkipsBadItemAndContinuesNextPage(t *testing
 		if i == 0 {
 			payload = `{"name":123}`
 		}
-		snapshots = append(snapshots, model.MetadataProviderSnapshot{
-			PermanentBase: model.PermanentBase{ID: "backfill-snapshot-" + suffix}, MetadataID: metadataID,
+		snapshots = append(snapshots, model.ProviderData{
+			ID: "backfill-snapshot-" + suffix, MetadataID: metadataID,
 			Provider: "tmdb", Payload: payload, FetchedAt: now,
 		})
 	}
 	if err := repos.DB.Create(&items).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&snapshots).Error; err != nil {
-		t.Fatal(err)
+	for _, data := range snapshots {
+		if err := testdb.SaveProviderDataFixture(repos.DB, data); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if err := scraper.localizeTMDbCatalogSnapshots(t.Context(), nil); err == nil {

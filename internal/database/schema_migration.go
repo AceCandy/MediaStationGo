@@ -29,12 +29,6 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
-	if err := migrateDoubanRefreshTasks(db); err != nil {
-		return err
-	}
-	if err := migrateDoubanSubjects(db); err != nil {
-		return err
-	}
 	if err := ensureHuangGuoAIBindingIdentity(db); err != nil {
 		return err
 	}
@@ -105,6 +99,9 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	if err := removeUnusedLegacyColumns(db); err != nil {
+		return err
+	}
+	if err := retireCatalogHistory(db); err != nil {
 		return err
 	}
 	if err := EnsureTMDbRecheckTriggers(db); err != nil {
@@ -270,11 +267,9 @@ WHERE EXISTS (
 )`,
 			`DELETE FROM metadata_artworks AS ma WHERE ma.deleted_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM artwork_assets AS aa WHERE aa.id = ma.asset_id)`,
 			`DELETE FROM metadata_identifiers WHERE deleted_at IS NOT NULL`,
-			`DELETE FROM metadata_provider_snapshots WHERE deleted_at IS NOT NULL`,
 			`DELETE FROM catalog_hydration_jobs WHERE deleted_at IS NOT NULL`,
 			`DELETE FROM metadata_identifiers WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
 			`DELETE FROM metadata_artworks WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
-			`DELETE FROM metadata_provider_snapshots WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
 			`UPDATE catalog_hydration_jobs SET metadata_id = NULL WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
 			`DELETE FROM metadata_items WHERE deleted_at IS NOT NULL`,
 			`DROP INDEX IF EXISTS uidx_metadata_season`,
@@ -291,7 +286,7 @@ WHERE EXISTS (
 			}
 		}
 		for _, table := range []string{
-			"metadata_items", "metadata_identifiers", "metadata_provider_snapshots",
+			"metadata_items", "metadata_identifiers",
 			"catalog_hydration_jobs", "metadata_artworks", "artwork_assets",
 		} {
 			if err := tx.Exec("ALTER TABLE " + table + " DROP COLUMN IF EXISTS deleted_at").Error; err != nil {

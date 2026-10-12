@@ -22,7 +22,7 @@ import (
 )
 
 func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TMDbRecheckJob{})
+	db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TMDbRecheckJob{})
 	repos := repository.New(db)
 	old := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
 	makeItem := func(kind, externalID string, parent *string, season, episode int) *model.MetadataItem {
@@ -171,13 +171,13 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		t.Fatalf("metadata count = %d, err = %v", count, err)
 	}
 	before, _ := repos.Metadata.FindByID(t.Context(), movie.ID)
-	beforeSnapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), movie.ID, "tmdb")
+	beforeSnapshot, _ := repos.Metadata.FindProviderData(t.Context(), movie.ID, "tmdb")
 	wrongID = true
 	if err := scraper.RefreshMetadataTMDb(t.Context(), movie.ID); !errors.Is(err, ErrTMDbRefreshIdentity) {
 		t.Fatalf("wrong identity error = %v", err)
 	}
 	after, _ := repos.Metadata.FindByID(t.Context(), movie.ID)
-	afterSnapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), movie.ID, "tmdb")
+	afterSnapshot, _ := repos.Metadata.FindProviderData(t.Context(), movie.ID, "tmdb")
 	if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(beforeSnapshot, afterSnapshot) {
 		t.Fatal("mismatched provider identity changed metadata or snapshot")
 	}
@@ -190,7 +190,7 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 	if err := scraper.RefreshMetadataTMDb(t.Context(), movie.ID); err == nil {
 		t.Fatal("failed image refresh reported success")
 	}
-	failedSnapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), movie.ID, "tmdb")
+	failedSnapshot, _ := repos.Metadata.FindProviderData(t.Context(), movie.ID, "tmdb")
 	if !reflect.DeepEqual(beforeSnapshot, failedSnapshot) {
 		t.Fatal("incomplete refresh advanced snapshot")
 	}
@@ -200,7 +200,7 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 	for _, mode := range []string{"episode", "season", "episode_missing_id", "season_missing_id", "episode_stale_id", "running", "404", "wrong_identity"} {
 		t.Run(mode, func(t *testing.T) {
 			isSeason := mode == "season" || mode == "season_missing_id"
-			db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
+			db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 				&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{})
 			if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
 				t.Fatal(err)
@@ -349,7 +349,7 @@ func TestMergeTMDbMetadataPreservesMissingFields(t *testing.T) {
 }
 
 func TestDiscoverTMDbRefreshCooldown(t *testing.T) {
-	db := newServiceTestDB(t, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
+	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
 	repos := repository.New(db)
 	item := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "原资料", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "movie", ExternalID: "10"})
 	requests := 0
@@ -362,7 +362,7 @@ func TestDiscoverTMDbRefreshCooldown(t *testing.T) {
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, nil)
 	id := repository.DiscoverIdentity{TMDbID: 10, MediaType: "movie"}
 	for _, age := range []time.Duration{time.Hour, 3*time.Hour - time.Minute, 3 * time.Hour, 4 * time.Hour} {
-		if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(`{"id":10}`), time.Now().Add(-age)); err != nil {
+		if err := repos.Metadata.SaveProviderData(t.Context(), item.ID, "tmdb", []byte(`{"id":10}`), time.Now().Add(-age)); err != nil {
 			t.Fatal(err)
 		}
 		// 模拟时钟推进；旧正文重放不会倒退来源成功时间。

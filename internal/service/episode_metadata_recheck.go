@@ -173,7 +173,7 @@ func (s *ScraperService) persistTMDbMetadataRecheck(ctx context.Context, candida
 	changed := changedTMDbMetadataFields(item, metadata.updates)
 	applyTMDbMetadataUpdates(item, metadata.updates)
 	// 补全占位季、集的真实标识和快照，保留原元数据 ID 与媒体关联。
-	if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, "tmdb", candidate.Kind, strconv.Itoa(metadata.id), metadata.rawJSON, now); err != nil {
+	if err := s.repo.Metadata.ReplaceIdentifierWithData(ctx, item.ID, "tmdb", candidate.Kind, strconv.Itoa(metadata.id), metadata.rawJSON, now); err != nil {
 		return []string{"❌ " + subject + "，动作=保存标识和快照，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
 	checkedAt := &item.TMDbEpisodeCheckedAt
