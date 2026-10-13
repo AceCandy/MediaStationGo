@@ -247,3 +247,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 243: 豆瓣目录提速与资料列表交互统一
+<!-- trellis-session: v=2 fp=ed9b9b82e48bad07 -->
+
+**Date**: 2026-10-13
+**Task**: 豆瓣目录提速与资料列表交互统一
+**Branch**: `main`
+
+### Summary
+
+豆瓣目录采用数据库生成字段和分页索引，TMDB/豆瓣分类列表统一为每次30条滚动续载，分类榜单切换改为紧凑布局。独立审查、针对性PostgreSQL与浏览器回归、类型检查、lint和构建通过；扩展回归存在已复现的旧任务归属断言失败，详见归档验证记录。未重启实际服务、未写入生产结构、未推送远端。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `90dacc3` | perf(discover): 优化豆瓣目录查询并统一资料列表滚动续载 |
+
+### Status
+
+[OK] **Completed**
