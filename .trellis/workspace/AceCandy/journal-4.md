@@ -181,3 +181,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 240: 来源详情演职员分组与横向续载
+<!-- trellis-session: v=2 fp=93935d8e750db1c4 -->
+
+**Date**: 2026-10-13
+**Task**: 来源详情演职员分组与横向续载
+**Branch**: `main`
+
+### Summary
+
+完成演员和幕后独立横向续载，每批20条；修复TMDB分类过滤与排序，统一详情头部并补充中文标签。隔离PostgreSQL测试、浏览器回归、类型检查、Lint及构建通过，独立复核完成。未访问生产数据或执行真实上游刷新。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb7a60a` | feat(discover): 演员与幕后分组横向续载并统一详情展示 |
+
+### Status
+
+[OK] **Completed**
