@@ -225,3 +225,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 242: 服务器弹幕能力接入提交
+<!-- trellis-session: v=2 fp=a3f4d9dba76af166 -->
+
+**Date**: 2026-10-13
+**Task**: 服务器弹幕能力接入提交
+**Branch**: `main`
+
+### Summary
+
+声明服务器原生弹幕能力；能力查询独立于发现权限，发现内容仍受权限保护。同步播放器接口目录与扩展规范。HTTP权限/raw回归已在临时PostgreSQL上通过，目录类型及lint通过；未部署。仅提交5个相关文件，其它资料库性能任务改动保留。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6226796` | feat(emby-ext): 声明服务器弹幕能力并独立查询权限 |
+
+### Status
+
+[OK] **Completed**
