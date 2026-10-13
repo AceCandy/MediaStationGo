@@ -108,6 +108,44 @@ func TestTMDbCenterRequestReuseAndBudget(t *testing.T) {
 		t.Fatal("lease leaked")
 	}
 }
+
+func TestTMDbCenterSupplementTaskAndSourceProjection(t *testing.T) {
+	var calls atomic.Int32
+	s, _ := tmdbCenterTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		fmt.Fprint(w, `{"id":9,"title":"补全来源","credits":{"cast":[],"crew":[]},"external_ids":{}}`)
+	})
+	s.tasks = NewTaskTrackerService(nil, nil)
+	s.tasks.ConfigurePersistence(s.repo.TaskExecution, t.TempDir())
+	if err := s.repo.TMDb.SaveResponse(t.Context(), repository.TMDbSourceRequest{Kind: "movie", TMDbID: 9, Component: "summary", Language: "und", Origin: "identity"}, []byte(`{"id":9,"title":"榜单摘要"}`), time.Now(), ""); err != nil {
+		t.Fatal(err)
+	}
+	row, err := s.repo.TMDb.SubjectIdentity(t.Context(), "movie", 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err = s.Queue(t.Context(), row.ID, "detail", "viewer", false, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatal("queue performed HTTP request")
+	}
+	if _, updated, err := s.RunDue(t.Context(), false, 20); err != nil || updated != 1 || calls.Load() != 1 {
+		t.Fatalf("run updated=%d calls=%d err=%v", updated, calls.Load(), err)
+	}
+	history, err := s.tasks.DefinitionHistory(TaskKindTMDbDataSupplement, 1, 10)
+	if err != nil || history.Total != 1 || history.Items[0].System != model.TaskSystemTMDb || history.Items[0].Metrics["http_attempts"] != 1 {
+		t.Fatalf("task %+v %v", history, err)
+	}
+	if _, _, err = s.RunDue(t.Context(), false, 20); err != nil {
+		t.Fatal(err)
+	}
+	if page, err := s.tasks.DefinitionHistory(TaskKindTMDbDataSupplement, 1, 10); err != nil || page.Total != 1 {
+		t.Fatal("empty worker created execution")
+	}
+}
 func TestTMDbCenterCooldownSurvivesRestart(t *testing.T) {
 	var calls atomic.Int32
 	s, p := tmdbCenterTest(t, func(w http.ResponseWriter, r *http.Request) {

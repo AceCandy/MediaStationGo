@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -44,12 +45,16 @@ type DoubanSubjectRefreshResult struct {
 	SupplementUnavailable bool                 `json:"supplement_unavailable"`
 }
 
-func (d *DoubanProvider) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int) ([]repository.DoubanSubjectSummary, int64, error) {
-	rows, total, err := d.dataRepo.Douban.ListSubjects(ctx, keyword, kind, page, pageSize)
+func (d *DoubanProvider) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int, genres ...string) ([]repository.DoubanSubjectSummary, int64, error) {
+	rows, total, err := d.dataRepo.Douban.ListSubjects(ctx, keyword, kind, page, pageSize, genres...)
 	for i := range rows {
 		rows[i].PosterURL = doubanSubjectPosterURL(rows[i].ID, rows[i].HasPayload)
 	}
 	return rows, total, err
+}
+
+func (d *DoubanProvider) Categories(ctx context.Context, kind string) ([]repository.CatalogCategory, error) {
+	return d.dataRepo.Douban.Categories(ctx, kind)
 }
 
 func (d *DoubanProvider) SubjectDetail(ctx context.Context, id string) (*DoubanSubjectDetail, error) {
@@ -65,12 +70,18 @@ func (d *DoubanProvider) SubjectDetail(ctx context.Context, id string) (*DoubanS
 	}
 	detail := &DoubanSubjectDetail{DoubanSubjectSummary: repository.DoubanSubjectSummary{
 		ID: subject.ID, DoubanID: subject.DoubanID, EntityKind: subject.EntityKind,
-		Rating: subject.Rating, Quality: subject.Quality, HasPayload: subject.Payload != nil,
-		FetchedAt: subject.FetchedAt, RichFetchedAt: subject.RichFetchedAt, LastAttemptAt: subject.LastAttemptAt, NextRetryAt: subject.NextRetryAt,
-		PosterURL: doubanSubjectPosterURL(subject.ID, subject.Payload != nil),
+		Rating: subject.Rating, Quality: subject.Quality, HasPayload: subject.Payload != nil || subject.Summary != nil,
+		RefreshPending: subject.SupplementPending && (subject.SupplementRetryAt == nil || !time.Now().Before(*subject.SupplementRetryAt)) && (subject.NextRetryAt == nil || !time.Now().Before(*subject.NextRetryAt)),
+		SourceError:    subject.SupplementRetryAt != nil || subject.NextRetryAt != nil,
+		FetchedAt:      subject.FetchedAt, RichFetchedAt: subject.RichFetchedAt, LastAttemptAt: subject.LastAttemptAt, NextRetryAt: subject.NextRetryAt,
+		PosterURL: doubanSubjectPosterURL(subject.ID, subject.Payload != nil || subject.Summary != nil),
 	}}
-	if subject.Payload != nil {
-		detail.RawJSON = json.RawMessage(*subject.Payload)
+	payload := subject.Payload
+	if payload == nil {
+		payload = subject.Summary
+	}
+	if payload != nil {
+		detail.RawJSON = json.RawMessage(*payload)
 		match, err := doubanMatchFromRawJSON(subject.DoubanID, detail.RawJSON)
 		if err == nil {
 			detail.Title, detail.OriginalName, detail.Overview = match.Title, match.OriginalName, match.Overview
@@ -80,7 +91,9 @@ func (d *DoubanProvider) SubjectDetail(ctx context.Context, id string) (*DoubanS
 			}
 			detail.Genres, detail.Languages, detail.Countries = match.Genres, match.Languages, match.Countries
 		}
-		populateDoubanRichDetail(detail, subject)
+		if subject.Payload != nil {
+			populateDoubanRichDetail(detail, subject)
+		}
 	}
 	return detail, nil
 }

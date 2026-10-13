@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 // Discover returns public Douban movie/TV rails. Douban does not require a
@@ -59,15 +61,25 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int)
 		return nil, err
 	}
 	out := make([]ExternalMediaResult, 0, len(page.Subjects))
+	summaries := []model.DoubanSubject{}
+	seen := map[string]bool{}
 	mediaType := "movie"
 	if doubanType == "tv" {
 		mediaType = "tv"
 	}
 	for _, subject := range page.Subjects {
-		if strings.TrimSpace(subject.Title) == "" {
+		if strings.TrimSpace(subject.Title) == "" || !validDoubanID(subject.ID) || seen[subject.ID] {
 			continue
 		}
-		rating, _ := strconv.ParseFloat(subject.Rate, 32)
+		seen[subject.ID] = true
+		kind := model.MetadataKindMovie
+		if mediaType == "tv" {
+			kind = model.MetadataKindSeries
+		}
+		raw, _ := json.Marshal(map[string]any{"id": subject.ID, "title": subject.Title, "rate": subject.Rate, "cover_url": subject.Cover})
+		text := string(raw)
+		rating := model.DoubanRating(text)
+		summaries = append(summaries, model.DoubanSubject{DoubanID: subject.ID, EntityKind: kind, Summary: &text, Quality: model.DoubanQualityPartial, Rating: rating})
 		out = append(out, ExternalMediaResult{
 			Source:    "douban",
 			MediaType: mediaType,
@@ -76,6 +88,11 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int)
 			Rating:    float32(rating),
 			DoubanID:  subject.ID,
 		})
+	}
+	if d.dataRepo != nil {
+		if err := d.dataRepo.Douban.SaveSummaries(ctx, summaries); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }

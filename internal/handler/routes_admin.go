@@ -13,6 +13,7 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	admin := api.Group("/admin")
 	admin.Use(middleware.AuthRequired(cfg.Secrets.JWTSecret), activeUserRequired(svc), middleware.AdminRequired())
 	registerTMDbCenterRoutes(admin.Group("/tmdb"), svc, true)
+	registerDoubanCenterRoutes(admin.Group("/douban"), svc, true)
 	registerAdminUserRoutes(admin, svc)
 	registerAdminPermissionRoutes(admin, svc)
 	registerAdminNotificationRoutes(admin, svc)
@@ -25,13 +26,6 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	admin.DELETE("/media/:id/strm-delete-target", deleteSTRMTargetHandler(svc))
 	admin.GET("/player-request-logs", playerRequestLogsHandler(svc))
 	admin.GET("/playback-stats", adminPlaybackStatsHandler(svc))
-	admin.GET("/douban/subjects", listDoubanSubjectsHandler(svc))
-	admin.GET("/douban/subjects/:id", doubanSubjectHandler(svc, false))
-	admin.POST("/douban/subjects/:id/refresh", doubanSubjectHandler(svc, true))
-	admin.GET("/douban/subjects/:id/poster", doubanSubjectPosterHandler(svc))
-	admin.HEAD("/douban/subjects/:id/poster", doubanSubjectPosterHandler(svc))
-	admin.GET("/douban/subjects/:id/credits/:index/image", doubanSubjectCreditImageHandler(svc))
-	admin.HEAD("/douban/subjects/:id/credits/:index/image", doubanSubjectCreditImageHandler(svc))
 }
 
 func registerAdminUserRoutes(admin *gin.RouterGroup, svc *service.Container) {

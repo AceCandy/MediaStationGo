@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestNFOTasksUseCommonDefinitions(t *testing.T) {
+func TestNFOTasksUseMediaDefinitions(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
 	tracker.ConfigurePersistence(nil, t.TempDir())
 	for _, kind := range []string{TaskKindScan, TaskKindWatch, TaskKindScrape} {
@@ -23,12 +23,12 @@ func TestNFOTasksUseCommonDefinitions(t *testing.T) {
 	}
 	for _, definition := range definitions {
 		if definition.Key == TaskDefinitionLibraryScan || definition.Key == TaskDefinitionLibraryWatch {
-			if definition.Latest == nil || definition.System != model.TaskSystemCommon {
+			if definition.Latest == nil || definition.System != model.TaskSystemMedia {
 				t.Fatalf("missing common task history: %+v", definition)
 			}
 		}
 	}
-	for system, want := range map[string]int64{model.TaskSystemCommon: 2, model.TaskSystemCatalog: 1} {
+	for system, want := range map[string]int64{model.TaskSystemCommon: 0, model.TaskSystemMedia: 3} {
 		page, err := tracker.ListSystem(system, 1, 30)
 		if err != nil || page.Total != want {
 			t.Fatalf("%s total=%d want=%d err=%v", system, page.Total, want, err)
@@ -63,7 +63,7 @@ func TestNFOWatcherSharesMixedBatch(t *testing.T) {
 	}
 	watcher.processBatch(t.Context(), due)
 	history, err := tracker.List(1, 10)
-	if err != nil || len(history.Items) != 1 || history.Items[0].Kind != TaskKindWatch || history.Items[0].System != model.TaskSystemCommon || history.Items[0].Metrics["total"] != 4 {
+	if err != nil || len(history.Items) != 1 || history.Items[0].Kind != TaskKindWatch || history.Items[0].System != model.TaskSystemMedia || history.Items[0].Metrics["total"] != 4 {
 		t.Fatalf("mixed watch history=%+v err=%v", history, err)
 	}
 }
@@ -86,7 +86,7 @@ func TestNFOSchedulerSharesLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 	history, err := tracker.List(1, 10)
-	if err != nil || len(history.Items) != 1 || history.Items[0].Kind != TaskKindScan || history.Items[0].System != model.TaskSystemCommon || history.Items[0].Metrics["libraries"] != 4 {
+	if err != nil || len(history.Items) != 1 || history.Items[0].Kind != TaskKindScan || history.Items[0].System != model.TaskSystemMedia || history.Items[0].Metrics["libraries"] != 4 {
 		t.Fatalf("mixed scan history=%+v err=%v", history, err)
 	}
 }
@@ -100,7 +100,7 @@ func TestTaskSystemFilterUsesPersistedSystem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for system, want := range map[string]int64{model.TaskSystemCommon: 1, model.TaskSystemCatalog: 0, model.TaskSystemHongGuo: 0} {
+	for system, want := range map[string]int64{model.TaskSystemCommon: 1, model.TaskSystemMedia: 0, model.TaskSystemHongGuo: 0} {
 		_, total, err := repo.ListFiltered(t.Context(), repository.TaskExecutionFilter{System: system}, 0, 30)
 		if err != nil || total != want {
 			t.Fatalf("%s total=%d want=%d err=%v", system, total, want, err)

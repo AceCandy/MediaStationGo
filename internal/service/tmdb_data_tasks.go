@@ -7,6 +7,7 @@ import (
 )
 
 const TaskKindTMDbDataRefresh = "tmdb_data_refresh"
+const TaskKindTMDbDataSupplement = "tmdb_data_supplement"
 const tmdbDataRefreshCountKey = "metadata.tmdb_data_refresh_count"
 
 func (s *SchedulerService) jobTMDbDataRefresh(ctx context.Context) error {

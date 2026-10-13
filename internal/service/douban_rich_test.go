@@ -36,6 +36,37 @@ func TestDoubanRichHTMLIdentityAndFields(t *testing.T) {
 	}
 }
 
+func TestDoubanRichRefreshPreservesAPICredits(t *testing.T) {
+	p, repos := newDoubanCacheTestProvider(t, func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/subject/100/" {
+			t.Errorf("unexpected webpage request %s", req.URL.Path)
+		}
+		return doubanCacheTestResponse(req, 200, doubanRichFixture), nil
+	})
+	if err := repos.Douban.Save(t.Context(), "100", "movie", []byte(`{"id":"100","title":"基础资料"}`), model.DoubanQualityComplete, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	row, err := repos.Douban.Find(t.Context(), "100", "movie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rich := `{"credits":[{"douban_id":"4","name":"接口独有人员","type":"Actor","role":"饰 已知角色","source_url":"https://img3.doubanio.com/view/personage/m/public/person.jpg","image_key":"existing-key"}]}`
+	if _, err = repos.Douban.SaveAPICredits(t.Context(), row, []byte(rich), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := p.refreshRichSubject(t.Context(), "100", "movie", true); err != nil || !saved {
+		t.Fatalf("webpage refresh %v %v", saved, err)
+	}
+	row, err = repos.Douban.Find(t.Context(), "100", "movie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := doubanRichPayload(row)
+	if len(result.Credits) != 2 || result.Credits[0].DoubanID != "4" || result.Credits[0].Role != "饰 已知角色" || result.Credits[0].ImageKey != "existing-key" || result.IMDbID != "tt34610311" {
+		t.Fatalf("API credits lost: %+v", result)
+	}
+}
+
 func TestDoubanRichRefreshPreservesFailureAndUsesTTL(t *testing.T) {
 	var calls atomic.Int64
 	var blocked atomic.Bool
@@ -76,7 +107,7 @@ func TestDoubanRichRefreshPreservesFailureAndUsesTTL(t *testing.T) {
 		t.Fatalf("stale rich CAS %v %v", saved, err)
 	}
 	detail, err := provider.SubjectDetail(t.Context(), subject.ID)
-	if err != nil || detail.IMDbID != "tt34610311" || len(detail.Credits) != 1 || !strings.HasPrefix(detail.Credits[0].ProfileURL, "/api/admin/douban/subjects/") || calls.Load() != 2 {
+	if err != nil || detail.IMDbID != "tt34610311" || len(detail.Credits) != 1 || !strings.HasPrefix(detail.Credits[0].ProfileURL, "/api/catalogs/douban/subjects/") || calls.Load() != 2 {
 		t.Fatalf("projection %#v %v", detail, err)
 	}
 }

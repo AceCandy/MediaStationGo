@@ -37,8 +37,8 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 28 {
-		t.Fatalf("definitions = %d, want 28", len(response.Definitions))
+	if len(response.Definitions) != 30 {
+		t.Fatalf("definitions = %d, want 30", len(response.Definitions))
 	}
 	foundRefresh, foundEnrichment := false, false
 	foundTMDb, foundMigration := false, false
@@ -70,7 +70,7 @@ func TestTasksHandlerDefinitionsOnlyPreservesTaskState(t *testing.T) {
 	tracker.Start(service.TaskKindScan, "scan", service.TaskUpdate{})
 	svc := &service.Container{Tasks: tracker}
 	for _, definitionsOnly := range []bool{false, true} {
-		url := "/api/tasks?system=common"
+		url := "/api/tasks?system=media"
 		if definitionsOnly {
 			url += "&definitions_only=1"
 		}

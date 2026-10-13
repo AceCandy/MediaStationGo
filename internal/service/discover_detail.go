@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
 
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // DiscoverDetail 只包含电影/整剧资料；时长来自资料源而非媒体探测。
 type DiscoverDetail struct {
-	CenterID      string   `json:"center_id,omitempty"`
-	MissingScopes []string `json:"missing_scopes,omitempty"`
-	SourceError   bool     `json:"source_error,omitempty"`
+	CenterID       string   `json:"center_id,omitempty"`
+	MissingScopes  []string `json:"missing_scopes,omitempty"`
+	SourceError    bool     `json:"source_error,omitempty"`
+	RefreshPending bool     `json:"refresh_pending"`
 	*Match
 	RuntimeMinutes []int         `json:"runtime_minutes"`
 	Credits        []MediaCredit `json:"credits"`
@@ -27,43 +27,6 @@ func (s *MediaService) DiscoverTMDbDetail(ctx context.Context, id repository.Dis
 	if !id.Valid() {
 		return nil, errors.New("作品身份无效")
 	}
-	work, err := s.repo.Metadata.FindByIdentifier(ctx, "tmdb", id.Kind(), strconv.Itoa(id.TMDbID))
-	if err != nil {
-		return nil, err
-	}
-	if work != nil {
-		view, err := s.repo.MediaView.FindDiscoverPresentation(ctx, work.ID)
-		if err != nil {
-			return nil, err
-		}
-		if view != nil {
-			identifiers, err := s.repo.Metadata.ListIdentifiers(ctx, work.ID)
-			if err != nil {
-				return nil, err
-			}
-			view.DoubanID, _ = uniqueIdentifier(identifiers, "douban", work.Kind)
-			if err := s.attachMediaProviderDetails(ctx, view); err != nil {
-				return nil, err
-			}
-			credits, err := s.ListMetadataCredits(ctx, work.ID)
-			if err != nil {
-				return nil, err
-			}
-			detail := &DiscoverDetail{Match: &Match{TMDbID: id.TMDbID, MediaType: id.MediaType, Title: view.Title, OriginalName: view.OriginalName, Overview: view.Overview, Rating: view.Rating, Year: view.Year, ReleaseDate: view.ReleaseDate, PosterURL: view.PosterURL, BackdropURL: view.BackdropURL, DoubanID: view.DoubanID, Genres: splitCSV(view.Genres), Languages: splitCSV(view.Languages), Countries: splitCSV(view.Countries)}, Credits: credits, RuntimeMinutes: []int{}, LocalMetadata: true, TMDbStatus: view.TMDbStatus, DoubanStatus: view.DoubanStatus}
-			// 整剧只使用来源声明的单集时长，不把任一播放文件的时长当成全剧时长。
-			snapshot, err := s.repo.Metadata.FindProviderData(ctx, work.ID, "tmdb")
-			if err != nil {
-				return nil, err
-			}
-			if snapshot != nil {
-				detail.RuntimeMinutes = discoverRuntimeMinutes([]byte(snapshot.Payload), id.MediaType)
-			}
-			if id.MediaType == "movie" && work.RuntimeSec > 0 {
-				detail.RuntimeMinutes = []int{(work.RuntimeSec + 59) / 60}
-			}
-			return detail, nil
-		}
-	}
 	if s.tmdb == nil {
 		return nil, errors.New("TMDb 未配置")
 	}
@@ -71,6 +34,7 @@ func (s *MediaService) DiscoverTMDbDetail(ctx context.Context, id repository.Dis
 		return s.tmdb.catalog.discoverDetail(ctx, id.MediaType, id.TMDbID)
 	}
 	var match *Match
+	var err error
 	if id.MediaType == "movie" {
 		match, err = s.tmdb.GetMovieMatch(ctx, id.TMDbID)
 	} else {
@@ -93,7 +57,6 @@ func (s *MediaService) DiscoverTMDbDetail(ctx context.Context, id repository.Dis
 		}
 		detail.Credits = append(detail.Credits, MediaCredit{PersonID: "tmdb-" + credit.ExternalID, Name: credit.Name, Role: credit.OriginalRole, Type: credit.Type, ProfileURL: credit.ProfileURL})
 	}
-	// 本地无对应元数据时才请求远端预览。
 	return detail, nil
 }
 

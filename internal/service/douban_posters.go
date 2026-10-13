@@ -12,14 +12,18 @@ func doubanSubjectPosterURL(id string, hasPayload bool) string {
 	if !hasPayload {
 		return ""
 	}
-	return "/api/admin/douban/subjects/" + url.PathEscape(id) + "/poster"
+	return "/api/catalogs/douban/subjects/" + url.PathEscape(id) + "/poster"
 }
 
 func (d *DoubanProvider) posterSource(ctx context.Context, subject *model.DoubanSubject) string {
-	if subject.Payload == nil {
+	payload := subject.Payload
+	if payload == nil {
+		payload = subject.Summary
+	}
+	if payload == nil {
 		return ""
 	}
-	return d.ResolveArtworkURL(ctx, doubanPosterURL(doubanCacheSubject([]byte(*subject.Payload))))
+	return d.ResolveArtworkURL(ctx, doubanPosterURL(doubanCacheSubject([]byte(*payload))))
 }
 
 // ServeSubjectPoster 按需落地共享资料的海报；失败时继续展示旧图，资料刷新状态保持独立。

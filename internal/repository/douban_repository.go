@@ -18,26 +18,28 @@ type DoubanRepository struct{ db *gorm.DB }
 
 // DoubanSubjectSummary 是资料中心的分页投影，不携带完整原始响应。
 type DoubanSubjectSummary struct {
-	ID            string     `json:"id"`
-	DoubanID      string     `json:"douban_id"`
-	EntityKind    string     `json:"entity_kind"`
-	Title         string     `json:"title"`
-	Year          string     `json:"year"`
-	Rating        float32    `json:"rating"`
-	Quality       string     `json:"quality"`
-	HasPayload    bool       `json:"has_payload"`
-	PosterURL     string     `gorm:"-" json:"poster_url"`
-	FetchedAt     *time.Time `json:"fetched_at"`
-	RichFetchedAt *time.Time `json:"rich_fetched_at"`
-	LastAttemptAt *time.Time `json:"last_attempt_at"`
-	NextRetryAt   *time.Time `json:"next_retry_at"`
+	ID             string     `json:"id"`
+	DoubanID       string     `json:"douban_id"`
+	EntityKind     string     `json:"entity_kind"`
+	Title          string     `json:"title"`
+	Year           string     `json:"year"`
+	Rating         float32    `json:"rating"`
+	Quality        string     `json:"quality"`
+	HasPayload     bool       `json:"has_payload"`
+	RefreshPending bool       `json:"refresh_pending"`
+	SourceError    bool       `json:"source_error,omitempty"`
+	PosterURL      string     `gorm:"-" json:"poster_url"`
+	FetchedAt      *time.Time `json:"fetched_at"`
+	RichFetchedAt  *time.Time `json:"rich_fetched_at"`
+	LastAttemptAt  *time.Time `json:"last_attempt_at"`
+	NextRetryAt    *time.Time `json:"next_retry_at"`
 }
 
-const doubanSummaryTitleSQL = `COALESCE(NULLIF(payload #>> '{subject,title}', ''), NULLIF(payload #>> '{subject,name}', ''), NULLIF(payload #>> '{data,title}', ''), NULLIF(payload #>> '{data,name}', ''), NULLIF(payload->>'title', ''), payload->>'name', '')`
-const doubanSummaryYearSQL = `COALESCE(payload #>> '{subject,year}', payload #>> '{data,year}', payload->>'year', '')`
+const doubanSummaryTitleSQL = `COALESCE(NULLIF(payload #>> '{subject,title}', ''), NULLIF(payload #>> '{subject,name}', ''), NULLIF(payload #>> '{data,title}', ''), NULLIF(payload #>> '{data,name}', ''), NULLIF(payload->>'title', ''), NULLIF(payload->>'name', ''), summary->>'title', '')`
+const doubanSummaryYearSQL = `COALESCE(payload #>> '{subject,year}', payload #>> '{data,year}', payload->>'year', summary->>'year', '')`
 
 // ListSubjects 对共享资料直接筛选分页，失败占位记录同样可见。
-func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int) ([]DoubanSubjectSummary, int64, error) {
+func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int, genres ...string) ([]DoubanSubjectSummary, int64, error) {
 	q := r.db.WithContext(ctx).Model(&model.DoubanSubject{}).Where("entity_kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries})
 	if kind != "" {
 		q = q.Where("entity_kind = ?", kind)
@@ -45,12 +47,15 @@ func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind strin
 	if keyword != "" {
 		q = q.Where("douban_id = ? OR strpos(lower("+doubanSummaryTitleSQL+"), lower(?)) > 0", keyword, keyword)
 	}
+	if len(genres) > 0 && genres[0] != "" {
+		q = q.Where("EXISTS (SELECT 1 FROM ("+doubanGenresSQL+") genre WHERE genre.value = ?)", genres[0])
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	rows := make([]DoubanSubjectSummary, 0)
-	err := q.Select("id, douban_id, entity_kind, " + doubanSummaryTitleSQL + " AS title, " + doubanSummaryYearSQL + " AS year, rating, quality, payload IS NOT NULL AS has_payload, fetched_at, rich_fetched_at, last_attempt_at, next_retry_at").
+	err := q.Select("id, douban_id, entity_kind, " + doubanSummaryTitleSQL + " AS title, " + doubanSummaryYearSQL + " AS year, rating, quality, (payload IS NOT NULL OR summary IS NOT NULL) AS has_payload, fetched_at, rich_fetched_at, last_attempt_at, next_retry_at, (supplement_pending AND (supplement_retry_at IS NULL OR supplement_retry_at <= NOW()) AND (next_retry_at IS NULL OR next_retry_at <= NOW())) AS refresh_pending, (supplement_retry_at IS NOT NULL OR next_retry_at IS NOT NULL) AS source_error").
 		Order("fetched_at DESC NULLS LAST, id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&rows).Error
 	return rows, total, err
 }
@@ -67,8 +72,8 @@ func (r *DoubanRepository) FindSubjectByID(ctx context.Context, id string) (*mod
 // SetPoster 仅在资料与图片引用均未变化时关联新图，避免迟到下载覆盖新资料。
 func (r *DoubanRepository) SetPoster(ctx context.Context, observed *model.DoubanSubject, assetID, sourceURL string) (bool, error) {
 	result := r.db.WithContext(ctx).Model(&model.DoubanSubject{}).
-		Where("id = ? AND payload IS NOT DISTINCT FROM ?::jsonb AND poster_asset_id IS NOT DISTINCT FROM ? AND poster_source_url = ?",
-			observed.ID, observed.Payload, observed.PosterAssetID, observed.PosterSourceURL).
+		Where("id = ? AND payload IS NOT DISTINCT FROM ?::jsonb AND summary IS NOT DISTINCT FROM ?::jsonb AND poster_asset_id IS NOT DISTINCT FROM ? AND poster_source_url = ?",
+			observed.ID, observed.Payload, observed.Summary, observed.PosterAssetID, observed.PosterSourceURL).
 		UpdateColumns(map[string]any{"poster_asset_id": assetID, "poster_source_url": sourceURL})
 	return result.RowsAffected > 0, result.Error
 }
@@ -230,6 +235,7 @@ func sameDoubanJSON(a, b []byte) bool {
 // refreshCandidates 的计数与选择共用基础资料到期和失败退避规则。
 func (r *DoubanRepository) refreshCandidates(ctx context.Context, before, now time.Time) *gorm.DB {
 	return r.db.WithContext(ctx).Model(&model.DoubanSubject{}).
+		Where("supplement_pending = false").
 		Where("entity_kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
 		Where("next_retry_at IS NULL OR next_retry_at <= ?", now).
 		Where("payload IS NULL OR fetched_at IS NULL OR fetched_at <= ? OR quality = ? OR (quality = ? AND fetched_at <= ?)", before, model.DoubanQualityPartial, model.DoubanQualityDegraded, now.Add(-24*time.Hour))

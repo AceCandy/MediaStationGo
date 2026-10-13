@@ -975,7 +975,7 @@ only when the source timestamp is unchanged too; preserve payloads, relationship
 image state and job settlement. Local parent-chain lookups select each identifier
 by primary-key order, retaining missing-binding and parent-conflict checks.
 
-`tmdb_data_refresh` is a common task independent of media ownership.
+`tmdb_data_refresh` belongs to the TMDb task system, independent of media ownership.
 Existing artwork and episode maintenance keys remain stable.
 Source periodic refresh defaults off, runs hourly when enabled, and uses 100 real
 HTTP attempts per run (configurable 1–1000). Each attempt consumes admission budget;
@@ -1016,8 +1016,71 @@ Startup maintains current models, constraints, indexes, partitions and business
 triggers. It does not convert retired tables, settings, image keys or library
 roots. Task executions persist `system` on creation; database and memory filters
 compare that value directly instead of inferring ownership when it is empty.
+Systems are `common`, `media`, `tmdb`, `douban`, `hongguo` and `huangguoai`.
+Common contains cross-source operations such as cleanup. Media owns scan, watch,
+scrape, local artwork/people maintenance, translation and media episode recheck;
+using an upstream provider does not change local maintenance ownership.
+Source refresh and supplement definitions belong to TMDb or Douban. Schema
+initialization classifies stored history using the same current kind mapping,
+updating only mismatched systems and retaining execution IDs, logs and timestamps.
 NFO libraries use the public `scan`/`watch` tasks and definitions. There are no
 `nfo_scan`/`nfo_watch` aliases or NFO-specific task execution endpoints.
+
+## Discover source supplementation
+
+### 1. Scope / Trigger
+Background work registered by missing-source ensure from Discover.
+
+### 2. Signatures
+`tmdb_data_supplement` / `douban_data_supplement`; task systems
+`common|media|tmdb|douban|hongguo|huangguoai`. TMDb uses component jobs;
+Douban uses `douban_subjects.supplement_*` business state.
+
+### 3. Contracts
+`tmdb_data_supplement` and `douban_data_supplement` are separate from periodic
+`*_data_refresh` definitions/executions. Explicit worker batches expose selected,
+processed, updated, failed and HTTP-attempt progress through Task Center and logs.
+Do not run a batch if its task execution cannot be created. Failure and cancellation
+finish with failed/interrupted stages; cancellation leaves pending business work
+recoverable and releases owned leases. Execution history is observability, never
+the work queue.
+
+TMDb retains its persisted component jobs and explicit 3-second worker. Douban
+stores intent, requester, retry, lease and token on `douban_subjects`, serially
+processing at most 20 due rows per 3-second cycle. Filter retry/lease eligibility
+before limiting the batch; older backed-off rows must not block eligible work.
+Douban requests share the existing API cache/rate gate, with a five-minute lease,
+four-minute per-item timeout and token-conditional settlement. Service shutdown
+cancels and joins workers. Repeated requests merge; per-user pending quota is 50.
+Base periodic candidates exclude explicitly pending supplements.
+
+Discover-permitted ensure POSTs request only missing source data, without strong
+refresh, local metadata writes, webpage scraping or recursive personnel/hierarchy
+hydration. Fully loaded scopes are an immediate safe success even when their TTL
+has expired. Admin-only refresh remains separate. Public projections expose safe
+pending/source-error state, not job payloads or internal retry/attempt diagnostics.
+
+### 4. Validation & Error Matrix
+Task creation failure -> skip batch; source request failure -> failed execution,
+preserved data and durable retry; cancellation -> interrupted execution and
+recoverable pending work. Stale lease tokens cannot settle another worker's work.
+
+### 5. Good/Base/Bad Cases
+Good: a viewer opens a missing item and an independent source task reports its
+progress. Base: complete scopes return without enqueueing. Bad: media maintenance
+appears in source tabs or periodic budget exhaustion enters the explicit worker.
+
+### 6. Tests Required
+`TestTaskSystemHistoryReclassification` preserves IDs, timestamps and log keys.
+`TestDiscoverCatalogSupplementPermissionsAndMissingOnly` covers authorization,
+force rejection and public projections. Supplement service tests cover durable
+retry/quota, due filtering, request metrics and canceled task/lease state.
+Task browser checks verify all six tabs, local-only filters and task logs.
+
+### 7. Wrong vs Correct
+Wrong: derive classification at read time or use executions as pending work.
+Correct: persist the current kind-based system on creation/startup classification,
+and use existing business queues with independently visible executions.
 
 Current manual scheduler controls use `/admin/scheduler/:name/run` and task
 definition routes. There are no `/scheduler/tasks`, `/scheduler/status` or

@@ -36,6 +36,7 @@ export interface DiscoverDetail extends Omit<DiscoverItem, 'genres' | 'countries
   credits: MediaCredit[]
   center_id?: string
   missing_scopes?: string[]
+  refresh_pending?: boolean
   source_error?: boolean
   local_metadata?: boolean
 }
@@ -87,7 +88,8 @@ export const discoverAPI = {
       error: r.data.error,
     })),
   sections: () => {
-    const key = `${useAuthStore.getState().user?.id ?? ''}:${getActivePlayProfileId() ?? ''}`
+    const auth = useAuthStore.getState()
+    const key = `${auth.user?.id ?? ''}:${getActivePlayProfileId() ?? ''}:${auth.sessionVersion}`
     if (sectionsRequest?.key === key) return sectionsRequest.promise
     const promise = api
       .get<{ sections: DiscoverSection[] }>('/discover/sections')

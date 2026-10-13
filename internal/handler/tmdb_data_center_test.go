@@ -35,6 +35,10 @@ func TestTMDbCenterPublicProjectionAndReadOnlyDetail(t *testing.T) {
 		t.Fatal(e)
 	}
 	svc := &service.Container{Repo: repo, TMDbCenter: service.NewTMDbDataCenter(repo, service.NewTMDbProvider(&config.Config{}, zap.NewNop(), nil))}
+	job := model.TMDbRefreshJob{Key: "public-projection-test", SubjectID: &sub.ID, Status: "pending", Scope: "detail", Attempts: 7, LastError: "internal diagnostic"}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatal(err)
+	}
 	router := gin.New()
 	router.GET("/public/:id", tmdbCenterDetail(svc, false, false))
 	router.GET("/admin/:id", tmdbCenterDetail(svc, false, true))
@@ -47,12 +51,22 @@ func TestTMDbCenterPublicProjectionAndReadOnlyDetail(t *testing.T) {
 		if strings.Contains(w.Body.String(), "unknown_source_field") != (prefix == "admin") {
 			t.Fatalf("raw JSON boundary %s", prefix)
 		}
+		if prefix == "public" {
+			for _, field := range []string{`"jobs"`, `"attempts"`, "internal diagnostic", `"next_refresh_at"`, `"next_attempt_at"`} {
+				if strings.Contains(w.Body.String(), field) {
+					t.Fatalf("public leaked %s", field)
+				}
+			}
+			if !strings.Contains(w.Body.String(), `"refresh_pending":true`) {
+				t.Fatal("pending projection missing")
+			}
+		}
 		if w.Header().Get("Cache-Control") != "private, no-store" {
 			t.Fatal("unsafe source cache headers")
 		}
 	}
 	var n int64
-	if e = db.Model(&model.TMDbRefreshJob{}).Count(&n).Error; e != nil || n != 0 {
+	if e = db.Model(&model.TMDbRefreshJob{}).Count(&n).Error; e != nil || n != 1 {
 		t.Fatalf("GET enqueued work %d %v", n, e)
 	}
 }

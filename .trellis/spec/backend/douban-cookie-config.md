@@ -508,15 +508,19 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   `failed` and `upstream_paused`; it must not report successful completion.
   The existing enrichment job/key/cursor/history still performs local completion.
 
-### Administrator data center
-- `/admin/data-center` and `/api/admin/douban/subjects` belong to administrator
-  access; API authorization resolves the current active account and role.
+### Saved Douban data in Discover
+- `/discover?system=douban` browses saved data. `/api/catalogs/douban/subjects`
+  requires active authentication and `can_view_discover`; administrator diagnostics
+  and refresh stay under `/api/admin/douban/subjects`. Authorization resolves
+  the current active account and role.
 - GET collection supports parameterized literal title substring or exact Douban
   ID search, entity-kind filtering and bounded pagination. Count and rows use
   identical filters; order is `fetched_at DESC NULLS LAST, id DESC`. Return the
   summary projection only, including failed rows, never their complete JSON.
-- GET `/:id` reads the persisted shared UUID, exposing parsed details and raw
-  JSON without provider requests. Root, `subject` and `data` payloads remain
+- GET `/:id` reads the persisted shared UUID and parsed details without provider
+  requests. Raw JSON and attempt/retry timestamps are administrator-only; public
+  list/detail responses clear diagnostics and use private/no-store.
+  Root, `subject` and `data` payloads remain
   readable. A missing row returns 404; invalid parameters/UUID return 400.
 - POST `/:id/refresh?mode=base|full` accepts existing Movie/Series rows only.
   Missing mode defaults to `full` for compatibility; empty, unknown or duplicate
@@ -560,8 +564,9 @@ subjects with no local media association.
 ### 2. Signatures
 - `douban_subjects.poster_asset_id`: nullable ArtworkAsset reference, SET NULL
   on asset deletion; `poster_source_url`: persisted official large-image URL.
-- Summary/detail `poster_url` is `/api/admin/douban/subjects/:id/poster` when
-  a payload exists, otherwise empty. GET/HEAD require active administrator auth.
+- Summary/detail `poster_url` is `/api/catalogs/douban/subjects/:id/poster` when
+  a payload exists, otherwise empty. GET/HEAD require active authentication and
+  Discover permission; administrator aliases keep the same serving behavior.
 - `DoubanRepository.SetPoster` compares the observed JSONB payload and poster
   fields; `ArtworkRepository.SaveAsset` deduplicates without media selection writes.
 
@@ -607,10 +612,10 @@ source URL to the browser. Correct: save a standalone deduplicated asset, CAS
 the Douban reference and serve it through the authenticated subject poster route.
 
 
-## Scenario: Rich administrator subject details
+## Scenario: Rich saved-subject details
 
 ### 1. Scope / Trigger
-Administrator subject detail fields, public webpage supplement refresh and cached credit images.
+Shared subject detail fields, administrator webpage supplement refresh and cached credit images.
 
 ### 2. Signatures
 - `douban_subjects.rich_payload` holds public webpage fields and local profile
@@ -630,15 +635,17 @@ Administrator subject detail fields, public webpage supplement refresh and cache
   Conflicts merge current same-source avatar keys. New webpage success clears
   supplement retry; avatar writes do not. Compare times at PostgreSQL microsecond
   precision to avoid treating avatar writes as new webpage fetches.
-- Profile images resolve only saved credit indices via authenticated admin
-  GET/HEAD `/douban/subjects/:id/credits/:index/image`; no arbitrary source URL.
+- Profile images resolve only saved credit indices via Discover-permission-guarded
+  GET/HEAD `/api/catalogs/douban/subjects/:id/credits/:index/image`; administrator
+  aliases retain the same serving behavior. There is no arbitrary source URL.
   Official HTTPS doubanio `/view/` sources import lazily through ImageProxy into
   PeopleImageStore's persistent `DataDir/catalogs/douban/people/aa/bb/cc/`; local keys remain in rich data,
   without creating canonical people/media rows. Preserve keys when sources are
   unchanged, CAS references after download, and reject changed-person late
   results. Missing originals repair through ImportCached; errors show placeholders.
   Serve variants with private/no-cache, error no-store, and rich timestamp URL
-  versions. HEAD uses the same import/repair behavior as subject posters.
+  versions using the newer of webpage and API-credit success times. HEAD uses the
+  same import/repair behavior as subject posters.
 - The wide ModalShell has no extra header/close button or theme toggle; backdrop
   and Escape close, focus returns to its trigger, and global theme applies.
   Display only available metadata, rating count/distribution, awards/honors;
@@ -654,7 +661,7 @@ remote source errors to clients.
 Good: API refresh succeeds and blocked webpage preserves existing credits for a
 later retry. Base: a cached subject displays available API fields and local
 avatars. Bad: clear rich fields on challenge, create fake canonical people,
-perform remote detail requests when opening the dialog, or reset API time when
+  perform remote detail requests from a detail GET, or reset API time when
 serving an avatar.
 
 ### 6. Tests Required
@@ -677,3 +684,65 @@ oldest-first bounded progress, independent rich state, shared TTL, late-save
 metrics, admission retries and count persistence. Browser checks
 `check-douban-refresh-task.mjs` and `check-douban-data-center.mjs` cover count
 settings, task metrics, base/full modes, independent timestamps and access.
+
+## Scenario: API-only missing-source supplementation
+
+### 1. Scope / Trigger
+Missing source records or API credits opened from Discover rankings.
+
+### 2. Signatures
+`POST /api/catalogs/douban/subjects/ensure`, `{douban_id, kind}`;
+`douban_subjects.summary`, `credits_fetched_at`, `supplement_pending`,
+`supplement_lease_until`, `supplement_token`, `supplement_requested_by` and
+`supplement_retry_at` persist source summaries and recoverable work.
+
+### 3. Contracts
+- Ranking responses batch-save valid, deduplicated source summaries in
+  `douban_subjects.summary`, preserving complete payload, rating and quality.
+  List/detail/poster projections fall back to this summary only when base data is
+  absent; summaries do not fabricate a successful fetch timestamp.
+- Discover-permitted `POST /api/catalogs/douban/subjects/ensure` accepts exact
+  `{douban_id, kind: "movie"|"series"}`. It deduplicates durable pending work,
+  rejects malformed identities and enforces a 50-item per-user queue quota.
+  Client titles and force flags cannot alter source data or force a loaded record
+  to refresh. GET list/detail remains storage-only. Full base data plus a successful
+  API-credit timestamp makes ensure an immediate success.
+- The background supplement reuses the serialized base API gate/cache and
+  `/rexxar/api/v2/{movie|tv}/:id/celebrities`. Parse the API's directors/actors,
+  subject roles, source person IDs and avatars; reject unrecognized structures.
+  Save every returned entry, without inferring this work's roles from global
+  personnel occupations. This is not a promise to retrieve every website credit:
+  subject 36600459 returned one director and 37 actors with `total=87`; increasing
+  count did not expand those arrays.
+- `credits_fetched_at` tracks API-credit success separately from webpage
+  `rich_fetched_at`. Merge API credits with saved IMDb/awards/writers and unchanged
+  source avatar keys. A later full webpage refresh preserves the successful API
+  list rather than replacing it with the webpage's smaller first-screen cast.
+  Base periodic refresh does not crawl webpages or personnel detail pages.
+- Business rows own pending intent, token leases and retry state. Task Center's
+  separate Douban supplement execution exposes progress/logs, sharing TTL,
+  rate limiting and backoff with the source refresh path. Public responses expose
+  only safe pending/source-error state; raw summaries, tokens and requesters stay
+  internal. Deferred base reads do not count as successful supplementation.
+### 4. Validation & Error Matrix
+Anonymous -> 401; no Discover permission -> 403; invalid ID/kind -> 400;
+unavailable center -> 503; pending quota reached -> 429 with no new pending item. Cancellation
+retains intent and releases its lease. Upstream failure preserves source fields,
+sets retry state and finishes the execution as failed; raw errors stay internal.
+
+### 5. Good/Base/Bad Cases
+Good: opening a summary schedules one durable base/credits supplement with logs.
+Base: an already loaded record returns immediately with zero source requests.
+Bad: recursive whole-ranking hydration, treating upstream total as returned cast
+length, or replacing a successful API cast with webpage first-screen personnel.
+
+### 6. Tests Required
+Isolated PostgreSQL tests cover summary preservation, repeated ensure,
+  ownership quota, due filtering, lease recovery/cancellation, token settlement,
+  API parsing and webpage/API merge. Handler tests cover permissions, malicious
+  force/title input, public projections and preservation of local metadata.
+
+### 7. Wrong vs Correct
+Wrong: use task execution rows as the queue or mark a deferred base read updated.
+Correct: durable business-row intent plus token settlement, with independent
+task progress and explicit failed/interrupted outcomes.

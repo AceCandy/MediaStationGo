@@ -18,6 +18,15 @@ type DoubanSubject struct {
 	DoubanID   string  `gorm:"size:32;not null;uniqueIndex:uidx_douban_subject,priority:1"`
 	EntityKind string  `gorm:"size:16;not null;uniqueIndex:uidx_douban_subject,priority:2"`
 	Payload    *string `gorm:"type:jsonb"`
+	// Summary 保存榜单摘要，不替代基础详情的质量和获取时间。
+	Summary *string `gorm:"type:jsonb"`
+	// SupplementPending 是补全队列事实；租约令牌防止迟到执行结算新请求。
+	SupplementPending     bool `gorm:"not null;default:false;index"`
+	SupplementLeaseUntil  *time.Time
+	SupplementToken       string `gorm:"size:36;not null;default:''"`
+	SupplementRequestedBy string `gorm:"size:36;not null;default:'';index"`
+	SupplementRetryAt     *time.Time
+	CreditsFetchedAt      *time.Time
 	// RichPayload 保存公开网页补充资料及头像本地引用，不改写接口原始响应。
 	RichPayload   *string `gorm:"type:jsonb"`
 	RichFetchedAt *time.Time

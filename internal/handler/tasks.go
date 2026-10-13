@@ -39,7 +39,7 @@ func requireTasksReady(c *gin.Context, svc *service.Container) bool {
 func tasksHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		system := c.Query("system")
-		if system != "" && system != model.TaskSystemCommon && system != model.TaskSystemCatalog && system != model.TaskSystemHongGuo && system != model.TaskSystemHuangGuoAI {
+		if system != "" && system != model.TaskSystemCommon && system != model.TaskSystemMedia && system != model.TaskSystemTMDb && system != model.TaskSystemDouban && system != model.TaskSystemHongGuo && system != model.TaskSystemHuangGuoAI {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task system"})
 			return
 		}

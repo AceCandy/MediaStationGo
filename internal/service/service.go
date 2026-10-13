@@ -127,6 +127,9 @@ func (c *Container) Boot() {
 	if c.TMDbCenter != nil {
 		c.TMDbCenter.Start(c.stopCtx)
 	}
+	if c.Douban != nil {
+		c.Douban.StartSupplement(c.stopCtx)
+	}
 	if c.MediaProbe != nil {
 		_ = c.startupStep("启动媒体轨道回填", func() error { c.MediaProbe.WakeBackfill(); return nil })
 	}
@@ -163,6 +166,9 @@ func (c *Container) Close() {
 	c.bootWG.Wait()
 	if c.TMDbCenter != nil {
 		c.TMDbCenter.Wait()
+	}
+	if c.Douban != nil {
+		c.Douban.supplementWG.Wait()
 	}
 	if c.Scheduler != nil {
 		c.Scheduler.Stop()

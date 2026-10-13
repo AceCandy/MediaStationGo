@@ -7,13 +7,15 @@ import (
 
 const (
 	TaskSystemCommon     = "common"
-	TaskSystemCatalog    = "catalog"
+	TaskSystemMedia      = "media"
+	TaskSystemTMDb       = "tmdb"
+	TaskSystemDouban     = "douban"
 	TaskSystemHongGuo    = "hongguo"
 	TaskSystemHuangGuoAI = "huangguoai"
 )
 
 // CommonTaskKinds 是不依赖具体媒体项的公共任务。
-var CommonTaskKinds = []string{"organize", "probe", "scan", "watch", "cleanup", "douban_data_refresh", "tmdb_data_refresh"}
+var CommonTaskKinds = []string{"cleanup"}
 
 // TaskSystemForKind 决定新任务执行记录的归属体系。
 func TaskSystemForKind(kind string) string {
@@ -23,12 +25,18 @@ func TaskSystemForKind(kind string) string {
 	if strings.HasPrefix(kind, "hongguo_") {
 		return TaskSystemHongGuo
 	}
+	if strings.HasPrefix(kind, "tmdb_data_") {
+		return TaskSystemTMDb
+	}
+	if strings.HasPrefix(kind, "douban_data_") {
+		return TaskSystemDouban
+	}
 	for _, common := range CommonTaskKinds {
 		if common == kind {
 			return TaskSystemCommon
 		}
 	}
-	return TaskSystemCatalog
+	return TaskSystemMedia
 }
 
 // TaskExecution 保存一次面向管理员可见的后台任务执行摘要。

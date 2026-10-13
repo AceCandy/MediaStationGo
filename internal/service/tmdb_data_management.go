@@ -46,13 +46,15 @@ type TMDbComponentView struct {
 	Raw       json.RawMessage `json:"raw_json,omitempty"`
 }
 type TMDbCenterDetail struct {
-	SourceURL     string                 `json:"source_url"`
-	Parents       []TMDbSubjectView      `json:"parents"`
-	Subject       *TMDbSubjectView       `json:"subject,omitempty"`
-	Person        *TMDbPersonView        `json:"person,omitempty"`
-	Components    []TMDbComponentView    `json:"components"`
-	Jobs          []model.TMDbRefreshJob `json:"jobs"`
-	MissingScopes []string               `json:"missing_scopes"`
+	SourceURL      string                 `json:"source_url"`
+	Parents        []TMDbSubjectView      `json:"parents"`
+	Subject        *TMDbSubjectView       `json:"subject,omitempty"`
+	Person         *TMDbPersonView        `json:"person,omitempty"`
+	Components     []TMDbComponentView    `json:"components"`
+	Jobs           []model.TMDbRefreshJob `json:"jobs,omitempty"`
+	RefreshPending bool                   `json:"refresh_pending"`
+	SourceError    bool                   `json:"source_error,omitempty"`
+	MissingScopes  []string               `json:"missing_scopes"`
 }
 
 func tmdbSubjectView(v model.TMDbSubject) TMDbSubjectView {
@@ -86,6 +88,10 @@ func (s *TMDbDataCenter) ListPeople(ctx context.Context, keyword string, page in
 		out = append(out, tmdbPersonView(v))
 	}
 	return out, n, e
+}
+
+func (s *TMDbDataCenter) Categories(ctx context.Context, kind string) ([]repository.CatalogCategory, error) {
+	return s.repo.TMDb.Categories(ctx, kind)
 }
 func (s *TMDbDataCenter) Detail(ctx context.Context, id string, person, admin bool) (*TMDbCenterDetail, error) {
 	out := &TMDbCenterDetail{Components: []TMDbComponentView{}, MissingScopes: []string{}}
@@ -140,10 +146,12 @@ func (s *TMDbDataCenter) Detail(ctx context.Context, id string, person, admin bo
 		out.MissingScopes = append(out.MissingScopes, "filmography")
 	}
 	out.Jobs, e = s.repo.TMDb.Jobs(ctx, owner, person)
+	for _, j := range out.Jobs {
+		out.RefreshPending = out.RefreshPending || j.Status == "pending" || j.Status == "running"
+		out.SourceError = out.SourceError || j.Status == "error"
+	}
 	if !admin {
-		for i := range out.Jobs {
-			out.Jobs[i].LastError = ""
-		}
+		out.Jobs = nil
 	}
 	return out, e
 }
@@ -449,12 +457,7 @@ func (s *TMDbDataCenter) discoverDetail(ctx context.Context, kind string, id int
 	for _, g := range f.Languages {
 		m.Languages = append(m.Languages, g.Name)
 	}
-	result := &DiscoverDetail{Match: m, RuntimeMinutes: discoverRuntimeMinutes([]byte(p.Fields), kind), Credits: []MediaCredit{}, CenterID: p.ID, MissingScopes: detail.MissingScopes}
-	for _, j := range detail.Jobs {
-		if j.Status == "error" {
-			result.SourceError = true
-		}
-	}
+	result := &DiscoverDetail{Match: m, RuntimeMinutes: discoverRuntimeMinutes([]byte(p.Fields), kind), Credits: []MediaCredit{}, CenterID: p.ID, MissingScopes: detail.MissingScopes, SourceError: detail.SourceError, RefreshPending: detail.RefreshPending}
 	credits, _, e := s.Credits(ctx, p.ID, false, 1)
 	if e != nil {
 		return nil, e

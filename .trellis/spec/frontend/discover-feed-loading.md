@@ -30,9 +30,22 @@ loadDiscoverSections(parent context.Context, svc *service.Container, keys []stri
 - Responses keep `items[sectionKey]` and `_meta[sectionKey]`; metadata includes `page` and `has_next`, with `stale`, `fallback`, `warning`, `error`, or `disabled` only when applicable.
 - Same-Provider jobs remain serial; different Provider groups use the existing bounded worker count. Cache hits do not alter input ordering.
 - Douban cache entries, cloned responses, and preheat inputs keep the same official large poster URL. The image proxy applies the current configured CDN only during an image-cache miss, so changing that configuration never mutates feed URLs or requires section-cache invalidation.
-- The Web page groups sections by page for initial load and refresh. A row page change requests only that section and target page.
+- Discover mounts only the selected source. TMDb/Douban rankings are under
+  `system=tmdb|douban&section=rank`; Bangumi uses `system=bangumi`.
+  Filter section definitions by provider before choosing the URL-owned `rank`.
+  Keep selected-key identity stable during replace normalization so the first
+  page is not requested twice. Rank changes restart at page one; refresh and
+  continuation request only the selected section. TMDb search is mounted only
+  in the TMDb rankings branch.
 - Starting a new feed batch aborts the previous controller. Aborted batches must not update rows, errors, loading state, or localStorage cache.
+- Commit the continuation cursor only after its page succeeds without a section
+  error. Keep prior rows, pause observers on failure and retry the same failed
+  page. A failed section-definition read shows an error/retry state, not an empty
+  source. Section in-flight identity includes `auth.sessionVersion`, so even a
+  same-account relogin cannot reuse an obsolete request.
 - Discover poster URLs stay stable across mounts and manual data refresh. Use native `loading="lazy"`; only a failed individual image retry may add `v=r1` through `v=r3` and `refresh=1`.
+- Missing/failed poster images retain their work card, title and detail trigger
+  with a placeholder rather than removing the work from a row.
 
 ## 4. Validation & Error Matrix
 
@@ -141,7 +154,9 @@ Keep ordinary poster URLs stable and use `refresh=1` only for explicit recommend
 
 ### 1. Scope
 
-TMDb discovery previews remain dialogs without season/episode lists. The detail GET is a safe read-only projection; an administrator may explicitly follow it with the separate refresh POST below. The GET never writes local metadata or media; a separate ensure POST may persist missing source components in the center.
+TMDb discovery previews remain dialogs without season/episode lists. The detail
+GET reads the source center; a separate controlled ensure POST requests missing
+source components. Neither operation edits local metadata or media.
 
 ### 2. Signatures
 
@@ -152,13 +167,24 @@ TMDb discovery previews remain dialogs without season/episode lists. The detail 
 
 - Both routes require `can_view_discover`; successful responses use `Cache-Control: private, no-store`.
 - Detail returns public Match fields, positive deduplicated `runtime_minutes`, and `credits`; no raw provider payload or season/episode fetches. Only a unique, same-kind stored Douban identifier supplies the Douban link.
-- Detail resolves local metadata by exact TMDb ID + work kind, independently of media existence and library visibility. A local hit uses canonical work presentation, selected artwork and `MediaService.ListMetadataCredits` (saved translated `Person.Name` / `MetadataCredit.Role`, actor-first order). Ordinary users remain read-only and use that local projection; absence of matching metadata reads the TMDb center and reports missing scopes. A separate controlled ensure requests only the opened source item. An administrator must click the explicit local refresh button to use the endpoint below; the dialog keeps the local projection visible while refreshing and retains it on failure. The discovery permission still applies; no media paths or playback targets are exposed. Library/NSFW media visibility filters belong to the ownership badge, not this shared catalog preview.
-- Local movie runtime uses canonical `RuntimeSec` when positive, otherwise the stored TMDb snapshot; series runtime uses only snapshot `episode_run_time`. Never label an arbitrary episode file's duration as whole-series runtime. Remote preview uses the same snapshot runtime parser. No physical media probing is triggered.
+- Detail resolves exact TMDb ID + work kind in the source center, returning source
+  titles, overview, artwork, runtime and credits even when linked local metadata
+  exists. Local associations supply library badges and safe provider linkage,
+  never source presentation. Preserve saved local titles/translations/roles and
+  artwork choices. Library/NSFW filters apply to ownership badges. No media paths
+  or playback targets are exposed.
+- Missing detail triggers `/catalogs/tmdb/subjects/:uuid/ensure`, followed by
+  two-second polling up to 45 attempts. At the limit retain current data, explain
+  that background processing continues and offer manual reread. Pending state is
+  a safe flag, not a job projection. Complete scopes never requeue just because
+  TTL expired; force refresh remains an administrator operation.
+- Movie runtime and series `episode_run_time` come from the source payload.
+  Never use an episode file's duration as series runtime or probe physical media.
 - Dialog and media detail share `MetadataFacts`, `MetadataOverview`, `MetadataCategories`, `ProviderBadge` and `MediaCredits`. Keep file resolution/size/container/paths and management actions out of discovery. Dialog backdrop spans the panel with a theme-aware downward gradient; do not repeat it as a small image beneath the poster.
 - Status returns `{items: [...]}` containing only exact TMDb ID + kind matches with visible media records in enabled, nondeleted libraries. Any episode, including STRM, marks the series; metadata alone does not. Apply current user/profile library and NSFW filters. This is database membership, not a physical-file/playability check.
 - Fetch details only when opening a dialog. Batch status requests in groups of at most 100, never one request per card. Abort obsolete requests. Keep status out of shared feed caches and localStorage; account/profile access-key changes remount the catalog.
 
-### TMDb refresh after local detail load
+### Separate local TMDb refresh endpoint
 
 ```http
 POST /api/discover/tmdb/:kind/:id/refresh
@@ -167,7 +193,9 @@ POST /api/discover/tmdb/:kind/:id/refresh
 - The request has no body, requires both `can_view_discover` and administrator access, and accepts only `kind=movie|tv` with a positive TMDb ID.
 - The service resolves the existing same-kind metadata identifier and delegates to `ScraperService.RefreshMetadataTMDb`; it never creates metadata or media rows. The response is the refreshed `DiscoverDetail` with the same safe projection and `Cache-Control: private, no-store`.
 - Refresh reads fresh TMDb details, replaces valid metadata, artwork, provider snapshot and loaded credit scopes, and preserves non-empty local fields when TMDb omits them. Stable person identity plus unchanged original role preserves saved Chinese translations; changed or removed credits follow the provider snapshot.
-- The dialog starts this request only when an administrator explicitly clicks `刷新本地资料` after receiving `local_metadata=true`. Opening the dialog never triggers local refresh. The initial detail remains visible, stale requests are aborted, and a failed refresh exposes retry while retaining the current data.
+- This administrator endpoint is retained for its existing callers; the Discover
+  source dialog exposes no local refresh action and never calls it. Opening a
+  dialog requests missing source data only and preserves local data.
 - The discover POST skips the upstream refresh when the existing non-degraded TMDb snapshot is less than three hours old, returning local details normally. The persisted `FetchedAt` makes the cooldown shared across browsers and restarts; opening a dialog does not extend it. Missing, degraded or expired snapshots refresh normally. Failed refreshes do not advance the snapshot timestamp. The media detail manual refresh bypasses this cooldown. Source-only previews use read-only GET plus a bounded ensure POST; this never creates local metadata.
 
 ### 4. Validation and errors
@@ -199,9 +227,9 @@ POST /api/discover/tmdb/:kind/:id/refresh
 
 - Wrong: title matching or checking all episodes, or putting `in_library` into globally shared feed data.
 - Correct: exact provider ID + movie/series kind, visible media existence, and request-scoped status rendered separately from shared discovery items.
-- Wrong: make the detail GET mutate shared metadata for every viewer, or hide the local projection until refresh completes.
-- Correct: GET is a safe projection; administrator-only POST reuses the canonical metadata refresh path after the local projection is shown, with abort/retry and old-data retention on failure.
-- Wrong: reuse the cast layout but read `OriginalRole` from TMDb for an already-owned title. Correct: reuse both the local data projection and the display components; verify translated fields, units and source precedence together.
+- Wrong: make a detail GET mutate local metadata or replace source facts with
+  local translations. Correct: source GET plus bounded missing-source ensure;
+  local membership and maintenance remain separate.
 
 
 ## Scenario: Catalog Ranking Lists
@@ -296,18 +324,164 @@ from keyword-switch tests alone.
 Wrong: a shared page or retry counter refetches both sources and skips a failed page.
 Correct: advance and retry the local/official cursors independently, then merge.
 
-## TMDb data center
+## Scenario: Source data in Discover
 
-- `/admin/data-center` keeps Douban as default and switches with `provider=tmdb`.
-  Administrator permissions remain unchanged. TMDb lists movie/tv/person, with
-  quality/state/keyword/page in the URL; season/episode navigation stays in one
-  ModalShell. GETs read persisted data, and explicit search/import/ensure are POSTs.
+### 1. Scope / Trigger
+TMDb/Douban saved catalog browsing and source-scoped rankings inside Discover.
+
+### 2. Signatures
+- TMDb root GETs: `/api/catalogs/tmdb/subjects?kind=movie|tv&page=1` and
+  `/api/catalogs/tmdb/people?page=1`; existing UUID detail/children/credits/works GETs.
+- Douban GETs: `/api/catalogs/douban/subjects?keyword=&type=movie|series&page=1&page_size=30`
+  and `/api/catalogs/douban/subjects/:id`; poster and `credits/:index/image` support GET/HEAD.
+- Administrator reads/writes remain under `/api/admin/tmdb` and `/api/admin/douban`.
+
+### 3. Contracts
+- `/discover?system=tmdb|douban` defaults to saved data. TMDb lists movie/tv/person,
+  with keyword/kind/page and administrator-only quality/state filters in the URL;
+  season/episode navigation stays in one ModalShell. Subject/person UUID selections
+  normalize before detail requests. GETs read persisted data; explicit
+  search/import/ensure remain POSTs.
 - Root lists and child pages contain 30 records. Person works paginate 60 distinct
   works before loading their roles; all roles of one work appear on one card.
   Type/cast/crew/year ordering is database-only and never refetches filmography.
-- Raw JSON is administrator-only. Public projections and image URLs do not reveal
-  storage keys, request queries or credentials. Session remount/abort guards stale
-  responses; Escape/backdrop close restores the initiating control.
+- Users with `can_view_discover` can read saved catalogs and images and request
+  missing-source ensure. Opening a complete saved detail does not enqueue work;
+  viewer browsing never issues force refresh/import or image force-retry requests.
+  Raw JSON and refresh diagnostics/controls are administrator-only. Public
+  projections and image URLs do not reveal storage keys, request queries or
+  credentials. Session remount/abort guards stale responses;
+  Shared ModalShell contains Tab/focus in the highest z-index dialog, handles
+  top-dialog Escape, locks scrolling and restores the initiating control on
+  close. Capture that control before child autofocus/StrictMode effects; retain
+  it when async source loading replaces one modal shell with another.
+- Poster grids share `CatalogPosterCard`, with 320px lazy images, saved-data
+  ratings and circular person portraits; detail images use 600px. Ordinary image
+  GETs retain existing on-demand local download/thumbnail generation, independently
+  of source data refresh. Mutable image URLs remain private/no-cache.
+- Rankings save source summaries without per-item detail requests. Douban
+  rankings use exact `{douban_id,kind}` ensure, then reuse `DoubanSubjectDetails`.
+  Missing base/credits run as a durable API-only supplement task; no webpage or
+  recursive personnel requests. Ensure failure retains the summary and offers
+  retry. Pending detail reads stop after 45 two-second attempts and offer reread.
 - Source refresh never edits local metadata, roles, translations or selections.
   Source image retry is separate; ordinary page reads do not start all-season,
   all-episode, all-person or full-filmography recursion.
+
+### 4. Validation & Error Matrix
+Anonymous reads -> 401; missing Discover permission -> 403; viewer administrator
+reads/writes -> 403. Malformed UUID/filter/page -> 400 server-side. Public reads
+are private/no-store and never return raw JSON or attempt/retry timestamps.
+Missing saved Douban ranking details retain the summary while a controlled POST
+registers supplementation. Ensure cannot force complete records to refresh or
+alter local work fields. Invalid/duplicate URL
+values converge with replace without rendering an invalid-ID dialog.
+
+### 5. Good / Base / Bad Cases
+Good: a viewer browses saved series, opens one season and its episode, then
+reads an actor's saved works without starting a refresh. Base: missing artwork
+shows a placeholder. Bad: every tab mounts at once or raw diagnostics are hidden
+only in the UI while public responses contain them.
+
+### 6. Tests Required
+`TestDiscoverCatalogReadPermissionsAndProjection` uses isolated PostgreSQL for
+401/403/200, GET/HEAD images, public/admin projections and zero queued refreshes.
+Run `check-discover-centers.mjs`, `check-douban-data-center.mjs`,
+`check-discover-detail.mjs`, `check-discover-boundaries.mjs`, HongGuo/HuangGuo
+checks, lint and build from `web`.
+Mocked browser tests cover source scoping, hierarchy, ordinary/admin controls,
+rank history, duplicate/invalid URLs, cancellation, auth switching and dual themes.
+Wait for resize and scheduled focus restoration before layout/focus assertions.
+
+### 7. Wrong vs Correct
+Wrong: move an admin-only page into viewer navigation but retain admin GETs for
+ordinary users. Correct: permission-guarded public projections plus separate
+administrator writes, verified at both route and browser boundaries.
+
+## Scenario: Unified categories, rankings and TMDb detail
+
+### 1. Scope / Trigger
+Discover source browsing shares visual controls while preserving each source's
+search, download, selection and pagination lifecycle.
+
+### 2. Signatures
+- `GET /api/catalogs/tmdb/categories?kind=movie|tv|person` returns
+  `{data:[{value,label}]}`; `series` is accepted server-side as the TV alias.
+- TMDb subjects accept `genre` (positive signed-32-bit source genre ID); people
+  accept `department` (exact primary department, at most 100 characters).
+- `GET /api/catalogs/douban/categories?type=movie|series` has the same response;
+  subject lists accept `genre` (exact normalized name, at most 100 characters).
+- Administrator equivalents use the existing `/api/admin/{source}` roots.
+
+### 3. Contracts
+Category options/filtering read persisted JSON/department values without calling
+providers. Multi-genre membership uses EXISTS/JSON containment before count and
+pagination, never a join that duplicates subjects. Missing genres remain in All.
+Douban recognizes subject/data wrappers, genres/genre arrays of strings or
+name/title objects, and comma/slash-delimited strings; the first nonempty candidate
+wins. TMDb department is one primary occupation, with translated labels but raw
+values in requests. Type changes clear incompatible filters and reset page one.
+
+Source navigation says 分类/榜单; Bangumi has only 榜单. Poster grids share column
+breakpoints; ranked feeds use CatalogRankingHeader/Row and source order positions.
+Search results retain a grid. Keep source cursor sizes and retry behavior; unknown
+ranking totals must not be presented as a fabricated total or fixed page size.
+
+TMDb rankings resolve center_id then open the same TMDbDetailModal as categories.
+Person navigation uses person_id, never profile.id. One shell owns history, parent
+links and focus containment. Source facts/score and circular clickable credits
+are shared; seasons use posters, episodes landscape rows and person works posters.
+Admin force operations are folded into the management menu, raw diagnostics into
+details. Viewing a saved person's works is a read; refresh is a separate action.
+Selected missing detail may request ensure through the permission-guarded catalog
+route; do not recursively hydrate all related entities. Pending reads stop after
+45 attempts per read cycle and expose manual reread. Child/credit failures expose
+same-page retry without discarding the loaded main detail.
+
+### 4. Validation & Error Matrix
+Unauthenticated/unauthorized categories return 401/403; invalid kind/type, invalid
+integer genre, and overlong text filters return 400. Public reads remain private,
+no-store. Failed option reads retain search and expose retry. Failed identity
+resolution retains the ranking summary with retry; admin operations remain absent
+for viewers.
+
+### 5. Good / Base / Bad Cases
+Good: one film appears in both drama and comedy, once per filtered page. Base:
+summary without genre appears under All. Bad: changing a genre requests TMDb,
+adds duplicate cards, or uses a person's profile UUID for navigation.
+
+### 6. Tests Required
+Isolated PostgreSQL: TestCatalogCategoriesFilterBeforePagination,
+TestDoubanCategoriesMatchPayloadFormats, TestDiscoverCatalogReadPermissionsAndProjection.
+Browser: check-discover-centers (category parameters, hierarchy, permissions),
+check-discover-detail (shared source detail, people/works, bounded polling,
+related-data retry, themes/widths), check-discover-boundaries, Douban and both
+HongGuo source checks. Wait for layout settling before pointer/focus assertions;
+URL change alone does not prove a lazy source page has finished replacing its
+predecessor.
+
+### 7. Wrong vs Correct
+Wrong: render a separate TMDb ranking detail or change source query lifecycles to
+match a visual control. Correct: resolve the center identity and reuse the modal;
+share presentation while preserving source-owned searches/cursors.
+
+
+## Alignment closure: shared controls and failure recovery
+
+- CatalogSearchForm, CatalogPager, CatalogRankingSkeleton and CatalogLoadMore
+  share presentation only. Keep each source's own query, refresh and cursor
+  semantics, including independent local/official search retries.
+- Ranking initial loading uses horizontal row skeletons. Successful partial
+  feeds offer manual continuation alongside the observer; exhausted feeds show
+  an end label. A failed continuation must never imply the feed is complete.
+- TMDb related reads retain the previous successful page while loading or after
+  failure. Render the response page number, disable paging during loading and
+  retry the requested failed page. Ranking title, poster and summary survive
+  center-ID resolution followed by a failed first detail read.
+- DoubanSubjectDetails owns force-refresh state and cancellation. Category and
+  ranking entry points share the same administrator-only management menu;
+  category callers may request list reread after a mutation. Viewers receive no
+  management controls and the refresh handler also guards administrator role.
+- End labels may use role=status. Browser tests must distinguish loading text
+  from completion announcements rather than treating every status as pending.
+  Wait for enabled controls and settled layout before pointer pagination checks.

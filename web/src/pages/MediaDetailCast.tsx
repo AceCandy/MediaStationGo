@@ -24,7 +24,7 @@ export function MediaDetailCast({ mediaId, scope }: { mediaId: string; scope?: '
   return <MediaCredits credits={credits} />
 }
 
-export function MediaCredits({ credits }: { credits: MediaCredit[] }) {
+export function MediaCredits({ credits, onPersonClick }: { credits: MediaCredit[]; onPersonClick?: (credit: MediaCredit) => void }) {
   if (credits.length === 0) return null
 
   return (
@@ -42,7 +42,7 @@ export function MediaCredits({ credits }: { credits: MediaCredit[] }) {
       <div className="-mx-1 overflow-x-auto px-1 pb-2 scrollbar-hide">
         <div className="flex gap-5">
           {credits.map((credit, index) => (
-            <CastCard key={`${credit.person_id}:${credit.type}:${credit.role ?? ''}:${index}`} credit={credit} index={index} />
+            <CastCard key={`${credit.person_id}:${credit.type}:${credit.role ?? ''}:${index}`} credit={credit} index={index} onClick={onPersonClick ? () => onPersonClick(credit) : undefined} />
           ))}
         </div>
       </div>
@@ -50,14 +50,18 @@ export function MediaCredits({ credits }: { credits: MediaCredit[] }) {
   )
 }
 
-function CastCard({ credit, index }: { credit: MediaCredit; index: number }) {
+function CastCard({ credit, index, onClick }: { credit: MediaCredit; index: number; onClick?: () => void }) {
   const [imageFailed, setImageFailed] = useState(false)
   const profileSrc = credit.profile_url && !imageFailed ? imageURL(credit.profile_url) : ''
   const crewLabel = creditTypeLabel(credit.type)
   const subtitle = credit.role?.trim() || crewLabel
 
+  const Card = onClick ? motion.button : motion.div
   return (
-    <motion.div
+    <Card
+      onClick={onClick}
+      aria-label={onClick ? `查看${credit.name}` : undefined}
+      type={onClick ? 'button' : undefined}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: Math.min(index, 12) * 0.04, ease: [0.21, 0.47, 0.32, 0.98] }}
@@ -89,7 +93,7 @@ function CastCard({ credit, index }: { credit: MediaCredit; index: number }) {
           <p className="truncate text-[10px] font-medium text-[var(--app-muted)]">{subtitle}</p>
         )}
       </div>
-    </motion.div>
+    </Card>
   )
 }
 

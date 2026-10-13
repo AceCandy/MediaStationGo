@@ -74,11 +74,13 @@ func (b *serviceContainerBuilder) initProviderServices() {
 	b.c.ProxyPool = NewProxyPoolService(b.repos, b.c.Crypto)
 	b.c.TMDb = NewTMDbProvider(b.cfg, b.log, b.c.APIConfig)
 	b.c.TMDbCenter = NewTMDbDataCenter(b.repos, b.c.TMDb)
+	b.c.TMDbCenter.tasks = b.c.Tasks
 	b.c.TMDb.catalog = b.c.TMDbCenter
 	b.c.Bangumi = NewBangumiProvider(b.cfg, b.log)
 	b.c.TheTVDB = NewTheTVDBProvider(b.cfg, b.log)
 	b.c.Douban = NewDoubanProvider(b.c.APIConfig)
 	b.c.Douban.setDataRepository(b.c.Repo, b.c.Cache)
+	b.c.Douban.tasks = b.c.Tasks
 	b.c.Douban.setProxyPool(b.c.ProxyPool)
 	b.c.Fanart = NewFanartProvider(b.cfg, b.log)
 	b.c.RecognitionWords = NewRecognitionWordsService(b.log, b.repos)

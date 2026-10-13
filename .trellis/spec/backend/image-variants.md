@@ -31,6 +31,10 @@ Original storage/import and authentication are not transformation concerns.
 - Native WebP with `gen2brain/webp v0.6.4` requires a dynamic Linux ELF and resolvable `libwebp.so` plus `libwebpdemux.so`; versioned runtime libraries alone do not satisfy its loader. Docker builds use the target-platform C toolchain and runtime `libwebp-dev`; `dev.sh` supplies project-local aliases for installed `.so.7`/`.so.2` libraries and forces CGO/external linking on Linux when a C compiler exists. Keep the pure Go fallback for other environments, and report `webp_backend` at image service construction.
 - Catalog keys include algorithm version, immutable original content hash and normalized options. Moving DataDir or touching the original preserves thumbnail reuse; new original content has a new hash. Non-catalog keys retain source path/size/nanosecond mtime; downloaded bytes use a content hash if original storage failed. Source updates create a new variant; old variants remain. HTTP ETags still account for served thumbnail metadata.
 - Web defaults to maxWidth=640; large backgrounds use 1920. `original:true` removes processing parameters. URL version replacement must not create duplicate query keys; tokens must not enter image URLs.
+- Discover saved-data grids request 320px posters/portraits and 600px detail
+  posters, retaining existing credit image variants. Douban uses the Discover-permission-guarded
+  `/api/catalogs/douban/subjects/:id/poster` and `credits/:index/image` URLs;
+  administrator aliases retain the same serving/storage behavior.
 - Same-origin `/api/` images rely on the existing HttpOnly Cookie, not a token-bearing URL. Playback URLs retain their existing token behavior. Non-critical list, search and administration images use native lazy loading and asynchronous decoding.
 - File variants honor their caller's Cache-Control, including hot variants and
   HEAD/304 responses. Mutable Douban subject poster URLs use private/no-cache;

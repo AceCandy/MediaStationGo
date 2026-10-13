@@ -69,13 +69,21 @@ Viewer composition state is URL owned:
   this list carry the complete library URL as router state so “返回媒体库”
   restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
-- Administrator Data Center is an admin-only Viewer Space leaf between Discover
-  and Me; moving the navigation does not widen route or API access.
-  `/admin/data-center` stores trimmed `keyword`,
+- Douban data is browsed at `/discover?system=douban` under Discover permission;
+  the standalone Data Center route and navigation leaf are removed.
+  Data browsing stores trimmed `keyword`,
   `type=movie|series` and positive `page` in the URL; defaults
   are omitted. Normalize invalid/duplicate values with replace navigation,
   reset the page on filter changes and request 30 persisted subjects at a time.
-  List/detail reads never contact Douban. Explicit Movie/Series updates use the
+  Detail selection stores a subject UUID in `subject`; invalid values are removed
+  and duplicate values converge to one. List/detail GETs never contact Douban.
+  Opening a missing ranking item uses the exact-ID ensure POST under Discover
+  permission, returning a safe source projection and durable pending intent.
+  Pending details poll every two seconds, at most 45 reads; then explain that
+  background work continues and offer a manual reread. Abort polling on close or
+  session change. Viewer ensure never forces a loaded item to refresh.
+  Viewer responses and controls exclude raw payload and management diagnostics;
+  explicit Movie/Series updates remain administrator-only and use the
   shared row UUID and explicit `mode=base|full`; base updates only the API data,
   full also attempts the webpage supplement. Show separate successful base and
   supplement update times in list/detail. Block duplicate submission and reread
@@ -84,7 +92,7 @@ Viewer composition state is URL owned:
   remount on auth session generation changes, canceling pending updates.
   List and detail posters use the summary's same-origin `poster_url` with
   `imageURL` and the subject fetch time as version, native lazy loading and
-  asynchronous decoding. Use 160px list and 600px detail variants; image errors
+  asynchronous decoding. Use 320px grid and 600px detail variants; image errors
   show a placeholder and a changed URL/version permits a new attempt. Invalid
   subject-type filters normalize to all; lists and details only expose Movie/Series.
 - Library series details use `series_id` or a source-scoped `series` key. The
@@ -105,9 +113,17 @@ Viewer composition state is URL owned:
   page to 1 and preserving explicit `status=`; hide work pagination when total is
   zero. Empty states must not replace request failures. Verify both sources and
   dark/light responsive layouts with `check-download-space.mjs`.
-- Discover: `system=catalog|hongguo|huangguoai`, default `catalog`; mount only the selected
-  catalog and rebuild it on user/profile changes. `/discover` requires
-  `can_view_discover`; source selection uses its canonical `system` query.
+- Discover: `system=tmdb|douban|hongguo|huangguoai|bangumi`, default `tmdb`;
+  invalid/duplicate sources normalize to TMDb. Mount only the selected source
+  and rebuild it on auth session or user/profile access changes. `/discover`
+  requires `can_view_discover`. TMDb/Douban default to saved data; `section=rank`
+  selects source-scoped rankings and `rank` selects a valid key of that provider.
+  Source/section clicks reset incompatible filters and detail selections.
+  HongGuo/HuangGuo retain their own section/rank URL contracts; the hub must not
+  normalize those child-owned fields. Bangumi retains daily airing.
+- Tasks: `system=common|media|tmdb|douban|hongguo|huangguoai`, default `media`.
+  Normalize invalid/duplicate systems; only media loads library filters and local
+  pending counts. Source supplement and refresh runs stay in their source tabs.
 - Search: `mode=ai` when both permission and provider state allow it; otherwise
   ordinary search.
 

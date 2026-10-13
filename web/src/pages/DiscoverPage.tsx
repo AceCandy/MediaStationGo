@@ -4,6 +4,7 @@ import { discoverAPI, type DiscoverItem, type DiscoverSection } from '../api/dis
 import { DiscoverSkeleton } from './DiscoverContentRow'
 import { DiscoverDetailModal } from './DiscoverDetailModal'
 import { DiscoverSearchPanel } from './DiscoverSearchPanel'
+import { useSearchParams } from 'react-router-dom'
 import { DiscoverEmptySelection, DiscoverHeader, DiscoverResults } from './DiscoverPageSections'
 import {
   defaultSections,
@@ -14,54 +15,65 @@ import {
   writeCachedDiscoverRow,
 } from './discoverPageModel'
 
-export function DiscoverPage() {
-  return <DiscoverSearchPanel><DiscoverFeed /></DiscoverSearchPanel>
+type Provider = 'tmdb' | 'douban' | 'bangumi'
+export function DiscoverPage({ provider }: { provider: Provider }) {
+  const feed = <DiscoverFeed provider={provider} />
+  return provider === 'tmdb' ? <DiscoverSearchPanel>{feed}</DiscoverSearchPanel> : feed
 }
 
-function DiscoverFeed() {
+function DiscoverFeed({ provider }: { provider: Provider }) {
+  const [params, setParams] = useSearchParams()
+  const rank = params.get('rank') || ''
+  const rankCount = params.getAll('rank').length
   const [sections, setSections] = useState<DiscoverSection[]>([])
-  const [selected, setSelected] = useState<string[]>([])
+  const selectedKey = useMemo(() => {
+    const available = new Set(sections.map(s => s.key))
+    const key = rankCount === 1 && available.has(rank) ? rank : readSavedSections(sections)[0] || defaultSections.find(key => available.has(key)) || sections[0]?.key
+    return key || ''
+  }, [sections, rank, rankCount])
+  const selected = useMemo(() => selectedKey ? [selectedKey] : [], [selectedKey])
   const [rows, setRows] = useState<Record<string, DiscoverItem[]>>({})
   const [rowCanNext, setRowCanNext] = useState<Record<string, boolean>>({})
   const [rowLoading, setRowLoading] = useState<Record<string, boolean>>({})
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
   const [sectionsReady, setSectionsReady] = useState(false)
+  const [sectionsError, setSectionsError] = useState(false)
+  const [sectionsRetry, setSectionsRetry] = useState(0)
   const [loading, setLoading] = useState(false)
   const [activeItem, setActiveItem] = useState<DiscoverItem | null>(null)
   const rowPagesRef = useRef<Record<string, number>>({})
+  const failedPagesRef = useRef<Record<string, number>>({})
   const activeFeedRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setSectionsReady(false)
+    setSectionsError(false)
     discoverAPI
       .sections()
       .then((items) => {
         if (cancelled) return
-        setSections(items)
-        const saved = readSavedSections(items)
-        const available = new Set(items.map((item) => item.key))
-        const fallback = defaultSections.filter((key) => available.has(key))
-        const firstSelected = saved[0] ?? fallback[0]
-        const nextSelected = firstSelected ? [firstSelected] : []
-        const cached = readCachedDiscoverRows(nextSelected)
-        const nextPages = Object.fromEntries(nextSelected.map((key) => [key, 1]))
-        setSelected(nextSelected)
-        rowPagesRef.current = nextPages
-        setRows(cached.rows)
-        setRowCanNext(cached.rowCanNext)
+        const filtered = items.filter(item => item.provider === provider)
+        setSections(filtered)
         setSectionsReady(true)
       })
       .catch(() => {
         if (cancelled) return
         setSections([])
-        setSelected([])
+        setSectionsError(true)
         setSectionsReady(true)
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [provider, sectionsRetry])
+
+  useEffect(() => {
+    if (!sectionsReady || sectionsError) return
+    const next = new URLSearchParams(params)
+    if (selected[0]) next.set('rank', selected[0]); else next.delete('rank')
+    if (next.toString() !== params.toString()) setParams(next, { replace: true })
+  }, [params, setParams, selected, sectionsReady, sectionsError])
 
   const loadRows = useCallback((targets: Record<string, number>, refresh = false) => {
     const targetEntries = Object.entries(targets)
@@ -118,17 +130,20 @@ function DiscoverFeed() {
         })
         for (const key of keys) {
           if (!feed.meta[key]?.error) {
+            rowPagesRef.current[key] = page
+            delete failedPagesRef.current[key]
             writeCachedDiscoverRow(
               key,
               page,
               feed.items[key] ?? [],
               Boolean(feed.meta[key]?.has_next),
             )
-          }
+          } else failedPagesRef.current[key] = page
         }
       } catch (err) {
         if (controller.signal.aborted || activeFeedRef.current !== controller) return
         const message = discoverRequestErrorMessage(err)
+        for (const key of keys) failedPagesRef.current[key] = page
         setRows((current) => {
           const next = { ...current }
           for (const key of keys) {
@@ -176,12 +191,6 @@ function DiscoverFeed() {
 
   useEffect(() => {
     if (!sectionsReady) return
-    const available = new Set(sections.map((section) => section.key))
-    const activeSelected = selected.filter((key) => available.has(key))
-    if (activeSelected.length !== selected.length) {
-      setSelected(activeSelected)
-      return
-    }
     if (selected.length === 0) {
       activeFeedRef.current?.abort()
       activeFeedRef.current = null
@@ -201,9 +210,12 @@ function DiscoverFeed() {
       return next
     })
     window.localStorage.setItem(discoverStorageKey, serializeSavedSections(selected))
-    const targets = Object.fromEntries(
-      selected.map((key) => [key, rowPagesRef.current[key] ?? 1]),
-    )
+    const targets = Object.fromEntries(selected.map(key => [key, 1]))
+    rowPagesRef.current = {}
+    failedPagesRef.current = {}
+    const cached = readCachedDiscoverRows(selected)
+    setRows(cached.rows)
+    setRowCanNext(cached.rowCanNext)
     const controller = loadRows(targets)
     return () => {
       controller?.abort()
@@ -220,17 +232,13 @@ function DiscoverFeed() {
 
   const selectSection = (key: string) => {
     if (selected[0] === key) return
-    setSelected([key])
-    const nextPages = { [key]: 1 }
-    rowPagesRef.current = nextPages
+    const next = new URLSearchParams(params); next.set('rank', key); setParams(next)
   }
 
   const loadMore = (key: string) => {
     const currentPage = rowPagesRef.current[key] ?? 1
-    if (rowLoading[key] || !rowCanNext[key] || activeFeedRef.current) return
+    if (rowLoading[key] || rowErrors[key] || !rowCanNext[key] || activeFeedRef.current) return
     const nextPage = currentPage + 1
-    const nextPages = { ...rowPagesRef.current, [key]: nextPage }
-    rowPagesRef.current = nextPages
     loadRows({ [key]: nextPage })
   }
 
@@ -238,7 +246,6 @@ function DiscoverFeed() {
     const key = selected[0]
     if (!key) return
     const nextPages = { [key]: 1 }
-    rowPagesRef.current = nextPages
     loadRows(nextPages, true)
   }
 
@@ -255,7 +262,9 @@ function DiscoverFeed() {
 
       {!sectionsReady && <DiscoverSkeleton />}
 
-      {sectionsReady && !loading && selected.length === 0 && (
+      {sectionsError && <div role="alert" className="space-y-3 text-sm text-ink-100"><p>榜单列表读取失败。</p><button type="button" className="btn-outline" onClick={() => setSectionsRetry(value => value + 1)}>重新加载</button></div>}
+
+      {sectionsReady && !sectionsError && !loading && selected.length === 0 && (
         <DiscoverEmptySelection />
       )}
 
@@ -270,6 +279,7 @@ function DiscoverFeed() {
           hasContent={hasContent}
           sectionLabel={sectionLabel}
           onLoadMore={loadMore}
+          onRetry={(key) => { if (!activeFeedRef.current) loadRows({ [key]: failedPagesRef.current[key] ?? 1 }) }}
           onSelect={setActiveItem}
         />
       )}

@@ -40,6 +40,8 @@ const (
 
 // DoubanProvider talks to the unofficial Douban movie API.
 type DoubanProvider struct {
+	tasks        *TaskTrackerService
+	supplementWG sync.WaitGroup
 	dataRepo     *repository.Container
 	dataGate     chan struct{}
 	dataNext     time.Time

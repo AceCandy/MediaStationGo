@@ -37,7 +37,13 @@ const click = name => {
   if(name==='关闭详情') {
     browser('press','Escape')
     wait("!document.querySelector('[role=dialog]')")
-  } else browser('find', 'role', 'button', 'click', '--name', name, '--exact')
+  } else {
+    if (name==='完整更新豆瓣资料'||name==='基础更新豆瓣资料') {
+      const closed=evaluate("[...document.querySelectorAll('[role=dialog] details')].some(d=>d.querySelector('summary')?.textContent==='资料管理'&&!d.open)");
+      if(closed) browser('click','[role=dialog] header summary');
+    }
+    browser('find', 'role', 'button', 'click', '--name', name, '--exact')
+  }
 }
 const navigate = path => evaluate(`history.pushState(null,'',${JSON.stringify(path)}); dispatchEvent(new PopStateEvent('popstate')); true`)
 
@@ -48,15 +54,15 @@ try {
     const {api}=await import('/src/api/client.ts');
     const {useAuthStore}=await import('/src/stores/auth.ts');
     const probe=window.doubanProbe={calls:[],hold:'',releases:[],failList:false,failDetail:false,refreshMode:'success',role:'admin',updated:false,emptyList:false};
-    const subject=(id,kind,quality='complete',has_payload=true)=>({id,douban_id:id.startsWith('111')?'100':id.slice(0,3),entity_kind:kind,title:kind==='movie'?'测试电影'+ '很长的标题'.repeat(8):'测试电视剧',year:'2026',rating:probe.updated?9.2:8.1,quality,has_payload,poster_url:has_payload?'/api/admin/douban/subjects/'+id+'/poster':'',fetched_at:has_payload?(probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z'):null,last_attempt_at:'2026-10-10T12:00:00Z',next_retry_at:null});
+    const subject=(id,kind,quality='complete',has_payload=true)=>({id,douban_id:id.startsWith('111')?'100':id.slice(0,3),entity_kind:kind,title:kind==='movie'?'测试电影'+ '很长的标题'.repeat(8):'测试电视剧',year:'2026',rating:probe.updated?9.2:8.1,quality,has_payload,poster_url:has_payload?'/api/catalogs/douban/subjects/'+id+'/poster':'',fetched_at:has_payload?(probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z'):null,last_attempt_at:'2026-10-10T12:00:00Z',next_retry_at:null});
     probe.movie=subject('11111111-1111-4111-8111-111111111111','movie');
     probe.series=subject('22222222-2222-4222-8222-222222222222','series');
     api.defaults.adapter=async config=>{
       if(config.url==='/auth/permissions') return {data:{permissions:{can_view_discover:true},role:probe.role,is_super:probe.role==='admin'},status:200,headers:{},config};
       if(config.url==='/play-profiles') return {data:[],status:200,headers:{},config};
-      if(!config.url.startsWith('/admin/douban/subjects')) return {data:{},status:200,headers:{},config};
-      const kind=config.method==='post'?'refresh':config.url==='/admin/douban/subjects'?'list':'detail';
-      const call={kind,...config.params,aborted:false};probe.calls.push(call);
+      if(!config.url.startsWith('/admin/douban/subjects') && !config.url.startsWith('/catalogs/douban/subjects')) return {data:{},status:200,headers:{},config};
+      const kind=config.method==='post'?'refresh':config.url.endsWith('/subjects')?'list':'detail';
+      const call={kind,url:config.url,...config.params,aborted:false};probe.calls.push(call);
       config.signal?.addEventListener('abort',()=>{call.aborted=true},{once:true});
       if(probe.hold===kind) await new Promise(resolve=>probe.releases.push(resolve));
       const fail=kind==='list'?probe.failList:kind==='detail'?probe.failDetail:probe.refreshMode==='failure';
@@ -64,12 +70,12 @@ try {
       let data;
       if(kind==='list'){
         const p=config.params, empty=p.keyword==='empty'||probe.emptyList;
-        let rows=p.page===2?[subject('33333333-3333-4333-8333-333333333333','series')]:[subject(probe.movie.id,'movie'),probe.series,subject('33333333-3333-4333-8333-333333333333','series'),subject('44444444-4444-4444-8444-444444444444','movie','degraded'),subject('55555555-5555-4555-8555-555555555555','movie','partial'),subject('66666666-6666-4666-8666-666666666666','movie','',false)];
+        let rows=p.page===2?[subject('33333333-3333-4333-8333-333333333333','movie')]:[subject(probe.movie.id,'movie'),probe.series,subject('33333333-3333-4333-8333-333333333333','series'),subject('44444444-4444-4444-8444-444444444444','movie','degraded'),subject('55555555-5555-4555-8555-555555555555','movie','partial'),subject('66666666-6666-4666-8666-666666666666','movie','',false)];
         if(p.type) rows=rows.filter(row=>row.entity_kind===p.type);
-        data={data:empty?[]:rows,total:empty?0:p.type?rows.length:31,page:p.page,page_size:30};
+        data={data:empty?[]:rows,total:empty?0:31,page:p.page,page_size:30};
       }else{
         const item=config.url.includes(probe.series.id)?probe.series:config.url.includes('66666666')?subject('66666666-6666-4666-8666-666666666666','movie','',false):subject(probe.movie.id,'movie');
-        const detail={...item,original_name:'Original title',overview:'已落库的简介',release_date:'2026-01-01',genres:['剧情'],languages:['中文'],countries:['中国'],directors:['导演甲'],writers:['编剧乙'],actors:['演员甲','演员乙'],durations:['141分钟'],aliases:['别名甲'],release_dates:['2026-01-01(中国大陆)','2026-02-01(中国香港)'],imdb_id:'tt34610311',rating_count:613808,rating_distribution:[{stars:5,percent:27.3},{stars:4,percent:48.1}],credits:[{person_id:'cast-1',name:'演员甲',role:'饰 黄德忠',type:'Actor',profile_url:'/api/admin/douban/subjects/'+item.id+'/credits/0/image?v='+(probe.updated?'2026-10-11':'2026-10-10')}],awards:[{event:'第44届电影奖',category:'最佳男主角',people:'演员甲'}],honors:[{title:'犯罪片榜',rank:10}],rich_fetched_at:probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z',raw_json:{title:item.title,intro:'已落库的简介',private_detail:'原始资料'}};
+        const detail={...item,original_name:'Original title',overview:'已落库的简介',release_date:'2026-01-01',genres:['剧情'],languages:['中文'],countries:['中国'],directors:['导演甲'],writers:['编剧乙'],actors:['演员甲','演员乙'],durations:['141分钟'],aliases:['别名甲'],release_dates:['2026-01-01(中国大陆)','2026-02-01(中国香港)'],imdb_id:'tt34610311',rating_count:613808,rating_distribution:[{stars:5,percent:27.3},{stars:4,percent:48.1}],credits:[{person_id:'cast-1',name:'演员甲',role:'饰 黄德忠',type:'Actor',profile_url:'/api/catalogs/douban/subjects/'+item.id+'/credits/0/image?v='+(probe.updated?'2026-10-11':'2026-10-10')}],awards:[{event:'第44届电影奖',category:'最佳男主角',people:'演员甲'}],honors:[{title:'犯罪片榜',rank:10}],rich_fetched_at:probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z',raw_json:{title:item.title,intro:'已落库的简介',private_detail:'原始资料'}};
         if(kind==='refresh') {if(probe.refreshMode==='success') probe.updated=true; detail.rating=probe.updated?9.2:8.1; data={data:{subject:detail,degraded:probe.refreshMode==='degraded',supplement_unavailable:probe.refreshMode==='supplement'}};}
         else data={data:detail};
       }
@@ -77,13 +83,13 @@ try {
     };
     probe.auth=useAuthStore;
     useAuthStore.getState().setSession('local-test-token','',{id:'admin',username:'测试管理员',role:'admin',tier:'free'});
-    history.pushState(null,'','/admin/data-center?keyword= &type=invalid&page=01&page=2');
+    history.pushState(null,'','/discover?system=douban&keyword= &type=invalid&page=01&page=2');
     dispatchEvent(new PopStateEvent('popstate'));
     return true;
   })()`)
   wait(`${text}?.includes('测试电影')`)
-  assert.equal(evaluate('location.search'), '')
-  assert.ok(evaluate(`!!document.querySelector('a[href="/admin/data-center"]')`))
+  assert.equal(evaluate('location.search'), '?system=douban&type=movie')
+  assert.ok(evaluate(`!!document.querySelector('a[href="/discover"]') && !document.querySelector('a[href="/admin/data-center"]')`))
   const navigation = evaluate(`(async () => {
     const { LAYOUT_NAV_GROUPS } = await import('/src/components/layoutNavigation.ts');
     const viewer = LAYOUT_NAV_GROUPS.find(group => group.id === 'viewer').items;
@@ -93,53 +99,50 @@ try {
       managementHasCenter: LAYOUT_NAV_GROUPS.find(group => group.id === 'management').items.some(item => item.label === '资料中心'),
     };
   })()`)
-  assert.deepEqual(navigation.labels.slice(2, 5), ['发现', '资料中心', '我的'])
-  assert.equal(navigation.adminOnly, true)
+  assert.deepEqual(navigation.labels.slice(2, 4), ['发现', '我的'])
+  assert.equal(navigation.adminOnly, undefined)
   assert.equal(navigation.managementHasCenter, false)
 
-  assert.ok(evaluate(`${text}.includes('未获取资料') && ${text}.includes('降级资料') && ${text}.includes('摘要资料')`))
+  assert.equal(evaluate(`document.querySelectorAll('main article').length`),4)
   assert.ok(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='list').every(c=>c.page_size===30)"))
   assert.equal(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').length"), 0)
   browser('set','viewport','1440','900')
-  wait("document.querySelector('main tbody tr img')?.naturalWidth > 0")
-  assert.ok(evaluate("document.querySelector('main tbody tr img').getAttribute('src').startsWith('/api/admin/douban/subjects/')"))
-  wait("!!document.querySelector('main tbody tr:nth-child(4) [aria-label=\"暂无海报\"]')")
-  navigate('/admin/data-center?type=episode')
-  wait("location.search === '' && document.querySelector('main tbody tr img')?.naturalWidth > 0")
+  wait("document.querySelector('main article img')?.naturalWidth > 0")
+  assert.ok(evaluate("document.querySelector('main article img').getAttribute('src').startsWith('/api/catalogs/douban/subjects/')"))
+  wait("!!document.querySelector('main article:nth-child(2) [aria-label=\"暂无海报\"]')")
+  navigate('/discover?system=douban&type=episode')
+  wait("location.search === '?system=douban&type=movie' && document.querySelector('main article img')?.naturalWidth > 0")
 
   evaluate('window.doubanProbe.emptyList=true; true')
   click('重新读取列表')
-  wait(`${text}?.includes('暂无豆瓣资料')`)
+  wait(`${text}?.includes('没有符合条件的豆瓣资料')`)
   evaluate('window.doubanProbe.emptyList=false; true')
   click('重新读取列表')
   wait(`${text}?.includes('测试电影')`)
-  browser('click','main tbody tr:last-child button')
+  browser('click','main article:last-child button[aria-label^="查看"]')
   wait("document.querySelector('[role=dialog]')?.innerText.includes('该记录尚未成功获取资料')")
-  assert.equal(evaluate("!!document.querySelector('[role=dialog] details')"),false)
+  assert.equal(evaluate("!!document.querySelector('[role=dialog] > div > details')"),false)
   click('关闭详情')
 
   click('下一页')
-  wait("location.search.includes('page=2') && document.querySelector('main').innerText.includes('电视剧') && !document.querySelector('main').innerText.includes('测试电影')")
+  wait("location.search.includes('page=2') && window.doubanProbe.calls.some(c=>c.kind==='list'&&c.page===2)")
   click('上一页')
-  wait(`location.search === '' && ${text}?.includes('测试电影')`)
+  wait(`location.search === '?system=douban&type=movie' && ${text}?.includes('测试电影')`)
   browser('fill', '[aria-label="名称或豆瓣 ID"]', ' 筛选 ')
   click('搜索')
   wait("new URLSearchParams(location.search).get('keyword')==='筛选'")
   assert.equal(evaluate('new URLSearchParams(location.search).has("page")'), false)
-  browser('click', '[aria-label="资料类型"]')
-  assert.deepEqual(evaluate("[...document.querySelectorAll('[role=option]')].map(item=>item.textContent)"),['全部类型','电影','电视剧'])
-  browser('press', 'End')
-  browser('press', 'Enter')
+  click('电视剧')
   wait(`${text}?.includes('测试电视剧') && !${text}?.includes('测试电影')`)
-  navigate('/admin/data-center')
+  navigate('/discover?system=douban&type=series')
   wait(`${text}?.includes('测试电视剧')`)
-  browser('click','main tbody tr:nth-child(2) button')
+  browser('click','main article:first-child button[aria-label^="查看"]')
   wait("!!document.querySelector('[role=dialog]') && document.querySelector('[role=dialog]').innerText.includes('已落库的简介')")
   assert.ok(evaluate("document.querySelector('[role=dialog]').innerText.includes('电视剧')"))
   assert.equal(evaluate("[...document.querySelectorAll('[role=dialog] button')].some(b=>b.textContent.includes('更新'))"), true)
   click('关闭详情')
 
-  navigate('/admin/data-center')
+  navigate('/discover?system=douban')
   wait(`${text}?.includes('测试电影')`)
   for (const theme of ['light','dark']) {
     evaluate(`document.documentElement.dataset.theme='${theme}'; true`)
@@ -148,7 +151,7 @@ try {
       browser('set','viewport',String(width),String(height))
       browser('wait','150')
       assert.ok(evaluate('document.documentElement.scrollWidth <= innerWidth'), `${theme}/${width} list overflow`)
-      const selector=width<1280?'main article button':'main tbody tr button'
+      const selector='main article button[aria-label^="查看"]'
       browser('click',selector)
       wait("document.querySelector('[role=dialog]')?.innerText.includes('已落库的简介')")
       wait("document.querySelector('[role=dialog] img')?.naturalWidth > 0")
@@ -159,8 +162,8 @@ try {
       assert.equal(evaluate("document.querySelector('[role=dialog]').innerText.includes('预告片')"),false)
 
       assert.ok(evaluate("document.querySelector('[role=dialog] img').getAttribute('src').includes('maxWidth=600')"))
-      assert.equal(evaluate("document.querySelector('[role=dialog] details').open"), false)
-      browser('click','[role=dialog] summary')
+      assert.equal(evaluate("document.querySelector('[role=dialog] > div > details').open"), false)
+      browser('click','[role=dialog] > div > details > summary')
       browser('wait','250')
       assert.ok(evaluate("document.querySelector('[role=dialog] pre').innerText.includes('原始资料')"))
       assert.ok(evaluate('document.documentElement.scrollWidth <= innerWidth'), `${theme}/${width} dialog overflow`)
@@ -169,12 +172,12 @@ try {
     }
   }
 
-  browser('click','main tbody tr button')
+  browser('click','main article button[aria-label^="查看"]')
   wait("document.querySelector('[role=dialog]')?.innerText.includes('已落库的简介')")
   evaluate("document.querySelector('.modal-backdrop').click(); true")
   wait("!document.querySelector('[role=dialog]')")
-  assert.equal(evaluate("document.activeElement.textContent"), '查看')
-  browser('click','main tbody tr button')
+  wait("document.activeElement.getAttribute('aria-label')?.startsWith('查看测试电影')")
+  browser('click','main article button[aria-label^="查看"]')
   wait("document.querySelector('[role=dialog]')?.innerText.includes('已落库的简介')")
   evaluate("window.doubanProbe.hold='refresh'; true")
   click('完整更新豆瓣资料')
@@ -212,7 +215,7 @@ try {
   click('重试读取')
   wait(`${text}?.includes('测试电影')`)
   evaluate("window.doubanProbe.failDetail=true; true")
-  browser('click','main tbody tr button')
+  browser('click','main article button[aria-label^="查看"]')
   wait("document.querySelector('[role=dialog]')?.innerText.includes('模拟读取失败')")
   evaluate("window.doubanProbe.failDetail=false; true")
   click('重试读取详情')
@@ -220,33 +223,37 @@ try {
   click('关闭详情')
 
   evaluate("window.doubanProbe.hold='list'; true")
-  navigate('/admin/data-center?keyword=old')
+  navigate('/discover?system=douban&keyword=old')
   wait("window.doubanProbe.calls.some(c=>c.keyword==='old')")
   evaluate("window.doubanProbe.hold=''; true")
-  navigate('/admin/data-center?keyword=empty')
+  navigate('/discover?system=douban&keyword=empty')
   wait(`${text}?.includes('没有符合条件')`)
   assert.ok(evaluate("window.doubanProbe.calls.find(c=>c.keyword==='old').aborted"))
   evaluate("window.doubanProbe.releases.splice(0).forEach(resolve=>resolve()); true")
   assert.ok(evaluate(`${text}.includes('没有符合条件')`))
-  navigate('/admin/data-center')
+  navigate('/discover?system=douban')
   wait(`${text}?.includes('测试电影')`)
   evaluate("window.doubanProbe.hold='detail'; true")
-  browser('click','main tbody tr button')
+  browser('click','main article button[aria-label^="查看"]')
   wait("window.doubanProbe.releases.length===1")
   click('关闭详情')
   assert.ok(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='detail').at(-1).aborted"))
   evaluate("window.doubanProbe.hold=''; window.doubanProbe.releases.splice(0).forEach(resolve=>resolve()); true")
 
+  browser('wait','4500')
   evaluate("window.doubanProbe.hold='refresh'; true")
-  click('完整更新豆瓣 100')
+  browser('click','main article button[aria-label^="查看"]')
+  wait("!!document.querySelector('[role=dialog] button[aria-label=\"完整更新豆瓣资料\"]')")
+  click('完整更新豆瓣资料')
   wait("window.doubanProbe.releases.length===1")
   evaluate("window.doubanProbe.role='user'; window.doubanProbe.auth.getState().setSession('local-viewer-token','',{id:'viewer',username:'测试用户',role:'user',tier:'free'}); true")
-  wait("!document.querySelector('a[href=\"/admin/data-center\"]') && !document.querySelector('[aria-label=\"豆瓣资料列表\"]')")
+  wait("!!document.querySelector('[aria-label=\"豆瓣资料列表\"]') && !document.querySelector('button[aria-label^=\"完整更新\"]') && window.doubanProbe.calls.some(c=>c.url.startsWith('/catalogs/douban/subjects'))")
   assert.ok(evaluate("window.doubanProbe.calls.filter(c=>c.kind==='refresh').at(-1).aborted"))
   evaluate("window.doubanProbe.hold=''; window.doubanProbe.releases.splice(0).forEach(resolve=>resolve()); true")
   assert.equal(browser('errors').trim(), '')
-  console.log('通过：管理员入口、URL/分页/电影电视剧筛选、本地海报加载/失败占位/版本更新、详情/JSON、强刷/失败/降级、防重复、取消/会话隔离、深浅主题和响应式布局')
+  console.log('通过：发现入口与管理员/观众权限、URL/分页/电影电视剧筛选、本地海报加载/失败占位/版本更新、详情/JSON、强刷/失败/降级、防重复、取消/会话隔离、深浅主题和响应式布局')
 } catch(error) {
+  console.error(evaluate(`({search:location.search,calls:window.doubanProbe.calls.slice(-8)})`))
   console.error(browser('snapshot','-i'))
   console.error(browser('errors'))
   throw error

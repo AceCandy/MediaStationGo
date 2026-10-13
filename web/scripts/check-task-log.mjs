@@ -127,16 +127,16 @@ mocks['../api/tasks'].tasksAPI.snapshot = async () => ({ definitions: [definitio
 vm.runInNewContext(ts.transpileModule(`${source}\nexport { TasksSystemPage };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports, require: (id) => id === 'react' ? react : mocks[id] ?? (id.startsWith('.') ? {} : require(id)) })
-for (const system of ['common', 'catalog', 'hongguo', 'huangguoai']) {
+for (const system of ['common', 'media', 'tmdb', 'douban', 'hongguo', 'huangguoai']) {
   states = []; memos = []; stateIndex = memoIndex = 0
   const changes = []
   const tree = exports.TasksSystemPage({ system, onSystemChange: (value) => changes.push(value) })
   const group = nodes(tree).find((node) => node.props?.['aria-label'] === '任务体系')
   const buttons = nodes(group).filter((node) => node.type === 'button')
-  assert.equal(buttons.length, 4)
+  assert.equal(buttons.length, 6)
   assert.equal(buttons.filter((node) => node.props['aria-pressed']).length, 1)
   buttons.forEach((button) => button.props.onClick())
-  assert.equal(JSON.stringify(changes), JSON.stringify(['common', 'catalog', 'hongguo', 'huangguoai'].filter((value) => value !== system)))
+  assert.equal(JSON.stringify(changes), JSON.stringify(['common', 'media', 'tmdb', 'douban', 'hongguo', 'huangguoai'].filter((value) => value !== system)))
 }
 for (const [count, libraryID] of [[0, 'library-a'], [12, 'library-a'], [0, ''], [12, ''], [undefined, '']]) {
   states = []; memos = []; stateIndex = memoIndex = 0
@@ -144,10 +144,10 @@ for (const [count, libraryID] of [[0, 'library-a'], [12, 'library-a'], [0, ''], 
   states[2] = [definition]
   notices.length = requests.length = 0
   runResult = { status: 'queued', ...(count === undefined ? {} : { count }) }
-  let table = nodes(exports.TasksSystemPage({ system: 'catalog', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
+  let table = nodes(exports.TasksSystemPage({ system: 'media', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
   table.props.onScrapeLibraryChange(libraryID)
   stateIndex = memoIndex = 0
-  table = nodes(exports.TasksSystemPage({ system: 'catalog', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
+  table = nodes(exports.TasksSystemPage({ system: 'media', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
   table.props.onRun(definition)
   await setImmediate()
   assert.equal(requests.length, 1)

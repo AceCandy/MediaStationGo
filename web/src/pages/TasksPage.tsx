@@ -613,7 +613,7 @@ function ScrapeIssuesPanel({ libraries, onClose }: { libraries: Library[]; onClo
 export function TasksPage() {
 	const [params, setParams] = useSearchParams()
 	const values = params.getAll('system')
-	const system: TaskSystem = values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo' || values[0] === 'huangguoai') ? values[0] : 'catalog'
+	const system: TaskSystem = values.length === 1 && (values[0] === 'common' || values[0] === 'tmdb' || values[0] === 'douban' || values[0] === 'hongguo' || values[0] === 'huangguoai') ? values[0] : 'media'
 	useEffect(() => {
 		if (values.length > 1 || (values.length === 1 && values[0] !== system)) {
 			const next = new URLSearchParams(params); next.set('system', system); setParams(next, { replace: true })
@@ -677,11 +677,11 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
     return () => { active = false; controller.abort(); window.clearTimeout(timer) }
   }, [system])
   useEffect(() => {
-    if (system === 'hongguo') return
+    if (system !== 'media') return
     libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => setLibraries([]))
   }, [system])
   useEffect(() => {
-    if (system !== 'catalog') return
+    if (system !== 'media') return
     const controller = new AbortController()
     setPendingCountsLoading(true)
     setPendingCountsError(false)
@@ -748,7 +748,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
         </section>
       )}
       <div className="tab-list" role="group" aria-label="任务体系">
-        {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧'], ['huangguoai', '黄果 AI']] as const).map(([value, label]) => (
+        {([['common', '公共任务'], ['media', '媒体项'], ['tmdb', 'TMDB'], ['douban', '豆瓣'], ['hongguo', '红果短剧'], ['huangguoai', '黄果 AI']] as const).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={system === value} onClick={() => { if (system !== value) onSystemChange(value) }}
             className="tab-item">
             {label}
@@ -756,7 +756,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
         ))}
       </div>
 		<section className="glass-panel">
-      {system === 'catalog' && <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-xs text-ink-100">
+      {system === 'media' && <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-xs text-ink-100">
         <p>{pendingCounts ? `待办统计更新于 ${formatTime(pendingCounts.updated_at)} · 手动刷新` : pendingCountsLoading ? '正在加载待办统计…' : '待办数量尚未加载'}</p>
         <button type="button" className="btn-outline gap-1.5 px-3 py-1.5 text-xs" disabled={pendingCountsLoading} onClick={() => setPendingCountsRevision((value) => value + 1)} aria-label="刷新待办统计"><RefreshCw size={14} aria-hidden="true" className={pendingCountsLoading ? 'animate-spin' : ''} />{pendingCountsLoading ? '加载中…' : '刷新待办统计'}</button>
         {pendingCountsError && <p role="alert" className="text-red-500">统计加载失败{pendingCounts ? '，保留上次结果' : ''}，请点击刷新重试。</p>}

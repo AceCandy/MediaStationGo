@@ -41,6 +41,7 @@ type TMDbDataCenter struct {
 	provider  *TMDbProvider
 	artwork   *ArtworkStore
 	people    *PeopleImageStore
+	tasks     *TaskTrackerService
 	ctx       context.Context
 	mu        sync.Mutex
 	flights   map[string]*tmdbCatalogFlight
@@ -304,7 +305,7 @@ func (s *TMDbDataCenter) requestURL(ctx context.Context, path, query string) (st
 	q.Set("api_key", key)
 	return strings.TrimRight(s.provider.resolveBaseURL(ctx), "/") + path + "?" + q.Encode(), nil
 }
-func (s *TMDbDataCenter) RunDue(ctx context.Context, periodic bool, limit int, reports ...map[string]int64) (int64, int, error) {
+func (s *TMDbDataCenter) RunDue(ctx context.Context, periodic bool, limit int, reports ...map[string]int64) (_ int64, _ int, resultErr error) {
 	budget := &tmdbBudget{limit: int64(limit)}
 	ctx = context.WithValue(ctx, tmdbBudgetKey{}, budget)
 	ctx = context.WithValue(ctx, tmdbAutomaticKey{}, periodic)
@@ -318,6 +319,13 @@ func (s *TMDbDataCenter) RunDue(ctx context.Context, periodic bool, limit int, r
 		report = reports[0]
 	}
 	report["selected_scopes"] = int64(len(rows))
+	var task *TaskHandle
+	if !periodic && len(rows) > 0 && s.tasks != nil {
+		task = s.tasks.StartTriggered(TaskKindTMDbDataSupplement, TaskTriggerEvent, "TMDb 资料补全", TaskUpdate{Stage: "supplement", Message: "处理已提交的来源资料请求", Metrics: report})
+		if task == nil {
+			return 0, 0, errors.New("TMDb 补全执行记录创建失败")
+		}
+	}
 	owners := map[string]bool{}
 	for _, j := range rows {
 		owner := j.Path
@@ -331,8 +339,23 @@ func (s *TMDbDataCenter) RunDue(ctx context.Context, periodic bool, limit int, r
 	}
 	report["selected_entities"] = int64(len(owners))
 	defer func() { report["http_attempts"] = budget.used.Load(); report["updated"] = int64(done) }()
+	defer func() {
+		if task != nil {
+			report["http_attempts"], report["updated"] = budget.used.Load(), int64(done)
+			stage, finishErr := "completed", sanitizeTaskLogError(resultErr)
+			if errors.Is(resultErr, context.Canceled) {
+				stage, finishErr = "interrupted", context.Canceled
+			} else if resultErr != nil {
+				stage = "failed"
+			}
+			task.Finish(finishErr, TaskUpdate{Stage: stage, Message: "本轮补全结束，未完成请求按退避规则继续", Metrics: report})
+		}
+	}()
 	var batchErr error
-	for _, j := range rows {
+	for index, j := range rows {
+		if task != nil {
+			task.Update(TaskUpdate{Stage: "supplement", Message: fmt.Sprintf("处理 %d / %d 个来源组件", index+1, len(rows)), Metrics: map[string]int64{"processed": int64(index), "updated": int64(done), "failed": report["failed"], "http_attempts": budget.used.Load()}, Details: []string{j.Path + " · " + j.Scope}})
+		}
 		if ctx.Err() != nil {
 			return budget.used.Load(), done, ctx.Err()
 		}
@@ -354,10 +377,12 @@ func (s *TMDbDataCenter) RunDue(ctx context.Context, periodic bool, limit int, r
 				return budget.used.Load(), done, cacheErr
 			} else if len(cached) > 0 {
 				report["cache_hits"]++
+				report["processed"]++
 				continue
 			}
 		}
 		_, e = s.Fetch(context.WithValue(ctx, tmdbForceKey{}, true), raw, &json.RawMessage{})
+		report["processed"]++
 		if e == nil {
 			done++
 		}

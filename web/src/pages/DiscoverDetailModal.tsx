@@ -1,102 +1,58 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { discoverAPI, discoverTMDbIdentity, type DiscoverDetail, type DiscoverItem } from '../api/discover'
-import { imageURL } from '../api/client'
+import { useEffect, useState } from 'react'
+import { discoverAPI, discoverTMDbIdentity, type DiscoverItem } from '../api/discover'
 import { ModalShell } from '../components/ModalShell'
-import { useAuthStore } from '../stores/auth'
-import { MediaCredits } from './MediaDetailCast'
-import { MetadataFacts, MetadataOverview, MetadataCategories, ProviderBadge } from './MediaDetailMetadata'
+import { TMDbDetailModal } from './TMDbDetailModal'
+import { MetadataOverview } from './MediaDetailMetadata'
 import { discoverItemSource } from './discoverPageModel'
+import { doubanAPI, type DoubanSubjectSummary } from '../api/douban'
+import { DoubanSubjectDetails } from './DoubanDataCenterPage'
 import {
   DiscoverArtworkPanel,
   DiscoverModalHeader,
 } from './DiscoverDetailModalSections'
 
 export function DiscoverDetailModal({ item, onClose }: { item: DiscoverItem; onClose: () => void }) {
-  const source = discoverItemSource(item)
-  const identity = discoverTMDbIdentity(item)
-  const isAdmin = useAuthStore((state) => state.user?.role === 'admin')
-  const [detail, setDetail] = useState<DiscoverDetail | null>(null)
-  const [error, setError] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [refreshError, setRefreshError] = useState(false)
-  const [revision, setRevision] = useState(0)
-  const controllerRef = useRef<AbortController | null>(null)
-  const tmdbID = identity?.tmdb_id
-  const mediaType = identity?.media_type
-  const loadDetail = useCallback((keepCurrent: boolean) => {
-    if (!tmdbID || !mediaType) return null
-    controllerRef.current?.abort()
-    const controller = new AbortController()
-    controllerRef.current = controller
-    if (!keepCurrent) setDetail(null)
-    setError(false)
-    setRefreshError(false)
-    setRefreshing(false)
-    const read = () => discoverAPI.detail({ tmdb_id: tmdbID, media_type: mediaType }, controller.signal)
-      .then((data) => {
-        if (controller.signal.aborted) return
-        setDetail(data)
-        return data
-      })
-    void read().then(async data => {
-      if (!data?.center_id || !data.missing_scopes?.includes('detail') || data.source_error || controller.signal.aborted) return
-      await discoverAPI.ensure(data.center_id, controller.signal)
-      for (let attempt = 0; attempt < 45 && !controller.signal.aborted; attempt++) {
-        await new Promise<void>(resolve => { const finish = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', finish); resolve() }; const timer = setTimeout(finish, 2000); controller.signal.addEventListener('abort', finish, { once: true }) })
-        if (controller.signal.aborted) return
-        const latest = await read()
-        if (!latest?.missing_scopes?.includes('detail') || latest.source_error) return
-      }
-    }).catch(() => { if (!controller.signal.aborted) setError(true) })
-    return controller
-  }, [mediaType, tmdbID])
-  useEffect(() => {
-    loadDetail(false)
-    return () => {
-      controllerRef.current?.abort()
-      controllerRef.current = null
-    }
-  }, [loadDetail, revision])
-  const refreshLocal = async () => {
-    if (!identity || refreshing) return
-    const controller = new AbortController(); controllerRef.current = controller
-    setRefreshing(true); setRefreshError(false)
-    try { const latest = await discoverAPI.refresh(identity, controller.signal); if (!controller.signal.aborted) setDetail(latest) }
-    catch { if (!controller.signal.aborted) setRefreshError(true) }
-    finally { if (!controller.signal.aborted) setRefreshing(false) }
-  }
-  const display: DiscoverItem = detail ? { ...item, title: detail.title, overview: detail.overview, poster_url: detail.poster_url, backdrop_url: detail.backdrop_url, rating: detail.rating, year: detail.year } : item
-  const doubanID = detail ? detail.douban_id : item.douban_id
+  return discoverItemSource(item) === 'douban' && item.douban_id
+    ? <DoubanRankingDetail key={item.douban_id} item={item} onClose={onClose} />
+    : <DiscoverSourceDetail item={item} onClose={onClose} />
+}
 
-  return (
-    <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="max-h-[92vh] overflow-y-auto" ariaLabel={display.title}>
-      <div className="relative isolate min-h-full p-5 sm:p-6">
-        {display.backdrop_url && <div aria-hidden="true" data-discover-backdrop className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-          <img src={imageURL(display.backdrop_url, undefined, { maxWidth: 1920 })} alt="" className="absolute inset-x-0 top-0 h-[min(36rem,100%)] w-full object-cover opacity-40" />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, color-mix(in srgb, var(--app-panel) 35%, transparent), var(--app-panel) min(34rem, 75%))' }} />
-        </div>}
-      <DiscoverModalHeader item={display} source={source} onClose={onClose} />
-      <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
-        <DiscoverArtworkPanel item={display} />
-        <div className="min-w-0 space-y-5">
-          {identity && <>
-            {detail && <MetadataFacts rating={detail.rating ?? 0} date={detail.release_date || (detail.year ? `${detail.year} 年` : '暂无')} durationSeconds={detail.runtime_minutes.map((minutes) => minutes * 60)} dateLabel={mediaType === 'tv' ? '首播日期' : '上映日期'} runtimeLabel={mediaType === 'tv' ? '单集时长' : '时长'} />}
-            <div className="flex flex-wrap gap-2.5">
-              <ProviderBadge href={`https://www.themoviedb.org/${identity.media_type}/${identity.tmdb_id}`} label="TMDb" iconSrc="/brand/tmdb.svg" status={detail?.tmdb_status} />
-              <ProviderBadge href={doubanID && /^[1-9]\d{0,19}$/.test(doubanID) ? `https://movie.douban.com/subject/${doubanID}/` : undefined} label="豆瓣" iconSrc="/brand/douban.svg" status={doubanID ? detail?.douban_status : 'unlinked'} />
-            </div>
-            {!detail && !error && <p role="status" className="text-sm text-[var(--app-muted)]">正在加载完整资料…</p>}
-            {error && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm"><span>完整资料暂时不可用</span><button className="btn-outline" onClick={() => setRevision((v) => v + 1)}>重试详情</button></div>}
-            {detail?.local_metadata && isAdmin && <button className="btn-outline" disabled={refreshing} onClick={() => void refreshLocal()}>刷新本地资料</button>}
-            {detail?.local_metadata && isAdmin && refreshing && <p role="status" className="text-sm text-[var(--app-muted)]">正在刷新 TMDb 最新资料…</p>}
-            {detail?.local_metadata && isAdmin && refreshError && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm"><span>TMDb 刷新失败，已保留当前资料</span><button className="btn-outline" onClick={() => void refreshLocal()}>重试刷新</button></div>}
-          </>}
-          <MetadataOverview overview={display.overview || '当前数据源没有返回简介。'} />
-          {detail && <MetadataCategories genres={detail.genres ?? []} countries={detail.countries ?? []} languages={detail.languages ?? []} />}
-          {detail && (detail.credits.length ? <MediaCredits credits={detail.credits} /> : <p className="text-sm text-[var(--app-muted)]">暂无演职员资料</p>)}
-        </div>
-      </div>
-      </div>
-    </ModalShell>
-  )
+function DoubanRankingDetail({ item, onClose }: { item: DiscoverItem; onClose: () => void }) {
+  const [subject, setSubject] = useState<DoubanSubjectSummary | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [retry, setRetry] = useState(0)
+  const kind = item.media_type === 'tv' ? 'series' : item.media_type === 'movie' ? 'movie' : ''
+  useEffect(() => {
+    const controller = new AbortController()
+    setFailed(false)
+    doubanAPI.ensure(item.douban_id!, kind, controller.signal).then(value => {
+      if (!controller.signal.aborted) setSubject(value)
+    }).catch(() => { if (!controller.signal.aborted) setFailed(true) })
+    return () => controller.abort()
+  }, [item.douban_id, kind, retry])
+  return subject ? <DoubanSubjectDetails subject={subject} onClose={onClose} /> : <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="max-h-[92vh] overflow-y-auto p-5 sm:p-6" ariaLabel={item.title}>
+    <DiscoverModalHeader item={item} source="douban" onClose={onClose} />
+    <div className="grid gap-5 lg:grid-cols-[260px_1fr]"><DiscoverArtworkPanel item={item} /><div><MetadataOverview overview={item.overview || '正在读取来源资料…'} /><p role={failed ? 'alert' : 'status'} className="mt-4 text-sm text-ink-100">{failed ? '豆瓣资料读取或补全请求失败，请稍后重试。' : '正在读取豆瓣资料并登记缺项补全…'}</p>{failed && <button className="btn-outline mt-3" onClick={() => setRetry(value => value + 1)}>重试详情</button>}</div></div>
+  </ModalShell>
+}
+
+function DiscoverSourceDetail({ item, onClose }: { item: DiscoverItem; onClose: () => void }) {
+  const identity = discoverTMDbIdentity(item)
+  const [centerID, setCenterID] = useState('')
+  const [error, setError] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const tmdbID = identity?.tmdb_id, mediaType = identity?.media_type
+  useEffect(() => {
+    if (!tmdbID || !mediaType) return
+    const c = new AbortController(); setError(false)
+    discoverAPI.detail({tmdb_id:tmdbID, media_type:mediaType}, c.signal).then(value => {
+      if (!c.signal.aborted) { if (value.center_id) setCenterID(value.center_id); else setError(true) }
+    }).catch(() => {if (!c.signal.aborted) setError(true)})
+    return () => c.abort()
+  }, [tmdbID, mediaType, revision])
+  if (centerID) return <TMDbDetailModal initial={{id:centerID, person:false, title:item.title, image:item.poster_url, overview:item.overview}} onClose={onClose} />
+  return <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="max-h-[92vh] overflow-y-auto p-5 sm:p-6" ariaLabel={item.title}>
+    <DiscoverModalHeader item={item} source={discoverItemSource(item)} onClose={onClose} />
+    <div className="grid gap-5 lg:grid-cols-[260px_1fr]"><DiscoverArtworkPanel item={item} /><div className="space-y-4"><MetadataOverview overview={item.overview || '当前数据源没有返回简介。'} />{identity && <p role={error ? 'alert' : 'status'}>{error ? '完整资料暂时不可用' : '正在加载完整资料…'}{error && <button className="btn-outline ml-2" onClick={() => setRevision(v => v + 1)}>重试详情</button>}</p>}</div></div>
+  </ModalShell>
 }

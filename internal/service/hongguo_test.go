@@ -67,7 +67,7 @@ func TestHongGuoImportTaskAndIsolation(t *testing.T) {
 	if err != nil || len(page.Items) != 1 || page.Items[0].Trigger != TaskTriggerManual || page.Items[0].Status != TaskStatusCompleted {
 		t.Fatalf("task=%+v err=%v", page, err)
 	}
-	legacy, err := tasks.ListSystem(model.TaskSystemCatalog, 1, 10)
+	legacy, err := tasks.ListSystem(model.TaskSystemMedia, 1, 10)
 	if err != nil || legacy.Total != 0 {
 		t.Fatalf("source task leaked: %+v %v", legacy, err)
 	}
@@ -251,9 +251,9 @@ func TestHongGuoArtworkRunsAlongsideCollection(t *testing.T) {
 }
 
 func TestTaskSystemMemoryFilterUsesExplicitSystem(t *testing.T) {
-	for _, tc := range []struct{ kind, system string }{{TaskKindScan, model.TaskSystemCommon}, {TaskKindScrape, model.TaskSystemCatalog}, {TaskKindHongGuoRefresh, model.TaskSystemHongGuo}} {
+	for _, tc := range []struct{ kind, system string }{{TaskKindScan, model.TaskSystemMedia}, {TaskKindScrape, model.TaskSystemMedia}, {TaskKindHongGuoRefresh, model.TaskSystemHongGuo}} {
 		task := BackgroundTask{Kind: tc.kind, System: tc.system}
-		for _, system := range []string{model.TaskSystemCommon, model.TaskSystemCatalog, model.TaskSystemHongGuo} {
+		for _, system := range []string{model.TaskSystemCommon, model.TaskSystemMedia, model.TaskSystemHongGuo} {
 			if got := taskMatchesFilter(task, repository.TaskExecutionFilter{System: system}); got != (system == tc.system) {
 				t.Fatalf("kind=%s system=%s got=%v", tc.kind, system, got)
 			}

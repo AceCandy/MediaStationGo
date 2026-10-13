@@ -9,6 +9,7 @@ import (
 
 func registerAuthedUISurfaceRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	registerTMDbCenterRoutes(authed.Group("/catalogs/tmdb", requirePermission(svc, "can_view_discover")), svc, false)
+	registerDoubanCenterRoutes(authed.Group("/catalogs/douban", requirePermission(svc, "can_view_discover")), svc, false)
 	authed.GET("/media/recent", recentMediaHandler(svc))
 	authed.GET("/media/stats", mediaStatsHandler(svc))
 

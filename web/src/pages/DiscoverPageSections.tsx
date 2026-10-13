@@ -1,7 +1,7 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 import type { DiscoverItem, DiscoverSection } from '../api/discover'
-import { Select } from '../components/Select'
+import { CatalogRankingHeader, CatalogRankingSkeleton } from '../components/CatalogRanking'
 import { ContentRow } from './DiscoverContentRow'
 
 type SectionLabel = (key: string) => string
@@ -22,16 +22,8 @@ export function DiscoverHeader({
   onSelectSection: (key: string) => void
 }) {
   return (
-    <header className="flex flex-wrap items-center justify-start gap-3">
-      <Select
-        aria-label="选择榜单"
-        className="input-field min-h-10 w-full sm:w-64"
-        disabled={!sectionsReady || sections.length === 0}
-        value={selected[0] ?? ''}
-        onChange={onSelectSection}
-      >
-        {sections.map((section) => <option key={section.key} value={section.key}>{section.label}</option>)}
-      </Select>
+    <header className="space-y-3">
+      <CatalogRankingHeader source={sections.find(s => s.key === selected[0])?.provider || ''} title={sections.find(s => s.key === selected[0])?.label || '榜单'} options={sections.map(s => ({value:s.key, label:s.label}))} value={selected[0] || ''} onChange={onSelectSection} />
         <button
           type="button"
           onClick={onRefresh}
@@ -63,6 +55,7 @@ export function DiscoverResults({
   hasContent,
   sectionLabel,
   onLoadMore,
+  onRetry,
   onSelect,
 }: {
   selected: string[]
@@ -74,6 +67,7 @@ export function DiscoverResults({
   hasContent: boolean
   sectionLabel: SectionLabel
   onLoadMore: (key: string) => void
+  onRetry: (key: string) => void
   onSelect: (item: DiscoverItem) => void
 }) {
   const hasRowErrors = Object.keys(rowErrors).length > 0
@@ -84,7 +78,7 @@ export function DiscoverResults({
         const items = rows[key] ?? []
         if (items.length === 0) {
           if (rowLoading[key]) {
-            return <DiscoverRowSkeleton key={key} />
+            return <CatalogRankingSkeleton key={key} />
           }
           return null
         }
@@ -92,8 +86,10 @@ export function DiscoverResults({
           <ContentRow
             key={key}
             items={items}
-            canNext={Boolean(rowCanNext[key])}
+            rankLabel={sectionLabel(key)}
+            canNext={Boolean(rowCanNext[key]) && !rowErrors[key]}
             loading={Boolean(rowLoading[key])}
+            failed={Boolean(rowErrors[key])}
             onLoadMore={() => onLoadMore(key)}
             onSelect={onSelect}
           />
@@ -101,7 +97,7 @@ export function DiscoverResults({
       })}
 
       {hasRowErrors && (
-        <DiscoverRowErrors rowErrors={rowErrors} sectionLabel={sectionLabel} />
+        <DiscoverRowErrors rowErrors={rowErrors} sectionLabel={sectionLabel} onRetry={onRetry} />
       )}
 
       {!loading && !hasContent && !hasRowErrors && <DiscoverNoContent />}
@@ -112,9 +108,11 @@ export function DiscoverResults({
 function DiscoverRowErrors({
   rowErrors,
   sectionLabel,
+  onRetry,
 }: {
   rowErrors: Record<string, string>
   sectionLabel: SectionLabel
+  onRetry: (key: string) => void
 }) {
   return (
     <div className="flex items-start gap-3 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
@@ -122,7 +120,7 @@ function DiscoverRowErrors({
       <div className="space-y-1 text-xs">
         <p className="font-semibold">部分推荐源暂不可用，其他已加载内容不受影响。</p>
         {Object.entries(rowErrors).map(([key, message]) => (
-          <p key={key}>{sectionLabel(key)}：{message}</p>
+          <p key={key}>{sectionLabel(key)}：{message} <button type="button" className="underline" onClick={() => onRetry(key)}>重试</button></p>
         ))}
       </div>
     </div>
@@ -136,17 +134,5 @@ function DiscoverNoContent() {
         当前选择的推荐源暂未返回内容，可切换豆瓣 / Bangumi 或检查网络代理。
       </p>
     </div>
-  )
-}
-
-function DiscoverRowSkeleton() {
-  return (
-    <section className="space-y-4">
-      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">
-        {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
-          <div key={item} className="aspect-[2/3] animate-pulse rounded-xl bg-gray-100" />
-        ))}
-      </div>
-    </section>
   )
 }

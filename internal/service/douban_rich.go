@@ -19,6 +19,7 @@ import (
 
 // DoubanRichCredit 只属于共享豆瓣资料，不创建本地媒体或人物记录。
 type DoubanRichCredit struct {
+	DoubanID  string `json:"douban_id,omitempty"`
 	Name      string `json:"name"`
 	Role      string `json:"role"`
 	Type      string `json:"type"`
@@ -102,6 +103,20 @@ func (d *DoubanProvider) refreshRichSubject(ctx context.Context, id, kind string
 	rich.FetchedAt = time.Now().UTC().Truncate(time.Microsecond)
 	for range 4 {
 		old = doubanRichPayload(observed)
+		// 网页首屏人员摘要不能覆盖已获取的 API 演职员列表。
+		if observed.CreditsFetchedAt != nil {
+			merged := append([]DoubanRichCredit(nil), old.Credits...)
+			for _, credit := range rich.Credits {
+				found := false
+				for _, previous := range merged {
+					found = found || previous.Name == credit.Name && previous.Type == credit.Type
+				}
+				if !found {
+					merged = append(merged, credit)
+				}
+			}
+			rich.Credits = merged
+		}
 		for i := range rich.Credits {
 			rich.Credits[i].ImageKey = ""
 			for _, previous := range old.Credits {
@@ -306,7 +321,7 @@ func doubanHTMLText(n *html.Node) string {
 }
 
 func doubanCreditImageURL(id string, index int) string {
-	return fmt.Sprintf("/api/admin/douban/subjects/%s/credits/%d/image", url.PathEscape(id), index)
+	return fmt.Sprintf("/api/catalogs/douban/subjects/%s/credits/%d/image", url.PathEscape(id), index)
 }
 
 // DoubanHonor 展示接口已返回的榜单名称与明确排名，未提供排名时只显示名称。
@@ -347,7 +362,11 @@ func populateDoubanRichDetail(detail *DoubanSubjectDetail, subject *model.Douban
 	for i, credit := range rich.Credits {
 		image := ""
 		if credit.SourceURL != "" || credit.ImageKey != "" {
-			image = doubanCreditImageURL(subject.ID, i) + "?v=" + url.QueryEscape(rich.FetchedAt.Format(time.RFC3339Nano))
+			version := rich.FetchedAt
+			if subject.CreditsFetchedAt != nil && subject.CreditsFetchedAt.After(version) {
+				version = *subject.CreditsFetchedAt
+			}
+			image = doubanCreditImageURL(subject.ID, i) + "?v=" + url.QueryEscape(version.Format(time.RFC3339Nano))
 		}
 		detail.Credits = append(detail.Credits, MediaCredit{PersonID: fmt.Sprintf("douban-%s-%d", subject.DoubanID, i), Name: credit.Name, Role: credit.Role, Type: credit.Type, ProfileURL: image})
 	}

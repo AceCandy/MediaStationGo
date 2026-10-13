@@ -251,10 +251,10 @@ func startFinishedTask(t *testing.T, tracker *TaskTrackerService, kind, name str
 	task.Finish(nil, update)
 }
 
-func TestDoubanRefreshBelongsToCommonTasks(t *testing.T) {
+func TestDoubanRefreshBelongsToSourceTasks(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
 	startFinishedTask(t, tracker, TaskKindDoubanDataRefresh, "豆瓣资料刷新", TaskUpdate{})
-	for _, system := range []string{model.TaskSystemCommon, model.TaskSystemCatalog} {
+	for _, system := range []string{model.TaskSystemCommon, model.TaskSystemMedia, model.TaskSystemDouban, model.TaskSystemTMDb} {
 		definitions, err := tracker.DefinitionsForSystem(nil, system)
 		if err != nil {
 			t.Fatal(err)
@@ -263,15 +263,15 @@ func TestDoubanRefreshBelongsToCommonTasks(t *testing.T) {
 		for _, definition := range definitions {
 			if definition.Key == TaskDefinitionDoubanDataRefresh {
 				found = true
-				if definition.Latest == nil || definition.Latest.System != model.TaskSystemCommon {
+				if definition.Latest == nil || definition.Latest.System != model.TaskSystemDouban {
 					t.Fatalf("refresh history: %#v", definition)
 				}
 			}
-			if (definition.Key == TaskDefinitionDoubanEnrichment || definition.Key == TaskDefinitionTMDbArtworkLocalRepair) && system != model.TaskSystemCatalog {
+			if (definition.Key == TaskDefinitionDoubanEnrichment || definition.Key == TaskDefinitionTMDbArtworkLocalRepair) && system != model.TaskSystemMedia {
 				t.Fatalf("media task moved to common: %#v", definition)
 			}
 		}
-		if found != (system == model.TaskSystemCommon) {
+		if found != (system == model.TaskSystemDouban) {
 			t.Fatalf("refresh definition in %s: %v", system, found)
 		}
 	}

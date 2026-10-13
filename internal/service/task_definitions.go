@@ -60,6 +60,8 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindTMDbDataSupplement, Name: "TMDb 资料补全", Description: "处理发现页提交的缺失来源资料；共享缓存、限速及失败退避，与媒体项无关", Trigger: "浏览详情后自动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindTMDbDataSupplement}},
+	{TaskDefinition: TaskDefinition{Key: TaskKindDoubanDataSupplement, Name: "豆瓣资料补全", Description: "补齐缺失基础资料和全量演职员，仅调用 API；共享缓存、限速及失败退避", Trigger: "浏览详情后自动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindDoubanDataSupplement}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindTMDbDataRefresh, Name: "TMDb 资料刷新", Description: "按组件到期时间限量刷新来源；不覆盖本地编辑，每次实际接口请求计入预算", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindTMDbDataRefresh}, schedulerJob: TaskKindTMDbDataRefresh},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISupplement, Name: "黄果 AI 补充下载", Description: "按本地发现时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISupplement}, schedulerJob: TaskKindHuangGuoAISupplement},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIDownload, Name: "黄果 AI 视频下载", Description: "完整校验后发布到下载目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIDownload}},

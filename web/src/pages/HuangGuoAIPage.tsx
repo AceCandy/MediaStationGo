@@ -1,11 +1,13 @@
+import { CatalogSearchForm } from '../components/CatalogSearchForm'
+import { CatalogLoadMore } from '../components/CatalogLoadMore'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Film, RefreshCw, Search } from 'lucide-react'
+import { Film } from 'lucide-react'
 import { huangguoaiAPI, huangGuoCategories, huangGuoRanks, type HuangGuoAIWork } from '../api/huangguoai'
 import { imageURL } from '../api/client'
 import { HuangGuoAIDetailModal } from './HuangGuoAIDetailModal'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
-import { CatalogRankingHeader, CatalogRankingRow } from '../components/CatalogRanking'
+import { CatalogRankingHeader, CatalogRankingRow, CatalogRankingSkeleton } from '../components/CatalogRanking'
 
 export function HuangGuoAIPage() {
   const [params, setParams] = useSearchParams()
@@ -102,26 +104,22 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
   }, [id, loading, error, remoteError, hasMore, catalogPage, remotePage, localHasMore, remoteHasMore, ranking, canLoadMore])
   return <section className="space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <nav className="flex gap-2" aria-label="黄果AI发现模式">
-        <button className={section === 'category' ? 'btn-primary' : 'btn-outline'} aria-pressed={section === 'category'} onClick={() => navigate({ section: '', rank: '', keyword: '', page: '1', id: '' })}>分类</button>
-        <button className={section === 'rank' ? 'btn-primary' : 'btn-outline'} aria-pressed={section === 'rank'} onClick={() => navigate({ section: 'rank', rank: 'hot', category: '', keyword: '', page: '1', id: '' })}>榜单</button>
+      <nav className="tab-list" aria-label="黄果AI发现模式">
+        <button className="tab-item" aria-pressed={section === 'category'} onClick={() => navigate({ section: '', rank: '', keyword: '', page: '1', id: '' })}>分类</button>
+        <button className="tab-item" aria-pressed={section === 'rank'} onClick={() => navigate({ section: 'rank', rank: 'hot', category: '', keyword: '', page: '1', id: '' })}>榜单</button>
       </nav>
-      <form className="flex w-full flex-wrap gap-2 sm:w-auto" onSubmit={event => { event.preventDefault(); if (query.trim() === keyword) { refresh(); return } navigate({ keyword: query.trim(), category: '', rank: '', section: '', page: '1', id: '' }) }}>
-        <label className="relative w-full min-w-0 sm:w-auto sm:flex-1"><Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-50" /><input className="input-field w-full pl-10 sm:w-64" type="search" maxLength={200} aria-label="搜索黄果AI标题或ID" placeholder="搜索标题或作品 ID" value={query} onChange={event => setQuery(event.target.value)} /></label>
-        <button className="btn-primary">搜索</button><button type="button" className="btn-outline px-3" aria-label="刷新黄果AI目录" disabled={loading} onClick={refresh}><RefreshCw size={16} /></button>
-      </form>
+
     </div>
-    {!keyword && section === 'category' && <nav className="flex flex-wrap gap-2" aria-label="黄果AI分类">{[['', '全部'], ...huangGuoCategories].map(([key, label]) => <button key={key} className={category === key ? 'btn-primary' : 'btn-outline'} aria-pressed={category === key} onClick={() => navigate({ category: key, page: '1', id: '' })}>{label}</button>)}</nav>}
+    {!keyword && section === 'category' && <nav className="tab-list flex-wrap" aria-label="黄果AI分类">{[['', '全部'], ...huangGuoCategories].map(([key, label]) => <button key={key} className="tab-item" aria-pressed={category === key} onClick={() => navigate({ category: key, page: '1', id: '' })}>{label}</button>)}</nav>}
+    <CatalogSearchForm label="搜索黄果AI标题或ID" placeholder="搜索标题或作品 ID…" value={query} onChange={setQuery} loading={loading} refreshLabel="刷新黄果AI目录" onRefresh={refresh} onSearch={() => { if(query.trim() === keyword) { refresh(); return }; navigate({keyword:query.trim(),category:'',rank:'',section:'',page:'1',id:''}) }} />
     {ranking && <CatalogRankingHeader source="黄果 AI" title={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} total={total} options={huangGuoRanks.map(([value, label]) => ({ value, label }))} value={rank} onChange={value => navigate({ rank: value, page: '1', id: '' })} />}
     {!ranking && <p className="text-sm text-ink-50">{keyword ? `官网 + 本地资料 · 已显示 ${visibleRows.length} 部（去重）` : `本地目录 · 共 ${total} 部 · 已显示 ${visibleRows.length} 部`}</p>}
     {remoteError && <p role="alert" className="text-sm text-red-500">官网搜索失败，已保留本地和已加载结果。<button className="btn-outline ml-2" onClick={() => setRemoteRetry(v => v + 1)}>重试官网搜索</button></p>}
     {error && <p role="alert" className="text-sm text-red-500">资料读取失败，已保留现有结果。<button className="btn-outline ml-2" onClick={() => setRetry(v => v + 1)}>重试加载</button></p>}
-    {loading && visibleRows.length === 0 ? <p role="status">加载黄果 AI 资料…</p> : ranking ? <ol className="space-y-3" aria-label="黄果AI排行榜">{visibleRows.map((work, index) => <CatalogRankingRow key={`${work.source_id}:${work.artwork_id}`} work={work} position={index + 1} artworkURL={work.artwork_id ? imageURL(huangguoaiAPI.artwork(work.artwork_id)) : ''} metadata={[huangGuoCategories.find(([key]) => key === work.source_category)?.[1], ...(work.tags ?? []), work.kind === 'movie' ? '电影' : work.hydrated ? `确认 ${work.confirmed_episode_count} 集` : '集数待确认'].filter(Boolean).join(' · ')} rankLabel={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} onOpen={() => navigate({ id: work.source_id })} />)}</ol> : <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map(work => <HuangGuoAICard key={`${work.source_id}:${work.artwork_id}`} work={work} onOpen={() => navigate({ id: work.source_id })} />)}</div>}
+    {loading && visibleRows.length === 0 ? ranking ? <CatalogRankingSkeleton /> : <p role="status">加载黄果 AI 资料…</p> : ranking ? <ol className="space-y-3" aria-label="黄果AI排行榜">{visibleRows.map((work, index) => <CatalogRankingRow key={`${work.source_id}:${work.artwork_id}`} work={work} position={index + 1} artworkURL={work.artwork_id ? imageURL(huangguoaiAPI.artwork(work.artwork_id)) : ''} metadata={[huangGuoCategories.find(([key]) => key === work.source_category)?.[1], ...(work.tags ?? []), work.kind === 'movie' ? '电影' : work.hydrated ? `确认 ${work.confirmed_episode_count} 集` : '集数待确认'].filter(Boolean).join(' · ')} rankLabel={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} onOpen={() => navigate({ id: work.source_id })} />)}</ol> : <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map(work => <HuangGuoAICard key={`${work.source_id}:${work.artwork_id}`} work={work} onOpen={() => navigate({ id: work.source_id })} />)}</div>}
     {!loading && !error && !remoteError && visibleRows.length === 0 && <p className="py-12 text-center text-ink-50">暂无作品。管理员可在任务中心运行作品发现、资料刷新和榜单刷新。</p>}
     <div ref={loadMoreRef} data-testid="huangguoai-load-more" className="h-px" aria-hidden="true" />
-    {loading && visibleRows.length > 0 && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
-    {!loading && canLoadMore && <button className="btn-outline" onClick={loadMore}>加载更多</button>}
-    {!loading && !error && !remoteError && !hasMore && visibleRows.length > 0 && <p className="py-3 text-center text-xs text-ink-50">当前结果已加载完</p>}
+    <CatalogLoadMore loading={loading} hasMore={canLoadMore} hasItems={visibleRows.length > 0} failed={!canLoadMore && (!!error || !!remoteError)} onLoadMore={loadMore} endLabel={ranking ? '榜单已加载完' : '当前结果已加载完'} />
     {id && <HuangGuoAIDetailModal key={id} sourceID={id} summary={visibleRows.find(row => row.source_id === id)} onClose={() => navigate({ id: '' })} />}
   </section>
 }

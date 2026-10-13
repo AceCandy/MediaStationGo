@@ -1,5 +1,6 @@
 import { api, BATCH_REQUEST_TIMEOUT } from './client'
 import type { MediaCredit } from '../types'
+import { useAuthStore } from '../stores/auth'
 
 export type DoubanRefreshMode = 'base' | 'full'
 
@@ -14,6 +15,8 @@ export interface DoubanSubjectSummary {
   rating: number
   quality: string
   has_payload: boolean
+  refresh_pending?: boolean
+  source_error?: boolean
   poster_url: string
   fetched_at: string | null
   rich_fetched_at?: string | null
@@ -50,13 +53,16 @@ export interface DoubanSubjectPage {
   page_size: number
 }
 
+const readRoot = () => useAuthStore.getState().user?.role === 'admin' ? '/admin/douban/subjects' : '/catalogs/douban/subjects'
 export const doubanAPI = {
-  list: (keyword: string, type: string, page: number, signal?: AbortSignal) =>
-    api.get<{ data: DoubanSubjectSummary[]; total: number; page: number; page_size: number }>('/admin/douban/subjects', {
-      params: { keyword: keyword || undefined, type: type || undefined, page, page_size: 30 }, signal,
+  ensure: (douban_id: string, kind: string, signal?: AbortSignal) => api.post<{ data: DoubanSubjectDetail }>('/catalogs/douban/subjects/ensure', { douban_id, kind }, { signal }).then(r => r.data.data),
+  categories: (type: string, signal?: AbortSignal) => api.get<{ data: { value: string; label: string }[] }>(`${readRoot().replace(/\/subjects$/, '')}/categories`, { params: { type }, signal }).then(r => r.data.data || []),
+  list: (keyword: string, type: string, page: number, signal?: AbortSignal, genre?: string) =>
+    api.get<{ data: DoubanSubjectSummary[]; total: number; page: number; page_size: number }>(readRoot(), {
+      params: { genre: genre || undefined, keyword: keyword || undefined, type: type || undefined, page, page_size: 30 }, signal,
     }).then(({ data }) => ({ items: data.data, total: data.total, page: data.page, page_size: data.page_size })),
   detail: (id: string, signal?: AbortSignal) =>
-    api.get<{ data: DoubanSubjectDetail }>(`/admin/douban/subjects/${encodeURIComponent(id)}`, { signal }).then(({ data }) => data.data),
+    api.get<{ data: DoubanSubjectDetail }>(`${readRoot()}/${encodeURIComponent(id)}`, { signal }).then(({ data }) => data.data),
   refresh: (id: string, mode: DoubanRefreshMode = 'full', signal?: AbortSignal) =>
     api.post<{ data: { subject: DoubanSubjectDetail; degraded: boolean; supplement_unavailable?: boolean } }>(`/admin/douban/subjects/${encodeURIComponent(id)}/refresh`, undefined, {
       params: { mode }, signal, timeout: BATCH_REQUEST_TIMEOUT,

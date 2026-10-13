@@ -47,7 +47,12 @@ func tmdbCenterList(svc *service.Container, person bool) gin.HandlerFunc {
 			return
 		}
 		if person {
-			rows, n, e := svc.TMDbCenter.ListPeople(c.Request.Context(), keyword, page, c.Query("quality"), state)
+			department := strings.TrimSpace(c.Query("department"))
+			if len([]rune(department)) > 100 {
+				tmdbCenterError(c, service.ErrTMDbCenterInput)
+				return
+			}
+			rows, n, e := svc.TMDbCenter.ListPeople(c.Request.Context(), keyword, page, c.Query("quality"), state, department)
 			if e != nil {
 				tmdbCenterError(c, e)
 				return
@@ -64,12 +69,38 @@ func tmdbCenterList(svc *service.Container, person bool) gin.HandlerFunc {
 			return
 		}
 
-		rows, n, e := svc.TMDbCenter.ListSubjects(c.Request.Context(), kind, "", keyword, quality, page, state)
+		genre := c.Query("genre")
+		if genre != "" {
+			if _, err := positiveQueryInt(genre, 1, 2147483647); err != nil {
+				tmdbCenterError(c, service.ErrTMDbCenterInput)
+				return
+			}
+		}
+		rows, n, e := svc.TMDbCenter.ListSubjects(c.Request.Context(), kind, "", keyword, quality, page, state, genre)
 		if e != nil {
 			tmdbCenterError(c, e)
 			return
 		}
 		Paginated(c, rows, n, page, 30)
+	}
+}
+
+func tmdbCenterCategories(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		kind := c.DefaultQuery("kind", "movie")
+		if kind == "tv" {
+			kind = "series"
+		}
+		if kind != "movie" && kind != "series" && kind != "person" {
+			tmdbCenterError(c, service.ErrTMDbCenterInput)
+			return
+		}
+		rows, err := svc.TMDbCenter.Categories(c.Request.Context(), kind)
+		if err != nil {
+			tmdbCenterError(c, err)
+			return
+		}
+		Success(c, rows)
 	}
 }
 func tmdbCenterDetail(svc *service.Container, person, admin bool) gin.HandlerFunc {
@@ -150,10 +181,36 @@ func tmdbCenterEnsure(svc *service.Container, person, force bool) gin.HandlerFun
 			return
 		}
 		user := ""
+		scope := c.DefaultQuery("scope", "detail")
 		if !force {
 			user = c.GetString(middleware.CtxUserID)
+			if (scope != "base" && scope != "detail" && scope != "filmography") || (person && scope == "base") || (!person && scope == "filmography") {
+				tmdbCenterError(c, service.ErrTMDbCenterInput)
+				return
+			}
+			detail, err := svc.TMDbCenter.Detail(c.Request.Context(), c.Param("id"), person, false)
+			if err != nil {
+				tmdbCenterError(c, err)
+				return
+			}
+			missing := false
+			for _, value := range detail.MissingScopes {
+				missing = missing || value == scope
+			}
+			if scope == "base" {
+				missing = true
+				for _, component := range detail.Components {
+					if component.Component == "base" || component.Component == "detail" {
+						missing = false
+					}
+				}
+			}
+			if !missing {
+				Success(c, gin.H{"refresh_pending": detail.RefreshPending, "source_error": detail.SourceError})
+				return
+			}
 		}
-		j, e := svc.TMDbCenter.Queue(c.Request.Context(), c.Param("id"), c.DefaultQuery("scope", "detail"), user, person, force)
+		j, e := svc.TMDbCenter.Queue(c.Request.Context(), c.Param("id"), scope, user, person, force)
 		if e != nil {
 			tmdbCenterError(c, e)
 			return
@@ -161,6 +218,10 @@ func tmdbCenterEnsure(svc *service.Container, person, force bool) gin.HandlerFun
 		status := http.StatusAccepted
 		if j.Status == "ready" {
 			status = http.StatusOK
+		}
+		if !force {
+			c.JSON(status, APIResponse{Code: 0, Message: "queued", Data: gin.H{"refresh_pending": j.Status == "pending" || j.Status == "running", "source_error": j.Status == "error"}})
+			return
 		}
 		c.JSON(status, APIResponse{Code: 0, Message: "queued", Data: j})
 	}
@@ -239,11 +300,12 @@ func registerTMDbCenterRoutes(group *gin.RouterGroup, svc *service.Container, ad
 	group.GET("/subjects/:id/credits", tmdbCenterCredits(svc, false))
 	group.GET("/people/:id", tmdbCenterDetail(svc, true, admin))
 	group.GET("/people/:id/works", tmdbCenterCredits(svc, true))
+	group.GET("/subjects", tmdbCenterList(svc, false))
+	group.GET("/people", tmdbCenterList(svc, true))
+	group.GET("/categories", tmdbCenterCategories(svc))
 	if admin {
 		group.POST("/subjects/:id/ensure", tmdbCenterEnsure(svc, false, false))
 		group.POST("/people/:id/ensure", tmdbCenterEnsure(svc, true, false))
-		group.GET("/subjects", tmdbCenterList(svc, false))
-		group.GET("/people", tmdbCenterList(svc, true))
 		group.POST("/subjects/:id/refresh", tmdbCenterEnsure(svc, false, true))
 		group.POST("/people/:id/refresh", tmdbCenterEnsure(svc, true, true))
 		group.POST("/import", tmdbCenterImport(svc))

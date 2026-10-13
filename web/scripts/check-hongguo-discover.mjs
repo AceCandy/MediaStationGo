@@ -39,6 +39,7 @@ try {
   route('catalogs/hongguo/works/90001', { ...items[0], overview: '弹窗测试简介', first_visible_at: '2026-09-01T00:00:00Z', tags: ['都市'], artwork: [], credits: [{ person_id: 'cast-1', subtitle: '测试角色', person: { name: '测试演员', source_id: '1' } }], episodes: [] })
   route('catalogs/hongguo/works/90001/favorite', { favorite: false })
   route('discover/sections', { sections: [{ key: 'tmdb_trending_day', label: 'TMDb 今日趋势', provider: 'tmdb' }] })
+  route('catalogs/tmdb/subjects?*', { data: [], total: 0, page: 1, page_size: 30 })
   route('discover/feed?*', { tmdb_trending_day: [], _meta: { tmdb_trending_day: { page: 1, has_next: false } } })
   // 模拟图片损坏，验证占位回退；真实本地图片另列部署验收。
   route('catalogs/hongguo/artwork/*', {})
@@ -125,13 +126,13 @@ try {
       if (process.env.DISCOVER_SCREENSHOT_DIR) browser('screenshot', `${process.env.DISCOVER_SCREENSHOT_DIR}/${theme}-${width}.png`)
     }
   }
-  browser('find', 'role', 'button', 'click', '--name', 'TMDB/豆瓣/Bangumi', '--exact')
-  waitFor(`new URLSearchParams(location.search).get('system') === 'catalog' && document.querySelector('button[aria-label="选择榜单"]') !== null`)
+  browser('find', 'role', 'button', 'click', '--name', 'Bangumi', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('system') === 'bangumi' && document.querySelector('.ranking-header') !== null && !document.querySelector('[aria-label="红果发现模式"]')`)
   assert.equal(evaluate(`document.querySelectorAll('button[aria-label^="查看"]').length`), 0)
   browser('find', 'role', 'button', 'click', '--name', '红果短剧', '--exact')
   waitFor(`document.querySelector('button[aria-label="查看长风渡山河"]') !== null`)
   visit('/discover?system=hongguo&system=invalid')
-  waitFor(`location.search === '?system=catalog'`)
+  waitFor(`new URLSearchParams(location.search).get('system') === 'tmdb' && new URLSearchParams(location.search).getAll('system').length === 1`)
   assert.ok(!evaluate(`document.body.innerText.includes('页面加载失败')`))
   assert.equal(browser('errors').trim(), '')
 

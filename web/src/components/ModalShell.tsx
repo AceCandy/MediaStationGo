@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import clsx from 'clsx'
@@ -16,6 +16,11 @@ type ModalShellProps = {
   children: ReactNode
 }
 
+const dialogs: { panel: HTMLElement; zIndex: number; returnFocus: HTMLElement | null }[] = []
+let bodyOverflow = ''
+const topDialog = () => dialogs.reduce<typeof dialogs[number] | undefined>((top, value) => !top || value.zIndex >= top.zIndex ? value : top, undefined)
+const focusableElements = (panel: HTMLElement) => Array.from(panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0 && !element.closest('[inert], [aria-hidden="true"]'))
+
 /**
  * 全站统一弹窗壳：主题化遮罩（modal-backdrop）+ 玻璃面板（modal-panel）+
  * 弹簧入场动效（scale/translate/opacity），并处理滚动锁定与 Escape/遮罩关闭。
@@ -30,27 +35,57 @@ export function ModalShell({
   children,
 }: ModalShellProps) {
   const reduceMotion = useReducedMotion()
+  const panel = useRef<HTMLDivElement>(null)
+  // 在挂载前记录发起控件，避免子组件自动聚焦和 StrictMode 重放把弹窗内部当成发起者。
+  const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  const fallbackFocus = useRef(topDialog()?.returnFocus || null)
+  const close = useRef(onClose)
+  useEffect(() => { close.current = onClose }, [onClose])
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow
+    const node = panel.current
+    if (!node) return
+    const previousFocus = opener.current
+    const fallback = fallbackFocus.current
+    const entry = { panel: node, zIndex, returnFocus: previousFocus?.isConnected ? previousFocus : fallback }
+    if (dialogs.length === 0) bodyOverflow = document.body.style.overflow
+    dialogs.push(entry)
     document.body.style.overflow = 'hidden'
-    if (!onClose) {
-      return () => {
-        document.body.style.overflow = previousOverflow
-      }
-    }
+    const focusFirst = () => (focusableElements(node)[0] || node).focus()
+    if (topDialog() === entry && !node.contains(document.activeElement)) focusFirst()
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (topDialog() !== entry) return
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        event.stopImmediatePropagation()
+        close.current?.()
+      } else if (event.key === 'Tab') {
+        const elements = focusableElements(node)
+        const first = elements[0], last = elements[elements.length - 1]
+        if (!first) { event.preventDefault(); node.focus() }
+        else if (event.shiftKey && (document.activeElement === first || !node.contains(document.activeElement) || document.activeElement === node)) { event.preventDefault(); last.focus() }
+        else if (!event.shiftKey && (document.activeElement === last || !node.contains(document.activeElement) || document.activeElement === node)) { event.preventDefault(); first.focus() }
       }
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener('keydown', handleKeyDown)
+    const handleFocus = (event: FocusEvent) => {
+      if (topDialog() === entry && !node.contains(event.target as Node)) focusFirst()
     }
-  }, [onClose])
+    document.addEventListener('keydown', handleKeyDown, true)
+    document.addEventListener('focusin', handleFocus)
+    return () => {
+      const wasTop = topDialog() === entry
+      dialogs.splice(dialogs.indexOf(entry), 1)
+      document.removeEventListener('keydown', handleKeyDown, true)
+      document.removeEventListener('focusin', handleFocus)
+      if (dialogs.length === 0) document.body.style.overflow = bodyOverflow
+      if (wasTop) {
+        const next = topDialog()
+        const target = previousFocus?.isConnected ? previousFocus : fallback
+        if (target?.isConnected && (!next || next.panel.contains(target))) target.focus()
+        else if (next) (focusableElements(next.panel)[0] || next.panel).focus()
+      }
+    }
+  }, [zIndex])
 
   // Portal 到 body：路由容器带有 transform 动效，会让 fixed 蒙层相对它定位而非视口
   return createPortal(
@@ -63,6 +98,8 @@ export function ModalShell({
       onClick={onClose}
     >
       <motion.div
+        ref={panel}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}

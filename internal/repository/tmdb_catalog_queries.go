@@ -32,11 +32,14 @@ func (r *TMDbCatalogRepository) PersonIdentity(ctx context.Context, id int) (*mo
 	return &row, err
 }
 
-func (r *TMDbCatalogRepository) Subjects(ctx context.Context, kind, parent, keyword string, quality, page, limit int, states ...string) ([]model.TMDbSubject, int64, error) {
+func (r *TMDbCatalogRepository) Subjects(ctx context.Context, kind, parent, keyword string, quality, page, limit int, filters ...string) ([]model.TMDbSubject, int64, error) {
 	query := func() *gorm.DB {
 		q := r.db.WithContext(ctx).Model(&model.TMDbSubject{})
-		if len(states) > 0 {
-			q = tmdbStateFilter(q, "tmdb_subjects.id", "subject_id", states[0])
+		if len(filters) > 0 {
+			q = tmdbStateFilter(q, "tmdb_subjects.id", "subject_id", filters[0])
+		}
+		if len(filters) > 1 && filters[1] != "" {
+			q = q.Where(`fields->'genres' @> jsonb_build_array(jsonb_build_object('id', ?::int))`, filters[1])
 		}
 		if kind != "" {
 			q = q.Where("kind = ?", kind)
@@ -69,11 +72,14 @@ func (r *TMDbCatalogRepository) Subjects(ctx context.Context, kind, parent, keyw
 func (r *TMDbCatalogRepository) People(ctx context.Context, keyword string, page, limit int, filters ...string) ([]model.TMDbPersonProfile, int64, error) {
 	query := func() *gorm.DB {
 		q := r.db.WithContext(ctx).Model(&model.TMDbPersonProfile{})
-		if len(filters) == 2 {
+		if len(filters) >= 2 {
 			if filters[0] != "" {
 				q = q.Where("quality=?", filters[0])
 			}
 			q = tmdbStateFilter(q, "tmdb_person_profiles.id", "person_profile_id", filters[1])
+		}
+		if len(filters) > 2 && filters[2] != "" {
+			q = q.Where("department = ?", filters[2])
 		}
 		if keyword != "" {
 			q = q.Where("name ILIKE ? OR original_name ILIKE ? OR tmdb_id::text = ?", "%"+keyword+"%", "%"+keyword+"%", keyword)

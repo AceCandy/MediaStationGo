@@ -14,6 +14,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	if err := reclassifyTaskSystems(db); err != nil {
+		return err
+	}
 	if err := ensureHuangGuoAIBindingIdentity(db); err != nil {
 		return err
 	}
@@ -42,6 +45,21 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return EnsureLatestMediaAddedTriggers(db)
+}
+
+// reclassifyTaskSystems 按现行任务归属更新执行历史，任务标识和日志路径保持稳定。
+func reclassifyTaskSystems(db *gorm.DB) error {
+	var kinds []string
+	if err := db.Model(&model.TaskExecution{}).Distinct("kind").Pluck("kind", &kinds).Error; err != nil {
+		return err
+	}
+	for _, kind := range kinds {
+		system := model.TaskSystemForKind(kind)
+		if err := db.Model(&model.TaskExecution{}).Where("kind = ? AND system IS DISTINCT FROM ?", kind, system).UpdateColumn("system", system).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensurePlayerRequestLogSchema(db *gorm.DB) error {

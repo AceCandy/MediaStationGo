@@ -85,7 +85,7 @@ func TestDiscoverDetailFieldsIdentityAndReadOnly(t *testing.T) {
 	}
 }
 
-func TestDiscoverDetailUsesMetadataWithoutMedia(t *testing.T) {
+func TestDiscoverDetailUsesSourceAndPreservesLocalEdits(t *testing.T) {
 	for _, kind := range []string{"movie", "tv"} {
 		t.Run(kind, func(t *testing.T) {
 			db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Person{}, &model.MetadataCredit{})
@@ -96,8 +96,8 @@ func TestDiscoverDetailUsesMetadataWithoutMedia(t *testing.T) {
 				t.Fatal(err)
 			}
 			work := createServiceTestMetadata(t, db, model.MetadataItem{Kind: id.Kind(), Title: "库内中文标题", Overview: "库内简介", Rating: 7.6, Year: 2026, ReleaseDate: "2026-08-12", Genres: "科幻,悬疑", Languages: "en,de", Countries: "US", RuntimeSec: 5580}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: id.Kind(), ExternalID: "123"}, model.MetadataIdentifier{Provider: "douban", EntityKind: id.Kind(), ExternalID: "456"})
-			poster := createServiceTestArtwork(t, db, work.ID, "poster", "local-poster")
-			backdrop := createServiceTestArtwork(t, db, work.ID, "backdrop", "local-backdrop")
+			createServiceTestArtwork(t, db, work.ID, "poster", "local-poster")
+			createServiceTestArtwork(t, db, work.ID, "backdrop", "local-backdrop")
 			person := model.Person{Name: "已翻译演员", OriginalName: "Original Actor", NormalizedName: "original actor", Source: "tmdb"}
 			if err := db.Create(&person).Error; err != nil {
 				t.Fatal(err)
@@ -121,31 +121,29 @@ func TestDiscoverDetailUsesMetadataWithoutMedia(t *testing.T) {
 			}))
 			defer server.Close()
 			cfg := &config.Config{Secrets: config.SecretsConfig{TMDbAPIKey: "test-key", TMDbAPIProxy: server.URL}}
-			svc := NewMediaService(cfg, zap.NewNop(), repos).SetTMDbProvider(NewTMDbProvider(cfg, zap.NewNop(), nil))
+			provider := NewTMDbProvider(cfg, zap.NewNop(), nil)
+			center := NewTMDbDataCenter(repos, provider)
+			provider.catalog = center
+			svc := NewMediaService(cfg, zap.NewNop(), repos).SetTMDbProvider(provider)
+			raw := []byte(`{"id":123,"title":"来源标题","name":"来源标题","overview":"来源简介","runtime":100,"episode_run_time":[45,50],"credits":{"cast":[],"crew":[]}}`)
+			if err := repos.TMDb.SaveResponse(t.Context(), repository.TMDbSourceRequest{Kind: id.Kind(), TMDbID: 123, Component: "detail", Language: "zh-CN"}, raw, time.Now(), ""); err != nil {
+				t.Fatal(err)
+			}
 			detail, err := svc.DiscoverTMDbDetail(t.Context(), id)
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantRuntime := []int{93}
-			if kind == "tv" {
-				wantRuntime = []int{45, 50}
+			if requests.Load() != 0 || detail.Title != "来源标题" || detail.Overview != "来源简介" || detail.LocalMetadata || len(detail.Credits) != 0 {
+				t.Fatalf("source projection: %+v", detail)
 			}
-			if requests.Load() != 0 || detail.Title != work.Title || detail.Rating != work.Rating || detail.Overview != work.Overview || detail.PosterURL != poster || detail.BackdropURL != backdrop || detail.DoubanID != "456" || !reflect.DeepEqual(detail.RuntimeMinutes, wantRuntime) {
-				t.Fatalf("local projection not used: %+v, requests=%d", detail, requests.Load())
+			current, err := repos.Metadata.FindByID(t.Context(), work.ID)
+			if err != nil || current.Title != work.Title || current.Overview != work.Overview {
+				t.Fatalf("local edits changed: %+v %v", current, err)
 			}
-			if len(detail.Credits) != 2 || detail.Credits[0].Name != person.Name || detail.Credits[0].Role != "已翻译角色" || detail.Credits[0].Type != "Actor" {
-				t.Fatalf("translated credits/order lost: %+v", detail.Credits)
+			var savedPerson model.Person
+			if err := db.First(&savedPerson, "id = ?", person.ID).Error; err != nil || savedPerson.Name != person.Name {
+				t.Fatal("local translation changed")
 			}
-			// 已入库预览不依赖 TMDb 配置，不为本地缺项联网覆盖。
-			svc.SetTMDbProvider(nil)
-			if err := db.Model(work).Update("overview", "").Error; err != nil {
-				t.Fatal(err)
-			}
-			local, err := svc.DiscoverTMDbDetail(t.Context(), id)
-			if err != nil || local.Overview != "" || requests.Load() != 0 {
-				t.Fatalf("local missing field fell back: %+v %v", local, err)
-			}
-			svc.SetTMDbProvider(NewTMDbProvider(cfg, zap.NewNop(), nil))
 			data, _ := json.Marshal(detail)
 			for _, secret := range []string{"/fixture/discover/file.strm", "Original Role", "Original Actor", "metadata_id", "test-key"} {
 				if strings.Contains(string(data), secret) {

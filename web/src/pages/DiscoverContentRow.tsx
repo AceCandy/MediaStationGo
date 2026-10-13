@@ -2,18 +2,24 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import { discoverAPI, discoverIdentityKey, discoverTMDbIdentity, type DiscoverItem } from '../api/discover'
 import { imageURL } from '../api/client'
+import { CatalogLoadMore } from '../components/CatalogLoadMore'
+import { CatalogRankingRow } from '../components/CatalogRanking'
 import { discoverItemSource } from './discoverPageModel'
 
 export function ContentRow({
   items,
+  rankLabel,
   canNext = false,
   loading = false,
+  failed = false,
   onLoadMore,
   onSelect,
 }: {
+  rankLabel?: string
   items: DiscoverItem[]
   canNext?: boolean
   loading?: boolean
+  failed?: boolean
   onLoadMore?: () => void
   onSelect: (item: DiscoverItem) => void
 }) {
@@ -50,21 +56,24 @@ export function ContentRow({
     return () => observer.disconnect()
   }, [canNext, loading, onLoadMore])
 
+  const Container = rankLabel ? 'ol' : 'div'
   return (
     <section className="space-y-4">
       {libraryError && <p role="alert" className="text-sm text-[var(--app-muted)]">入库状态暂时不可用 <button className="btn-ghost" onClick={() => setLibraryRevision((v) => v + 1)}>重试入库状态</button></p>}
-      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">
+      <Container className={rankLabel ? 'space-y-3' : 'grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5'}>
         {items.map((item, index) => (
           <DiscoverCard
             key={discoverKey(item, index)}
             item={item}
+            rankLabel={rankLabel}
+            position={index + 1}
             inLibrary={libraryItems.has(`${item.media_type}:${item.tmdb_id}`) && discoverTMDbIdentity(item) !== null}
             onSelect={onSelect}
           />
         ))}
-      </div>
+      </Container>
       <div ref={sentinelRef} className="h-px" aria-hidden="true" />
-      {loading && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
+      {rankLabel && onLoadMore ? <CatalogLoadMore loading={loading} hasMore={canNext} hasItems={items.length > 0} failed={failed} onLoadMore={onLoadMore} /> : loading && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
     </section>
   )
 }
@@ -94,10 +103,14 @@ export function DiscoverSkeleton() {
 
 function DiscoverCard({
   item,
+  rankLabel,
+  position,
   inLibrary,
   onSelect,
 }: {
   item: DiscoverItem
+  rankLabel?: string
+  position: number
   inLibrary: boolean
   onSelect: (item: DiscoverItem) => void
 }) {
@@ -148,8 +161,7 @@ function DiscoverCard({
   }, [imageCandidates.length, imageIndex, posterRetry, posterUnavailable])
 
   const markPosterUnavailable = () => setPosterUnavailable(true)
-
-  if (!posterSrc || posterUnavailable) return null
+  if (rankLabel) return <CatalogRankingRow work={{title:item.title, overview:item.overview || '', rating:item.rating || 0, hydrated:true, owned:inLibrary}} position={position} artworkURL={posterUnavailable ? '' : posterSrc} metadata={[item.media_type === 'movie' ? '电影' : item.media_type === 'tv' ? '电视剧' : '', item.year || ''].filter(Boolean).join(' · ')} rankLabel={rankLabel} onOpen={() => onSelect(item)} onImageError={markPosterUnavailable} />
 
   return (
     <button
@@ -159,7 +171,7 @@ function DiscoverCard({
       className="group relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50 text-left transition-all duration-300 hover:-translate-y-1 hover:border-primary-500/30 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-primary-400/40"
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-surface-900">
-        {posterSrc && (
+        {posterSrc && !posterUnavailable ? (
           <img
             src={posterSrc}
             alt={item.title}
@@ -175,7 +187,7 @@ function DiscoverCard({
             }}
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
-        )}
+        ) : <div className="flex h-full items-center justify-center p-4 text-center text-sm text-ink-100" aria-label="暂无海报">{item.title}</div>}
         <div className="absolute left-1.5 top-1.5 rounded-xl border border-white/20 bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white backdrop-blur-sm">
           {source}
         </div>
