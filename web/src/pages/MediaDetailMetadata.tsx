@@ -1,3 +1,4 @@
+import { localizedName } from '../utils/localizedNames'
 import { Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star, Trash2, Unlink } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
@@ -332,24 +333,6 @@ function parseCSV(s?: string): string[] {
   return s.split(',').map((x) => x.trim()).filter(Boolean)
 }
 
-const chineseNames = typeof Intl.DisplayNames === 'function'
-  ? {
-      region: new Intl.DisplayNames(['zh-CN'], { type: 'region' }),
-      language: new Intl.DisplayNames(['zh-CN'], { type: 'language' }),
-    }
-  : null
-
 function localizedCSV(s: string | undefined, type: 'region' | 'language'): string[] {
-  return parseCSV(s).map((value) => {
-    const code = type === 'region' ? value.toUpperCase() : value
-    const isCode = type === 'region'
-      ? /^(?:[A-Z]{2}|\d{3})$/.test(code)
-      : /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(code)
-    if (!isCode || !chineseNames) return value
-    try {
-      return chineseNames[type].of(code) || value
-    } catch {
-      return value
-    }
-  })
+  return parseCSV(s).map(value => localizedName(value, type))
 }

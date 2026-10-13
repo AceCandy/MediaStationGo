@@ -41,7 +41,7 @@ try {
       else if(path==='/catalogs/tmdb/people') data=page([person]);
       else if(path.endsWith('/seasons')) data=page([season]);
       else if(path.endsWith('/episodes')) data=page([episode]);
-      else if(path.endsWith('/credits')) data=page([{id:'credit',category:'cast',character:'主角',person,subject:movie}]);
+      else if(path.endsWith('/credits')) data=page(config.params.category==='cast'?[{id:'credit',category:'cast',character:'主角',person,subject:movie}]:[]);
       else if(path.endsWith('/works')) data=page([{id:'work',category:'cast',character:'主角',person,subject:movie}]);
       else if(path.startsWith('/catalogs/tmdb/people/')) data=detail(person,true);
       else if(path.startsWith('/catalogs/tmdb/subjects/')) data=detail([movie,series,season,episode].find(v=>path.endsWith(v.id))||movie);

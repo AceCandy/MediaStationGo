@@ -212,6 +212,7 @@ try {
   click('重新读取列表')
   wait(`${text}?.includes('模拟读取失败')`)
   evaluate("window.doubanProbe.failList=false; true")
+  browser('wait', '250')
   click('重试读取')
   wait(`${text}?.includes('测试电影')`)
   evaluate("window.doubanProbe.failDetail=true; true")

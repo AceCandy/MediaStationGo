@@ -485,3 +485,60 @@ share presentation while preserving source-owned searches/cursors.
 - End labels may use role=status. Browser tests must distinguish loading text
   from completion announcements rather than treating every status as pending.
   Wait for enabled controls and settled layout before pointer pagination checks.
+
+
+## Source credit rails
+
+### 1. Scope / Trigger
+Use for source-detail cast/crew presentation and TMDb subject-credit reads.
+
+### 2. Signatures
+`GET /api/{catalogs|admin}/tmdb/subjects/:id/credits?category=cast|crew&page=1&page_size=20`
+returns `{data,total,page,page_size}`. Omitted page_size remains 60; person works
+continue using their separate work-level 60-record contract.
+
+### 3. Contracts
+- Source subject details present separate cast/crew horizontal rails with circular
+  profiles. TMDb requests category=cast|crew with page_size=20 independently;
+  subject credits validate 1..60, filter/count before pagination, preserve cast
+  source order and put principal crew before department/job groups. Existing
+  stored records need no refresh or migration for this query correction.
+- Person works remain work-level pages of 60. Season/episode selectors and local
+  library credit presentation retain their previous contracts.
+- Douban/HongGuo split already-returned arrays into display batches of 20. Preserve
+  each group's input order. Do not invent credit sources for Bangumi/HuangGuo AI.
+- Load near the horizontal right edge, append without removing previous cards,
+  and retain an accessible manual continuation/retry action. Hide empty successful
+  groups. Progressive scroll containers remain keyboard-focusable after the last
+  page. Show group total, not only the number of rendered cards.
+- Requests have per-group synchronous in-flight guards, successful-page cursors
+  and cancellation. Release the guard only after result/error commit: a settled
+  counter with useLayoutEffect covers immediately resolving/rejecting requests
+  whose loading=true/false updates collapse into one React batch. Failed scrolling
+  cannot automatically retry; manual retry requests the same page.
+- The TMDb header uses the modal surface without another bordered background card.
+  Region/language labels reuse ISO-based Intl.DisplayNames Chinese display labels;
+  known jobs use explicit Chinese labels. Unknown names/roles/jobs retain source
+  text. Never overwrite source facts with guessed translations.
+### 4. Validation & Error Matrix
+Invalid UUID/page/category or subject page_size outside 1..60 returns 400.
+An exhausted page returns an empty data array with the filtered total. Failed
+continuation retains prior cards and retries the same page. Aborted requests
+cannot write rows, error state or release a newer request's lock.
+
+### 5. Good / Base / Bad Cases
+Good: cast pages 1→2(fails)→2(success) append without moving crew's cursor.
+Base: fewer than 20 saved credits produce one rail without pagination controls.
+Bad: sorting a mixed 60-record result in the browser, leaving cast on later pages.
+
+### 6. Tests Required
+- TestTMDbCreditCategoryPagination (real isolated PostgreSQL),
+  check-catalog-credit-rails, check-discover-detail, check-discover-centers,
+  check-douban-data-center and check-hongguo-discover; dual-theme mobile/desktop
+  screenshots. Scrolling fixtures must return booleans from wait predicates and
+  wait for settled layout before pointer clicks, without relaxing cursor assertions.
+
+### 7. Wrong vs Correct
+Wrong: clear the in-flight ref immediately in finally before the error is rendered.
+Correct: increment a settlement state counter in finally and release the ref in
+useLayoutEffect after commit; loading=true→false may otherwise batch to no change.

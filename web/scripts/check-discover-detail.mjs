@@ -20,7 +20,7 @@ try {
     const p=window.detailProbe={calls:[],fail:false,pending:false,role:'user',auth:useAuthStore};
     const image='/api/../brand/mediastationgo-logo.svg';
     const id='11111111-1111-4111-8111-111111111111', personID='22222222-2222-4222-8222-222222222222';
-    const subject={id,kind:'series',tmdb_id:123,title:'来源整剧',original_name:'Source title',overview:'来源完整简介。'.repeat(20),poster_url:image,backdrop_url:image,release_date:'2026-09-01',rating:8.2,vote_count:1200,status:'Returning Series',quality:3,fields:{episode_run_time:[45,50],genres:[{id:18,name:'剧情'}],production_countries:[{name:'中国'}],spoken_languages:[{name:'中文'}],external_ids:{imdb_id:'tt123456'},number_of_seasons:1}};
+    const subject={id,kind:'series',tmdb_id:123,title:'来源整剧',original_name:'Source title',overview:'来源完整简介。'.repeat(20),poster_url:image,backdrop_url:image,release_date:'2026-09-01',rating:8.2,vote_count:1200,status:'Returning Series',quality:3,fields:{episode_run_time:[45,50],genres:[{id:18,name:'剧情'}],production_countries:[{iso_3166_1:'CN',name:'China'}],spoken_languages:[{iso_639_1:'zh',name:'Chinese'}],external_ids:{imdb_id:'tt123456'},number_of_seasons:1}};
     const person={id:'profile-is-not-person-id',person_id:personID,tmdb_id:456,name:'来源演员',original_name:'Actor',biography:'来源人物简介',department:'Acting',profile_url:image,fields:{birthday:'2000-01-01'},quality:3};
     const items=[{source:'tmdb',tmdb_id:123,media_type:'tv',title:'榜单整剧',overview:'榜单摘要',poster_url:image},{source:'tmdb',tmdb_id:123,media_type:'movie',title:'榜单电影',poster_url:image}];
     const page=data=>({data,total:data.length,page:1,page_size:30});
@@ -33,7 +33,7 @@ try {
       else if(url==='/discover/library-status') data={items:p.role==='user'?[{tmdb_id:123,media_type:'tv'}]:[]};
       else if(url.startsWith('/discover/tmdb/')) {if(p.fail) throw new Error('test failure');data={center_id:id};}
       else if(url.endsWith('/ensure')) {if(p.ensureFail) throw new Error('ensure unavailable');p.missing=false;data={};}
-      else if(url.endsWith('/credits')) {if(p.creditFail) throw new Error('credits unavailable'); const n=config.params.page;data={data:[{id:'credit',category:'cast',character:n===2?'第二页角色':'来源角色',person,subject}],total:61,page:n,page_size:60};}
+      else if(url.endsWith('/credits')) {if(p.creditFail && config.params.category==='cast') throw new Error('credits unavailable');data={data:config.params.category==='cast'?[{id:'credit',category:'cast',character:'来源角色',person,subject}]:[],total:config.params.category==='cast'?1:0,page:config.params.page,page_size:20};}
       else if(url.endsWith('/seasons')) {if(p.childFail) throw new Error('seasons unavailable');const n=config.params.page;data={data:[{...subject,id:'33333333-3333-4333-8333-333333333333',kind:'season',title:n===2?'第二页季':'第一页季',number:n}],total:31,page:n,page_size:30};}
       else if(url.endsWith('/works')) data=page([{id:'work',category:'cast',character:'来源角色',person,subject}]);
       else if(url.includes('/people/')) data={data:{person,source_url:'https://www.themoviedb.org/person/456',components:[],missing_scopes:[],refresh_pending:false}};
@@ -48,6 +48,7 @@ try {
   assert.ok(!evaluate(`window.detailProbe.calls.some(c=>c.url.startsWith('/discover/tmdb/')||c.url.includes('/subjects/'))`))
   click('查看榜单整剧')
   wait(`document.querySelector('[role="dialog"]')?.innerText.includes('来源角色')`)
+  assert.ok(evaluate(`!document.querySelector('[role="dialog"] header').className.includes('border')`))
   const text = evaluate(`document.querySelector('[role="dialog"]').innerText`)
   for (const value of ['来源整剧','2026-09-01','45 / 50 分钟 / 集','剧情','中国','中文','来源演员','8.2','1,200 人评分','持续播出','剧情简介']) assert.ok(text.includes(value), value)
   assert.ok(!text.includes('资料管理') && !text.includes('原始') && !text.includes('本地路径'))
@@ -63,7 +64,7 @@ try {
     }
   }
   // 季集与演职员页码仅成功后提交；失败页可原页重试，旧页及控件保持可见。
-  for (const [region, flag, oldText, newText] of [['季集资料','childFail','第一页季','第二页季'], ['演职关系资料','creditFail','来源角色','第二页角色']]) {
+  for (const [region, flag, oldText, newText] of [['季集资料','childFail','第一页季','第二页季']]) {
     evaluate(`window.detailProbe[${JSON.stringify(flag)}]=true;true`)
     browser('click', `[aria-label="${region}"] footer button:last-child`)
     wait(`document.querySelector('[role="dialog"]')?.innerText.includes('读取失败，已保留上次结果')`)
@@ -94,9 +95,9 @@ try {
   assert.ok(evaluate(`document.querySelector('[role="dialog"]').innerText.includes('榜单整剧')&&document.querySelector('[role="dialog"]').innerText.includes('榜单摘要')&&document.querySelector('[role="dialog"] img')!==null`))
   evaluate(`window.detailProbe.readFail=false;true`); click('重试'); wait(`document.querySelector('[role="dialog"]')?.innerText.includes('来源角色')`); close()
   evaluate(`window.detailProbe.creditFail=true;true`)
-  click('查看榜单整剧'); wait(`document.querySelector('[role="dialog"]')?.innerText.includes('演职关系读取失败')`)
+  click('查看榜单整剧'); wait(`document.querySelector('[role="dialog"]')?.innerText.includes('读取失败，已有内容已保留')`)
   assert.ok(evaluate(`document.querySelector('[role="dialog"]').innerText.includes('来源完整简介')`))
-  evaluate(`window.detailProbe.creditFail=false;true`); click('重试关联资料'); wait(`document.querySelector('[role="dialog"]')?.innerText.includes('来源角色')`); close()
+  evaluate(`window.detailProbe.creditFail=false;true`); click('重试演员'); wait(`document.querySelector('[role="dialog"]')?.innerText.includes('来源角色')`); close()
   evaluate(`window.detailProbe.missing=true;window.detailProbe.ensureFail=true;true`)
   click('查看榜单整剧'); wait(`document.querySelector('[role="dialog"] button')&&document.querySelector('[role="dialog"]')?.innerText.includes('重试读取')`)
   evaluate(`window.detailProbe.readFail=true;true`); click('重试读取')

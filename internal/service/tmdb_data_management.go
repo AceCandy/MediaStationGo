@@ -155,7 +155,7 @@ func (s *TMDbDataCenter) Detail(ctx context.Context, id string, person, admin bo
 	}
 	return out, e
 }
-func (s *TMDbDataCenter) Credits(ctx context.Context, id string, person bool, page int, filters ...string) ([]TMDbCreditView, int64, error) {
+func (s *TMDbDataCenter) Credits(ctx context.Context, id string, person bool, page, size int, kind, category, order string) ([]TMDbCreditView, int64, error) {
 	if person {
 		p, e := s.repo.TMDb.Person(ctx, id)
 		if e != nil {
@@ -167,13 +167,9 @@ func (s *TMDbDataCenter) Credits(ctx context.Context, id string, person bool, pa
 	var n int64
 	var e error
 	if person {
-		kind, category, order := "", "", "newest"
-		if len(filters) == 3 {
-			kind, category, order = filters[0], filters[1], filters[2]
-		}
 		rows, n, e = s.repo.TMDb.PersonWorks(ctx, id, kind, category, order, page, 60)
 	} else {
-		rows, n, e = s.repo.TMDb.Credits(ctx, id, false, page, 60)
+		rows, n, e = s.repo.TMDb.Credits(ctx, id, false, page, size, category)
 	}
 	if e != nil {
 		return nil, 0, e
@@ -458,7 +454,7 @@ func (s *TMDbDataCenter) discoverDetail(ctx context.Context, kind string, id int
 		m.Languages = append(m.Languages, g.Name)
 	}
 	result := &DiscoverDetail{Match: m, RuntimeMinutes: discoverRuntimeMinutes([]byte(p.Fields), kind), Credits: []MediaCredit{}, CenterID: p.ID, MissingScopes: detail.MissingScopes, SourceError: detail.SourceError, RefreshPending: detail.RefreshPending}
-	credits, _, e := s.Credits(ctx, p.ID, false, 1)
+	credits, _, e := s.Credits(ctx, p.ID, false, 1, 60, "", "", "newest")
 	if e != nil {
 		return nil, e
 	}

@@ -112,18 +112,27 @@ func (r *TMDbCatalogRepository) Jobs(ctx context.Context, id string, person bool
 	err := r.db.WithContext(ctx).Where(col+" = ?", id).Order("scope,language").Find(&rows).Error
 	return rows, err
 }
-func (r *TMDbCatalogRepository) Credits(ctx context.Context, id string, person bool, page, limit int) ([]model.TMDbCredit, int64, error) {
+func (r *TMDbCatalogRepository) Credits(ctx context.Context, id string, person bool, page, limit int, category ...string) ([]model.TMDbCredit, int64, error) {
 	col := "subject_id"
 	if person {
 		col = "person_profile_id"
 	}
-	query := func() *gorm.DB { return r.db.WithContext(ctx).Model(&model.TMDbCredit{}).Where(col+" = ?", id) }
+	query := func() *gorm.DB {
+		q := r.db.WithContext(ctx).Model(&model.TMDbCredit{}).Where(col+" = ?", id)
+		if len(category) > 0 && category[0] != "" {
+			q = q.Where("category = ?", category[0])
+		}
+		return q
+	}
 	var total int64
 	if err := query().Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	rows := []model.TMDbCredit{}
-	err := query().Preload("PersonProfile").Preload("Subject").Order("origin DESC, sort_order,id").Offset((page - 1) * limit).Limit(limit).Find(&rows).Error
+	err := query().Preload("PersonProfile").Preload("Subject").Order("CASE category WHEN 'cast' THEN 0 ELSE 1 END, origin DESC").
+		Order("CASE WHEN category = 'cast' THEN sort_order ELSE 0 END").
+		Order("CASE job WHEN 'Director' THEN 0 WHEN 'Writer' THEN 1 WHEN 'Screenplay' THEN 2 ELSE 3 END").
+		Order("department, job, person_profile_id, credit_key, id").Offset((page - 1) * limit).Limit(limit).Find(&rows).Error
 	return rows, total, err
 }
 func (r *TMDbCatalogRepository) Cached(ctx context.Context, req TMDbSourceRequest, force bool) ([]byte, error) {

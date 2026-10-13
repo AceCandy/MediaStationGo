@@ -24,26 +24,37 @@ export function MediaDetailCast({ mediaId, scope }: { mediaId: string; scope?: '
   return <MediaCredits credits={credits} />
 }
 
-export function MediaCredits({ credits, onPersonClick }: { credits: MediaCredit[]; onPersonClick?: (credit: MediaCredit) => void }) {
-  if (credits.length === 0) return null
+export function MediaCredits({ credits, onPersonClick, title = '演职员', total = credits.length, loading = false, error = '', progressive = false, onLoadMore }: {
+  credits: MediaCredit[]; onPersonClick?: (credit: MediaCredit) => void; title?: string; total?: number
+  loading?: boolean; error?: string; progressive?: boolean; onLoadMore?: () => void
+}) {
+  if (credits.length === 0 && !loading && !error) return null
 
   return (
-    <section className="space-y-4">
+    <section aria-label={title} className="min-w-0 space-y-4">
       <div className="flex items-center gap-2.5">
         <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-soft)] p-1.5 text-[var(--app-text)]">
           <Clapperboard size={15} />
         </span>
-        <h2 className="font-display text-lg font-extrabold tracking-tight text-[var(--app-text)]">演职员</h2>
+        <h2 className="font-display text-lg font-extrabold tracking-tight text-[var(--app-text)]">{title}</h2>
         <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-panel-soft)] px-2.5 py-0.5 text-xs font-bold text-[var(--app-muted)]">
-          {credits.length}
+          {total}
         </span>
       </div>
 
-      <div className="-mx-1 overflow-x-auto px-1 pb-2 scrollbar-hide">
+      <div role={progressive ? 'region' : undefined} aria-label={progressive ? `${title}列表` : undefined} tabIndex={progressive ? 0 : undefined}
+        className="-mx-1 overflow-x-auto px-1 pb-2 scrollbar-hide"
+        onScroll={event => {
+          const row = event.currentTarget
+          if (row.scrollLeft > 0 && row.scrollWidth - row.clientWidth - row.scrollLeft < 240 && !loading && !error) onLoadMore?.()
+        }}>
         <div className="flex gap-5">
           {credits.map((credit, index) => (
             <CastCard key={`${credit.person_id}:${credit.type}:${credit.role ?? ''}:${index}`} credit={credit} index={index} onClick={onPersonClick ? () => onPersonClick(credit) : undefined} />
           ))}
+          {(loading || error || onLoadMore) && <div className="flex w-32 shrink-0 items-center justify-center text-center text-sm text-ink-50">
+            {loading ? <span role="status">正在加载{title}…</span> : error ? <div role="alert"><p>{error}</p><button className="btn-outline mt-2" onClick={onLoadMore}>重试{title}</button></div> : <button className="btn-outline" onClick={onLoadMore}>加载更多{title}</button>}
+          </div>}
         </div>
       </div>
     </section>

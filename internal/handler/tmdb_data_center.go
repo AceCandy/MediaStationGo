@@ -166,12 +166,20 @@ func tmdbCenterCredits(svc *service.Container, person bool) gin.HandlerFunc {
 			tmdbCenterError(c, service.ErrTMDbCenterInput)
 			return
 		}
-		rows, n, e := svc.TMDbCenter.Credits(c.Request.Context(), c.Param("id"), person, page, kind, category, order)
+		size := 60
+		if !person {
+			size, e = positiveQueryInt(c.DefaultQuery("page_size", "60"), 1, 60)
+			if e != nil {
+				tmdbCenterError(c, service.ErrTMDbCenterInput)
+				return
+			}
+		}
+		rows, n, e := svc.TMDbCenter.Credits(c.Request.Context(), c.Param("id"), person, page, size, kind, category, order)
 		if e != nil {
 			tmdbCenterError(c, e)
 			return
 		}
-		Paginated(c, rows, n, page, 60)
+		Paginated(c, rows, n, page, size)
 	}
 }
 func tmdbCenterEnsure(svc *service.Container, person, force bool) gin.HandlerFunc {

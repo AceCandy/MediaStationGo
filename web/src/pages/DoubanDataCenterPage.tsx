@@ -10,7 +10,7 @@ import { CatalogSearchForm } from '../components/CatalogSearchForm'
 import { CatalogFilters } from '../components/CatalogFilters'
 import { CatalogPosterCard } from '../components/CatalogPosterCard'
 import { useAuthStore } from '../stores/auth'
-import { MediaCredits } from './MediaDetailCast'
+import { CatalogCredits } from './CatalogCredits'
 
 const kinds: Record<string, string> = { movie: '电影', series: '电视剧' }
 const qualityLabels: Record<string, string> = { complete: '完整资料', degraded: '降级资料', partial: '摘要资料' }
@@ -193,7 +193,7 @@ export function DoubanSubjectDetails({ subject, onClose, onChanged }: { subject:
       </div>
       {detail && <>
         {detail.overview && <section className="border-t border-[var(--app-border)] pt-5"><h3 className="mb-3 font-display text-base font-semibold text-ink-600">剧情简介</h3><p className="whitespace-pre-wrap break-words text-sm leading-7 text-ink-100">{detail.overview}</p></section>}
-        {!!detail.credits?.length && <MediaCredits key={`${item.id}:${detail.rich_fetched_at || ''}`} credits={detail.credits} />}
+        {!!detail.credits?.length && <CatalogCredits key={`${item.id}:${detail.rich_fetched_at || ''}`} credits={detail.credits} />}
         {!!detail.awards?.length && <section><h3 className="mb-3 font-display text-base font-semibold text-ink-600">获奖与提名</h3><div className="divide-y divide-[var(--app-border)]">{detail.awards.map((award, index) => <div key={index} className="grid gap-1 py-3 text-xs sm:grid-cols-[14rem_minmax(0,1fr)] sm:gap-4"><p className="text-brand-500">{award.event}</p><p className="break-words text-ink-100">{award.category}{award.people && <span className="ml-2 text-ink-50">{award.people}</span>}</p></div>)}</div></section>}
         {!!detail.honors?.length && <section><h3 className="mb-3 font-display text-base font-semibold text-ink-600">榜单与荣誉</h3><div className="flex flex-wrap gap-2">{detail.honors.map((honor) => <span key={honor.title} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-glass)] px-3 py-2 text-xs text-ink-100">{honor.rank > 0 && <strong className="mr-2 text-gold-500">第 {honor.rank} 名</strong>}{honor.title}</span>)}</div></section>}
       </>}
