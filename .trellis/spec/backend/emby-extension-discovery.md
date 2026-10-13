@@ -25,7 +25,9 @@ This is source-owned data, unrelated to local media lifecycle.
 ## 3. Contracts
 
 All routes use Emby token/session authentication, current active/revoked user
-checks, target-user protection and `can_view_discover`. No root/case aliases.
+checks and target-user protection. Capabilities is available without discovery permission; rankings/calendar/library_matching reflect the current permission. Content routes additionally require `can_view_discover`. No root/case aliases.
+
+Capabilities includes `danmaku: {enabled, format: "bilibili_xml"}`; enabled reflects availability of the raw service, independently of discovery permission or upstream collection settings. Clients may automatically fetch authenticated same-origin `/api/danmu/:id/raw` and overlay other sources. Current coverage is HongGuo visible leaf media; empty body/XML is valid, and responses remain no-store.
 JSON uses lower snake case, independently from Emby payload casing.
 
 Rankings reuse `discoverSectionCatalog` (excluding calendar) and the existing

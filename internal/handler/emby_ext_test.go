@@ -215,7 +215,12 @@ func TestExtensionRoutesAuthCacheAndMatching(t *testing.T) {
 	svc.Discover = discover
 	// 已签发的 admin claim 不能越过当前角色、权限与撤销状态。
 	update(&user, map[string]any{"role": "user"})
-	check(request("GET", "/capabilities", "", "header", nil), 403)
+	limited := request("GET", "/capabilities", "", "header", nil)
+	check(limited, 200)
+	if !strings.Contains(limited.Body.String(), `"rankings":false`) || !strings.Contains(limited.Body.String(), `"format":"bilibili_xml"`) {
+		t.Fatal(limited.Body.String())
+	}
+	check(request("GET", "/rankings", "", "header", nil), 403)
 	if err := svc.Permissions.Save(t.Context(), user.ID, &model.UserPermission{CanViewDiscover: true}); err != nil {
 		t.Fatal(err)
 	}

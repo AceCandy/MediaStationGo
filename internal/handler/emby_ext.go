@@ -14,12 +14,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 扩展协议只挂版本化前缀，沿用播放器令牌和发现权限。
+// 扩展协议只挂版本化前缀，沿用播放器令牌，内容路由另行校验发现权限。
 func registerEmbyExtensionRoutes(r *gin.Engine, secret string, svc *service.Container) {
-	g := r.Group("/emby-ext/v1", middleware.MarkPlayerAPIRequest(), embyNoStoreHeaders(), embyAuthRequiredWithSessionFallback(secret), activeEmbyUserRequired(svc), embyTargetUserRequired(), requirePermission(svc, "can_view_discover"))
+	g := r.Group("/emby-ext/v1", middleware.MarkPlayerAPIRequest(), embyNoStoreHeaders(), embyAuthRequiredWithSessionFallback(secret), activeEmbyUserRequired(svc), embyTargetUserRequired())
 	g.GET("/capabilities", func(c *gin.Context) {
-		c.JSON(200, gin.H{"version": "1", "rankings": true, "calendar": gin.H{"enabled": extProviderEnabled(c.Request.Context(), svc, "bangumi"), "source": "bangumi", "mode": "weekly", "timezone": "Asia/Tokyo", "exact_airtime": false}, "library_matching": gin.H{"sources": []string{"tmdb", "douban", "bangumi"}, "max_items": 100, "identity": "external_id_and_media_type", "scope": "metadata"}})
+		role, _ := c.Get(middleware.CtxUserRole)
+		discover := role == "admin"
+		if !discover {
+			row, err := svc.Permissions.Effective(c.Request.Context(), c.GetString(middleware.CtxUserID))
+			if err != nil {
+				c.JSON(500, gin.H{"error": "无法读取账号权限"})
+				return
+			}
+			discover = row != nil && row.PermissionMap()["can_view_discover"]
+		}
+		sources := []string{}
+		if discover {
+			sources = []string{"tmdb", "douban", "bangumi"}
+		}
+		c.JSON(200, gin.H{"version": "1", "rankings": discover, "danmaku": gin.H{"enabled": svc.HongGuoDanmu != nil, "format": "bilibili_xml"}, "calendar": gin.H{"enabled": discover && extProviderEnabled(c.Request.Context(), svc, "bangumi"), "source": "bangumi", "mode": "weekly", "timezone": "Asia/Tokyo", "exact_airtime": false}, "library_matching": gin.H{"sources": sources, "max_items": 100, "identity": "external_id_and_media_type", "scope": "metadata"}})
 	})
+	g.Use(requirePermission(svc, "can_view_discover"))
 	g.GET("/rankings", func(c *gin.Context) {
 		items := []gin.H{}
 		for _, s := range discoverSectionCatalog {

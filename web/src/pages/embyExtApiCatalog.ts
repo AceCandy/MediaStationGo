@@ -3,7 +3,7 @@ import type { EmbyApiEndpoint, EmbyApiParameter, EmbyApiResponse } from './embyA
 export const EMBY_EXT_API_CATEGORIES = ['扩展能力', '榜单', '日历', '媒体匹配', '扩展图片'] as const
 const token: EmbyApiParameter = {
   name: 'X-Emby-Token', location: 'header', type: 'string',
-  description: '使用 Emby 登录令牌；也支持 Bearer、MediaBrowser 和 api_key。所有扩展接口均校验账号有效性及 can_view_discover 权限。',
+  description: '使用 Emby 登录令牌；也支持 Bearer、MediaBrowser 和 api_key。所有扩展接口校验账号有效性；能力查询无需发现权限，发现内容接口另需 can_view_discover。',
 }
 const errors: readonly EmbyApiResponse[] = [
   { status: '401 / 403', contentType: 'application/json', description: '未登录、令牌失效、账号不可用或没有访问权限。' },
@@ -13,10 +13,10 @@ export const EMBY_EXT_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
   {
     id: 'ext-capabilities', category: '扩展能力', name: '扩展能力查询', methods: ['GET'],
     path: '/emby-ext/v1/capabilities', auth: 'token', support: 'implemented',
-    description: '查询扩展版本、榜单、公共周历与媒体匹配的支持范围。', parameters: [token],
+    description: '查询扩展版本、榜单、公共周历、媒体匹配及服务器弹幕能力。', parameters: [token],
     responses: [
-      { status: '200', contentType: 'application/json', description: '能力说明；calendar.enabled 表示日历来源当前是否启用。',
-        example: '{"version":"1","rankings":true,"calendar":{"enabled":true,"source":"bangumi","mode":"weekly","timezone":"Asia/Tokyo","exact_airtime":false},"library_matching":{"sources":["tmdb","douban","bangumi"],"max_items":100,"identity":"external_id_and_media_type","scope":"metadata"}}' },
+      { status: '200', contentType: 'application/json', description: '能力按当前账号权限返回；danmaku.enabled 为 true 且 format 为 bilibili_xml 时，可自动读取 /api/danmu/:id/raw，与其它源叠加。当前服务器弹幕覆盖红果媒体。',
+        example: '{"version":"1","danmaku":{"enabled":true,"format":"bilibili_xml"},"rankings":true,"calendar":{"enabled":true,"source":"bangumi","mode":"weekly","timezone":"Asia/Tokyo","exact_airtime":false},"library_matching":{"sources":["tmdb","douban","bangumi"],"max_items":100,"identity":"external_id_and_media_type","scope":"metadata"}}' },
       ...errors,
     ],
   },
