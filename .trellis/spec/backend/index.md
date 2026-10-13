@@ -25,6 +25,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [STRM Target Inspection](./strm-target.md) | Authenticated on-demand STRM sidecar target reads | Active |
 | [Background Task Execution](./background-task-execution.md) | Startup readiness, persistent execution summaries, per-task logs, and scrape scheduling | Active |
 | [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) | Required backend-to-frontend catalog updates for player-visible Emby contract changes | Active |
+| [Emby Extension Discovery](./emby-extension-discovery.md) | Source-center rankings, persistent weekly calendar and visible external-ID matching | Active |
 | [Parameterized Image Delivery](./image-variants.md) | Web/Emby sizing, encoding, original fallback and disk cache identity | Active |
 | [Exact PlaybackProgress Synchronization](./progress-sync-contracts.md) | Fixed snapshot, CAS revision triggers, conflict and zero-state contracts | Active |
 | [Playback History and Statistics Contracts](./playback-contracts.md) | Shared progress, UserData isolation, events, and statistics contract | Active |

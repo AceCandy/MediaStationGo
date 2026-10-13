@@ -11,6 +11,7 @@ import (
 
 // registerEmbyRoutes 在 r 上挂双前缀（"" + "/emby"）的 Emby 兼容路由。
 func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container) {
+	registerEmbyExtensionRoutes(r, jwtSecret, svc)
 	for _, prefix := range []string{"/emby", ""} {
 		grp := r.Group(prefix)
 		grp.Use(middleware.MarkPlayerAPIRequest(), embyNoStoreHeaders())

@@ -12,6 +12,8 @@ import {
   type EmbyApiResponse,
 } from './embyApiCatalog'
 
+import { EMBY_EXT_API_CATEGORIES, EMBY_EXT_API_ENDPOINTS } from './embyExtApiCatalog'
+
 const PARAMETER_LOCATIONS: readonly { id: EmbyApiParameterLocation; label: string }[] = [
   { id: 'path', label: 'Path 参数' },
   { id: 'query', label: 'Query 参数' },
@@ -27,23 +29,33 @@ const METHOD_CLASS: Record<EmbyApiMethod, string> = {
 }
 
 export function AdminEmbyAPIsPage() {
+  const [protocol, setProtocol] = useState<'emby' | 'ext'>('emby')
+  const catalog = protocol === 'emby' ? EMBY_API_ENDPOINTS : EMBY_EXT_API_ENDPOINTS
+  const categories = protocol === 'emby' ? EMBY_API_CATEGORIES : EMBY_EXT_API_CATEGORIES
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<string>('all')
   const normalizedQuery = query.trim().toLowerCase()
-  const endpoints = EMBY_API_ENDPOINTS.filter((endpoint) => {
+  const endpoints = catalog.filter((endpoint) => {
     if (category !== 'all' && endpoint.category !== category) return false
     if (!normalizedQuery) return true
     return [endpoint.name, endpoint.path, endpoint.description, ...(endpoint.aliases ?? [])]
       .some((value) => value.toLowerCase().includes(normalizedQuery))
   })
-  const implementedCount = EMBY_API_ENDPOINTS.filter((endpoint) => endpoint.support === 'implemented').length
+  const implementedCount = catalog.filter((endpoint) => endpoint.support === 'implemented').length
 
   return (
     <div className="space-y-6">
+      <div role="group" aria-label="接口协议" className="flex flex-wrap gap-2">
+        {([['emby', 'Emby 接口'], ['ext', 'Emby 扩展接口']] as const).map(([id, label]) => (
+          <button key={id} type="button" aria-pressed={protocol === id} className={protocol === id ? 'btn-primary' : 'btn-ghost'} onClick={() => { setProtocol(id); setCategory('all') }}>
+            {label}
+          </button>
+        ))}
+      </div>
       <section className="glass-panel !p-0" aria-label="Emby 接口规则">
         <div className="grid divide-y divide-[var(--app-border)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-          <OverviewItem icon={<Code2 size={18} />} label="接口条目" value={`${EMBY_API_ENDPOINTS.length} 个`} detail={`${implementedCount} 个具备实际业务行为`} />
-          <OverviewItem icon={<Globe2 size={18} />} label="路径前缀" value="/emby 或根路径" detail="大小写兼容路径已合并展示" />
+          <OverviewItem icon={<Code2 size={18} />} label="接口条目" value={`${catalog.length} 个`} detail={`${implementedCount} 个具备实际业务行为`} />
+          <OverviewItem icon={<Globe2 size={18} />} label="路径前缀" value={protocol === 'emby' ? '/emby 或根路径' : '/emby-ext/v1'} detail={protocol === 'emby' ? '大小写兼容路径已合并展示' : '固定版本前缀，需发现页访问权限'} />
           <OverviewItem icon={<ShieldCheck size={18} />} label="主要鉴权" value="X-Emby-Token" detail="兼容 Bearer、MediaBrowser 与 api_key" />
         </div>
       </section>
@@ -64,7 +76,7 @@ export function AdminEmbyAPIsPage() {
           <span className="sr-only">按接口分类筛选</span>
           <Select className="input-base" value={category} onChange={setCategory}>
             <option value="all">全部分类</option>
-            {EMBY_API_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}
+            {categories.map((item) => <option key={item} value={item}>{item}</option>)}
           </Select>
         </label>
       </section>

@@ -77,6 +77,7 @@ func (b *serviceContainerBuilder) initProviderServices() {
 	b.c.TMDbCenter.tasks = b.c.Tasks
 	b.c.TMDb.catalog = b.c.TMDbCenter
 	b.c.Bangumi = NewBangumiProvider(b.cfg, b.log)
+	b.c.Bangumi.calendar.repo = b.repos.BangumiCalendar
 	b.c.TheTVDB = NewTheTVDBProvider(b.cfg, b.log)
 	b.c.Douban = NewDoubanProvider(b.c.APIConfig)
 	b.c.Douban.setDataRepository(b.c.Repo, b.c.Cache)
@@ -212,4 +213,5 @@ func (b *serviceContainerBuilder) libraryRoots() []string {
 func (b *serviceContainerBuilder) attachRuntimeContext() {
 	b.c.stopCtx, b.c.stopCancel = context.WithCancel(context.Background())
 	b.c.TMDbCenter.ctx = b.c.stopCtx
+	b.c.Bangumi.calendar.ctx = b.c.stopCtx
 }

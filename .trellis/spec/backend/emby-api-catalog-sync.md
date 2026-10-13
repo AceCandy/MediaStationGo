@@ -278,3 +278,10 @@ Correct: count work rows under library visibility and count Media rows separatel
 ## Exact progress extension
 
 The catalog includes separate read/write semantics for `/Users/:userId/Items/:id/PlaybackProgress`, token-authenticated under both root and `/emby`, with no lowercase aliases. Document complete snapshots, optional GET MediaSourceId, mandatory POST ExpectedRevision/MediaSourceId/PositionTicks/RunTimeTicks/Played, millisecond ticks, explicit zero/false, 400/401/403/404/409 and no event generation. Use `:id` consistently with the registered Gin sibling routes.
+
+## Versioned extension protocol
+
+`/emby-ext/v1` is a distinct, literal prefix. The same administrator page
+switches protocols; extension entries live in `embyExtApiCatalog.ts`. They do
+not inherit Emby root or case aliases. See [Emby Extension Discovery](./emby-extension-discovery.md)
+for source reuse, authentication, persistent calendar and matching contracts.

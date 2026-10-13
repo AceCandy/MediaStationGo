@@ -41,6 +41,8 @@ type Container struct {
 	UserDevice    *UserDeviceRepository
 	TaskExecution *TaskExecutionRepository
 	PlayerLog     *PlayerRequestLogRepository
+
+	BangumiCalendar *BangumiCalendarRepository
 }
 
 // New 将每个 repository 连接到单个 *gorm.DB。
@@ -81,5 +83,7 @@ func New(db *gorm.DB) *Container {
 		UserDevice:    &UserDeviceRepository{db: db},
 		TaskExecution: &TaskExecutionRepository{db: db},
 		PlayerLog:     &PlayerRequestLogRepository{db: db},
+
+		BangumiCalendar: &BangumiCalendarRepository{db: db},
 	}
 }

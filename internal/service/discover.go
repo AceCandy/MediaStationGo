@@ -37,6 +37,11 @@ func NewDiscoverService(log *zap.Logger, tmdb *TMDbProvider) *DiscoverService {
 	}
 }
 
+// RankingsAvailable 同时检查实际密钥，避免把未配置来源返回为空榜单。
+func (d *DiscoverService) RankingsAvailable(ctx context.Context) bool {
+	return d != nil && d.tmdb != nil && d.tmdb.resolveAPIKey(ctx) != ""
+}
+
 // Trending returns the daily trending movies (TMDb /trending/movie/day).
 func (d *DiscoverService) Trending(ctx context.Context) ([]Match, error) {
 	return d.fetch(ctx, "/trending/movie/day")

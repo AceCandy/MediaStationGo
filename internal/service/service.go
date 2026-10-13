@@ -164,6 +164,9 @@ func (c *Container) Close() {
 	}
 	c.bootMu.Unlock()
 	c.bootWG.Wait()
+	if c.Bangumi != nil {
+		c.Bangumi.closeCalendar()
+	}
 	if c.TMDbCenter != nil {
 		c.TMDbCenter.Wait()
 	}

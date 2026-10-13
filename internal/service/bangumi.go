@@ -28,10 +28,11 @@ import (
 
 // BangumiProvider talks to https://api.bgm.tv.
 type BangumiProvider struct {
-	cfg    *config.Config
-	log    *zap.Logger
-	client *http.Client
-	base   string
+	calendar bangumiCalendarState
+	cfg      *config.Config
+	log      *zap.Logger
+	client   *http.Client
+	base     string
 }
 
 // NewBangumiProvider is the constructor.

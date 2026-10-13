@@ -33,7 +33,7 @@ export type EmbyApiResponse = {
 
 export type EmbyApiEndpoint = {
   id: string
-  category: EmbyApiCategory
+  category: EmbyApiCategory | '扩展能力' | '榜单' | '日历' | '媒体匹配' | '扩展图片'
   name: string
   description: string
   methods: readonly EmbyApiMethod[]
