@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 238
-- **Last Active**: 2026-10-12
+- **Total Sessions**: 239
+- **Last Active**: 2026-10-13
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~161 | Active |
+| `journal-4.md` | ~183 | Active |
 | `journal-3.md` | ~1991 | Archived |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 239 | 2026-10-13 | 发现来源资料、榜单与详情统一收尾 | `9264fb1` | `main` |
 | 238 | 2026-10-12 | 历史残留清理与重启验收归档 | `d9bc408` | `main` |
 | 237 | 2026-10-12 | 项目历史依赖清理完成 | `576d4d1` | `main` |
 | 236 | 2026-10-12 | 资料中心历史依赖退役 | `e727fbc` | `main` |
