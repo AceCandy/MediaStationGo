@@ -837,3 +837,21 @@ to Path. Path normalization updates real roots and their primary projection only
 Keep Path as the current primary-root projection and create new libraries with
 roots in one transaction. Shared test fixtures must include the current root
 model, and filesystem test libraries must create real roots.
+
+
+## Douban catalog read projections
+
+`EnsureDoubanCatalogSchema` establishes database-owned stored generated columns
+`list_title`, `list_year`, `list_genres`; the model must not write these columns.
+All payload/summary writers update projections atomically. Existing rows are
+computed on initial ADD COLUMN, requiring a one-time table rewrite and lock;
+subsequent startup confirms structure. Preserve source wrappers, title fallback,
+nonempty genre priority and literal case-insensitive substring matching.
+List/category queries must read compact columns instead of parsing toasted JSON
+before sort/count. Kind/fetched_at DESC NULLS LAST/id DESC and genre GIN indexes
+serve paging and membership; small title scans intentionally need no extension.
+Changing the immutable normalization function requires explicitly recomputing
+stored projections; CREATE OR REPLACE alone does not rewrite existing values.
+Test existing rows, repeated model/schema migration, prepared runtime writes,
+clearing payload/summary, all format fixtures, source permissions and actual
+index plans on isolated PostgreSQL. Production performance inspection is read-only.

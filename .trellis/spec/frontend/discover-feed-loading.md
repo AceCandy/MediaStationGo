@@ -542,3 +542,20 @@ Bad: sorting a mixed 60-record result in the browser, leaving cast on later page
 Wrong: clear the in-flight ref immediately in finally before the error is rendered.
 Correct: increment a settlement state counter in finally and release the ref in
 useLayoutEffect after commit; loading=true→false may otherwise batch to no change.
+
+
+## Saved source catalog continuation
+
+- TMDb Movie/TV/Person and Douban Movie/Series category grids use
+  `useCatalogContinuation`, 30 records per request. URL owns filters and detail
+  selection; remove `page` from the URL. Successful pages advance the cursor and
+  append by row identity; failures preserve rows, pause observers and retry the
+  same page. Filter/session changes cancel old reads; refresh restarts page one.
+- Detail open/close preserves list nodes and pauses automatic continuation.
+  CatalogLoadMore retains a keyboard-accessible fallback. Mode tabs use a compact
+  `w-fit` container, sharing HongGuo tab primitives without stretching the bar.
+- TMDb ownership reads are bounded to the incoming batch. An ownership failure
+  does not hide catalog data. No query-sized growing ownership requests.
+- Verify `check-catalog-continuation.mjs`, `check-discover-centers.mjs`, and
+  `check-douban-data-center.mjs`, including literal search, retry, filter abort,
+  people, detail preservation and responsive themes.

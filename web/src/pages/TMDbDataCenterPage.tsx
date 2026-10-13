@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { ModalShell } from '../components/ModalShell'
@@ -8,7 +8,7 @@ import { Select } from '../components/Select'
 import { CatalogPosterCard } from '../components/CatalogPosterCard'
 import { useAuthStore } from '../stores/auth'
 import { discoverAPI } from '../api/discover'
-import { tmdbCenterAPI as api, type TMDbPage, type TMDbPerson, type TMDbSearchRow, type TMDbSubject } from '../api/tmdbCenter'
+import { tmdbCenterAPI as api, type TMDbPerson, type TMDbSearchRow, type TMDbSubject } from '../api/tmdbCenter'
 
 const names: Record<string, string> = { movie: '电影', tv: '电视剧', series: '电视剧', season: '季', episode: '集', person: '人物' }
 const qualities = ['身份记录', '摘要资料', '基础资料', '完整详情']
@@ -17,6 +17,8 @@ const validID = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4
 import { TMDbDetailModal, type Selection } from './TMDbDetailModal'
 import { tmdbDepartment } from './tmdbLabels'
 import { CatalogFilters } from '../components/CatalogFilters'
+import { CatalogLoadMore } from '../components/CatalogLoadMore'
+import { useCatalogContinuation } from '../hooks/useCatalogContinuation'
 
 export function TMDbDataCenterPage() {
   const isAdmin = useAuthStore(s => s.user?.role === 'admin')
@@ -32,52 +34,49 @@ export function TMDbDataCenterPage() {
   const quality = isAdmin && ['0', '1', '2', '3'].includes(params.get('quality') || '') ? params.get('quality')! : ''
   const state = isAdmin && ['pending', 'error'].includes(params.get('state') || '') ? params.get('state')! : ''
   const [owned, setOwned] = useState<number[]>([])
-  const rawPage = Number(params.get('page')); const page = Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 1000000 ? rawPage : 1
   const [draft, setDraft] = useState(keyword)
-  const [data, setData] = useState<TMDbPage<TMDbSubject | TMDbPerson> | null>(null)
-  const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
   const [add, setAdd] = useState(false)
   const trigger = useRef<HTMLElement | null>(null)
   const subjectID = params.get('subject') || '', personID = params.get('person') || ''
-  const selectedRow = data?.data.find(v => 'person_id' in v ? v.person_id === personID : v.id === subjectID)
+  const fetchPage = useCallback(async (page: number, signal: AbortSignal) => {
+    if (page === 1) setOwned([])
+    const query = { keyword, kind, page, page_size: 30, state, [kind === 'person' ? 'department' : 'genre']: category, ...(quality ? { quality } : {}) }
+    const result = await (kind === 'person' ? api.people(query, signal) : api.subjects(query, signal))
+    if (kind !== 'person' && result.data.length && !signal.aborted) {
+      try {
+        const status = await discoverAPI.libraryStatus(result.data.map(v => ({ tmdb_id: v.tmdb_id, media_type: kind as 'movie' | 'tv' })), signal)
+        if (!signal.aborted) setOwned(previous => Array.from(new Set([...previous, ...status.map(v => v.tmdb_id)])))
+      } catch { /* 入库标记失败不阻塞来源资料。 */ }
+    }
+    return { items: result.data as (TMDbSubject | TMDbPerson)[], total: result.total, page_size: result.page_size }
+  }, [keyword, kind, state, category, quality])
+  const { items: rows, total, loading, error, hasMore, loadMore, sentinel } = useCatalogContinuation(fetchPage, revision, !!subjectID || !!personID || add)
+  const selectedRow = rows.find(v => 'person_id' in v ? v.person_id === personID : v.id === subjectID)
   const selected: Selection | null = validID(personID) ? { id: personID, person: true, title: selectedRow && 'name' in selectedRow ? selectedRow.name : '', image: selectedRow && 'profile_url' in selectedRow ? selectedRow.profile_url : undefined, overview: selectedRow && 'biography' in selectedRow ? selectedRow.biography : undefined } : validID(subjectID) ? { id: subjectID, person: false, title: selectedRow && 'title' in selectedRow ? selectedRow.title : '', image: selectedRow && 'poster_url' in selectedRow ? selectedRow.poster_url : undefined, overview: selectedRow && 'overview' in selectedRow ? selectedRow.overview : undefined } : null
   const change = (values: Record<string, string>) => { const next = new URLSearchParams(params); for (const [k, v] of Object.entries(values)) { if (v) next.set(k, v); else next.delete(k) }; setParams(next) }
   useEffect(() => {
     const next = new URLSearchParams(params)
-    for (const [k, v] of Object.entries({ kind, keyword, quality, state, page: page === 1 ? '' : String(page) })) { if (v) next.set(k, v); else next.delete(k) }
+    for (const [k, v] of Object.entries({ kind, keyword, quality, state, page: '' })) { if (v) next.set(k, v); else next.delete(k) }
     next.delete('type'); next.delete('provider')
     next.delete(kind === 'person' ? 'genre' : 'department')
     if (category) next.set(kind === 'person' ? 'department' : 'genre', category); else next.delete(kind === 'person' ? 'department' : 'genre')
     next.delete('subject'); next.delete('person')
     if (validID(personID)) next.set('person', personID); else if (validID(subjectID)) next.set('subject', subjectID)
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
-  }, [params, kind, keyword, quality, state, page, personID, subjectID, setParams, category])
+  }, [params, kind, keyword, quality, state, personID, subjectID, setParams, category])
   useEffect(() => { setDraft(keyword) }, [keyword])
-  useEffect(() => {
-    const c = new AbortController(); setData(null); setError('')
-    const query = { keyword, kind, page, state, [kind === 'person' ? 'department' : 'genre']: category, ...(quality ? { quality } : {}) }
-    const request = kind === 'person' ? api.people(query, c.signal) : api.subjects(query, c.signal)
-    request.then(v => { if (!c.signal.aborted) setData(v) }).catch(e => { if (!c.signal.aborted) setError(errorText(e)) })
-    return () => c.abort()
-  }, [keyword, kind, page, quality, state, revision, category])
-  useEffect(() => {
-    setOwned([])
-    if (!data || kind === 'person' || !data.data.length) return
-    const c = new AbortController()
-    discoverAPI.libraryStatus(data.data.map(v => ({tmdb_id:v.tmdb_id,media_type:kind as 'movie' | 'tv'})),c.signal).then(v => {if (!c.signal.aborted) setOwned(v.map(x => x.tmdb_id))}).catch(() => {})
-    return () => c.abort()
-  }, [data, kind])
   const open = (v: Selection) => { trigger.current = document.activeElement as HTMLElement; change({ subject: v.person ? '' : v.id, person: v.person ? v.id : '' }) }
   const close = () => { change({ subject: '', person: '' }); requestAnimationFrame(() => trigger.current?.focus()) }
   return <div className="space-y-5">
     <CatalogFilters label="TMDb 类型" options={['movie', 'tv', 'person'].map(value => ({value, label: names[value]}))} value={kind} onChange={value => change({kind: value, genre: '', department: '', page: '', subject: '', person: '', quality: ''})} />
     <CatalogFilters label={kind === 'person' ? '主要职业' : '题材'} options={[{value: '', label: '全部'}, ...categories.map(v => ({...v, label: kind === 'person' ? tmdbDepartment(v.label) : v.label}))]} value={category} onChange={value => change({[kind === 'person' ? 'department' : 'genre']: value, page: ''})} />
     {categoryError && <p role="alert" className="text-sm text-ink-50">分类选项读取失败，可继续搜索资料。<button className="btn-ghost" onClick={() => setCategoryRevision(v => v + 1)}>重试分类</button></p>}
-    <CatalogSearchForm label="筛选已保存资料" placeholder="筛选标题、姓名或 TMDB ID…" value={draft} onChange={setDraft} loading={!data && !error} refreshLabel="重新读取列表" onSearch={() => change({keyword:draft.trim(), page:''})} onRefresh={() => setRevision(v => v + 1)}>{isAdmin && <Select aria-label="资料级别" className="input-field w-36" value={quality} onChange={v => change({ quality: v, page: '' })}><option value="">全部资料级别</option>{qualities.map((v, i) => <option key={i} value={String(i)}>{v}</option>)}</Select>}{isAdmin && <Select aria-label="刷新状态" className="input-field w-32" value={state} onChange={v => change({state:v,page:''})}><option value="">全部状态</option><option value="pending">待补全</option><option value="error">刷新失败</option></Select>}{isAdmin && <button type="button" className="btn-outline" onClick={() => setAdd(true)}>搜索 / 添加资料</button>}</CatalogSearchForm>
-    {error && <p role="alert">{error} <button className="btn-outline" onClick={() => setRevision(v => v + 1)}>重试</button></p>}
-    {!data && !error && <p role="status" className="text-ink-50">正在读取资料…</p>}
-    {data && <><div aria-label="TMDb 资料列表" className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{data.data.map(v => { const person = 'person_id' in v; const title = (person ? v.name : v.title) || `TMDb ${v.tmdb_id}`; return <CatalogPosterCard key={v.id} title={title} image={person ? v.profile_url : v.poster_url} person={person} year={person ? tmdbDepartment(v.department) : v.release_date?.slice(0, 4)} rating={person ? undefined : v.rating} owned={!person && owned.includes(v.tmdb_id)} onClick={() => open({ id: person ? v.person_id : v.id, person, title })} /> })}</div>{!data.data.length && <p className="py-8 text-center text-ink-50">暂无符合条件的已保存资料</p>}<Pager page={page} total={data.total} setPage={n => change({ page: String(n) })} /></>}
+    <CatalogSearchForm label="筛选已保存资料" placeholder="筛选标题、姓名或 TMDB ID…" value={draft} onChange={setDraft} loading={loading} refreshLabel="重新读取列表" onSearch={() => change({keyword:draft.trim(), page:''})} onRefresh={() => setRevision(v => v + 1)}>{isAdmin && <Select aria-label="资料级别" className="input-field w-36" value={quality} onChange={v => change({ quality: v, page: '' })}><option value="">全部资料级别</option>{qualities.map((v, i) => <option key={i} value={String(i)}>{v}</option>)}</Select>}{isAdmin && <Select aria-label="刷新状态" className="input-field w-32" value={state} onChange={v => change({state:v,page:''})}><option value="">全部状态</option><option value="pending">待补全</option><option value="error">刷新失败</option></Select>}{isAdmin && <button type="button" className="btn-outline" onClick={() => setAdd(true)}>搜索 / 添加资料</button>}</CatalogSearchForm>
+    {error && <p role="alert">{error} <button className="btn-outline" onClick={loadMore}>重试</button></p>}
+    {loading && !rows.length && <p role="status" className="text-ink-50">正在读取资料…</p>}
+    {!!rows.length && <p className="text-sm text-ink-50">已显示 {rows.length} / {total}</p>}
+    {<><div aria-label="TMDb 资料列表" className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{rows.map(v => { const person = 'person_id' in v; const title = (person ? v.name : v.title) || `TMDb ${v.tmdb_id}`; return <CatalogPosterCard key={v.id} title={title} image={person ? v.profile_url : v.poster_url} person={person} year={person ? tmdbDepartment(v.department) : v.release_date?.slice(0, 4)} rating={person ? undefined : v.rating} owned={!person && owned.includes(v.tmdb_id)} onClick={() => open({ id: person ? v.person_id : v.id, person, title })} /> })}</div>{!loading && !error && !rows.length && <p className="py-8 text-center text-ink-50">暂无符合条件的已保存资料</p>}<div ref={sentinel} aria-hidden="true" /><CatalogLoadMore loading={loading} hasMore={hasMore} hasItems={rows.length > 0} failed={!!error} onLoadMore={loadMore} endLabel="资料已加载完" /></>}
 
     {selected && <TMDbDetailModal key={`${selected.person}-${selected.id}`} initial={selected} onClose={close} onChanged={() => setRevision(v => v + 1)} />}
     {add && <AddTMDb kind={kind} onClose={() => setAdd(false)} onAdded={v => { setAdd(false); setRevision(n => n + 1); open(v) }} />}

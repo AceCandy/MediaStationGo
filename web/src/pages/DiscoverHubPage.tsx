@@ -37,8 +37,8 @@ export function DiscoverHubPage() {
         onClick={() => { if (value !== system) setParams({ system: value }) }}
       >{label}</button>)}
     </nav>
-    {hasData && <nav aria-label="来源内容" className="tab-list">{([['data', '分类'], ['rank', '榜单']] as const).map(([value, label]) => <button key={value} type="button" className="tab-item" aria-pressed={section === value} onClick={() => { if (value !== section) setParams(value === 'rank' ? { system, section: value } : { system }) }}>{label}</button>)}</nav>}
-    {system === 'bangumi' && <nav aria-label="来源内容" className="tab-list"><button type="button" className="tab-item" aria-pressed="true">榜单</button></nav>}
+    {hasData && <nav aria-label="来源内容" className="tab-list w-fit">{([['data', '分类'], ['rank', '榜单']] as const).map(([value, label]) => <button key={value} type="button" className="tab-item" aria-pressed={section === value} onClick={() => { if (value !== section) setParams(value === 'rank' ? { system, section: value } : { system }) }}>{label}</button>)}</nav>}
+    {system === 'bangumi' && <nav aria-label="来源内容" className="tab-list w-fit"><button type="button" className="tab-item" aria-pressed="true">榜单</button></nav>}
     <Suspense fallback={<p role="status" className="py-12 text-center text-ink-50">加载发现内容…</p>}>
       {system === 'huangguoai' ? <HuangGuoAIDiscover key={contentKey} /> : system === 'hongguo' ? <HongGuoDiscover key={contentKey} /> : system === 'tmdb' && section === 'data' ? <TMDbData key={contentKey} /> : system === 'douban' && section === 'data' ? <DoubanData key={contentKey} /> : <CatalogDiscover key={contentKey} provider={system as 'tmdb' | 'douban' | 'bangumi'} />}
     </Suspense>

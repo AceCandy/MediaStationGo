@@ -38,6 +38,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := EnsureTMDbRecheckTriggers(db); err != nil {
 		return err
 	}
+	if err := EnsureDoubanCatalogSchema(db); err != nil {
+		return err
+	}
 	if err := ensureTMDbCatalogSchema(db); err != nil {
 		return err
 	}

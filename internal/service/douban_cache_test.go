@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"go.uber.org/zap"
@@ -20,6 +21,9 @@ import (
 func newDoubanCacheTestProvider(t *testing.T, transport roundTripFunc) (*DoubanProvider, *repository.Container) {
 	t.Helper()
 	db := newServiceTestDB(t, &model.Setting{})
+	if err := database.EnsureDoubanCatalogSchema(db); err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	provider := NewDoubanProvider(nil)
 	provider.setDataRepository(repos, nil)

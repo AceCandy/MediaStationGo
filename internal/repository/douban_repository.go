@@ -35,9 +35,6 @@ type DoubanSubjectSummary struct {
 	NextRetryAt    *time.Time `json:"next_retry_at"`
 }
 
-const doubanSummaryTitleSQL = `COALESCE(NULLIF(payload #>> '{subject,title}', ''), NULLIF(payload #>> '{subject,name}', ''), NULLIF(payload #>> '{data,title}', ''), NULLIF(payload #>> '{data,name}', ''), NULLIF(payload->>'title', ''), NULLIF(payload->>'name', ''), summary->>'title', '')`
-const doubanSummaryYearSQL = `COALESCE(payload #>> '{subject,year}', payload #>> '{data,year}', payload->>'year', summary->>'year', '')`
-
 // ListSubjects 对共享资料直接筛选分页，失败占位记录同样可见。
 func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind string, page, pageSize int, genres ...string) ([]DoubanSubjectSummary, int64, error) {
 	q := r.db.WithContext(ctx).Model(&model.DoubanSubject{}).Where("entity_kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries})
@@ -45,17 +42,17 @@ func (r *DoubanRepository) ListSubjects(ctx context.Context, keyword, kind strin
 		q = q.Where("entity_kind = ?", kind)
 	}
 	if keyword != "" {
-		q = q.Where("douban_id = ? OR strpos(lower("+doubanSummaryTitleSQL+"), lower(?)) > 0", keyword, keyword)
+		q = q.Where("douban_id = ? OR strpos(lower(list_title), lower(?)) > 0", keyword, keyword)
 	}
 	if len(genres) > 0 && genres[0] != "" {
-		q = q.Where("EXISTS (SELECT 1 FROM ("+doubanGenresSQL+") genre WHERE genre.value = ?)", genres[0])
+		q = q.Where("list_genres @> ARRAY[?]::text[]", genres[0])
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	rows := make([]DoubanSubjectSummary, 0)
-	err := q.Select("id, douban_id, entity_kind, " + doubanSummaryTitleSQL + " AS title, " + doubanSummaryYearSQL + " AS year, rating, quality, (payload IS NOT NULL OR summary IS NOT NULL) AS has_payload, fetched_at, rich_fetched_at, last_attempt_at, next_retry_at, (supplement_pending AND (supplement_retry_at IS NULL OR supplement_retry_at <= NOW()) AND (next_retry_at IS NULL OR next_retry_at <= NOW())) AS refresh_pending, (supplement_retry_at IS NOT NULL OR next_retry_at IS NOT NULL) AS source_error").
+	err := q.Select("id, douban_id, entity_kind, list_title AS title, list_year AS year, rating, quality, (payload IS NOT NULL OR summary IS NOT NULL) AS has_payload, fetched_at, rich_fetched_at, last_attempt_at, next_retry_at, (supplement_pending AND (supplement_retry_at IS NULL OR supplement_retry_at <= NOW()) AND (next_retry_at IS NULL OR next_retry_at <= NOW())) AS refresh_pending, (supplement_retry_at IS NOT NULL OR next_retry_at IS NOT NULL) AS source_error").
 		Order("fetched_at DESC NULLS LAST, id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&rows).Error
 	return rows, total, err
 }

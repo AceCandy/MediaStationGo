@@ -72,9 +72,10 @@ Viewer composition state is URL owned:
 - Douban data is browsed at `/discover?system=douban` under Discover permission;
   the standalone Data Center route and navigation leaf are removed.
   Data browsing stores trimmed `keyword`,
-  `type=movie|series` and positive `page` in the URL; defaults
-  are omitted. Normalize invalid/duplicate values with replace navigation,
-  reset the page on filter changes and request 30 persisted subjects at a time.
+  `type=movie|series` and `genre` in the URL. The continuation cursor is local;
+  remove URL `page` with replace navigation and start at page one. Normalize
+  invalid/duplicate values, reset on filter changes and request 30 persisted
+  subjects at a time.
   Detail selection stores a subject UUID in `subject`; invalid values are removed
   and duplicate values converge to one. List/detail GETs never contact Douban.
   Opening a missing ranking item uses the exact-ID ensure POST under Discover

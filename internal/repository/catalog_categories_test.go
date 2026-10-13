@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -63,6 +64,9 @@ func TestCatalogCategoriesFilterBeforePagination(t *testing.T) {
 func TestDoubanCategoriesMatchPayloadFormats(t *testing.T) {
 	r := tmdbTestRepo(t)
 	if err := r.DB.AutoMigrate(&model.DoubanSubject{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureDoubanCatalogSchema(r.DB); err != nil {
 		t.Fatal(err)
 	}
 	ctx := t.Context()

@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Film, RefreshCw, ExternalLink, Star } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { doubanAPI, type DoubanRefreshMode, type DoubanSubjectDetail, type DoubanSubjectPage, type DoubanSubjectSummary } from '../api/douban'
+import { doubanAPI, type DoubanRefreshMode, type DoubanSubjectDetail, type DoubanSubjectSummary } from '../api/douban'
 import { imageURL } from '../api/client'
 import { ModalShell } from '../components/ModalShell'
-import { CatalogPager } from '../components/CatalogPager'
+import { CatalogLoadMore } from '../components/CatalogLoadMore'
+import { useCatalogContinuation } from '../hooks/useCatalogContinuation'
 import { CatalogSearchForm } from '../components/CatalogSearchForm'
 import { CatalogFilters } from '../components/CatalogFilters'
 import { CatalogPosterCard } from '../components/CatalogPosterCard'
@@ -44,12 +45,7 @@ function DoubanDataCenterContent() {
   const [categoryError, setCategoryError] = useState(false)
   const [categoryRevision, setCategoryRevision] = useState(0)
   useEffect(() => { const c = new AbortController(); setCategories([]); setCategoryError(false); doubanAPI.categories(type, c.signal).then(v => { if (!c.signal.aborted) setCategories(v) }).catch(() => { if (!c.signal.aborted) setCategoryError(true) }); return () => c.abort() }, [type, categoryRevision])
-  const rawPage = params.get('page') || ''
-  const page = /^\d+$/.test(rawPage) && Number(rawPage) >= 1 && Number(rawPage) <= 1_000_000 ? Number(rawPage) : 1
   const [draft, setDraft] = useState(keyword)
-  const [data, setData] = useState<DoubanSubjectPage | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
   const subjectID = params.get('subject') || ''
   const selectedID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(subjectID) ? subjectID : ''
@@ -57,26 +53,16 @@ function DoubanDataCenterContent() {
 
   useEffect(() => {
     const next = new URLSearchParams(params)
-    for (const [key, value] of [['keyword', keyword], ['type', type], ['page', page > 1 ? String(page) : '']]) {
+    for (const [key, value] of [['keyword', keyword], ['type', type], ['page', '']]) {
       if (value) next.set(key, value)
       else next.delete(key)
     }
     if (selectedID) next.set('subject', selectedID); else next.delete('subject')
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
-  }, [keyword, page, params, setParams, type, selectedID])
+  }, [keyword, params, setParams, type, selectedID])
   useEffect(() => { setDraft(keyword) }, [keyword])
-  useEffect(() => {
-    const controller = new AbortController()
-    setLoading(true)
-    setError('')
-    setData(null)
-    doubanAPI.list(keyword, type, page, controller.signal, genre).then((result) => {
-      if (!controller.signal.aborted) setData(result)
-    }).catch((err) => {
-      if (!controller.signal.aborted) setError(errorText(err, '豆瓣资料列表读取失败'))
-    }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => controller.abort()
-  }, [keyword, type, page, revision, genre])
+  const fetchPage = useCallback((page: number, signal: AbortSignal) => doubanAPI.list(keyword, type, page, signal, genre), [keyword, type, genre])
+  const { items: rows, total, loading, error, hasMore, loadMore, sentinel } = useCatalogContinuation(fetchPage, revision, !!selectedID)
 
   const updateParams = (values: Record<string, string>) => {
     const next = new URLSearchParams(params)
@@ -95,7 +81,6 @@ function DoubanDataCenterContent() {
     const next = new URLSearchParams(params); next.delete('subject'); setParams(next)
     requestAnimationFrame(() => detailTrigger.current?.focus())
   }
-  const rows = data?.items || []
   const selected = selectedID ? rows.find(row => row.id === selectedID) || { id: selectedID, douban_id: '', entity_kind: 'movie' as const, title: '', year: '', rating: 0, quality: '', has_payload: false, poster_url: '', fetched_at: null, last_attempt_at: null, next_retry_at: null } : null
 
   return <div className="space-y-5">
@@ -104,11 +89,16 @@ function DoubanDataCenterContent() {
     {categoryError && <p role="alert" className="text-sm text-ink-50">分类选项读取失败，可继续搜索资料。<button className="btn-ghost" onClick={() => setCategoryRevision(v => v + 1)}>重试分类</button></p>}
     <CatalogSearchForm label="名称或豆瓣 ID" placeholder="搜索已有资料…" value={draft} onChange={setDraft} loading={loading} refreshLabel="重新读取列表" onSearch={() => updateParams({keyword:draft.trim(),page:''})} onRefresh={() => setRevision(v => v + 1)} />
     <section className="space-y-4" aria-label="豆瓣资料列表">
-      {loading ? <p className="p-10 text-center text-ink-50">正在读取资料…</p> : error ? <div className="space-y-3 p-8 text-center"><p role="alert" className="text-red-500">{error}</p><button type="button" className="btn-outline" onClick={() => setRevision((value) => value + 1)}>重试读取</button></div> : rows.length === 0 ? <p className="p-10 text-center text-ink-50">{keyword || type ? '没有符合条件的豆瓣资料' : '暂无豆瓣资料，获取或绑定作品后会自动保存到这里'}</p> : <>
+      {loading && !rows.length && <p role="status" className="p-10 text-center text-ink-50">正在读取资料…</p>}
+      {error && <div className="space-y-3 p-8 text-center"><p role="alert" className="text-red-500">{error}</p><button type="button" className="btn-outline" onClick={loadMore}>重试读取</button></div>}
+      {!loading && !error && !rows.length && <p className="p-10 text-center text-ink-50">没有符合条件的豆瓣资料</p>}
+      {!!rows.length && <>
+        <p className="text-sm text-ink-50">已显示 {rows.length} / {total}</p>
         <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{rows.map(subject => <article key={subject.id} className="min-w-0 space-y-3"><CatalogPosterCard title={subject.title || `豆瓣 ${subject.douban_id}`} image={subject.poster_url} version={subject.fetched_at || undefined} year={subject.year} rating={subject.rating} onClick={() => openDetail(subject)} /></article>)}</div>
       </>}
     </section>
-    {!loading && !error && <CatalogPager page={page} total={data?.total || 0} setPage={page => updateParams({page:page === 1 ? '' : String(page)})} />}
+    <div ref={sentinel} aria-hidden="true" />
+    <CatalogLoadMore loading={loading} hasMore={hasMore} hasItems={rows.length > 0} failed={!!error} onLoadMore={loadMore} endLabel="资料已加载完" />
     {selected && <DoubanSubjectDetails key={selected.id} subject={selected} onClose={closeDetail} onChanged={() => setRevision(v => v + 1)} />}
   </div>
 }

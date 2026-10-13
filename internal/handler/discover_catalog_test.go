@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -29,6 +30,9 @@ func TestDiscoverCatalogReadPermissionsAndProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureDoubanCatalogSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)

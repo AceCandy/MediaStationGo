@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/gorm"
@@ -17,6 +18,9 @@ func TestDoubanManagementListSearchAndPaging(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(&model.DoubanSubject{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureDoubanCatalogSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	repo := New(db).Douban

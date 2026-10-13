@@ -72,7 +72,7 @@ try {
         const p=config.params, empty=p.keyword==='empty'||probe.emptyList;
         let rows=p.page===2?[subject('33333333-3333-4333-8333-333333333333','movie')]:[subject(probe.movie.id,'movie'),probe.series,subject('33333333-3333-4333-8333-333333333333','series'),subject('44444444-4444-4444-8444-444444444444','movie','degraded'),subject('55555555-5555-4555-8555-555555555555','movie','partial'),subject('66666666-6666-4666-8666-666666666666','movie','',false)];
         if(p.type) rows=rows.filter(row=>row.entity_kind===p.type);
-        data={data:empty?[]:rows,total:empty?0:31,page:p.page,page_size:30};
+        data={data:empty?[]:rows,total:empty?0:rows.length,page:p.page,page_size:30};
       }else{
         const item=config.url.includes(probe.series.id)?probe.series:config.url.includes('66666666')?subject('66666666-6666-4666-8666-666666666666','movie','',false):subject(probe.movie.id,'movie');
         const detail={...item,original_name:'Original title',overview:'已落库的简介',release_date:'2026-01-01',genres:['剧情'],languages:['中文'],countries:['中国'],directors:['导演甲'],writers:['编剧乙'],actors:['演员甲','演员乙'],durations:['141分钟'],aliases:['别名甲'],release_dates:['2026-01-01(中国大陆)','2026-02-01(中国香港)'],imdb_id:'tt34610311',rating_count:613808,rating_distribution:[{stars:5,percent:27.3},{stars:4,percent:48.1}],credits:[{person_id:'cast-1',name:'演员甲',role:'饰 黄德忠',type:'Actor',profile_url:'/api/catalogs/douban/subjects/'+item.id+'/credits/0/image?v='+(probe.updated?'2026-10-11':'2026-10-10')}],awards:[{event:'第44届电影奖',category:'最佳男主角',people:'演员甲'}],honors:[{title:'犯罪片榜',rank:10}],rich_fetched_at:probe.updated?'2026-10-11T12:00:00Z':'2026-10-10T12:00:00Z',raw_json:{title:item.title,intro:'已落库的简介',private_detail:'原始资料'}};
@@ -124,10 +124,7 @@ try {
   assert.equal(evaluate("!!document.querySelector('[role=dialog] > div > details')"),false)
   click('关闭详情')
 
-  click('下一页')
-  wait("location.search.includes('page=2') && window.doubanProbe.calls.some(c=>c.kind==='list'&&c.page===2)")
-  click('上一页')
-  wait(`location.search === '?system=douban&type=movie' && ${text}?.includes('测试电影')`)
+  assert.ok(!evaluate("document.querySelector('main').innerText.includes('下一页')"))
   browser('fill', '[aria-label="名称或豆瓣 ID"]', ' 筛选 ')
   click('搜索')
   wait("new URLSearchParams(location.search).get('keyword')==='筛选'")

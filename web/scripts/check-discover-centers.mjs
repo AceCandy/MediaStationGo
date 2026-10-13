@@ -37,7 +37,7 @@ try {
       if(probe.hold===path) await new Promise(resolve=>probe.releases.push(resolve));
       let data={};
       if(path.endsWith('/categories')) data={data:path.includes('/douban/')?[{value:'剧情',label:'剧情'}]:config.params?.kind==='person'?[{value:'Acting',label:'Acting'}]:[{value:'1',label:'剧情'},{value:'2',label:'喜剧'}]};
-      else if(path==='/catalogs/tmdb/subjects') data=page([config.params?.kind==='tv'?series:movie],31);
+      else if(path==='/catalogs/tmdb/subjects') data=page([config.params?.kind==='tv'?series:movie]);
       else if(path==='/catalogs/tmdb/people') data=page([person]);
       else if(path.endsWith('/seasons')) data=page([season]);
       else if(path.endsWith('/episodes')) data=page([episode]);
@@ -79,8 +79,7 @@ try {
   browser('press', 'Escape')
   wait(`!document.querySelector('[role="dialog"]')`)
   assert.equal(evaluate(`document.activeElement.getAttribute('aria-label')`), '查看资料电影')
-  click('下一页')
-  wait(`window.centerProbe.calls.some(c=>c.path==='/catalogs/tmdb/subjects'&&c.page===2)`)
+  assert.ok(!evaluate(`document.querySelector('main').innerText.includes('下一页')`))
   click('电视剧')
   wait(`document.querySelector('button[aria-label="查看资料电视剧"]') !== null`)
   assert.ok(!evaluate(`new URLSearchParams(location.search).has('page')`))
