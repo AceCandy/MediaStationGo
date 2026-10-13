@@ -203,3 +203,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 241: 完成 Emby 扩展发现接口
+<!-- trellis-session: v=2 fp=9976253429767a0b -->
+
+**Date**: 2026-10-13
+**Task**: 完成 Emby 扩展发现接口
+**Branch**: `main`
+
+### Summary
+
+资料中心榜单、持久公共周历、可见媒体精确匹配及播放器接口分类已实现；PostgreSQL竞态回归、前端门禁与浏览器检查通过，后续接入LinPlayer。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `04dfe02` | feat(emby-ext): 提供资料中心榜单日历与媒体匹配接口 |
+
+### Status
+
+[OK] **Completed**

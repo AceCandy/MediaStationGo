@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 240
+- **Total Sessions**: 241
 - **Last Active**: 2026-10-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~205 | Active |
+| `journal-4.md` | ~227 | Active |
 | `journal-3.md` | ~1991 | Archived |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 241 | 2026-10-13 | 完成 Emby 扩展发现接口 | `04dfe02` | `main` |
 | 240 | 2026-10-13 | 来源详情演职员分组与横向续载 | `cb7a60a` | `main` |
 | 239 | 2026-10-13 | 发现来源资料、榜单与详情统一收尾 | `9264fb1` | `main` |
 | 238 | 2026-10-12 | 历史残留清理与重启验收归档 | `d9bc408` | `main` |
