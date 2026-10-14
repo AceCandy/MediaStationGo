@@ -61,7 +61,9 @@ function taskProgressText(definition: TaskDefinition): string {
   if (definition.schedule_config && (definition.key.startsWith('douban_data_') || definition.key.startsWith('tmdb_data_')) && metrics) {
     const selected = typeof metrics.selected === 'number' ? ` / ${metrics.selected}` : ''
     const requests = typeof metrics.requested === 'number' ? ` · 接口请求 ${metrics.requested}` : ''
-    return `本轮处理 ${metrics.processed ?? metrics.scanned ?? 0}${selected} · 已更新 ${metrics.updated ?? 0} · 跳过 ${metrics.skipped ?? 0} · 失败 ${metrics.failed ?? 0}${requests}`
+    const scanned = typeof metrics.scanned === 'number' && typeof metrics.processed === 'number' ? ` · 已核对 ${metrics.scanned} 条元数据` : ''
+    const updated = typeof metrics.updated === 'number' ? ` · 已更新 ${metrics.updated}` : ''
+    return `本轮处理 ${metrics.processed ?? metrics.scanned ?? 0}${selected}${scanned}${updated} · 跳过 ${metrics.skipped ?? 0} · 失败 ${metrics.failed ?? 0}${requests}`
   }
   if (definition.system === 'hongguo' && typeof metrics?.processed === 'number') {
     return `已处理 ${metrics.processed}${typeof metrics.failed === 'number' ? ` · 失败待重试 ${metrics.failed}` : ''}`

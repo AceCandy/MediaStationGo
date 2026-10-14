@@ -45,5 +45,15 @@ try {
     assert.equal(evaluate(`document.querySelector('[role=dialog] input[type=number]').value`),'6')
     click('取消')
   }
-  console.log('通过：两来源榜单周期保存不含 count、重开保留周期；TMDb 资料预算仍可保存。')
+  evaluate(`window.scheduleDefinitions=[
+    {key:'tmdb_data_images',name:'图片下载测试',metrics:{processed:8,failed:1}},
+    {key:'tmdb_data_season',name:'季资料测试',metrics:{processed:3,selected:3,scanned:7,updated:9,requested:12}}
+  ].map(({metrics,...d})=>({...d,system:'tmdb',trigger:'定时',current_state:'idle',schedule_config:{enabled:true,interval_seconds:28800,min_interval_seconds:60,max_interval_seconds:2592000},latest:{status:'completed',metrics}}));history.pushState(null,'','/admin/tasks?system=douban');dispatchEvent(new PopStateEvent('popstate'));true`)
+  wait(`!document.body.innerText.includes('TMDb 资料刷新')`)
+  evaluate(`history.pushState(null,'','/admin/tasks?system=tmdb');dispatchEvent(new PopStateEvent('popstate'));true`)
+  wait(`document.body.innerText.includes('图片下载测试')&&document.body.innerText.includes('季资料测试')`)
+  const progress = evaluate(`[...document.querySelectorAll('tr')].map(row=>row.innerText)`)
+  assert.ok(progress.some(text=>text.includes('图片下载测试')&&text.includes('本轮处理 8')&&!text.includes('已更新')))
+  assert.ok(progress.some(text=>text.includes('季资料测试')&&text.includes('本轮处理 3 / 3')&&text.includes('已核对 7 条元数据')&&text.includes('已更新 9')&&text.includes('接口请求 12')))
+  console.log('通过：榜单周期、资料预算保存；图片不显示虚假更新数；季资料补全与复查计数同时显示。')
 } finally { browser('close') }

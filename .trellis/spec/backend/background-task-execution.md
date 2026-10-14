@@ -1105,3 +1105,8 @@ Ranking schedule dialogs expose only enablement and interval. Render and submit
 TMDb request budgets only when `schedule_config.count` is present; a
 `tmdb_data_` prefix alone does not imply count support. Browser regression must
 cover saving ranking schedules without `count` and preserving metadata budgets.
+
+Task progress must not synthesize an updated count for image tasks, whose
+metrics only report processed/failed. Season maintenance may report both
+processed (source candidates) and scanned (metadata rechecks); display both
+without treating either as a fallback that hides the other.
