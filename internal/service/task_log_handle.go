@@ -18,7 +18,7 @@ func (t *TaskTrackerService) startLogOnly(kind, name string, update TaskUpdate) 
 	if t == nil {
 		return nil
 	}
-	task := BackgroundTask{System: model.TaskSystemForKind(kind), Kind: kind, Name: name}
+	task := BackgroundTask{System: model.TaskSystemForExecution(kind, name), Kind: kind, Name: name}
 	applyTaskUpdate(&task, update)
 	h := &TaskHandle{tracker: t, logOnly: &taskHandleLog{task: task}}
 	t.appendLog(task, "", taskLogLine("🔻", name))

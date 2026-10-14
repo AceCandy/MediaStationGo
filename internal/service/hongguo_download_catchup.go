@@ -15,7 +15,7 @@ func (s *HongGuoDownloadService) catchUp(ctx context.Context, sourceID string, r
 			return ctx.Err()
 		}
 		var ids []string
-		q := s.repo.DB.WithContext(ctx).Model(&model.HongGuoWork{}).Select("hongguo_works.source_id").
+		q := s.repo.DB.WithContext(ctx).Model(&model.HongGuoWork{}).Select("hongguo_works.source_id").Where("summary_only = false").
 			Joins("JOIN hongguo_download_works p ON p.source_id = hongguo_works.source_id").
 			Where("hongguo_works.source_id > ? AND kind = 'series' AND source_category <> 'comic'", after).
 			Where("EXISTS (SELECT 1 FROM hongguo_episodes e WHERE e.work_id = hongguo_works.id AND e.source_video_id ~ '^[1-9][0-9]{0,31}$' AND NOT EXISTS (SELECT 1 FROM hongguo_downloads d WHERE d.source_id = hongguo_works.source_id AND d.episode = e.number))")

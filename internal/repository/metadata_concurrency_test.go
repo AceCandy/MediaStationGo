@@ -179,7 +179,7 @@ VALUES ('late-conflict', ?, 'tmdb', 'series', '334888')`, existing.ID).Error)
 		t.Fatal("late identity conflict was silently accepted")
 	}
 	var items []model.MetadataItem
-	if err := db.Find(&items).Error; err != nil || len(items) != 1 || items[0].ID != existing.ID || items[0].Title != existing.Title {
+	if err := db.Find(&items).Error; err != nil || len(items) != 1 || items[0].ID != existing.ID {
 		t.Fatalf("failed upsert did not roll back: %#v, err=%v", items, err)
 	}
 }

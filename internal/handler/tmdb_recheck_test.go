@@ -22,7 +22,7 @@ func TestTMDbRecheckListAccessAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Media{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.MetadataItem{}, &model.Media{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{}); err != nil {
 		t.Fatal(err)
 	}
 	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "test-series"}, Kind: "series"}
@@ -110,7 +110,7 @@ func TestTMDbRecheckFilesVersionsAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Media{}, &model.TMDbRecheckJob{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.MetadataItem{}, &model.Media{}, &model.TMDbRecheckJob{}); err != nil {
 		t.Fatal(err)
 	}
 	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series"}, Kind: "series"}

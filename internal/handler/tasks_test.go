@@ -37,23 +37,23 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 30 {
-		t.Fatalf("definitions = %d, want 30", len(response.Definitions))
+	if len(response.Definitions) != 32 {
+		t.Fatalf("definitions = %d, want 32", len(response.Definitions))
 	}
 	foundRefresh, foundEnrichment := false, false
 	foundTMDb, foundMigration := false, false
 	for _, definition := range response.Definitions {
-		if definition.Key == service.TaskKindTMDbDataRefresh {
-			foundTMDb = definition.Name == "TMDb 资料刷新"
+		if definition.Key == service.TaskKindTMDbMovieSupplement {
+			foundTMDb = definition.Name == "TMDb 电影资料补全"
 		}
 		if definition.Key == "tmdb_center_migration" {
 			foundMigration = true
 		}
-		if definition.Key == service.TaskDefinitionDoubanDataRefresh {
-			foundRefresh = definition.Name == "豆瓣资料刷新"
+		if definition.Key == service.TaskKindDoubanMovieRating {
+			foundRefresh = definition.Name == "豆瓣电影评分更新"
 		}
-		if definition.Key == service.TaskDefinitionDoubanEnrichment {
-			foundEnrichment = definition.Name == "豆瓣信息补齐"
+		if definition.Key == service.TaskKindDoubanMovieSupplement {
+			foundEnrichment = definition.Name == "豆瓣电影资料补全"
 		}
 	}
 	if !foundRefresh || !foundEnrichment || !foundTMDb || foundMigration {
@@ -124,13 +124,13 @@ func TestTaskDefinitionRunHandlerRejectsRetiredTMDbSnapshotBackfill(t *testing.T
 	}
 }
 
-func TestTaskDefinitionRunHandlerReportsSeriesLocalCorrectionUnavailable(t *testing.T) {
+func TestTaskDefinitionRunHandlerRejectsRetiredMediaSourceSync(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionSeriesLocalCorrection}}
+	ctx.Params = gin.Params{{Key: "key", Value: "media_source_sync"}}
 	taskDefinitionRunHandler(&service.Container{})(ctx)
-	if recorder.Code != http.StatusServiceUnavailable {
+	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
@@ -187,8 +187,8 @@ func TestTaskDefinitionLogHandlerRejectsInvalidDate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/tasks/definitions/organize/log?date=../../app", nil)
-	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionOrganize}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/tasks/definitions/library_scan/log?date=../../app", nil)
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionLibraryScan}}
 	svc := &service.Container{Tasks: service.NewTaskTrackerService(zap.NewNop(), nil)}
 
 	taskDefinitionLogHandler(svc)(ctx)
@@ -396,21 +396,6 @@ func TestTaskDefinitionRunHandlerQueuesSingleAndAllMediaLibraries(t *testing.T) 
 	}
 }
 
-func TestPeopleBackfillCompatibilityHandlerUsesScheduler(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	scheduler := service.NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
-	scheduler.Start(t.Context())
-	t.Cleanup(scheduler.Stop)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/people-backfill", nil)
-
-	peopleBackfillHandler(&service.Container{Scheduler: scheduler})(ctx)
-
-	if recorder.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
-	}
-}
 
 func TestTaskDefinitionScheduleHandlerUpdatesSchedule(t *testing.T) {
 	gin.SetMode(gin.TestMode)

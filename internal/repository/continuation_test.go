@@ -20,13 +20,14 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	// 每个目录 2,000 部剧、4,000 集，当前用户只看过一部；其他用户有完整状态。
 	statements := []string{
 		`CREATE INDEX test_season_parent ON metadata_items(parent_id,season_num) WHERE kind='season'`,
 		`CREATE INDEX test_episode_parent ON metadata_items(parent_id,episode_num) WHERE kind='episode'`,
-		`INSERT INTO metadata_items (id,kind,title,source) SELECT 'series-'||n,'series','Show','test' FROM generate_series(1,2000) n`,
-		`INSERT INTO metadata_items (id,kind,parent_id,season_num,title,source) SELECT 'season-'||n,'season','series-'||n,1,'Season','test' FROM generate_series(1,2000) n`,
-		`INSERT INTO metadata_items (id,kind,parent_id,episode_num,title,source) SELECT 'ep-'||n||'-'||e,'episode','season-'||n,e,'Episode','test' FROM generate_series(1,2000) n CROSS JOIN generate_series(1,2) e`,
+		`INSERT INTO metadata_items (id,kind,source) SELECT 'series-'||n,'series','test' FROM generate_series(1,2000) n`,
+		`INSERT INTO metadata_items (id,kind,parent_id,season_num,source) SELECT 'season-'||n,'season','series-'||n,1,'test' FROM generate_series(1,2000) n`,
+		`INSERT INTO metadata_items (id,kind,parent_id,episode_num,source) SELECT 'ep-'||n||'-'||e,'episode','season-'||n,e,'test' FROM generate_series(1,2000) n CROSS JOIN generate_series(1,2) e`,
 		`INSERT INTO media (id,metadata_id,path,created_at) SELECT 'file-'||id,id,'/test/'||id,now() FROM metadata_items WHERE kind='episode'`,
 		`INSERT INTO playback_histories (id,user_id,metadata_id,media_id,completed,watched_at) VALUES ('viewer-state','viewer','ep-1-1','file-ep-1-1',true,'2026-01-01')`,
 		`INSERT INTO playback_histories (id,user_id,metadata_id,media_id,position_ms,completed,watched_at) SELECT 'state-'||id,'other',id,'file-'||id,30000,false,now() FROM metadata_items WHERE kind='episode'`,
@@ -49,6 +50,9 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 		if err := db.Exec(statement).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := testdb.SeedMetadataPresentationTitles(db, `SELECT id,kind AS title FROM metadata_items`); err != nil {
+		t.Fatal(err)
 	}
 	r := New(db).History
 	filter := MediaQueryFilter{}

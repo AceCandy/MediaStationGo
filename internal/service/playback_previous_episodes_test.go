@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -168,6 +169,9 @@ func TestHongGuoAutoMarkPreviousEpisodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)

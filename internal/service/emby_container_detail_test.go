@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,12 +34,10 @@ func TestEmbyContainerDetailBoundsReadsAndPreservesPayload(t *testing.T) {
 		}
 	}
 	for _, sql := range []string{
-		`INSERT INTO metadata_items (id, kind, title, source) VALUES ('detail-series', 'series', 'Series', 'local')`,
-		`INSERT INTO metadata_items (id, kind, parent_id, title, source, season_num)
-		 SELECT 'detail-season-' || n, 'season', 'detail-series', 'Season ' || n, 'local', n FROM generate_series(0,3) n`,
-		`INSERT INTO metadata_items (id, kind, parent_id, title, source, episode_num)
-		 SELECT 'detail-episode-' || s || '-' || n, 'episode', 'detail-season-' || s, 'Episode', 'local', n
-		 FROM generate_series(0,2) s CROSS JOIN generate_series(1,200) n`,
+		testdb.MetadataFixtureSQL("id, kind, title, source", `VALUES ('detail-series', 'series', 'Series', 'local')`),
+		testdb.MetadataFixtureSQL("id, kind, parent_id, title, source, season_num", `SELECT 'detail-season-' || n, 'season', 'detail-series', 'Season ' || n, 'local', n FROM generate_series(0,3) n`),
+		testdb.MetadataFixtureSQL("id, kind, parent_id, title, source, episode_num", `SELECT 'detail-episode-' || s || '-' || n, 'episode', 'detail-season-' || s, 'Episode', 'local', n
+		 FROM generate_series(0,2) s CROSS JOIN generate_series(1,200) n`),
 		`INSERT INTO media (id, library_id, metadata_id, path, season_num, episode_num, strm_url, created_at, updated_at)
 		 SELECT 'detail-file-' || s || '-' || n || '-' || v, CASE WHEN v = 1 THEN 'z-library' ELSE 'a-library' END,
 		 'detail-episode-' || s || '-' || n, '/fixture/' || s || '/' || n || '-' || v || '.mkv', s, n,

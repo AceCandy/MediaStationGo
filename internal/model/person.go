@@ -30,18 +30,21 @@ type PersonIdentifier struct {
 	Person     Person `gorm:"foreignKey:PersonID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
-// MetadataCredit 保存人物在具体作品中的类型、角色与展示顺序。
+// MetadataCredit 是当前来源关系与译文的只读展示，不对应持久表。
 type MetadataCredit struct {
+	SourceSubjectID string `gorm:"->;-:migration" json:"-"`
 	PermanentBase
-	MetadataID   string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_credit,priority:1" json:"metadata_id"`
-	PersonID     string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_credit,priority:2" json:"person_id"`
-	Type         string       `gorm:"size:32;not null;index;uniqueIndex:uidx_metadata_credit,priority:3" json:"type"`
-	OriginalRole string       `gorm:"type:text;uniqueIndex:uidx_metadata_credit,priority:4" json:"original_role,omitempty"`
+	MetadataID   string       `json:"metadata_id"`
+	PersonID     string       `json:"person_id"`
+	Type         string       `json:"type"`
+	OriginalRole string       `gorm:"type:text" json:"original_role,omitempty"`
 	Role         string       `gorm:"type:text" json:"role,omitempty"`
-	SortOrder    int          `gorm:"not null;default:0;index" json:"sort_order"`
-	Person       Person       `gorm:"foreignKey:PersonID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"person"`
-	Metadata     MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+	SortOrder    int          `json:"sort_order"`
+	Person       Person       `gorm:"foreignKey:PersonID;references:ID" json:"person"`
+	Metadata     MetadataItem `gorm:"foreignKey:MetadataID;references:ID" json:"-"`
 }
+
+func (MetadataCredit) TableName() string { return "metadata_credit_presentations" }
 
 // TranslationCache 保存带业务上下文的人物译文；空译文表示当前提示词版本未得到有效中文结果。
 type TranslationCache struct {

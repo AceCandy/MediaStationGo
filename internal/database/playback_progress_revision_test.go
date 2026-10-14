@@ -25,7 +25,7 @@ func TestPlaybackProgressRevision(t *testing.T) {
 	if err := EnsurePlaybackProgressRevisionTriggers(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec(`INSERT INTO metadata_items(id,kind,title,source) VALUES ('item','movie','Item','local'),('other','movie','Other','local')`).Error; err != nil {
+	if err := db.Exec(`INSERT INTO metadata_items(id,kind,source) VALUES ('item','movie','local'),('other','movie','local')`).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, source := range []string{"legacy", "nfo", "hongguo", "huangguoai"} {
@@ -163,7 +163,7 @@ func TestPlaybackProgressConcurrentFirstWrite(t *testing.T) {
 	if err := AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec(`INSERT INTO metadata_items(id,kind,title,source) VALUES ('race','movie','Race','local')`).Error; err != nil {
+	if err := db.Exec(`INSERT INTO metadata_items(id,kind,source) VALUES ('race','movie','local')`).Error; err != nil {
 		t.Fatal(err)
 	}
 	var schema string

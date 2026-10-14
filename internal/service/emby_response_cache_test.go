@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -163,7 +164,7 @@ func newResponseCacheFixture(t *testing.T) (*EmbyService, string, []string, *ato
 	}
 	ids := []string{}
 	for i := 0; i < 3; i++ {
-		metadata := createServiceTestMetadata(t, e.repo.DB, model.MetadataItem{Kind: "movie", Title: fmt.Sprintf("Movie %d", i), Source: "local"})
+		metadata := createServiceSourceTestMetadata(t, e.repo.DB, model.MetadataItem{Kind: "movie", Title: fmt.Sprintf("Movie %d", i), Source: "local"})
 		media := model.Media{LibraryID: lib.ID, MetadataID: metadata.ID, Path: fmt.Sprintf("/fixture/cache/%d.mkv", i)}
 		if err := e.repo.DB.Create(&media).Error; err != nil {
 			t.Fatal(err)
@@ -421,7 +422,7 @@ func TestEmbyResponseCachePublicPeopleChanges(t *testing.T) {
 			t.Fatal("public translation left stale person response")
 		}
 	}
-	// 演职员已经提交而补全标记失败时，也不能保留旧响应。
+	// 人物资产已提交而补全标记失败时，也不能保留旧响应。
 	if err := e.repo.DB.Callback().Update().Before("gorm:update").Register("test:fail-cache-hydration", func(tx *gorm.DB) {
 		if tx.Statement.Table == "metadata_items" {
 			tx.AddError(errors.New("hydration marker failed"))
@@ -435,8 +436,8 @@ func TestEmbyResponseCachePublicPeopleChanges(t *testing.T) {
 		t.Fatal("partial credit commit failed to invalidate")
 	}
 	var count int64
-	if err := e.repo.DB.Model(&model.MetadataCredit{}).Where("metadata_id = ?", ids[0]).Count(&count).Error; err != nil || count != 1 {
-		t.Fatal("expected committed credit before marker failure")
+	if err := e.repo.DB.Model(&model.PersonIdentifier{}).Where("provider='tmdb' AND external_id='140'").Count(&count).Error; err != nil || count != 1 {
+		t.Fatal("expected committed person before marker failure")
 	}
 }
 
@@ -547,8 +548,7 @@ func TestEmbyResponseCacheRedisLayers(t *testing.T) {
 
 func TestEmbyResponseCacheMaximumLookahead(t *testing.T) {
 	e, lib, _, queries := newResponseCacheFixture(t)
-	if err := e.repo.DB.Exec(`INSERT INTO metadata_items (id,kind,title,source)
-SELECT 'cache-limit-'||n,'movie','Movie '||n,'local' FROM generate_series(4,501) n`).Error; err != nil {
+	if err := e.repo.DB.Exec(testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'cache-limit-'||n,'movie','Movie '||n,'local' FROM generate_series(4,501) n`)).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := e.repo.DB.Exec(`INSERT INTO media (id,metadata_id,library_id,path)

@@ -10,6 +10,7 @@ import (
 
 func TestProviderDataUsesCenterWithoutLocalCopies(t *testing.T) {
 	r := tmdbTestRepo(t)
+	ensureSourcePresentationTestSchema(t, r.DB)
 	ctx := t.Context()
 	at := time.Now().UTC().Truncate(time.Microsecond)
 	local := model.MetadataItem{Kind: "movie", Title: "本地标题", Source: "manual"}
@@ -46,8 +47,8 @@ func TestProviderDataUsesCenterWithoutLocalCopies(t *testing.T) {
 		t.Fatalf("center overlay: %+v %v", body, err)
 	}
 	unchanged, err := r.Metadata.FindByID(ctx, local.ID)
-	if err != nil || unchanged.Title != "本地标题" {
-		t.Fatalf("source overwrote local fields: %+v %v", unchanged, err)
+	if err != nil || unchanged.Title != "更新标题" {
+		t.Fatalf("source update not presented: %+v %v", unchanged, err)
 	}
 	if err := r.Metadata.SaveProviderData(ctx, local.ID, "unknown", []byte(`{"id":12}`), at); err == nil {
 		t.Fatal("unsupported provider wrote a local copy")

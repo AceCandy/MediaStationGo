@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,10 +14,10 @@ func TestSearchUsesMaintainedMembership(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	db, ctx := repos.DB, t.Context()
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT id,'movie','Search target','local' FROM unnest(ARRAY['known','hidden','unknown','empty','unassigned']) id`,
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT id,'series','Search target','local' FROM unnest(ARRAY['series','direct','wrong-scope']) id`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) SELECT id||'-season','season','Season','local',id,1 FROM unnest(ARRAY['series','wrong-scope']) id`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) SELECT id||'-episode','episode','Episode','local',id||'-season',1 FROM unnest(ARRAY['series','wrong-scope']) id`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT id,'movie','Search target','local' FROM unnest(ARRAY['known','hidden','unknown','empty','unassigned']) id`),
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT id,'series','Search target','local' FROM unnest(ARRAY['series','direct','wrong-scope']) id`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num", `SELECT id||'-season','season','Season','local',id,1 FROM unnest(ARRAY['series','wrong-scope']) id`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,episode_num", `SELECT id||'-episode','episode','Episode','local',id||'-season',1 FROM unnest(ARRAY['series','wrong-scope']) id`),
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||id,id,CASE WHEN id IN ('hidden','wrong-scope-episode') THEN 'hidden' WHEN id='unassigned' THEN NULL ELSE 'visible' END,'/fixture/search/'||id,'2026-01-01' FROM unnest(ARRAY['known','hidden','unknown','unassigned','series-episode','direct','wrong-scope','wrong-scope-episode']) id`,
 		`UPDATE metadata_items SET library_ids=NULL WHERE id='unknown'`,
 		`INSERT INTO nfo_items(id,library_id,local_key,kind,title) SELECT id,CASE WHEN id='hidden' THEN 'hidden' ELSE 'visible' END,id,'movie','Search target' FROM unnest(ARRAY['known','hidden','unknown','empty']) id`,
@@ -42,7 +43,7 @@ func TestSearchUsesMaintainedMembership(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		old := db.Table("metadata_items search_metadata").Where("kind IN ?", filter.Kinds).Where(metadataPlayableExistsSQL)
+		old := db.Table("metadata_presentations search_metadata").Where("kind IN ?", filter.Kinds).Where(metadataPlayableExistsSQL)
 		if filter.LibraryRestricted {
 			old = old.Where(metadataPlayableInLibrariesSQL, &filter.VisibleLibraryIDs, &filter.VisibleLibraryIDs)
 		}

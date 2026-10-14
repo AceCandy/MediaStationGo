@@ -30,14 +30,14 @@ func TestEmbyHongGuoImageServesLocalArtwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
 	cfg := &config.Config{App: config.AppConfig{DataDir: t.TempDir()}, Cache: config.CacheConfig{CacheDir: t.TempDir()}}
 	proxy := service.NewImageProxy(cfg, zap.NewNop())
-	key := "test/poster.jpg"
-	path := filepath.Join(cfg.App.DataDir, "catalogs", "hongguo", "artwork", key)
+	key := "catalogs/hongguo/artwork/aa/bb/cc/poster.jpg"
+	path := filepath.Join(cfg.App.DataDir, filepath.FromSlash(key))
 	var encoded bytes.Buffer
 	if err := jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 80, 120)), nil); err != nil {
 		t.Fatal(err)

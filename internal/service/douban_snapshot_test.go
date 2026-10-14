@@ -393,7 +393,7 @@ func TestDoubanGetEpisodeCountByIDUsesMobileDetail(t *testing.T) {
 	}
 }
 
-func TestDoubanProviderMatchPersistsSnapshotWithoutFusingDetailFields(t *testing.T) {
+func TestDoubanProviderMatchDisplaysCurrentSnapshot(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
 	provider := NewDoubanProvider(nil)
@@ -412,7 +412,7 @@ func TestDoubanProviderMatchPersistsSnapshotWithoutFusingDetailFields(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Target.Title != "已选择标题" || persisted.Target.Rating != 7.2 {
+	if persisted.Target.Title != "详情标题" || persisted.Target.Rating != 0 {
 		t.Fatalf("canonical fields were fused: %#v", persisted.Target)
 	}
 	if match.TMDbID != 603 {
@@ -462,7 +462,7 @@ func TestDoubanDetailFailureKeepsAcceptedMatchWithoutSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Target.Title != "已选择标题" {
+	if persisted.Target.Title != "" {
 		t.Fatalf("canonical title = %q", persisted.Target.Title)
 	}
 	snapshot, err := repos.Metadata.FindProviderData(t.Context(), persisted.Target.ID, "douban")
@@ -471,7 +471,7 @@ func TestDoubanDetailFailureKeepsAcceptedMatchWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
+func TestDoubanMovieEnrichmentUsesSourcePriority(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
 	provider := NewDoubanProvider(nil)
@@ -491,6 +491,9 @@ func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := repos.Metadata.SaveProviderData(t.Context(), metadata.ID, "tmdb", []byte(`{"id":603,"title":"English title","vote_average":8.1}`), time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	raw := []byte(`{"subject":{"title":"旧标题"}}`)
 	previousFetchedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
 	if err := repos.Metadata.SaveProviderData(t.Context(), metadata.ID, "douban", raw, previousFetchedAt); err != nil {
@@ -504,7 +507,7 @@ func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Title != "中文标题" || updated.OriginalName != "English title" || updated.Overview != "中文简介" || updated.Year != 1997 {
+	if updated.Title != "English title" || updated.OriginalName != "" || updated.Overview != "中文简介" || updated.Year != 1997 {
 		t.Fatalf("enriched metadata = %#v", updated)
 	}
 	if updated.Rating != 8.1 || updated.Source != "tmdb" || !result.SnapshotSaved || requests != 1 {
@@ -634,7 +637,7 @@ func TestEnrichFromDoubanPersistsAndClearsSeriesDegradedSnapshot(t *testing.T) {
 		t.Fatalf("degraded = %v, err = %v", degraded, err)
 	}
 	updated, err := repos.Metadata.FindByID(t.Context(), metadata.ID)
-	if err != nil || updated.Title != "Existing title" || updated.Overview != "已有简介" {
+	if err != nil || updated.Title != "降级中文标题" || updated.Overview != "降级简介" {
 		t.Fatalf("degraded metadata = %#v, err = %v", updated, err)
 	}
 	snapshot, err = repos.Metadata.FindProviderData(t.Context(), metadata.ID, "douban")
@@ -683,6 +686,13 @@ func TestDoubanEnrichmentBatchPreservesSeriesChildren(t *testing.T) {
 		if child.Kind == model.MetadataKindEpisode {
 			artType = model.ArtworkTypeStill
 		}
+		var source model.TMDbSubject
+		if err := repos.DB.Where("kind=? AND tmdb_id=1", child.Kind).Take(&source).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := repos.DB.Create(&model.TMDbArtwork{SubjectID: source.ID, Type: artType, SourcePath: "/child.jpg"}).Error; err != nil {
+			t.Fatal(err)
+		}
 		if _, err := scraper.artwork.ImportRemote(t.Context(), child.ID, artType, "tmdb", "https://img.test/child.jpg"); err != nil {
 			t.Fatal(err)
 		}
@@ -695,7 +705,7 @@ func TestDoubanEnrichmentBatchPreservesSeriesChildren(t *testing.T) {
 	unchanged := func() []string {
 		t.Helper()
 		var rows []string
-		for _, table := range []string{"metadata_items", "metadata_identifiers", "metadata_artworks", "metadata_artwork_candidates", "media"} {
+		for _, table := range []string{"metadata_items", "metadata_identifiers", "media"} {
 			column := "metadata_id"
 			if table == "metadata_items" {
 				column = "id"
@@ -729,8 +739,12 @@ func TestDoubanEnrichmentBatchPreservesSeriesChildren(t *testing.T) {
 		}
 	}
 	updated, err := repos.Metadata.FindByID(t.Context(), series.ID)
-	if err != nil || updated == nil || updated.Title != "整剧中文名" || updated.Overview != "整剧简介" || updated.Rating != 8.5 || updated.Source != "tmdb" {
+	if err != nil || updated == nil || updated.Title != "整剧中文名" || updated.Overview != "整剧简介" || updated.Rating != 0 || updated.Source != "tmdb" {
 		t.Fatalf("updated Series = %#v, err = %v", updated, err)
+	}
+	subject, err := repos.Douban.Find(t.Context(), "35763827", "series")
+	if err != nil || subject == nil || subject.Rating != 8.5 {
+		t.Fatalf("independent douban rating=%+v %v", subject, err)
 	}
 	poster, err := repos.Artwork.FindSelection(t.Context(), series.ID, model.ArtworkTypePoster)
 	if err != nil || poster == nil {
@@ -1020,7 +1034,7 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 		{title: "已有中文标题", overview: "已有简介", doubanID: "1"},
 		{title: "English", doubanID: "2"},
 	} {
-		metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: item.title, Overview: item.overview, Source: "tmdb"}
+		metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "enrich-" + item.doubanID}, Kind: model.MetadataKindMovie, Title: item.title, Overview: item.overview, Source: "tmdb"}
 		if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: item.doubanID}}); err != nil {
 			t.Fatal(err)
 		}
@@ -1040,7 +1054,7 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 		t.Fatalf("final summary was logged before completion:\n%s", liveLog)
 	}
 	snapshot := tasks.Snapshot()
-	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["added"] != 1 || snapshot.Recent[0].Metrics["updated"] != 1 || snapshot.Recent[0].Metrics["snapshot_only"] != 1 {
+	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["added"] != 1 || snapshot.Recent[0].Metrics["snapshot_saved"] != 2 || snapshot.Recent[0].Metrics["snapshot_only"] != 1 {
 		t.Fatalf("douban enrichment metrics = %#v", snapshot.Recent)
 	}
 	logResult, err := tasks.ReadDefinitionLog(TaskDefinitionDoubanEnrichment, "", 0)
@@ -1048,13 +1062,11 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"ℹ️ 请求 2，更新 1，新增海报 1，仅刷新完整快照 1",
+		"ℹ️ 请求 2，新增海报 1，仅刷新完整快照 1",
 		"✅ 刷新 《已有中文标题》（",
-		"：已保存完整豆瓣快照，未补到新的字段或海报",
-		"🔄 更新 《补齐中文标题》（",
-		"：标题、原名、简介",
+		"：已更新豆瓣资料中心",
 		"➕ 新增 《补齐中文标题》（",
-		"：豆瓣海报（已设为当前海报）",
+		"：豆瓣海报",
 	} {
 		if !strings.Contains(logResult.Content, want) {
 			t.Fatalf("task log missing %q:\n%s", want, logResult.Content)
@@ -1065,7 +1077,7 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 			t.Fatalf("task log contains %q:\n%s", unwanted, logResult.Content)
 		}
 	}
-	for _, detail := range []string{"✅ 刷新 《已有中文标题》（", "🔄 更新 《补齐中文标题》（", "➕ 新增 《补齐中文标题》（"} {
+	for _, detail := range []string{"✅ 刷新 《已有中文标题》（", "➕ 新增 《补齐中文标题》（"} {
 		if count := strings.Count(logResult.Content, detail); count != 1 {
 			t.Fatalf("task log contains %d copies of %q:\n%s", count, detail, logResult.Content)
 		}

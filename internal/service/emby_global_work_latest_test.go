@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"testing"
 	"time"
@@ -13,9 +14,9 @@ func TestGlobalLatestWorksAcrossSourcesAndPlayback(t *testing.T) {
 			db := e.repo.DB
 			e.visibilityCache = map[string]embyVisibilityCacheEntry{e.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{"library-nfo"}, HiddenLibraryIDs: []string{"hidden"}, IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
 			queries := []string{
-				`INSERT INTO metadata_items(id,kind,title,source) VALUES ('show','series','Show','local'),('movie','movie','Movie','local'),('empty','series','Empty','local')`,
-				`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) VALUES ('s1','season','S1','local','show',1),('s2','season','S2','local','show',2)`,
-				`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) VALUES ('e1','episode','E1','local','s1',1),('e2','episode','E2','local','s2',1),('e3','episode','Hidden','local','s2',2)`,
+				testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('show','series','Show','local'),('movie','movie','Movie','local'),('empty','series','Empty','local')`),
+				testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num", `VALUES ('s1','season','S1','local','show',1),('s2','season','S2','local','show',2)`),
+				testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,episode_num", `VALUES ('e1','episode','E1','local','s1',1),('e2','episode','E2','local','s2',1),('e3','episode','Hidden','local','s2',2)`),
 				`INSERT INTO media(id,metadata_id,library_id,path,created_at) VALUES ('f1','e1','library-nfo','/f1','2026-01-01'),('f1-alt','e1','library-nfo','/f1-alt','2026-01-01'),('f2','e2','library-nfo','/f2','2026-01-01'),('fh','e3','hidden','/fh','2026-01-04'),('fm','movie','library-nfo','/fm','2026-01-02'),('direct','show','library-nfo','/direct','2026-01-03'),('empty-file','empty','library-nfo','/empty','2026-01-05')`,
 				`INSERT INTO playback_histories(id,user_id,metadata_id,media_id,completed) VALUES ('p1','viewer','e1','f1',true)`,
 			}

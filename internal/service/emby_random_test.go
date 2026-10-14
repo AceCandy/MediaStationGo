@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"sort"
 	"strings"
@@ -11,9 +12,9 @@ import (
 func TestEmbyRandomGlobalWithoutExternalCatalogs(t *testing.T) {
 	e := nfoBrowseFixture(t, 0, 0)
 	for _, query := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('movie','movie','Movie','local'),('show','series','Show','local')`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) VALUES ('season','season','Season','local','show',1)`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) VALUES ('episode','episode','Episode','local','season',1)`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('movie','movie','Movie','local'),('show','series','Show','local')`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num", `VALUES ('season','season','Season','local','show',1)`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,episode_num", `VALUES ('episode','episode','Episode','local','season',1)`),
 		`INSERT INTO media(id,metadata_id,library_id,path,season_num,episode_num) VALUES ('movie-file','movie','library-nfo','/fixture/movie.mkv',0,0),('episode-file','episode','library-nfo','/fixture/show/Season 01/episode.mkv',1,1)`,
 		`INSERT INTO playback_histories(id,user_id,metadata_id,media_id,completed) VALUES ('watched','viewer','movie','movie-file',true)`,
 	} {

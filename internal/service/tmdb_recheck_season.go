@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -39,13 +40,26 @@ func (s *ScraperService) processTMDbRecheckSeason(parent context.Context, lease 
 		}
 	}()
 	for ctx.Err() == nil {
-		jobs, err := s.repo.Metadata.ClaimTMDbRecheckSeasonPage(ctx, lease, cutoff)
+		var scope []string
+		if source := sourceRecheckScope(ctx); source != nil {
+			if source.remaining <= 0 {
+				return nil
+			}
+			if budget, ok := ctx.Value(tmdbBudgetKey{}).(*tmdbBudget); ok && budget.used.Load() >= budget.limit {
+				return errTMDbBudget
+			}
+			scope = []string{source.kind, strconv.Itoa(source.remaining)}
+		}
+		jobs, err := s.repo.Metadata.ClaimTMDbRecheckSeasonPage(ctx, lease, cutoff, scope...)
 		if err != nil || len(jobs) == 0 {
 			return err
 		}
 		for i := range jobs {
 			if ctx.Err() != nil {
 				return context.Cause(ctx)
+			}
+			if source := sourceRecheckScope(ctx); source != nil {
+				source.remaining--
 			}
 			metrics := map[string]int64{"scanned": 1}
 			details, err := s.processTMDbRecheck(ctx, &jobs[i], metrics)

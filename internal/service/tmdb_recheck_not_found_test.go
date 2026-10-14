@@ -33,7 +33,7 @@ func TestTMDbRecheckNotFoundCooldownAndIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			repos := repository.New(db)
-			series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "测试剧"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
+			series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "测试剧"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
 			season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 0})
 			target := season
 			if kind == "episode" {
@@ -49,7 +49,7 @@ func TestTMDbRecheckNotFoundCooldownAndIdentity(t *testing.T) {
 			changed := false
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if changed {
-					if err := db.Model(target).Update("overview", "请求中发生变更").Error; err != nil {
+					if err := db.Model(target).Update("updated_at", time.Now()).Error; err != nil {
 						t.Error(err)
 					}
 				}
@@ -110,7 +110,7 @@ func TestTMDbRecheckNotFoundCooldownAndIdentity(t *testing.T) {
 				t.Fatalf("due 404 not rechecked: %+v %v", stored, metrics)
 			}
 			// 普通变更与初始化归并保留 404 冷却。
-			if err := db.Model(target).Update("overview", "普通资料变更").Error; err != nil {
+			if err := db.Model(target).Update("updated_at", time.Now()).Error; err != nil {
 				t.Fatal(err)
 			}
 			for {

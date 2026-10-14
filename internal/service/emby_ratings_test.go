@@ -42,7 +42,12 @@ func TestEmbyDoubanRatingsDetailAndList(t *testing.T) {
 	}
 	for i := range items {
 		items[i].Title, items[i].Source, items[i].Rating = items[i].ID, "tmdb", 6
-		createServiceTestMetadata(t, db, items[i], model.MetadataIdentifier{Provider: "douban", EntityKind: items[i].Kind, ExternalID: items[i].ID})
+		createServiceSourceTestMetadata(t, db, items[i], model.MetadataIdentifier{Provider: "douban", EntityKind: items[i].Kind, ExternalID: items[i].ID, DoubanEntityKind: func() string {
+			if items[i].Kind == "movie" {
+				return "movie"
+			}
+			return "series"
+		}()})
 		if err := svc.repo.Metadata.SaveProviderData(t.Context(), items[i].ID, "douban", []byte(fmt.Sprintf(`{"rating":{"value":%d}}`, 7+i)), time.Now()); err != nil {
 			t.Fatal(err)
 		}
@@ -61,10 +66,10 @@ func TestEmbyDoubanRatingsDetailAndList(t *testing.T) {
 	for _, phase := range []string{"rated", "missing"} {
 		if phase == "missing" {
 			// 孤立快照、无效评分和无快照均应省略，季/集不能借用仍有评分的整剧。
-			if err := db.Where("metadata_id = ?", items[0].ID).Delete(&model.MetadataIdentifier{}).Error; err != nil {
+			if err := db.Where("metadata_id = ? AND provider='douban'", items[0].ID).Delete(&model.MetadataIdentifier{}).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := svc.repo.Metadata.SaveProviderData(t.Context(), seasonID, "douban", []byte(`{"rating":{"value":0}}`), time.Now()); err != nil {
+			if err := db.Model(&model.DoubanSubject{}).Where("douban_id=?", seasonID).Update("rating", 0).Error; err != nil {
 				t.Fatal(err)
 			}
 			if err := db.Where("douban_id = ?", items[3].ID).Delete(&model.DoubanSubject{}).Error; err != nil {

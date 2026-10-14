@@ -30,7 +30,7 @@ func TestExistingLocalMediaSnapshotFiltersAndCleansLocalRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := scanner.existingLocalMediaSnapshot(t.Context(), "lib-1")
+	got, err := scanner.existingLocalMediaSnapshot(t.Context(), "lib-1", []string{rawPath})
 	if err != nil {
 		t.Fatal(err)
 	}

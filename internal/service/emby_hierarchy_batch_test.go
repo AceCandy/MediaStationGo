@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,9 @@ func TestEmbySeasonCandidatesRefillBeforeDetails(t *testing.T) {
 	e := newTestEmbyService(t)
 	db, ctx := e.repo.DB, t.Context()
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('show','series','Show','local')`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) SELECT 'season-'||n,'season','show','Season','local',n FROM generate_series(1,155) n`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) SELECT 'ep-'||n,'episode','season-'||n,'Episode','local',1 FROM unnest(ARRAY[51,103,155]) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('show','series','Show','local')`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num", `SELECT 'season-'||n,'season','show','Season','local',n FROM generate_series(1,155) n`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `SELECT 'ep-'||n,'episode','season-'||n,'Episode','local',1 FROM unnest(ARRAY[51,103,155]) n`),
 		// 直接季文件会维护季的库归属，却不满足这里的分集资格。
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at,season_num,episode_num) SELECT 'file-'||n,CASE WHEN n IN (51,103,155) THEN 'ep-'||n ELSE 'season-'||n END,'visible','/fixture/season/'||n,'2026-01-01',n,1 FROM generate_series(1,155) n`,
 	} {

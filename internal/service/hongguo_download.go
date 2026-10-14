@@ -282,7 +282,7 @@ func (s *HongGuoDownloadService) enqueueWork(ctx context.Context, id string, onl
 		return 0, errors.New("请先在下载空间设置存储目录")
 	}
 	var work model.HongGuoWork
-	if err := s.repo.DB.WithContext(ctx).First(&work, "source_id = ?", id).Error; err != nil {
+	if err := s.repo.DB.WithContext(ctx).First(&work, "source_id = ? AND summary_only = false", id).Error; err != nil {
 		return 0, errors.New("请先补齐该作品的红果资料")
 	}
 	year, month := 0, 0

@@ -271,7 +271,7 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 // metadataSearchWorkQuery 人物关联列表额外保留直接绑定整剧或季的文件资格。
 func (r *MediaViewRepository) metadataSearchWorkQuery(ctx context.Context, filter MetadataSearchFilter, directSeries bool) *gorm.DB {
 	q := r.db.WithContext(ctx).
-		Table("metadata_items AS search_metadata").
+		Table("metadata_presentations AS search_metadata").
 		Where("search_metadata.kind IN ?", filter.Kinds)
 	visible := filter.MediaQueryFilter
 	qualification := metadataPlayableExistsSQL
@@ -299,7 +299,7 @@ SELECT search_metadata.id UNION ALL SELECT id FROM metadata_items WHERE parent_i
 	q = q.Where("CASE WHEN search_metadata.kind='movie' AND search_metadata.library_ids IS NOT NULL AND search_metadata.library_ids <> '[]'::jsonb AND search_metadata.latest_media_added_at IS NOT NULL THEN TRUE ELSE "+qualification+" END", args...)
 	if len(filter.PersonIDs) > 0 {
 		q = q.Where(`EXISTS (
-			SELECT 1 FROM metadata_credits AS search_credit
+			SELECT 1 FROM metadata_credit_presentations AS search_credit
 			WHERE (search_credit.metadata_id = search_metadata.id OR search_credit.metadata_id IN (
 				SELECT id FROM metadata_items WHERE kind = 'season' AND parent_id = search_metadata.id
 			))
@@ -651,9 +651,9 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 	base := r.db.WithContext(ctx).
 		Table("(?) AS candidates", r.logicalMetadataCandidates(ctx, metadataIDs)).
 		Joins("JOIN LATERAL (SELECT id, metadata_id, library_id, created_at FROM media WHERE metadata_id = candidates.id OFFSET 0) AS search_media ON TRUE").
-		Joins("JOIN metadata_items AS attached_metadata ON attached_metadata.id = search_media.metadata_id").
-		Joins("LEFT JOIN metadata_items AS top_season ON top_season.id = attached_metadata.parent_id AND attached_metadata.kind = 'episode' AND top_season.kind = 'season'").
-		Joins("LEFT JOIN metadata_items AS top_series ON top_series.id = top_season.parent_id AND top_series.kind = 'series'").
+		Joins("JOIN metadata_presentations AS attached_metadata ON attached_metadata.id = search_media.metadata_id").
+		Joins("LEFT JOIN metadata_presentations AS top_season ON top_season.id = attached_metadata.parent_id AND attached_metadata.kind = 'episode' AND top_season.kind = 'season'").
+		Joins("LEFT JOIN metadata_presentations AS top_series ON top_series.id = top_season.parent_id AND top_series.kind = 'series'").
 		Where(topID+" IN ?", metadataIDs)
 	if len(filter.HiddenLibraryIDs) > 0 {
 		base = base.Where("search_media.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
@@ -707,7 +707,7 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 func (r *MediaViewRepository) metadataSearchPresentations(ctx context.Context, metadataIDs []string) (map[string]metadataSearchPresentation, error) {
 	var rows []metadataSearchPresentation
 	err := r.db.WithContext(ctx).
-		Table("metadata_items AS search_metadata").
+		Table("metadata_presentations AS search_metadata").
 		Select(`search_metadata.id, search_metadata.kind, search_metadata.title,
 			COALESCE(search_metadata.season_num, 0) AS season_num,
 			COALESCE(search_metadata.original_name, '') AS original_name,
@@ -723,8 +723,8 @@ func (r *MediaViewRepository) metadataSearchPresentations(ctx context.Context, m
 			COALESCE(search_identifiers.bangumi_external_id, '') AS bangumi_external_id,
 			COALESCE(search_identifiers.douban_external_id, '') AS douban_external_id,
 			COALESCE(search_identifiers.thetvdb_external_id, '') AS thetvdb_external_id,
-			COALESCE(search_poster.asset_id, '') AS poster_asset_id,
-			COALESCE(search_backdrop.asset_id, '') AS backdrop_asset_id`).
+			COALESCE(search_metadata.poster_asset_id, '') AS poster_asset_id,
+			COALESCE(search_metadata.backdrop_asset_id, '') AS backdrop_asset_id`).
 		Joins(`LEFT JOIN LATERAL (
 			SELECT
 				MIN(CASE WHEN provider = 'tmdb' THEN external_id END) AS tmdb_external_id,
@@ -735,8 +735,6 @@ func (r *MediaViewRepository) metadataSearchPresentations(ctx context.Context, m
 				WHERE metadata_id = search_metadata.id
 					AND entity_kind = search_metadata.kind
 			) AS search_identifiers ON TRUE`).
-		Joins("LEFT JOIN metadata_artworks AS search_poster ON search_poster.metadata_id = search_metadata.id AND search_poster.artwork_type = 'poster'").
-		Joins("LEFT JOIN metadata_artworks AS search_backdrop ON search_backdrop.metadata_id = search_metadata.id AND search_backdrop.artwork_type = 'backdrop'").
 		Where("search_metadata.id IN ?", metadataIDs).
 		Scan(&rows).Error
 	if err != nil {
@@ -896,7 +894,7 @@ func (r *searchIndex) finishSearchRebuild() {
 
 func (r *MediaViewRepository) metadataSearchDocumentIDs(ctx context.Context, afterID string, limit int) ([]string, error) {
 	// 这里只分页候选，文档组装会按本批 ID 过滤无文件作品，避免每页重算全库可播放关系。
-	q := r.db.WithContext(ctx).Table("metadata_items AS search_metadata").
+	q := r.db.WithContext(ctx).Table("metadata_presentations AS search_metadata").
 		Where("search_metadata.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries})
 	if afterID != "" {
 		q = q.Where("search_metadata.id > ?", afterID)
@@ -912,7 +910,7 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 		return []MetadataSearchDocument{}, nil
 	}
 	var items []model.MetadataItem
-	if err := r.db.WithContext(ctx).
+	if err := r.db.WithContext(ctx).Table("metadata_presentations").
 		Where("id IN ? AND kind IN ?", metadataIDs, []string{model.MetadataKindMovie, model.MetadataKindSeries}).
 		Find(&items).Error; err != nil {
 		return nil, err
@@ -927,9 +925,9 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 	// ponytail: 8192 为当前数据规模的切换阈值；媒体规模显著增长时需重新对比执行计划。
 	var episodeCount int64
 	if err := r.db.WithContext(ctx).Raw(`SELECT count(*) FROM (
-		SELECT 1 FROM metadata_items AS series_metadata
-		JOIN metadata_items AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
-		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
+		SELECT 1 FROM metadata_presentations AS series_metadata
+		JOIN metadata_presentations AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
+		JOIN metadata_presentations AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
 		WHERE series_metadata.id IN ? AND series_metadata.kind = 'series'
 		LIMIT 8193
 	) AS candidate_episodes`, metadataIDs).Scan(&episodeCount).Error; err != nil {
@@ -941,24 +939,24 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 	}
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT movie_metadata.id AS metadata_id, movie_media.library_id
-		FROM metadata_items AS movie_metadata
+		FROM metadata_presentations AS movie_metadata
 		JOIN media AS movie_media ON movie_media.metadata_id = movie_metadata.id
 			WHERE movie_metadata.id IN ? AND movie_metadata.kind = 'movie'
 		UNION
 		SELECT series_metadata.id AS metadata_id, episode_media.library_id
-		FROM metadata_items AS series_metadata
-		JOIN metadata_items AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
-		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
+		FROM metadata_presentations AS series_metadata
+		JOIN metadata_presentations AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
+		JOIN metadata_presentations AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
 		JOIN `+mediaSource+` AS episode_media ON episode_media.metadata_id = episode_metadata.id
 			WHERE series_metadata.id IN ? AND series_metadata.kind = 'series'
 		UNION
 		SELECT series_metadata.id AS metadata_id, direct_media.library_id
-		FROM metadata_items series_metadata JOIN media direct_media ON direct_media.metadata_id=series_metadata.id
+		FROM metadata_presentations series_metadata JOIN media direct_media ON direct_media.metadata_id=series_metadata.id
 		WHERE series_metadata.id IN ? AND series_metadata.kind='series'
 		UNION
 		SELECT series_metadata.id AS metadata_id, direct_media.library_id
-		FROM metadata_items series_metadata
-		JOIN metadata_items season_metadata ON season_metadata.parent_id=series_metadata.id AND season_metadata.kind='season'
+		FROM metadata_presentations series_metadata
+		JOIN metadata_presentations season_metadata ON season_metadata.parent_id=series_metadata.id AND season_metadata.kind='season'
 		JOIN media direct_media ON direct_media.metadata_id=season_metadata.id
 		WHERE series_metadata.id IN ? AND series_metadata.kind='series'
 	`, metadataIDs, metadataIDs, metadataIDs, metadataIDs).Scan(&libraries).Error
@@ -1000,10 +998,10 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 
 // RefreshMetadataIDs recomputes affected top-level documents. Unknown or no
 // longer eligible IDs are deleted from the active alias.
-func (r *MediaViewRepository) RefreshMetadataIDs(ctx context.Context, metadataIDs ...string) {
+func (r *MediaViewRepository) RefreshMetadataIDs(ctx context.Context, metadataIDs ...string) error {
 	_, ok := r.searchBackend.(MediaSearchSyncBackend)
 	if !ok || len(metadataIDs) == 0 {
-		return
+		return nil
 	}
 	topIDs, err := r.topMetadataIDsForMetadataIDs(ctx, metadataIDs)
 	if err != nil {
@@ -1011,16 +1009,16 @@ func (r *MediaViewRepository) RefreshMetadataIDs(ctx context.Context, metadataID
 		r.searchMu.Lock()
 		r.searchRebuildInvalid = true
 		r.searchMu.Unlock()
-		return
+		return err
 	}
 	candidates := uniqueNonEmptyStrings(append(append([]string{}, metadataIDs...), topIDs...))
-	r.searchIndex.refresh(ctx, candidates, r.metadataSearchDocuments)
+	return r.searchIndex.refresh(ctx, candidates, r.metadataSearchDocuments)
 }
 
-func (r *searchIndex) refresh(ctx context.Context, candidates []string, loadDocuments func(context.Context, []string) ([]MetadataSearchDocument, error)) {
+func (r *searchIndex) refresh(ctx context.Context, candidates []string, loadDocuments func(context.Context, []string) ([]MetadataSearchDocument, error)) error {
 	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
 	if !ok || len(candidates) == 0 {
-		return
+		return nil
 	}
 	// ponytail: 红果增量按索引串行以免旧快照覆盖新文档；吞吐不足时再引入文档版本控制。
 	r.searchMu.Lock()
@@ -1033,12 +1031,13 @@ func (r *searchIndex) refresh(ctx context.Context, candidates []string, loadDocu
 	documents, err := loadDocuments(ctx, candidates)
 	if err != nil {
 		r.searchFailed.Store(true)
-		return
+		return err
 	}
 	byID := make(map[string]MetadataSearchDocument, len(documents))
 	for _, document := range documents {
 		byID[document.ID] = document
 	}
+	var runErr error
 	for _, id := range candidates {
 		if document, exists := byID[id]; exists {
 			err = backend.UpsertMetadata(ctx, document)
@@ -1047,8 +1046,10 @@ func (r *searchIndex) refresh(ctx context.Context, candidates []string, loadDocu
 		}
 		if err != nil {
 			r.searchFailed.Store(true)
+			runErr = errors.Join(runErr, err)
 		}
 	}
+	return runErr
 }
 
 func (r *MediaViewRepository) topMetadataIDsForMetadataIDs(ctx context.Context, metadataIDs []string) ([]string, error) {

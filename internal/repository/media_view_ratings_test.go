@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"testing"
 	"time"
 
@@ -40,6 +41,9 @@ func TestMediaViewDoubanRatings(t *testing.T) {
 	for _, id := range []string{"rated", "unrated", "unlinked"} {
 		metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindMovie, Title: id, Rating: 6, Source: "tmdb"}
 		if err := repos.DB.Create(&metadata).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := testdb.SaveMetadataPresentationFixture(repos.DB, metadata); err != nil {
 			t.Fatal(err)
 		}
 		media := model.Media{PermanentBase: model.PermanentBase{ID: "media-" + id}, LibraryID: lib.ID, MetadataID: id, Path: "/ratings/" + id}

@@ -161,9 +161,9 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 		stateIdentity = "st.source_id = w.source_id AND st.episode_number = COALESCE(ep.number,1)"
 		threshold = 1
 	default:
-		q = q.Joins("JOIN metadata_items i ON i.id = m.metadata_id").
-			Joins("LEFT JOIN metadata_items season ON season.id = i.parent_id AND i.kind = 'episode' AND season.kind = 'season'").
-			Joins("LEFT JOIN metadata_items series ON series.id = season.parent_id").
+		q = q.Joins("JOIN metadata_presentations i ON i.id = m.metadata_id").
+			Joins("LEFT JOIN metadata_presentations season ON season.id = i.parent_id AND i.kind = 'episode' AND season.kind = 'season'").
+			Joins("LEFT JOIN metadata_presentations series ON series.id = season.parent_id").
 			Where("i.kind IN ('movie','episode')")
 		q = FilterVisibleWorkLibraries(db, q, "i.library_ids", nil, filter)
 		projection = `i.id AS item_id, COALESCE(series.id,i.id) AS group_id, COALESCE(series.id,'') AS series_id,
@@ -196,8 +196,8 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 			effectiveStates = effectiveStates.Where(`h.item_id IN (SELECT ep.id FROM nfo_items ep
  JOIN nfo_items season ON season.id = ep.parent_id WHERE ep.kind = 'episode' AND season.parent_id = ?)`, strings.TrimPrefix(seriesID, "nfo-"))
 		default:
-			effectiveStates = effectiveStates.Where(`h.metadata_id IN (SELECT ep.id FROM metadata_items ep
- JOIN metadata_items season ON season.id = ep.parent_id AND season.kind = 'season'
+			effectiveStates = effectiveStates.Where(`h.metadata_id IN (SELECT ep.id FROM metadata_presentations ep
+ JOIN metadata_presentations season ON season.id = ep.parent_id AND season.kind = 'season'
  WHERE ep.kind = 'episode' AND season.parent_id = ?)`, seriesID)
 		}
 	}

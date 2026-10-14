@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
 
 func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T) {
@@ -28,11 +29,17 @@ func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T
 	if err := db.Create(&model.Media{MetadataID: episode.ID, Path: "/test/missing.mkv"}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: season.ID, Provider: "tmdb", EntityKind: "season", ExternalID: "10"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testdb.SaveMetadataPresentationFixture(db, episode); err != nil {
+		t.Fatal(err)
+	}
 	asset := model.ArtworkAsset{SHA256: "test", StorageKey: "test", MimeType: "image/png"}
 	if err := db.Create(&asset).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.MetadataArtwork{MetadataID: episode.ID, AssetID: asset.ID, ArtworkType: "still"}).Error; err != nil {
+	if err := testdb.SaveMetadataArtworkFixture(db, episode.ID, "still", asset.ID); err != nil {
 		t.Fatal(err)
 	}
 	record := func() {
@@ -49,9 +56,7 @@ func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T
 		}
 		return job
 	}
-	if err := db.Create(&model.MetadataIdentifier{MetadataID: season.ID, Provider: "tmdb", EntityKind: "season", ExternalID: "10"}).Error; err != nil {
-		t.Fatal(err)
-	}
+
 	for _, raw := range []string{`{"id":10,"season_number":1}`, `{"id":10,"season_number":1,"episodes":[{"episode_number":20}]}`} {
 		if err := repo.SaveProviderData(t.Context(), season.ID, "tmdb", []byte(raw), time.Now()); err != nil {
 			t.Fatal(err)

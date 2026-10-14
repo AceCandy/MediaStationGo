@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -54,7 +55,7 @@ func TestScheduledPeopleTranslationUsesContextAndCache(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{}, &model.TranslationCache{}, &model.Setting{})
 	sqlDB, err := db.DB()
 	if err != nil {
 		t.Fatal(err)
@@ -72,11 +73,18 @@ func TestScheduledPeopleTranslationUsesContextAndCache(t *testing.T) {
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
 	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
 
-	if err := scraper.persistCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, []PersonCredit{{
-		Provider: "tmdb", ExternalID: "140", Name: "Tony Leung Chiu-wai", Type: model.CreditTypeActor, OriginalRole: "Chan Wing-yan",
-	}}); err != nil {
+	if err := testdb.SaveMetadataPresentationFixture(db, metadata); err != nil {
 		t.Fatal(err)
 	}
+	var source model.TMDbSubject
+	if err := db.Table("tmdb_subjects s").Select("s.*").Joins("JOIN metadata_identifiers b ON b.external_id=s.tmdb_id::text AND b.entity_kind=s.kind AND b.provider='tmdb'").Where("b.metadata_id=?", metadata.ID).Take(&source).Error; err != nil {
+		t.Fatal(err)
+	}
+	payload := fmt.Sprintf(`{"id":%d,"title":"无间道","original_title":"Infernal Affairs","release_date":"2002-01-01","credits":{"cast":[{"id":140,"name":"Tony Leung Chiu-wai","character":"Chan Wing-yan"}]}}`, source.TMDbID)
+	if err := repos.Metadata.SaveProviderData(t.Context(), metadata.ID, "tmdb", []byte(payload), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
 	}
@@ -93,12 +101,6 @@ func TestScheduledPeopleTranslationUsesContextAndCache(t *testing.T) {
 	var cacheCount int64
 	if err := db.Model(&model.TranslationCache{}).Count(&cacheCount).Error; err != nil || cacheCount != 2 {
 		t.Fatalf("translation cache count = %d, err=%v", cacheCount, err)
-	}
-	if err := db.Model(&model.Person{}).Where("original_name = ?", "Tony Leung Chiu-wai").Update("name", "Tony Leung Chiu-wai").Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Update("role", "Chan Wing-yan").Error; err != nil {
-		t.Fatal(err)
 	}
 	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
@@ -123,7 +125,7 @@ func TestScheduledPeopleTranslationCachesInvalidResults(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.TranslationCache{}, &model.Setting{})
 	repos := repository.New(db)
 	if err := repos.Setting.Set(t.Context(), peopleAITranslateSettingKey, "true"); err != nil {
 		t.Fatal(err)
@@ -137,7 +139,7 @@ func TestScheduledPeopleTranslationCachesInvalidResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	credit := model.MetadataCredit{MetadataID: metadata.ID, PersonID: person.ID, Type: model.CreditTypeActor, OriginalRole: "Q", Role: "Q"}
-	if err := db.Create(&credit).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(db, &credit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,7 +163,7 @@ func TestScheduledPeopleTranslationCachesInvalidResults(t *testing.T) {
 	if cache.TranslatedText != "" {
 		t.Fatalf("negative cache translated text = %q, want empty", cache.TranslatedText)
 	}
-	if err := db.First(&credit, "id = ?", credit.ID).Error; err != nil {
+	if err := db.Table("metadata_credit_presentations").First(&credit, "id = ?", credit.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if credit.Role != "Q" {
@@ -199,7 +201,7 @@ func TestScheduledPeopleTranslationLimitsPassTo1000(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	db := newServiceTestDB(t, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.Person{}, &model.TranslationCache{}, &model.Setting{})
 	people := make([]model.Person, peopleTranslationPassLimit+1)
 	for i := range people {
 		name := fmt.Sprintf("Person %04d", i)
@@ -251,7 +253,7 @@ func TestSplitPeopleTranslationBatchesLimitsEntries(t *testing.T) {
 }
 
 func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
-	db := newServiceTestDB(t, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.Person{}, &model.TranslationCache{}, &model.Setting{})
 	repos := repository.New(db)
 	if err := repos.Setting.Set(t.Context(), peopleAITranslateSettingKey, "true"); err != nil {
 		t.Fatal(err)
@@ -269,10 +271,13 @@ func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 }
 
 func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
-	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{})
+	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.TranslationCache{})
 	repos := repository.New(db)
 	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", OriginalName: "Original Series", Source: "tmdb"}
 	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testdb.SaveMetadataPresentationFixture(db, series); err != nil {
 		t.Fatal(err)
 	}
 	season1 := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", OriginalName: "Original Season 1", Source: "tmdb"}
@@ -280,7 +285,13 @@ func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
 	if err := db.Create(&season1).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := testdb.SaveMetadataPresentationFixture(db, season1); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Create(&season2).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testdb.SaveMetadataPresentationFixture(db, season2); err != nil {
 		t.Fatal(err)
 	}
 	episodes := []model.MetadataItem{
@@ -297,12 +308,12 @@ func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
 	}
 	for _, episode := range episodes {
 		credit := model.MetadataCredit{MetadataID: episode.ID, PersonID: person.ID, Type: model.CreditTypeActor, OriginalRole: "Same Role", Role: "Same Role"}
-		if err := db.Create(&credit).Error; err != nil {
+		if err := testdb.SaveSourceCreditFixture(db, &credit); err != nil {
 			t.Fatal(err)
 		}
 	}
 	seasonCredit := model.MetadataCredit{MetadataID: season2.ID, PersonID: person.ID, Type: model.CreditTypeActor, OriginalRole: "Season Role", Role: "Season Role"}
-	if err := db.Create(&seasonCredit).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(db, &seasonCredit); err != nil {
 		t.Fatal(err)
 	}
 
@@ -321,9 +332,9 @@ func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
 		targetCounts[key] = len(group.targets)
 		contexts[key] = group.entry.Context
 	}
-	season1Key := season1.ID + "\x00Same Role"
-	season2Key := season2.ID + "\x00Same Role"
-	seasonRoleKey := season2.ID + "\x00Season Role"
+	season1Key := sourceSubjectIDFixture(t, db, season1.ID) + "\x00Same Role"
+	season2Key := sourceSubjectIDFixture(t, db, season2.ID) + "\x00Same Role"
+	seasonRoleKey := sourceSubjectIDFixture(t, db, season2.ID) + "\x00Season Role"
 	if targetCounts[season1Key] != 2 || targetCounts[season2Key] != 1 || targetCounts[seasonRoleKey] != 1 {
 		t.Fatalf("role translation target counts = %v", targetCounts)
 	}
@@ -355,7 +366,7 @@ func TestTranslatePeopleWindowReturnsResultDetails(t *testing.T) {
 }
 
 func TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit(t *testing.T) {
-	db := newServiceTestDB(t, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{})
+	db := newServiceTestDB(t, &model.Person{}, &model.TranslationCache{})
 	people := make([]model.Person, peopleTranslationPassLimit-1)
 	for i := range people {
 		people[i] = model.Person{Name: fmt.Sprintf("Person %d", i), OriginalName: fmt.Sprintf("Person %d", i)}
@@ -367,8 +378,14 @@ func TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit(t *testin
 	if err := db.Create(&series).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := testdb.SaveMetadataPresentationFixture(db, series); err != nil {
+		t.Fatal(err)
+	}
 	season := model.MetadataItem{Kind: model.MetadataKindSeason, Title: "Season", ParentID: &series.ID}
 	if err := db.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testdb.SaveMetadataPresentationFixture(db, season); err != nil {
 		t.Fatal(err)
 	}
 	episodes := []model.MetadataItem{
@@ -384,8 +401,10 @@ func TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit(t *testin
 		credits = append(credits, model.MetadataCredit{PermanentBase: model.PermanentBase{ID: fmt.Sprintf("%04d", i)}, MetadataID: episodes[0].ID, PersonID: people[0].ID, Type: model.CreditTypeActor, OriginalRole: role, Role: role})
 	}
 	credits = append(credits, model.MetadataCredit{MetadataID: episodes[1].ID, PersonID: people[0].ID, Type: model.CreditTypeGuestStar, OriginalRole: "Shared", Role: "Shared"})
-	if err := db.CreateInBatches(&credits, 100).Error; err != nil {
-		t.Fatal(err)
+	for i := range credits {
+		if err := testdb.SaveSourceCreditFixture(db, &credits[i]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	scraper := NewScraperService(&config.Config{}, zap.NewNop(), repository.New(db), nil, nil, nil, nil, nil)
 	groups, err := scraper.pendingPeopleTranslationGroups(t.Context())
@@ -393,11 +412,11 @@ func TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit(t *testin
 		t.Fatalf("groups = %d, err = %v", len(groups), err)
 	}
 	last := groups[len(groups)-1]
-	if last.lookup.ContextKey != season.ID || last.lookup.SourceText != "Shared" || len(last.targets) != 2 || last.entry.Context.Title != "Series / Season" {
+	if last.lookup.ContextKey != sourceSubjectIDFixture(t, db, season.ID) || last.lookup.SourceText != "Shared" || len(last.targets) != 2 || last.entry.Context.Title != "Series / Season" {
 		t.Fatalf("last group = %+v", last)
 	}
 	// 当前季的负缓存排除两个跨页目标，不妨碍后面的其它角色进入最后一组。
-	cache := model.TranslationCache{Kind: "role", ContextKey: season.ID, SourceText: "Shared", TargetLanguage: peopleTranslationTargetLanguage, PromptVersion: peopleTranslationPromptVersion}
+	cache := model.TranslationCache{Kind: "role", ContextKey: sourceSubjectIDFixture(t, db, season.ID), SourceText: "Shared", TargetLanguage: peopleTranslationTargetLanguage, PromptVersion: peopleTranslationPromptVersion}
 	if err := db.Create(&cache).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -437,8 +456,8 @@ func waitForPeopleTranslation(t *testing.T, db *gorm.DB, personName, role string
 	for time.Now().Before(deadline) {
 		var person model.Person
 		var credit model.MetadataCredit
-		personErr := db.Model(&model.Person{}).Where("name = ?", personName).First(&person).Error
-		creditErr := db.Model(&model.MetadataCredit{}).Where("role = ?", role).First(&credit).Error
+		personErr := db.Table("person_presentations").Where("name = ?", personName).First(&person).Error
+		creditErr := db.Table("metadata_credit_presentations").Where("role = ?", role).First(&credit).Error
 		if personErr == nil && creditErr == nil {
 			return
 		}
@@ -448,7 +467,17 @@ func waitForPeopleTranslation(t *testing.T, db *gorm.DB, personName, role string
 	var credits []model.MetadataCredit
 	var caches []model.TranslationCache
 	_ = db.Find(&people).Error
-	_ = db.Find(&credits).Error
+	_ = db.Table("metadata_credit_presentations").Find(&credits).Error
 	_ = db.Find(&caches).Error
 	t.Fatalf("translations did not reach person=%q role=%q; people=%+v credits=%+v caches=%+v", personName, role, people, credits, caches)
+}
+
+// sourceSubjectIDFixture 返回测试元数据当前唯一来源身份。
+func sourceSubjectIDFixture(t *testing.T, db *gorm.DB, metadataID string) string {
+	t.Helper()
+	var id string
+	if err := db.Table("tmdb_subjects s").Select("s.id").Joins("JOIN metadata_identifiers b ON b.provider='tmdb' AND b.entity_kind=s.kind AND b.external_id=s.tmdb_id::text").Where("b.metadata_id=?", metadataID).Scan(&id).Error; err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

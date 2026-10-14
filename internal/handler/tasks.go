@@ -284,24 +284,6 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 			return
 		}
-		if key == service.TaskDefinitionSeriesLocalCorrection {
-			if svc == nil || svc.Scraper == nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "series local correction unavailable"})
-				return
-			}
-			if err := svc.Scraper.StartSeriesLocalCorrection(svc.Context(), false); err != nil {
-				status := http.StatusInternalServerError
-				if errors.Is(err, service.ErrSeriesLocalCorrectionRunning) {
-					status = http.StatusConflict
-				} else if errors.Is(err, service.ErrSeriesLocalCorrectionUnavailable) {
-					status = http.StatusServiceUnavailable
-				}
-				c.JSON(status, gin.H{"error": "无法启动剧集本地资料纠正，请检查是否已有任务运行或服务不可用"})
-				return
-			}
-			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
-			return
-		}
 		job, ok := service.TaskDefinitionSchedulerJob(key)
 		if !ok {
 			c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "task does not support manual execution"})

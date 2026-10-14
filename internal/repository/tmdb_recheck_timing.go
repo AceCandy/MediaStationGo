@@ -49,7 +49,7 @@ func (t TMDbRecheckTiming) Cooldown(now time.Time) time.Duration {
 // 投影只展开目标季；快照编号必须与该季一致，畸形清单不参与日期判断。
 const tmdbRecheckTimingColumns = `COALESCE(timing_season.release_date,'') AS season_release_date,
 COALESCE((SELECT jsonb_agg(d.air_date) FROM (
- SELECT e.release_date AS air_date FROM metadata_items e WHERE e.parent_id=timing_season.id AND e.kind='episode'
+ SELECT e.release_date AS air_date FROM metadata_presentations e WHERE e.parent_id=timing_season.id AND e.kind='episode'
  UNION ALL
  SELECT e->>'air_date' FROM ` + tmdbSourceDataSQL + ` p,
  jsonb_array_elements(CASE WHEN jsonb_typeof(p.payload->'episodes')='array' THEN p.payload->'episodes' ELSE '[]'::jsonb END) e
@@ -70,7 +70,7 @@ const tmdbRecheckSeasonOrderSQL = `WITH due AS MATERIALIZED (
  FROM tm_db_recheck_jobs j LEFT JOIN metadata_items m ON m.id=j.metadata_id
  WHERE j.due_at<=? GROUP BY 1)
 SELECT due.metadata_id,due.due_at, ` + tmdbRecheckTimingColumns + `
-FROM due LEFT JOIN metadata_items timing_season ON timing_season.id=due.metadata_id AND timing_season.kind='season'`
+FROM due LEFT JOIN metadata_presentations timing_season ON timing_season.id=due.metadata_id AND timing_season.kind='season'`
 
 // ListTMDbRecheckSeasonOrder 每轮仅聚合排序一次，避免每次领取都扫描全部待办。
 func (r *MetadataRepository) ListTMDbRecheckSeasonOrder(ctx context.Context, cutoff time.Time) ([]string, error) {

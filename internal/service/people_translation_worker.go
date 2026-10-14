@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -116,10 +117,9 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 			return nil, err
 		}
 		for _, role := range roles {
-			metadata := role.Metadata
-			contextKey := role.MetadataID
+			metadata := role.Subject
+			contextKey := role.SubjectID
 			if metadata.Kind == model.MetadataKindEpisode && metadata.ParentID != nil {
-				contextKey = *metadata.ParentID
 				if metadata.Parent != nil {
 					metadata = *metadata.Parent
 				}
@@ -131,11 +131,15 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 				title = joinRoleTranslationTitle(series.Title, title)
 				originalTitle = joinRoleTranslationTitle(series.OriginalName, originalTitle)
 			}
+			year := 0
+			if len(metadata.ReleaseDate) >= 4 {
+				year, _ = strconv.Atoi(metadata.ReleaseDate[:4])
+			}
 			add(newTranslationCacheLookup("role", contextKey, role.OriginalRole), AITranslationEntry{
 				Kind: "role", Text: role.OriginalRole,
-				Context: &AITranslationContext{Title: title, OriginalTitle: originalTitle, Year: metadata.Year, MediaKind: metadata.Kind},
+				Context: &AITranslationContext{Title: title, OriginalTitle: originalTitle, Year: year, MediaKind: metadata.Kind},
 			}, repository.TranslationTarget{Kind: "role", ID: role.ID, OriginalText: role.OriginalRole})
-			afterMetadataID, afterID = role.MetadataID, role.ID
+			afterMetadataID, afterID = role.SubjectID, role.ID
 		}
 		// ponytail: 仍遍历有效角色页以收齐已选组；有效候选规模增长时按选中上下文定向补取。
 		if len(roles) < peopleTranslationBatchSize {

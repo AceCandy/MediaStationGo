@@ -13,9 +13,17 @@ import (
 // avoid importing the same physical file twice when a source and its organized
 // hardlink both exist. ok is false when the identity cannot be determined.
 func fileIdentity(path string) (string, bool) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return "", false
+	return fileIdentityFromInfo(path, nil)
+}
+
+// fileIdentityFromInfo 复用遍历属性；符号链接仍按目标 inode 去重。
+func fileIdentityFromInfo(path string, fi os.FileInfo) (string, bool) {
+	if fi == nil || fi.Mode()&os.ModeSymlink != 0 {
+		var err error
+		fi, err = os.Stat(path)
+		if err != nil {
+			return "", false
+		}
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok || st == nil {

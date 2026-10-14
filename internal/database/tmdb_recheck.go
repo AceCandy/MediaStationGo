@@ -36,7 +36,7 @@ BEGIN
  PERFORM tmdb_recheck_mark(target, COALESCE(descendants AND k IN ('series','season'),false));
 END $$`,
 	`CREATE OR REPLACE FUNCTION tmdb_recheck_changed() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE before_row jsonb; after_row jsonb;
+DECLARE before_row jsonb; after_row jsonb; target text; changed_subject_id text;
 BEGIN
  IF TG_TABLE_NAME = 'media' THEN
   IF TG_OP = 'UPDATE' AND OLD.metadata_id IS NOT DISTINCT FROM NEW.metadata_id THEN RETURN NULL; END IF;
@@ -55,9 +55,9 @@ BEGIN
  IF TG_TABLE_NAME = 'metadata_items' THEN
   IF TG_OP = 'INSERT' THEN RETURN NULL; END IF;
   IF TG_OP = 'UPDATE' AND
-   (before_row->'parent_id', before_row->'kind', before_row->'overview', before_row->'release_date', before_row->'season_num', before_row->'episode_num')
+   (before_row->'parent_id', before_row->'kind', before_row->'season_num', before_row->'episode_num')
    IS NOT DISTINCT FROM
-   (after_row->'parent_id', after_row->'kind', after_row->'overview', after_row->'release_date', after_row->'season_num', after_row->'episode_num') THEN RETURN NULL; END IF;
+   (after_row->'parent_id', after_row->'kind', after_row->'season_num', after_row->'episode_num') THEN RETURN NULL; END IF;
   PERFORM tmdb_recheck_related(COALESCE(after_row->>'id', before_row->>'id'),
     TG_OP='DELETE' OR (before_row->'parent_id',before_row->'kind',before_row->'season_num',before_row->'episode_num')
     IS DISTINCT FROM (after_row->'parent_id',after_row->'kind',after_row->'season_num',after_row->'episode_num'));
@@ -70,11 +70,20 @@ BEGIN
    IS NOT DISTINCT FROM (after_row->'metadata_id',after_row->'provider',after_row->'entity_kind',after_row->'external_id') THEN RETURN NULL; END IF;
   IF before_row->>'provider' = 'tmdb' THEN PERFORM tmdb_recheck_related(before_row->>'metadata_id', true); END IF;
   IF after_row->>'provider' = 'tmdb' THEN PERFORM tmdb_recheck_related(after_row->>'metadata_id', true); END IF;
- ELSIF TG_TABLE_NAME = 'metadata_artworks' THEN
-  IF TG_OP = 'UPDATE' AND (before_row->'metadata_id',before_row->'artwork_type',before_row->'asset_id')
-   IS NOT DISTINCT FROM (after_row->'metadata_id',after_row->'artwork_type',after_row->'asset_id') THEN RETURN NULL; END IF;
-  IF before_row->>'artwork_type' IN ('poster','still') THEN PERFORM tmdb_recheck_related(before_row->>'metadata_id', false); END IF;
-  IF after_row->>'artwork_type' IN ('poster','still') THEN PERFORM tmdb_recheck_related(after_row->>'metadata_id', false); END IF;
+ ELSIF TG_TABLE_NAME IN ('tmdb_subjects','tmdb_artworks') THEN
+  IF TG_TABLE_NAME='tmdb_subjects' THEN
+   IF TG_OP='UPDATE' AND (before_row->'overview',before_row->'release_date') IS NOT DISTINCT FROM (after_row->'overview',after_row->'release_date') THEN RETURN NULL; END IF;
+   changed_subject_id := COALESCE(after_row->>'id',before_row->>'id');
+  ELSE
+   IF TG_OP='UPDATE' AND (before_row->'asset_id',before_row->'source_path') IS NOT DISTINCT FROM (after_row->'asset_id',after_row->'source_path') THEN RETURN NULL; END IF;
+   changed_subject_id := COALESCE(after_row->>'subject_id',before_row->>'subject_id');
+  END IF;
+  FOR target IN SELECT binding.metadata_id FROM metadata_identifiers binding
+   LEFT JOIN tmdb_subjects subject ON subject.kind=binding.entity_kind AND subject.tmdb_id::text=binding.external_id
+   WHERE binding.provider='tmdb' AND (subject.id=changed_subject_id OR
+    (TG_TABLE_NAME='tmdb_subjects' AND binding.entity_kind=before_row->>'kind' AND binding.external_id=before_row->>'tmdb_id')) ORDER BY binding.metadata_id LOOP
+   PERFORM tmdb_recheck_related(target,false);
+  END LOOP;
  ELSIF TG_TABLE_NAME = 'artwork_assets' THEN
   INSERT INTO tm_db_recheck_asset_changes(asset_id,cursor) VALUES(COALESCE(after_row->>'id',before_row->>'id'),'')
   ON CONFLICT(asset_id) DO UPDATE SET cursor='';
@@ -87,8 +96,10 @@ END $$`,
 	`CREATE TRIGGER tmdb_recheck_metadata AFTER UPDATE OR DELETE ON metadata_items FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
 	`DROP TRIGGER IF EXISTS tmdb_recheck_identifiers ON metadata_identifiers`,
 	`CREATE TRIGGER tmdb_recheck_identifiers AFTER INSERT OR UPDATE OR DELETE ON metadata_identifiers FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
-	`DROP TRIGGER IF EXISTS tmdb_recheck_artworks ON metadata_artworks`,
-	`CREATE TRIGGER tmdb_recheck_artworks AFTER INSERT OR UPDATE OR DELETE ON metadata_artworks FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
+	`DROP TRIGGER IF EXISTS tmdb_recheck_artworks ON tmdb_artworks`,
+	`CREATE TRIGGER tmdb_recheck_artworks AFTER INSERT OR UPDATE OR DELETE ON tmdb_artworks FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
+	`DROP TRIGGER IF EXISTS tmdb_recheck_subject ON tmdb_subjects`,
+	`CREATE TRIGGER tmdb_recheck_subject AFTER UPDATE OR DELETE ON tmdb_subjects FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
 	`DROP TRIGGER IF EXISTS tmdb_recheck_assets ON artwork_assets`,
 	`CREATE TRIGGER tmdb_recheck_assets AFTER INSERT OR DELETE ON artwork_assets FOR EACH ROW EXECUTE FUNCTION tmdb_recheck_changed()`,
 }

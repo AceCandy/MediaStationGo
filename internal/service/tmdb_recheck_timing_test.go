@@ -20,26 +20,17 @@ func TestTMDbRecheckAirdateCooldown(t *testing.T) {
 			name      string
 			age, days int
 		}{
-			{"recent", 5, 1}, {"middle", 100, 10}, {"old", 500, 20}, {"unknown", 0, 3}, {"preserve-local", 5, 1},
+			{"recent", 5, 1}, {"middle", 100, 10}, {"old", 500, 20}, {"unknown", 0, 3},
 		} {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
-				db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{})
+				db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{})
 				repos := repository.New(db)
 				date := ""
 				if tc.age != 0 {
 					date = time.Now().UTC().AddDate(0, 0, -tc.age).Format(time.DateOnly)
 				}
-				series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "测试剧"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
-				season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1})
-				if mode == "404" {
-					if err := db.Model(season).Update("release_date", date).Error; err != nil {
-						t.Fatal(err)
-					}
-				}
-				if tc.name == "preserve-local" {
-					createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 1, ReleaseDate: date})
-					date = ""
-				}
+				series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "测试剧"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
+				season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1, ReleaseDate: date}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "season", ExternalID: "22"})
 				target := season
 				if mode == "inventory" {
 					target = createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 2})
@@ -58,16 +49,19 @@ func TestTMDbRecheckAirdateCooldown(t *testing.T) {
 						http.NotFound(w, r)
 						return
 					}
-					fmt.Fprintf(w, `{"id":22,"season_number":1,"episodes":[{"id":111,"season_number":1,"episode_number":1,"name":"第一集","overview":"中文简介","air_date":%q}]}`, date)
+					fmt.Fprintf(w, `{"id":22,"season_number":1,"external_ids":{},"credits":{"cast":[],"crew":[]},"episodes":[{"id":111,"season_number":1,"episode_number":1,"name":"第一集","overview":"中文简介","air_date":%q}]}`, date)
 				}))
 				defer server.Close()
 				s := &ScraperService{repo: repos, tmdb: newTMDbTestProvider(server.URL), artwork: NewArtworkStore(&config.Config{}, repos.Artwork, nil)}
+				s.tmdb.catalog = NewTMDbDataCenter(repos, s.tmdb)
+				s.tmdb.catalog.ctx = t.Context()
+				t.Cleanup(s.tmdb.catalog.Wait)
 				job, err := repos.Metadata.ClaimTMDbRecheck(t.Context())
 				if err != nil || job == nil {
 					t.Fatalf("claim=%+v %v", job, err)
 				}
 				before := time.Now().UTC()
-				details, err := s.processTMDbRecheck(withTMDbRecheckSeason(t.Context()), job, map[string]int64{})
+				details, err := s.processTMDbRecheck(withTMDbRecheckSeason(repository.WithTMDbSourceRecheck(t.Context())), job, map[string]int64{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -81,7 +75,7 @@ func TestTMDbRecheckAirdateCooldown(t *testing.T) {
 				}
 				cooldown := time.Duration(tc.days) * 24 * time.Hour
 				if calls.Load() != 1 || stored.Status != wantStatus || stored.DueAt == nil || stored.DueAt.Before(before.Add(cooldown)) || stored.DueAt.After(time.Now().Add(cooldown)) {
-					t.Fatalf("calls=%d stored=%+v cooldown=%s", calls.Load(), stored, cooldown)
+					t.Fatalf("calls=%d stored=%+v cooldown=%s details=%v", calls.Load(), stored, cooldown, details)
 				}
 				if !strings.Contains(strings.Join(details, " "), fmt.Sprintf("%d 天", tc.days)) {
 					t.Fatalf("delay missing from logs: %v", details)
@@ -98,7 +92,7 @@ func TestTMDbRecheckAirdateCooldown(t *testing.T) {
 					if err != nil || job == nil {
 						t.Fatalf("claim=%+v %v", job, err)
 					}
-					if _, err := s.processTMDbRecheck(withTMDbRecheckSeason(t.Context()), job, map[string]int64{}); err != nil {
+					if _, err := s.processTMDbRecheck(withTMDbRecheckSeason(repository.WithTMDbSourceRecheck(t.Context())), job, map[string]int64{}); err != nil {
 						t.Fatal(err)
 					}
 					if calls.Load() != 1 {

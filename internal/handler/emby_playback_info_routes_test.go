@@ -246,7 +246,7 @@ func TestEmbyPlaybackInfoPrefetchesNextRedirect(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := db.AutoMigrate(model.AllModels()...); err != nil {
+			if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 				t.Fatal(err)
 			}
 			create := func(value any) {

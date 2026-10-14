@@ -16,14 +16,15 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func TestReplaceCreditsConcurrentPersonCreation(t *testing.T) {
+func TestSaveCreditPeopleConcurrentPersonCreation(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	works := []model.MetadataItem{{Kind: model.MetadataKindSeries, Title: "First", Source: "tmdb"}, {Kind: model.MetadataKindSeries, Title: "Second", Source: "tmdb"}}
 	if err := db.Create(&works).Error; err != nil {
 		t.Fatal(err)
@@ -69,7 +70,7 @@ func TestReplaceCreditsConcurrentPersonCreation(t *testing.T) {
 			t.Fatal(err)
 		}
 		go func() {
-			results <- (&PersonRepository{db: worker}).ReplaceCredits(ctx, works[i].ID, []string{model.CreditTypeActor}, []CreditInput{{Provider: "tmdb", ExternalID: "1924538", Name: "Shared Actor", Type: model.CreditTypeActor, OriginalRole: works[i].Title}})
+			results <- (&PersonRepository{db: worker}).SaveCreditPeople(ctx, []CreditInput{{Provider: "tmdb", ExternalID: "1924538", Name: "Shared Actor", Type: model.CreditTypeActor, OriginalRole: works[i].Title}})
 		}()
 	}
 	for range works {
@@ -92,122 +93,39 @@ func TestReplaceCreditsConcurrentPersonCreation(t *testing.T) {
 	if err := verify.Model(&model.PersonIdentifier{}).Unscoped().Count(&identifierCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	var credits []model.MetadataCredit
-	if err := verify.Order("metadata_id").Find(&credits).Error; err != nil {
-		t.Fatal(err)
-	}
-	if peopleCount != 1 || identifierCount != 1 || len(credits) != 2 || credits[0].PersonID != credits[1].PersonID || credits[0].OriginalRole == credits[1].OriginalRole {
-		t.Fatalf("want one shared person and separate credits: people=%d identifiers=%d credits=%+v", peopleCount, identifierCount, credits)
+	if peopleCount != 1 || identifierCount != 1 {
+		t.Fatalf("want one shared person: people=%d identifiers=%d", peopleCount, identifierCount)
 	}
 }
 
-func TestReplaceCreditsIsIdempotentAndReplacesLoadedType(t *testing.T) {
+func TestSourceCreditsLoadedCategories(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TranslationCache{}); err != nil {
-		t.Fatal(err)
-	}
-	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Film", Source: "tmdb"}
-	if err := db.Create(&metadata).Error; err != nil {
+	ensureSourcePresentationTestSchema(t, db)
+	item := model.MetadataItem{Kind: "movie"}
+	if err := db.Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}
 	repo := &PersonRepository{db: db}
-	credits := []CreditInput{{Provider: "tmdb", ExternalID: "1", Name: "Actor One", Type: model.CreditTypeActor, OriginalRole: "Hero", SortOrder: 0}}
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Update("role", "英雄").Error; err != nil {
-		t.Fatal(err)
-	}
-	before, err := repo.ListCreditsWithPeople(t.Context(), metadata.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	identifiers, err := repo.ListIdentifiers(t.Context(), before[0].PersonID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
-		t.Fatal(err)
-	}
-	after, err := repo.ListCreditsWithPeople(t.Context(), metadata.ID)
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("unchanged credits or people were rewritten: before=%+v after=%+v err=%v", before, after, err)
-	}
-	afterIdentifiers, err := repo.ListIdentifiers(t.Context(), before[0].PersonID)
-	if err != nil || !reflect.DeepEqual(identifiers, afterIdentifiers) {
-		t.Fatal("unchanged identifiers were rewritten", err)
-	}
-	credits[0].SortOrder = 5
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
-		t.Fatal(err)
-	}
-	after, err = repo.ListCreditsWithPeople(t.Context(), metadata.ID)
-	if err != nil || len(after) != 1 || after[0].ID != before[0].ID || after[0].Role != "英雄" || after[0].SortOrder != 5 || !reflect.DeepEqual(after[0].Person, before[0].Person) {
-		t.Fatal("sort change must preserve credit identity, translation and person", err)
-	}
-	var count int64
-	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Count(&count).Error; err != nil || count != 1 {
-		t.Fatalf("credit count = %d, err=%v", count, err)
-	}
-	var preserved model.MetadataCredit
-	if err := db.First(&preserved, "metadata_id = ?", metadata.ID).Error; err != nil || preserved.Role != "英雄" {
-		t.Fatalf("preserved credit = %#v, err=%v", preserved, err)
-	}
-	credits[0].OriginalRole = "Villain"
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Count(&count).Error; err != nil || count != 1 {
-		t.Fatalf("credit count after replacement = %d, err=%v", count, err)
-	}
-	if err := db.Model(&model.MetadataCredit{}).Where("id = ?", preserved.ID).Count(&count).Error; err != nil || count != 0 {
-		t.Fatalf("replaced credit count = %d, err=%v", count, err)
-	}
-	var personCount int64
-	if err := db.Model(&model.PersonIdentifier{}).Where("provider = ? AND external_id = ?", "tmdb", "1").Count(&personCount).Error; err != nil || personCount != 1 {
-		t.Fatalf("identifier count = %d, err=%v", personCount, err)
-	}
+	actor := CreditInput{Provider: "tmdb", ExternalID: "1", Name: "Actor", Type: model.CreditTypeActor, OriginalRole: "Hero"}
 	director := CreditInput{Provider: "tmdb", ExternalID: "2", Name: "Director", Type: model.CreditTypeDirector}
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeDirector}, []CreditInput{director}); err != nil {
-		t.Fatal(err)
+	for _, input := range []CreditInput{actor, director} {
+		if err := repo.SaveSourceCreditsFixture(t.Context(), item.ID, []string{input.Type}, []CreditInput{input}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	rows, err := repo.ListCredits(t.Context(), metadata.ID)
+	rows, err := repo.ListCredits(t.Context(), item.ID)
 	if err != nil || len(rows) != 2 {
-		t.Fatal("unloaded scope must preserve all credits", err)
+		t.Fatalf("source categories=%+v %v", rows, err)
 	}
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, nil); err != nil {
+	if err := repo.SaveSourceCreditsFixture(t.Context(), item.ID, []string{model.CreditTypeActor}, nil); err != nil {
 		t.Fatal(err)
 	}
-	rows, err = repo.ListCredits(t.Context(), metadata.ID)
+	rows, err = repo.ListCredits(t.Context(), item.ID)
 	if err != nil || len(rows) != 1 || rows[0].Type != model.CreditTypeDirector {
-		t.Fatal("empty loaded scope must delete only its own credits", err)
-	}
-	if err := db.Delete(&model.Person{}, "id = ?", before[0].PersonID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Delete(&model.PersonIdentifier{}, "person_id = ?", before[0].PersonID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
-		t.Fatal("removed credit must be able to reappear", err)
-	}
-	person, err := repo.FindByID(t.Context(), before[0].PersonID)
-	if err != nil || person == nil {
-		t.Fatal("soft-deleted person was not restored", err)
-	}
-	afterIdentifiers, err = repo.ListIdentifiers(t.Context(), before[0].PersonID)
-	if err != nil || len(afterIdentifiers) != 1 || afterIdentifiers[0].ID != identifiers[0].ID {
-		t.Fatal("soft-deleted identifier was not restored", err)
-	}
-	rows, err = repo.ListCredits(t.Context(), metadata.ID)
-	if err != nil || len(rows) != 2 {
-		t.Fatal("reappearing credit duplicated or erased another scope", err)
+		t.Fatalf("empty cast cleared crew=%+v %v", rows, err)
 	}
 }
 
@@ -237,14 +155,15 @@ func TestPersonSourceUpdatesOnlyChangesSourceFields(t *testing.T) {
 	}
 }
 
-func TestReplaceCreditsPreservesLongRole(t *testing.T) {
+func TestSourceCreditsPreservesLongRole(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Film", Source: "tmdb"}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
@@ -252,11 +171,11 @@ func TestReplaceCreditsPreservesLongRole(t *testing.T) {
 	longRole := strings.Repeat("Character / ", 30) + "Character"
 	repo := &PersonRepository{db: db}
 	credits := []CreditInput{{Provider: "tmdb", ExternalID: "1", Name: "Actor One", Type: model.CreditTypeActor, OriginalRole: longRole}}
-	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
+	if err := repo.SaveSourceCreditsFixture(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
 		t.Fatal(err)
 	}
 	var credit model.MetadataCredit
-	if err := db.Where("metadata_id = ?", metadata.ID).First(&credit).Error; err != nil {
+	if err := db.Table("metadata_credit_presentations").Where("metadata_id = ?", metadata.ID).First(&credit).Error; err != nil {
 		t.Fatal(err)
 	}
 	if credit.OriginalRole != longRole || credit.Role != longRole {
@@ -303,9 +222,10 @@ func TestTranslationCacheIsContextScopedAndRejectsStaleTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.TranslationCache{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-1"}, Kind: model.MetadataKindMovie, Title: "Film", Source: "tmdb"}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
@@ -316,13 +236,13 @@ func TestTranslationCacheIsContextScopedAndRejectsStaleTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	credit.PersonID = person.ID
-	if err := db.Create(&credit).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(db, &credit); err != nil {
 		t.Fatal(err)
 	}
 	repo := &PersonRepository{db: db}
 	base := model.TranslationCache{Kind: "role", SourceText: "Old Role", TargetLanguage: "zh-CN", PromptVersion: "v1", TranslatedText: "旧角色"}
 	first, second := base, base
-	first.ContextKey = "metadata-1"
+	first.ContextKey = credit.SourceSubjectID
 	second.ContextKey = "metadata-2"
 	if err := repo.SaveAndApplyTranslation(t.Context(), first, nil); err != nil {
 		t.Fatal(err)
@@ -337,7 +257,7 @@ func TestTranslationCacheIsContextScopedAndRejectsStaleTargets(t *testing.T) {
 	if err := db.Model(&person).Updates(map[string]any{"name": "New Name", "original_name": "New Name"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&credit).Updates(map[string]any{"role": "New Role", "original_role": "New Role"}).Error; err != nil {
+	if err := db.Model(&model.TMDbCredit{}).Where("id=?", credit.ID).Update("character", "New Role").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.ApplyCachedTranslation(t.Context(), []TranslationTarget{
@@ -349,7 +269,7 @@ func TestTranslationCacheIsContextScopedAndRejectsStaleTargets(t *testing.T) {
 	if err := db.First(&person, "id = ?", person.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.First(&credit, "id = ?", credit.ID).Error; err != nil {
+	if err := db.Table("metadata_credit_presentations").First(&credit, "id = ?", credit.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if person.Name != "New Name" || credit.Role != "New Role" {
@@ -362,9 +282,10 @@ func TestListPersonWorkContextsAcceptsMoreThanPostgresParameterLimit(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	personIDs := make([]string, 65536)
 	for i := range personIDs {
 		personIDs[i] = fmt.Sprintf("person-%05d", i)
@@ -386,6 +307,7 @@ func TestListTranslationCachesAcceptsMoreThanPostgresParameterLimit(t *testing.T
 	if err := db.AutoMigrate(&model.TranslationCache{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	cache := model.TranslationCache{
 		Kind: "role", ContextKey: "context-00000", SourceText: "source-00000",
 		TargetLanguage: "zh-CN", PromptVersion: "v1", TranslatedText: "译文",

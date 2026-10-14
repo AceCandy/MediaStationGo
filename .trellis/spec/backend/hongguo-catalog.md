@@ -82,12 +82,12 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 
 ## 2. Signatures
 
-- Catalog tables: `hongguo_discoveries`, `hongguo_rank_entries`, `hongguo_works`, `hongguo_episodes`, `hongguo_people`,
+- Catalog tables: `hongguo_rank_entries`, `hongguo_works`, `hongguo_episodes`, `hongguo_people`,
   `hongguo_credits`, `hongguo_snapshots`, `hongguo_artworks`,
   `hongguo_sync_states`, `hongguo_sync_failures`, `hongguo_media_bindings`.
   Official grouping lives on `hongguo_works.related_album_id/season_index`;
   migration drops retired manual group/member tables without CASCADE.
-- `hongguo_discoveries.source_category` and `hongguo_works.source_category`
+- `hongguo_works.source_category`
   contain `real-drama|comic-drama|ai-drama`, or empty for legacy/direct-ID rows.
   The former `comic` source is not collected or shown; existing rows are retained.
 - User-owned tables: `hongguo_favorites`, `hongguo_user_states`, `hongguo_playback_events`.
@@ -100,8 +100,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   `works/:id/media`, `groups`, `libraries/:id`, `me`, `pending`, `status`,
   `cancel`, and `artwork/:id` are registered in `handler/hongguo.go`.
 - `GET works` returns paginated `HongGuoListWork`: existing public work fields
-  plus local `artwork_id`, parsed `tags`, `hydrated`, and optional `group_id`. It merges canonical
-  works with discovery-only summaries by `source_id` before count/pagination;
+  plus local `artwork_id`, parsed `tags`, `hydrated`, and optional `group_id`. It reads `hongguo_works` directly, with `hydrated = NOT summary_only`;
   do not fetch each work's full detail to build poster cards.
   List and search batch-load group membership for the returned hydrated work IDs;
   no Media existence check or per-card detail query is involved. Group members
@@ -112,10 +111,10 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   the actual returned item count, not the upstream total as invented pagination.
   Merge local hydration, classification and artwork IDs in batches, never
   expose upstream image URLs or infer source category from tags. Search registers
-  unhydrated results in `hongguo_discoveries` using source-ID conflict-do-nothing;
+  unhydrated results in `hongguo_works` with `summary_only=true` using source-ID conflict-do-nothing;
   repeated searches preserve existing summaries, categories and failure cooldowns.
   After registration, search requests an asynchronous event-triggered refresh;
-  the search request itself never downloads media or creates canonical works/episodes. Queue persistence
+  the search request itself never downloads media or creates hydrated works/episodes. Queue persistence
   failure fails the search rather than claiming successful registration.
   Administrators may explicitly invoke the existing
   `POST works/:id/refresh`; viewers only register summaries through search. Late refresh responses must
@@ -193,15 +192,16 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - `Client.Category` returns list summaries, not authoritative details.
   `SaveDiscoveryPage` batch-upserts summaries, source-ID artwork download rows,
   and the next-page checkpoint in one transaction. It never calls detail HTTP,
-  writes canonical works, generates episodes, or rebinds files. Empty cover URLs
+  writes hydrated details, generates episodes, or rebinds files. Empty cover URLs
   create no artwork row. Task updates are emitted once per page.
-- `SaveDiscoveryPage` copies the current source category into every discovery
-  row. `SaveDetail` carries it into the hydrated work by source ID and preserves
-  an existing non-empty value for direct-ID refreshes. Never infer this field
-  from title or detail tags. Existing empty rows are populated after discovery
-  sees the source ID and that work is refreshed again.
+- `SaveDiscoveryPage` updates summary fields only while `summary_only=true`.
+  It may fill an empty category on hydrated works but preserves established detail
+  fields and classifications. Rank ingestion only updates summary titles and fills
+  empty categories; App ingestion fills empty summary fields and categories.
+  `SaveDetail` upgrades the same UUID atomically to `summary_only=false`; it never
+  resets source category, episode identity or album relationships.
 - Discovery task `processed`/`new` counts only source IDs newly inserted into
-  `hongguo_discoveries` with no existing `hongguo_works` row. Category rescans,
+  `hongguo_works`. Category rescans,
   cross-category duplicates and rank replacements still update summaries and
   positions but never count old IDs as new. Insert eligibility is determined
   by the committed database insert within the summary/checkpoint or rank
@@ -264,8 +264,8 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   established-category conflicts. Repeated stable scans do not prove historical
   completeness. Do not enable sitemap collection without a separate request.
 - `PendingDiscoveries(ctx, after, cutoff)` keyset-pages 100 summaries by source
-  ID, excluding existing canonical works and all failure rows. Pending state is
-  derived from business tables, not a second mutable status or execution log.
+  ID, requiring `summary_only=true` and excluding all failure rows. Pending state is
+  stored on the work itself, not a second table or execution log.
   Refresh drains pending work present at its fixed start cutoff, then retries
   up to 50 eligible failures selected at start and refreshes up to 100 existing
   **unfinished** works older than 24 hours using the persistent refresh cursor.
@@ -428,7 +428,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 
 - `TestHongGuoSearchQueuesMissingDetails`: missing-only durable registration,
   repeated/duplicate result IDs, category preservation, pending-task selection,
-  failure cooldown and no canonical work/episode/artwork creation.
+  failure cooldown and no hydrated detail/episode/artwork creation.
 
 - `internal/hongguo`: ID precision, single-episode completion evidence, count separation, snapshot
   whitelist, cancellation/HTTP bounds and explicit path IDs.
@@ -500,14 +500,13 @@ rejected operation leaves the old metadata count unchanged.
 
 Wrong: call `SaveDetail` with a classification inferred from a category summary.
 
-Correct: save the summary in `hongguo_discoveries`; `PendingDiscoveries` hands
+Correct: save the summary in `hongguo_works` with `summary_only=true`; `PendingDiscoveries` hands
 the ID to the existing detail parser/transaction before media binding is allowed.
 
-Wrong: create a placeholder `hongguo_work` or episodes so a discovery summary can
-appear in Web lists.
+Wrong: treat any existing `hongguo_work` as a hydrated detail or create placeholder episodes.
 
-Correct: union the summary into the list projection with `hydrated=false`, reuse
-the source-ID artwork queue, and keep all detail/binding APIs canonical-only.
+Correct: store the summary in the same work row, expose `hydrated=false`, reuse
+the source-ID artwork queue, and require `summary_only=false` for detail/binding/download APIs.
 
 Wrong: treat every page-N 404 as completion, or compare the filtered work count
 with 24. Either can skip later pages.
@@ -766,9 +765,10 @@ alias. Incremental updates retain near-real-time visibility (no per-episode
 `refresh=wait_for`); current database checks prevent forbidden results. This does not
 provide multi-process synchronization or support out-of-band administrator SQL.
 
-Scan batches retain per-file transactions and capture the old binding under the
-final media row lock. Only successful commits enter the batch; after 100 commits
-or explicit tail flush, deduplicate works and old/current albums before refreshing
+HongGuo scan writes use transactions of at most 100 files and capture each old
+binding under the final media row lock. Failed batches roll back and retry files
+individually. Only committed file identities enter the search batch; after 100
+identities or explicit tail flush, deduplicate works and old/current albums before refreshing
 through the same index owner and lock. The batch stores identities, never document
 snapshots, so intervening writes are reflected in the refreshed projection.
 Partial success followed by failure must still flush. Cancelled publication uses
@@ -1291,3 +1291,13 @@ repeated current-schema maintenance and rejection of movie writes.
 `TestHongGuoLibraryPagingAndLatest` covers actual SenPlayer mixed types,
 Movie-only/unsupported-only empties and SortBy priority. The large page-plan
 fixture uses the same public Items request and bounds page hydration reads.
+
+## Single-table catalog deployment
+
+`hongguo_discoveries` is retired. Run `scripts/migrations/20261013_hongguo_single_catalog.sql`
+with the service stopped and a database backup before starting this version. The
+transaction preserves existing work UUIDs, inserts summary-only missing sources,
+fills only missing categories/artwork and drops the old table without CASCADE.
+Startup maintains current schema only; it does not merge historical summaries.
+Repeated migration does not reset hydration. `TestHongGuoSingleCatalogMigration`
+verifies preserved detail/episode identity, summary upgrade and old-table removal.

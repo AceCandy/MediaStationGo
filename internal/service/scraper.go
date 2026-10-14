@@ -74,7 +74,7 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 		m.SeasonNum = lookupMedia.SeasonNum
 		m.EpisodeNum = lookupMedia.EpisodeNum
 	}
-	existing, err := s.useCanonicalTMDbLookupIDs(ctx, &lookupMedia, seriesLike)
+	_, err = s.useCanonicalTMDbLookupIDs(ctx, &lookupMedia, seriesLike)
 	if err != nil {
 		return s.markScrapeError(ctx, m.ID, err)
 	}
@@ -98,18 +98,8 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	}
 	if match := externalResult.Match; match != nil {
 		if match.Source == "tmdb" && match.TMDbID == lookupMedia.TMDbID {
-			if existing != nil {
-				mergeLocalMetadataIntoMatch(match, &LocalMetadata{
-					Title: existing.Title, OriginalName: existing.OriginalName, Overview: existing.Overview,
-					Year: existing.Year, Rating: existing.Rating, ReleaseDate: existing.ReleaseDate,
-					Languages: existing.Languages, Countries: existing.Countries, Genres: existing.Genres,
-				})
-			}
 			mergeLocalMetadataIntoMatch(match, &LocalMetadata{TMDbID: lookupMedia.TMDbID, BangumiID: lookupMedia.BangumiID, DoubanID: lookupMedia.DoubanID, TheTVDBID: lookupMedia.TheTVDBID, PathHint: true})
-			mergeLocalMetadataIntoMatch(match, local)
 		}
-		mergeLocalCreditsIntoMatch(match, local)
-		s.applyFanartArtwork(ctx, match, s.determineMediaTypeForMedia(lib, &lookupMedia, match))
 		return recordScrapeSource(options, metadataMatchSource(match), s.applyProviderMatchWithOptions(ctx, m, lib, match, options))
 	}
 	if externalResult.Err != nil {
@@ -117,12 +107,6 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	}
 	if localErr != nil {
 		return s.markScrapeError(ctx, m.ID, localErr)
-	}
-	if localMetadataEligibleForFallback(local) {
-		if strings.TrimSpace(local.Title) == "" {
-			local.Title = strings.TrimSpace(m.Title)
-		}
-		return recordScrapeSource(options, "local_nfo", s.applyLocalMetadataMatch(ctx, m, local))
 	}
 	return s.markScrapeNoMatch(ctx, m.ID, "")
 }
@@ -166,33 +150,6 @@ func episodeMetadataNeedsRefresh(metadata *model.MetadataItem) bool {
 		return false
 	}
 	return !metadata.UpdatedAt.After(time.Now().UTC().Add(-7 * 24 * time.Hour))
-}
-
-func mergeLocalCreditsIntoMatch(match *Match, local *LocalMetadata) {
-	if match == nil || local == nil || len(local.Credits) == 0 {
-		return
-	}
-	for _, typ := range match.LoadedCreditTypes {
-		hasType := false
-		for _, credit := range match.Credits {
-			if credit.Type == typ {
-				hasType = true
-				break
-			}
-		}
-		if hasType {
-			continue
-		}
-		for _, credit := range local.Credits {
-			if credit.Type == typ {
-				match.Credits = append(match.Credits, credit)
-			}
-		}
-	}
-}
-
-func localMetadataEligibleForFallback(local *LocalMetadata) bool {
-	return local != nil && (local.HasNFO || local.HasArtwork || (!local.PathHint && localHasDescriptiveMetadata(local)))
 }
 
 func (s *ScraperService) applyProviderMatch(ctx context.Context, m *model.Media, lib *model.Library, match *Match) error {

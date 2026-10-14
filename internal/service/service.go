@@ -134,9 +134,8 @@ func (c *Container) Boot() {
 		_ = c.startupStep("启动媒体轨道回填", func() error { c.MediaProbe.WakeBackfill(); return nil })
 	}
 	if c.Scraper != nil {
-		_ = c.startupStep("恢复资料刮削队列", func() error { return c.Scraper.StartCatalogHydrationWorker(c.stopCtx) })
-		_ = c.startupStep("启动资料图片下载", func() error { c.Scraper.StartCatalogArtworkWorker(c.stopCtx); return nil })
-		_ = c.startupStep("启动剧集本地资料纠正", func() error { return c.Scraper.StartSeriesLocalCorrection(c.stopCtx, true) })
+		_ = c.startupStep("恢复资料刮削队列", func() error { return c.Scraper.StartMediaScrapeWorkers(c.stopCtx) })
+		c.Scraper.StartMetadataIndexWorker(c.stopCtx)
 	}
 	_ = c.startupStep("启动搜索索引预热", func() error { go c.warmMediaSearchIndex(c.stopCtx); return nil })
 
@@ -192,7 +191,7 @@ func (c *Container) Close() {
 		c.HongGuoDanmu.Close()
 	}
 	if c.Scraper != nil {
-		c.Scraper.WaitCatalogHydrationWorker()
+		c.Scraper.WaitBackgroundWorkers()
 	}
 	if c.Watcher != nil {
 		c.Watcher.Stop()

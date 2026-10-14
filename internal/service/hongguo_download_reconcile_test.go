@@ -47,7 +47,6 @@ func TestHongGuoDownloadUnavailableConfirmation(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, record := range []any{
-				&model.HongGuoDiscovery{SourceID: row.SourceID, Title: row.Title},
 				&model.HongGuoRankEntry{RankKey: "hot-drama", SourceID: row.SourceID, Position: 1},
 				&model.HongGuoSyncFailure{SourceID: row.SourceID},
 				&model.HongGuoSnapshot{WorkID: work.ID, Payload: `{}`},
@@ -125,7 +124,7 @@ CREATE TRIGGER reject_hg_delete BEFORE DELETE ON hongguo_works FOR EACH ROW EXEC
 			if err := s.repo.DB.Model(&model.HongGuoDownload{}).Where("id = ?", row.ID).Count(&count).Error; err != nil || (count == 0) != removed {
 				t.Fatalf("task count=%d err=%v", count, err)
 			}
-			for _, record := range []any{&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoRankEntry{}, &model.HongGuoSyncFailure{}, &model.HongGuoDownloadWork{}} {
+			for _, record := range []any{&model.HongGuoWork{}, &model.HongGuoRankEntry{}, &model.HongGuoSyncFailure{}, &model.HongGuoDownloadWork{}} {
 				if err := s.repo.DB.Model(record).Where("source_id = ?", row.SourceID).Count(&count).Error; err != nil || (count == 0) != (mode == "removed" || mode == "removed-original") {
 					t.Fatalf("%T count=%d err=%v", record, count, err)
 				}

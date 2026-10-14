@@ -66,7 +66,7 @@ func (e *EmbyService) hongGuoPersons(ctx context.Context, p ItemsParams) (map[st
 	if !hasSource {
 		return nil, false, nil
 	}
-	legacy := e.repo.DB.WithContext(ctx).Model(&model.Person{}).Select("id,name,original_name,overview,CASE WHEN profile_url <> '' THEN id ELSE '' END AS artwork_id,'' AS source_id")
+	legacy := e.repo.DB.WithContext(ctx).Model(&model.Person{}).Table("person_presentations").Select("id,name,original_name,overview,CASE WHEN profile_url <> '' THEN id ELSE '' END AS artwork_id,'' AS source_id")
 	source := e.hongGuoVisiblePeople(ctx, p.UserID).Select("'hg-person-' || p.id AS id,p.name,'' AS original_name,'' AS overview,COALESCE(a.id,'') AS artwork_id,p.source_id")
 	q := e.repo.DB.WithContext(ctx).Table("(?) AS people", e.repo.DB.Raw("? UNION ALL ?", legacy, source))
 	if term := strings.TrimSpace(p.SearchTerm); term != "" {

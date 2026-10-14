@@ -18,13 +18,12 @@ func newMetadataMergeTestRepository(t *testing.T) *Container {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(
-		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{},
-		&model.MetadataArtworkRecheck{},
-		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
+		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.Person{}, &model.PersonIdentifier{},
 		&model.Media{}, &model.PlaybackHistory{}, &model.Favorite{}, &model.Playlist{}, &model.PlaylistItem{},
 	); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	return New(db)
 }
 
@@ -32,7 +31,7 @@ func TestUpsertCanonicalExplicitMergeMovesMovieReferences(t *testing.T) {
 	repos := newMetadataMergeTestRepository(t)
 	source := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Local", Source: "local"},
 		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "0100"})
-	target := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Canonical", Source: "tmdb"},
+	target := createSourceTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Canonical", Source: "tmdb"},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "200"})
 	media := []model.Media{
 		{PermanentBase: model.PermanentBase{ID: "media-source"}, MetadataID: source.ID, Title: "Local", Path: "/source.mkv"},
@@ -77,7 +76,7 @@ func TestUpsertCanonicalExplicitMergeMovesMovieReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.ID != target.ID || saved.Title != "Canonical" {
+	if saved.ID != target.ID {
 		t.Fatalf("saved metadata = %#v", saved)
 	}
 	var sourceCount int64
@@ -152,9 +151,6 @@ func TestCreateMetadataBatchesLargeIdentifierSet(t *testing.T) {
 
 func TestExplicitSeriesMergeRecursivelyMergesSeasonAndEpisode(t *testing.T) {
 	repos := newMetadataMergeTestRepository(t)
-	if err := repos.DB.AutoMigrate(&model.MetadataArtworkRecheck{}); err != nil {
-		t.Fatal(err)
-	}
 	newerCheck := time.Now().UTC().Truncate(time.Microsecond)
 	olderCheck := newerCheck.Add(-time.Hour)
 	sourceSeries := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Local Show", Source: "local"},

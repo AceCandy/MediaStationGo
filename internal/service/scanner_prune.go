@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -102,51 +103,95 @@ func (s *ScannerService) pruneMissingMedia(ctx context.Context, libraryID string
 	return s.deleteMediaByIDs(ctx, stale)
 }
 
-func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID, rootID, rootPath string, seen map[string]struct{}) (int64, []string, error) {
+func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID, rootID, rootPath string, seen map[string]struct{}, results ...*ScanResult) (int64, []string, error) {
 	if s.mediaProbe != nil {
 		s.mediaProbe.cleanupMu.RLock()
 		defer s.mediaProbe.cleanupMu.RUnlock()
 	}
-	var rows []struct {
-		ID            string
-		Path          string
-		LibraryRootID string
+	var res *ScanResult
+	if len(results) > 0 {
+		res = results[0]
 	}
-	q := s.repo.DB.WithContext(ctx).
-		Model(&model.Media{}).
-		Select("id, path, library_root_id").
-		Where("library_id = ?", libraryID)
-	if strings.TrimSpace(rootID) != "" {
-		q = q.Where("library_root_id = ? OR library_root_id = '' OR library_root_id IS NULL", rootID)
-	}
-	if err := q.Find(&rows).Error; err != nil {
-		return 0, nil, err
-	}
-	stale := make([]string, 0)
-	stalePaths := make([]string, 0)
-	for _, row := range rows {
-		if row.Path == "" {
-			continue
+	started := time.Now()
+	defer func() {
+		if res != nil {
+			res.PruneMS += time.Since(started).Milliseconds()
 		}
-		if row.LibraryRootID == "" && !pathBelongsToRoot(row.Path, rootPath) {
-			continue
+	}()
+	var removed int64
+	var removedPaths []string
+	after := ""
+	names := scanDirectoryNames{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return removed, removedPaths, err
 		}
-		if _, ok := seen[filepath.Clean(row.Path)]; ok {
-			continue
+		// 根目录可能在遍历完成后离线；每页清理前重新确认，离线不等于文件删除。
+		info, err := os.Stat(rootPath)
+		if err != nil {
+			return removed, removedPaths, err
 		}
-		if _, err := os.Stat(row.Path); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
-			continue
+		if !info.IsDir() {
+			return removed, removedPaths, fmt.Errorf("library root is not a directory")
 		}
-		stale = append(stale, row.ID)
-		stalePaths = append(stalePaths, row.Path)
+		var rows []struct {
+			ID            string
+			Path          string
+			LibraryRootID string
+			PartGroupKey  string
+			PartIndex     int
+		}
+		q := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
+			Select("id, path, library_root_id, part_group_key, part_index").
+			Where("library_id = ? AND path > ?", libraryID, after).Order("path").Limit(localScanReadBatch)
+		if strings.TrimSpace(rootID) != "" {
+			q = q.Where("library_root_id = ? OR library_root_id = '' OR library_root_id IS NULL", rootID)
+		}
+		if err := q.Find(&rows).Error; err != nil {
+			return removed, removedPaths, err
+		}
+		if len(rows) == 0 {
+			return removed, removedPaths, nil
+		}
+		after = rows[len(rows)-1].Path
+		ids, paths := make([]string, 0), make([]string, 0)
+		for _, row := range rows {
+			if row.LibraryRootID == "" && !pathBelongsToRoot(row.Path, rootPath) {
+				continue
+			}
+			if res != nil {
+				_, candidate := parseMediaPartCandidate(row.Path)
+				if candidate || row.PartGroupKey != "" || row.PartIndex != 0 {
+					res.trackPartDirectory(row.Path)
+				}
+			}
+			if _, ok := seen[filepath.Clean(row.Path)]; ok {
+				continue
+			}
+			if names.contains(row.Path) {
+				continue
+			}
+			if _, err := os.Stat(row.Path); !os.IsNotExist(err) {
+				continue
+			}
+			ids, paths = append(ids, row.ID), append(paths, row.Path)
+		}
+		n, err := s.deleteMediaByIDs(ctx, ids)
+		removed += n
+		if err != nil {
+			return removed, removedPaths, err
+		}
+		for _, path := range paths {
+			if res != nil {
+				res.addChange(ScanChangeRemoved, path, "")
+			} else {
+				removedPaths = append(removedPaths, path)
+			}
+		}
+		if len(rows) < localScanReadBatch {
+			return removed, removedPaths, nil
+		}
 	}
-	removed, err := s.deleteMediaByIDs(ctx, stale)
-	if err != nil {
-		return removed, nil, err
-	}
-	return removed, stalePaths, nil
 }
 
 func pathBelongsToRoot(pathValue, rootPath string) bool {

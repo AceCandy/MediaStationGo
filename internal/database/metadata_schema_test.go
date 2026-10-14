@@ -16,14 +16,13 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.CatalogHydrationJob{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}); err != nil {
 		t.Fatal(err)
 	}
-	if !db.Migrator().HasColumn(&model.MetadataItem{}, "PeopleHydratedAt") {
-		t.Fatal("metadata items people_hydrated_at column is missing")
-	}
-	if !db.Migrator().HasColumn(&model.MetadataItem{}, "CatalogArtworkDueAt") || !db.Migrator().HasColumn(&model.MetadataItem{}, "CatalogArtworkAttempts") || !db.Migrator().HasIndex(&model.MetadataItem{}, "idx_catalog_artwork_due") {
-		t.Fatal("catalog artwork durable handoff schema is missing")
+	for _, column := range []string{"people_hydrated_at", "catalog_hydrated_at", "catalog_metadata_hydrated_at", "catalog_artwork_due_at", "catalog_artwork_attempts", "catalog_artwork_hydrated_at"} {
+		if db.Migrator().HasColumn("metadata_items", column) {
+			t.Fatalf("retired checkpoint created: %s", column)
+		}
 	}
 	if !db.Migrator().HasColumn("metadata_items", "tmdb_episode_checked_at") {
 		t.Fatal("metadata items tmdb_episode_checked_at column is missing")
@@ -54,16 +53,7 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if !foundJSONB {
 		t.Fatal("TMDb center payload body is not PostgreSQL jsonb")
 	}
-	jobs := []model.CatalogHydrationJob{
-		{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "42", Status: model.CatalogJobStatusPending, Stage: model.CatalogJobStageRoot},
-		{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "42", Status: model.CatalogJobStatusPending, Stage: model.CatalogJobStageRoot},
-	}
-	if err := db.Create(&jobs[0]).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Create(&jobs[1]).Error; err == nil {
-		t.Fatal("expected duplicate catalog hydration identity to be rejected")
-	}
+
 }
 
 func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
@@ -73,7 +63,7 @@ func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
 	}
 	if err := db.AutoMigrate(
 		&model.MetadataItem{}, &model.MetadataIdentifier{},
-		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.Media{},
+		&model.ArtworkAsset{}, &model.Media{},
 	); err != nil {
 		t.Fatal(err)
 	}

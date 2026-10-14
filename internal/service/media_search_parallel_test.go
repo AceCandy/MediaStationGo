@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"os"
 	"reflect"
 	"strings"
@@ -181,7 +182,7 @@ func TestWebSourceSearchParallel(t *testing.T) {
 func TestWebSourceSearchParallelPagination(t *testing.T) {
 	svc := newParallelSearchService(t)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items (id,kind,title,source) SELECT 'ordinary-'||n,'movie','并行','test' FROM generate_series(1,105) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'ordinary-'||n,'movie','并行','test' FROM generate_series(1,105) n`),
 		`INSERT INTO media (id,library_id,metadata_id,path) SELECT 'ordinary-file-'||n,'library','ordinary-'||n,'/test/ordinary/'||n FROM generate_series(1,105) n`,
 		`INSERT INTO nfo_items (id,library_id,local_key,kind,title) SELECT 'local-'||n,'library',n::text,'movie','并行' FROM generate_series(1,105) n`,
 		`INSERT INTO media (id,library_id,catalog_source,path) SELECT 'local-file-'||n,'library','nfo','/test/local/'||n FROM generate_series(1,105) n`,

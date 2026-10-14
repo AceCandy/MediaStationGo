@@ -13,9 +13,7 @@ import (
 	"testing"
 	"time"
 
-	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -24,13 +22,7 @@ import (
 
 func newPeopleImageStoreTest(t *testing.T) (*PeopleImageStore, *repository.Container, *config.Config) {
 	t.Helper()
-	db, err := testdb.OpenPostgres(t, &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.Person{}, &model.PersonIdentifier{}, &model.MetadataItem{}, &model.MetadataCredit{}); err != nil {
-		t.Fatal(err)
-	}
+	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{})
 	repos := repository.New(db)
 	cfg := &config.Config{App: config.AppConfig{DataDir: t.TempDir()}, Cache: config.CacheConfig{CacheDir: t.TempDir()}}
 	return NewPeopleImageStore(cfg, repos.Person, NewImageProxy(cfg, zap.NewNop())), repos, cfg

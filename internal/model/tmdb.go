@@ -5,21 +5,26 @@ import "time"
 // TMDbSubject 是独立于本地媒体的来源身份；季和集保留已验证的父链。
 type TMDbSubject struct {
 	PermanentBase
-	Kind         string       `gorm:"size:16;not null;uniqueIndex:uidx_tmdb_subject_identity,priority:1;index" json:"kind"`
-	TMDbID       int          `gorm:"column:tmdb_id;not null;check:tmdb_id > 0;uniqueIndex:uidx_tmdb_subject_identity,priority:2" json:"tmdb_id"`
-	ParentID     *string      `gorm:"size:36;index;uniqueIndex:uidx_tmdb_subject_coordinate,priority:1,where:parent_id IS NOT NULL" json:"parent_id,omitempty"`
-	Parent       *TMDbSubject `gorm:"foreignKey:ParentID;constraint:OnDelete:RESTRICT" json:"-"`
-	Number       *int         `gorm:"uniqueIndex:uidx_tmdb_subject_coordinate,priority:2,where:parent_id IS NOT NULL" json:"number,omitempty"`
-	Title        string       `gorm:"type:text" json:"title"`
-	OriginalName string       `gorm:"type:text" json:"original_name"`
-	Overview     string       `gorm:"type:text" json:"overview"`
-	ReleaseDate  string       `gorm:"size:32" json:"release_date"`
-	Rating       *float64     `json:"rating"`
-	VoteCount    int          `json:"vote_count"`
-	Status       string       `gorm:"size:64" json:"status"`
-	Quality      int          `gorm:"not null;default:0" json:"quality"`
-	Fields       string       `gorm:"type:jsonb;not null;default:'{}'" json:"-"`
-	FetchedAt    *time.Time   `json:"fetched_at,omitempty"`
+	// 演职员补全独立退避，不影响正文和目录维护。
+	NextPeopleAt *time.Time `gorm:"index" json:"-"`
+	// 补缺与目录检查分别计时，完整基础资料不参加周期补缺。
+	NextMaintenanceAt *time.Time   `gorm:"index" json:"-"`
+	NextInventoryAt   *time.Time   `gorm:"index" json:"-"`
+	Kind              string       `gorm:"size:16;not null;uniqueIndex:uidx_tmdb_subject_identity,priority:1;index" json:"kind"`
+	TMDbID            int          `gorm:"column:tmdb_id;not null;check:tmdb_id > 0;uniqueIndex:uidx_tmdb_subject_identity,priority:2" json:"tmdb_id"`
+	ParentID          *string      `gorm:"size:36;index;uniqueIndex:uidx_tmdb_subject_coordinate,priority:1,where:parent_id IS NOT NULL" json:"parent_id,omitempty"`
+	Parent            *TMDbSubject `gorm:"foreignKey:ParentID;constraint:OnDelete:RESTRICT" json:"-"`
+	Number            *int         `gorm:"uniqueIndex:uidx_tmdb_subject_coordinate,priority:2,where:parent_id IS NOT NULL" json:"number,omitempty"`
+	Title             string       `gorm:"type:text" json:"title"`
+	OriginalName      string       `gorm:"type:text" json:"original_name"`
+	Overview          string       `gorm:"type:text" json:"overview"`
+	ReleaseDate       string       `gorm:"size:32" json:"release_date"`
+	Rating            *float64     `json:"rating"`
+	VoteCount         int          `json:"vote_count"`
+	Status            string       `gorm:"size:64" json:"status"`
+	Quality           int          `gorm:"not null;default:0" json:"quality"`
+	Fields            string       `gorm:"type:jsonb;not null;default:'{}'" json:"-"`
+	FetchedAt         *time.Time   `json:"fetched_at,omitempty"`
 }
 
 func (TMDbSubject) TableName() string { return "tmdb_subjects" }
@@ -27,6 +32,8 @@ func (TMDbSubject) TableName() string { return "tmdb_subjects" }
 // TMDbPersonProfile 保存来源字段，不覆盖公共人物的人工资料。
 type TMDbPersonProfile struct {
 	PermanentBase
+	// 人物详情补全独立退避，来源空简介也按有效响应结算。
+	NextPeopleAt    *time.Time `gorm:"index" json:"-"`
 	TMDbID          int        `gorm:"column:tmdb_id;not null;uniqueIndex;check:tmdb_id > 0" json:"tmdb_id"`
 	PersonID        string     `gorm:"size:36;not null;uniqueIndex" json:"person_id"`
 	Person          Person     `gorm:"foreignKey:PersonID;constraint:OnDelete:RESTRICT" json:"-"`
@@ -41,6 +48,7 @@ type TMDbPersonProfile struct {
 	ImageKey        string     `gorm:"type:text" json:"-"`
 	ImageSourcePath string     `gorm:"type:text" json:"-"`
 	ImageStatus     string     `gorm:"size:16" json:"image_status"`
+	ImageCheckedAt  *time.Time `gorm:"index" json:"-"`
 	ImageRetryAt    *time.Time `json:"-"`
 }
 
@@ -82,7 +90,7 @@ type TMDbCredit struct {
 
 func (TMDbCredit) TableName() string { return "tmdb_credits" }
 
-// TMDbArtwork 是来源选图；它不改变 metadata_artworks 的本地选图。
+// TMDbArtwork 保存来源图片路径及本地资产，普通媒体直接读取此关联。
 type TMDbArtwork struct {
 	PermanentBase
 	SubjectID      string        `gorm:"size:36;not null;uniqueIndex:uidx_tmdb_artwork,priority:1" json:"subject_id"`
@@ -93,6 +101,7 @@ type TMDbArtwork struct {
 	AssetID        *string       `gorm:"size:36;index" json:"-"`
 	Asset          *ArtworkAsset `gorm:"foreignKey:AssetID;constraint:OnDelete:RESTRICT" json:"-"`
 	Status         string        `gorm:"size:16;not null" json:"status"`
+	CheckedAt      *time.Time    `gorm:"index" json:"-"`
 	RetryAt        *time.Time    `json:"-"`
 }
 

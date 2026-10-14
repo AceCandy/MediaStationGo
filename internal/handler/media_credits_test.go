@@ -52,7 +52,7 @@ func TestListEpisodeCreditsUsesSeason(t *testing.T) {
 	if err := db.Create(&person).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.MetadataCredit{MetadataID: season.ID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(db, &model.MetadataCredit{MetadataID: season.ID, PersonID: person.ID, Type: model.CreditTypeActor}); err != nil {
 		t.Fatal(err)
 	}
 	svc := &service.Container{Repo: repos, Media: service.NewMediaService(&config.Config{}, zap.NewNop(), repos)}
@@ -104,10 +104,10 @@ func TestListMediaCreditsReturnsOrderedCast(t *testing.T) {
 		}
 	}
 	// 先写导演再写演员，验证响应按类型排序后演员在前。
-	if err := db.Create(&model.MetadataCredit{MetadataID: metadata.ID, PersonID: director.ID, Type: model.CreditTypeDirector, Role: "导演", SortOrder: 0}).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(db, &model.MetadataCredit{MetadataID: metadata.ID, PersonID: director.ID, Type: model.CreditTypeDirector, Role: "导演", SortOrder: 0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.MetadataCredit{MetadataID: metadata.ID, PersonID: actor.ID, Type: model.CreditTypeActor, Role: "主角", SortOrder: 1}).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(db, &model.MetadataCredit{MetadataID: metadata.ID, PersonID: actor.ID, Type: model.CreditTypeActor, Role: "主角", SortOrder: 1}); err != nil {
 		t.Fatal(err)
 	}
 	svc := &service.Container{

@@ -14,9 +14,10 @@ func TestEpisodeCreditsReadSeasonWithoutWritingEpisode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	series := model.MetadataItem{Kind: "series", Title: "Series", Source: "tmdb"}
 	if err := db.Create(&series).Error; err != nil {
 		t.Fatal(err)
@@ -31,11 +32,11 @@ func TestEpisodeCreditsReadSeasonWithoutWritingEpisode(t *testing.T) {
 	}
 	repo := New(db).Person
 	input := []CreditInput{{Provider: "tmdb", ExternalID: "123", Name: "Season Actor", Type: model.CreditTypeActor}}
-	if err := repo.ReplaceCredits(t.Context(), season.ID, []string{model.CreditTypeActor}, input); err != nil {
+	if err := repo.SaveSourceCreditsFixture(t.Context(), season.ID, []string{model.CreditTypeActor}, input); err != nil {
 		t.Fatal(err)
 	}
 	for _, episode := range episodes {
-		if err := repo.ReplaceCredits(t.Context(), episode.ID, []string{model.CreditTypeActor}, input); err != nil {
+		if err := repo.SaveSourceCreditsFixture(t.Context(), episode.ID, []string{model.CreditTypeActor}, input); err != nil {
 			t.Fatal(err)
 		}
 		own, err := repo.ListCredits(t.Context(), episode.ID)
@@ -62,6 +63,7 @@ func TestSeasonDerivedSnapshotPreservesFullEpisode(t *testing.T) {
 	if err := db.AutoMigrate(&model.MetadataItem{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	series := model.MetadataItem{Kind: "series", Title: "Series", Source: "tmdb"}
 	if err := db.Create(&series).Error; err != nil {
 		t.Fatal(err)

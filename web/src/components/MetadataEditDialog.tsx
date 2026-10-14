@@ -65,10 +65,11 @@ export function MetadataEditDialog({
 
   if (!open || !media) return null
 
+  const isNFO = media.catalog_source === 'nfo'
   const isSeries = mode === 'series'
   const isSeason = mode === 'season'
   const isScoped = isSeries || isSeason
-  const dialogTitle = isSeason ? '编辑季元数据' : isSeries ? '编辑整剧元数据' : '编辑元数据'
+  const dialogTitle = !isNFO ? '修改资料关联' : isSeason ? '编辑季元数据' : isSeries ? '编辑整剧元数据' : '编辑元数据'
   const targetIds = Array.from(new Set((!isScoped && mediaIds && mediaIds.length > 0 ? mediaIds : [media.id]).filter(Boolean)))
   const searchTitle = form.title.trim()
   const encodedSearchTitle = encodeURIComponent(searchTitle)
@@ -83,6 +84,8 @@ export function MetadataEditDialog({
     return Number.isFinite(parsed) ? parsed : 0
   }
   const buildPayload = (): MediaMetadataUpdate => {
+    if (!isNFO) return { scope: isSeason ? 'season' : isSeries ? 'series' : undefined, tmdb_id: Math.trunc(toNumber(form.tmdb_id)) }
+
     const payload: MediaMetadataUpdate = {
       scope: isSeason ? 'season' : isSeries ? 'series' : undefined,
       title: form.title,
@@ -105,7 +108,12 @@ export function MetadataEditDialog({
     return payload
   }
   const save = async () => {
-    if (!form.title.trim()) {
+    const tmdbID = form.tmdb_id.trim()
+    if (!isNFO && tmdbID !== '' && (!/^\d+$/.test(tmdbID) || !Number.isSafeInteger(Number(tmdbID)))) {
+      toast.error('TMDb ID 必须是有效的非负整数')
+      return
+    }
+    if (isNFO && !form.title.trim()) {
       toast.error('标题不能为空')
       return
     }
@@ -118,7 +126,7 @@ export function MetadataEditDialog({
         if (!next || id === media.id) next = updated
       }
       if (!next) next = await mediaAPI.updateMetadata(media.id, payload)
-      toast.success(isSeries ? '整剧元数据已保存，分集信息保持不变' : '元数据已保存')
+      toast.success(isNFO ? '元数据已保存' : '资料关联已更新')
       await onSaved(next)
       onClose()
     } catch (err: unknown) {
@@ -136,13 +144,14 @@ export function MetadataEditDialog({
           <h2 className="font-display text-xl font-bold text-gray-900">
             {dialogTitle}
           </h2>
-          <p className="mt-1 text-xs text-gray-500">{scopeLabel || '用于手动修正自采集或无法自动匹配的媒体。'}</p>
+          <p className="mt-1 text-xs text-gray-500">{!isNFO ? '基础信息随资料中心更新。豆瓣关联请使用详情页的豆瓣按钮。' : scopeLabel || '修改本地 NFO 资料。'}</p>
         </div>
         <button onClick={onClose} className="icon-btn" aria-label="关闭">
           <X size={16} />
         </button>
       </div>
         <div className="grid flex-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
+          {isNFO && <>
           <Field label="标题" value={form.title} onChange={(value) => set('title', value)} />
           {!isScoped && <Field label="原名 / 单集名" value={form.original_name} onChange={(value) => set('original_name', value)} />}
           <Field label="年份" value={form.year} onChange={(value) => set('year', value)} inputMode="numeric" />
@@ -150,7 +159,9 @@ export function MetadataEditDialog({
           <Field label="评分" value={form.rating} onChange={(value) => set('rating', value)} inputMode="decimal" />
           {!isScoped && <Field label="季" value={form.season_num} onChange={(value) => set('season_num', value)} inputMode="numeric" />}
           {!isScoped && <Field label="集" value={form.episode_num} onChange={(value) => set('episode_num', value)} inputMode="numeric" />}
+          </>}
           <Field label="TMDb ID" value={form.tmdb_id} onChange={(value) => set('tmdb_id', value)} inputMode="numeric" searchSite="TMDb" searchHref={searchTitle ? `https://www.themoviedb.org/search?query=${encodedSearchTitle}` : ''} />
+          {isNFO && <>
           <Field label="Bangumi ID" value={form.bangumi_id} onChange={(value) => set('bangumi_id', value)} inputMode="numeric" searchSite="Bangumi" searchHref={searchTitle ? `https://bgm.tv/subject_search/${encodedSearchTitle}?cat=all` : ''} />
           {!isSeason && media.metadata_kind !== 'episode' && <p className="text-sm text-[var(--app-muted)]">豆瓣：{media.douban_id || '未绑定'}。请在详情页点击豆瓣按钮搜索并应用匹配。</p>}
           <Field label="TheTVDB ID" value={form.thetvdb_id} onChange={(value) => set('thetvdb_id', value)} searchSite="TheTVDB" searchHref={searchTitle ? `https://thetvdb.com/search?query=${encodedSearchTitle}` : ''} />
@@ -166,6 +177,7 @@ export function MetadataEditDialog({
               className="input-field px-3 py-2 font-semibold"
             />
           </label>
+          </>}
         </div>
       <div className="modal-footer">
         <button onClick={onClose} className="btn-outline px-4 py-2 shadow-none">取消</button>

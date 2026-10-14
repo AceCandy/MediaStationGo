@@ -38,6 +38,10 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 	if err != nil || total != 1 || len(rows) != 1 || rows[0].Hydrated || rows[0].Kind != model.MetadataKindSeries || rows[0].ArtworkID == "" || rows[0].Title != "测试剧摘要" {
 		t.Fatalf("discovery-only list projection: total=%d rows=%+v err=%v", total, rows, err)
 	}
+	summaryID := rows[0].ID
+	if _, err := r.Detail(ctx, "9000000000000000001"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("summary exposed as detail: %v", err)
+	}
 	rows, total, err = r.List(ctx, "", "real-drama", "短剧", "", 1, 10)
 	if err != nil || total != 0 || len(rows) != 0 {
 		t.Fatalf("discovery-only row entered detail tag filter: total=%d rows=%+v err=%v", total, rows, err)
@@ -46,6 +50,9 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 	first, err := r.SaveDetail(ctx, input)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if first.ID != summaryID || first.SummaryOnly {
+		t.Fatal("summary identity changed during hydration")
 	}
 	var episodes []model.HongGuoEpisode
 	if err := db.Order("number").Find(&episodes).Error; err != nil || len(episodes) != 2 {
@@ -83,7 +90,7 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 		t.Fatalf("transaction failed to rollback: %+v %v", current, err)
 	}
 	var old model.MetadataItem
-	if err := db.First(&old, "id = ?", legacy.ID).Error; err != nil || old.Title != legacy.Title {
+	if err := db.First(&old, "id = ?", legacy.ID).Error; err != nil || old.ID != legacy.ID || old.Source != legacy.Source {
 		t.Fatal("legacy data changed")
 	}
 	if first.SourceCategory != "real-drama" || second.SourceCategory != "real-drama" {
@@ -134,13 +141,9 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 	if err := r.SetSourceCategory(ctx, first.SourceID, "ai-drama"); err != nil {
 		t.Fatal(err)
 	}
-	var discovery model.HongGuoDiscovery
-	if err := db.First(&discovery, "source_id = ?", first.SourceID).Error; err != nil {
-		t.Fatal(err)
-	}
 	current, err = r.FindBySourceID(ctx, first.SourceID)
-	if err != nil || discovery.SourceCategory != "ai-drama" || current.SourceCategory != "ai-drama" {
-		t.Fatalf("source category tables diverged: discovery=%q work=%+v err=%v", discovery.SourceCategory, current, err)
+	if err != nil || current.SourceCategory != "ai-drama" {
+		t.Fatalf("source category not updated: work=%+v err=%v", current, err)
 	}
 	if err := r.SetSourceCategory(ctx, first.SourceID, "real-drama"); err != nil {
 		t.Fatal(err)
@@ -162,7 +165,7 @@ func TestHongGuoListOrdersByFirstVisibleBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoArtwork{}, &model.HongGuoRankEntry{}, &model.HongGuoDownload{}); err != nil {
+	if err := db.AutoMigrate(&model.HongGuoWork{}, &model.HongGuoArtwork{}, &model.HongGuoRankEntry{}, &model.HongGuoDownload{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
@@ -179,7 +182,7 @@ func TestHongGuoListOrdersByFirstVisibleBeforePagination(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	summary := model.HongGuoDiscovery{SourceID: "91004", SourceCategory: "ai-drama", Title: "新发现"}
+	summary := model.HongGuoWork{SummaryOnly: true, Kind: "series", SourceID: "91004", SourceCategory: "ai-drama", Title: "新发现"}
 	summary.CreatedAt = now
 	if err := db.Create(&summary).Error; err != nil {
 		t.Fatal(err)

@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -318,7 +319,7 @@ func TestGetMediaQueuesNextEpisodeBackfill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
 	for _, value := range []any{
@@ -857,11 +858,14 @@ func migrateMediaHandlerTestDB(db *gorm.DB, models ...any) error {
 	models = append(models,
 		&model.LibraryRoot{},
 		&model.MediaProbeMetadata{},
-		&model.MetadataItem{}, &model.MetadataIdentifier{},
-		&model.ArtworkAsset{}, &model.MetadataArtwork{},
-		&model.Person{}, &model.MetadataCredit{},
+		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TranslationCache{}, &model.TMDbCredit{}, &model.TMDbSubject{}, &model.TMDbArtwork{}, &model.DoubanSubject{},
+		&model.ArtworkAsset{},
+		&model.Person{},
 	)
 	if err := db.AutoMigrate(models...); err != nil {
+		return err
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		return err
 	}
 	return testutil.RegisterMediaMetadataFixtures(db)

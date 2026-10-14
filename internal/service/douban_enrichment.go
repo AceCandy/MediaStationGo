@@ -26,14 +26,12 @@ var doubanMovieEnrichmentDelay = 2 * time.Second
 var ErrDoubanEnrichmentIneligible = errors.New("douban enrichment requires a movie or series with one douban identifier")
 
 type doubanEnrichmentResult struct {
-	Subject           string
-	UpdatedFields     []string
-	Requested         bool
-	SnapshotSaved     bool
-	CandidateSaved    bool
-	CandidatePromoted bool
-	Degraded          bool
-	Skipped           bool
+	Subject        string
+	Requested      bool
+	SnapshotSaved  bool
+	CandidateSaved bool
+	Degraded       bool
+	Skipped        bool
 }
 
 // enrichMovieFromDouban 只消费 canonical 上唯一且明确的豆瓣电影标识。
@@ -120,10 +118,11 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 	}
 	var asset *model.ArtworkAsset
 	if strings.TrimSpace(details.PosterURL) != "" && s.artwork != nil && s.repo.Artwork != nil {
-		hasCandidate, err := s.repo.Artwork.HasCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban")
+		subject, err := s.repo.Douban.FindForMetadata(ctx, metadataID)
 		if err != nil {
 			return result, err
 		}
+		hasCandidate := subject != nil && subject.PosterAssetID != nil && subject.PosterSourceURL == details.PosterURL
 		if !hasCandidate {
 			data, _, err := s.artwork.imageProxy.Fetch(ctx, details.PosterURL)
 			if err != nil {
@@ -150,30 +149,17 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 			result.Skipped = true
 			return nil
 		}
-		result.UpdatedFields, err = fillMissingDoubanFieldsDB(ctx, tx, metadataID, item.Kind, details, result.Degraded)
-		if err != nil {
+		if err := saveDoubanPresentation(ctx, repos, metadataID, details, result.Degraded, asset); err != nil {
 			return err
 		}
-		if asset != nil {
-			_, result.CandidatePromoted, err = repos.Artwork.SaveCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban", details.PosterURL, asset)
-			if err != nil {
-				return err
-			}
-			result.CandidateSaved = true
-		}
-		if result.Degraded {
-			return repos.Metadata.SaveDegradedProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
-		}
-		return repos.Metadata.SaveProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+		result.CandidateSaved = asset != nil
+		return nil
 	})
 	if err != nil {
 		return result, err
 	}
 	if result.Skipped {
 		return result, nil
-	}
-	if len(result.UpdatedFields) > 0 {
-		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataID)
 	}
 	result.SnapshotSaved = true
 	s.invalidateMediaCache(ctx)
@@ -190,61 +176,6 @@ func uniqueIdentifier(identifiers []model.MetadataIdentifier, provider, entityKi
 		}
 	}
 	return value, count == 1 && value != ""
-}
-
-// fillMissingDoubanFields 在行锁内重新判断空值，避免覆盖并发写入的人工元数据。
-func (s *ScraperService) fillMissingDoubanFields(ctx context.Context, metadataID, entityKind string, details *Match, degraded bool) ([]string, error) {
-	return fillMissingDoubanFieldsDB(ctx, s.repo.DB, metadataID, entityKind, details, degraded)
-}
-
-func fillMissingDoubanFieldsDB(ctx context.Context, db *gorm.DB, metadataID, entityKind string, details *Match, degraded bool) ([]string, error) {
-	updatedFields := []string{}
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var current model.MetadataItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND kind = ?", metadataID, entityKind).Error; err != nil {
-			return err
-		}
-		updates := map[string]any{}
-		setString := func(column, label, currentValue, incoming string) {
-			if _, exists := updates[column]; exists {
-				return
-			}
-			if strings.TrimSpace(currentValue) == "" && strings.TrimSpace(incoming) != "" {
-				updates[column] = strings.TrimSpace(incoming)
-				updatedFields = append(updatedFields, label)
-			}
-		}
-		if incoming := strings.TrimSpace(details.Title); !degraded && incoming != "" && !containsCJK(current.Title) && containsCJK(incoming) {
-			updates["title"] = incoming
-			updatedFields = append(updatedFields, "标题")
-			if strings.TrimSpace(current.OriginalName) == "" {
-				updates["original_name"] = firstNonEmpty(strings.TrimSpace(details.OriginalName), strings.TrimSpace(current.Title))
-				updatedFields = append(updatedFields, "原名")
-			}
-		} else {
-			setString("title", "标题", current.Title, details.Title)
-		}
-		setString("original_name", "原名", current.OriginalName, details.OriginalName)
-		setString("overview", "简介", current.Overview, details.Overview)
-		setString("release_date", "上映日期", current.ReleaseDate, details.ReleaseDate)
-		setString("languages", "语言", current.Languages, strings.Join(details.Languages, ","))
-		setString("countries", "国家/地区", current.Countries, strings.Join(details.Countries, ","))
-		setString("genres", "类型", current.Genres, strings.Join(details.Genres, ","))
-		if current.Rating == 0 && details.Rating > 0 {
-			updates["rating"] = details.Rating
-			updatedFields = append(updatedFields, "评分")
-		}
-		if current.Year == 0 && details.Year > 0 {
-			updates["year"] = details.Year
-			updatedFields = append(updatedFields, "年份")
-		}
-		if len(updates) == 0 {
-			return nil
-		}
-		updates["updated_at"] = time.Now().UTC()
-		return tx.Model(&model.MetadataItem{}).Where("id = ?", metadataID).Updates(updates).Error
-	})
-	return updatedFields, err
 }
 
 func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger string) error {
@@ -302,34 +233,23 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 				metrics["ambiguous_skipped"]++
 				details = append(details, fmt.Sprintf("⏭️ 跳过 %s：不是电影/整剧、标识缺失/不唯一、TMDb 标识冲突或请求期间绑定已变化", result.Subject))
 			} else {
-				metrics["fields_filled"] += int64(len(result.UpdatedFields))
 				if result.SnapshotSaved {
 					metrics["snapshot_saved"]++
 				}
 				if result.CandidateSaved {
 					metrics["candidate_saved"]++
 				}
-				if result.CandidatePromoted {
-					metrics["candidate_promoted"]++
-				}
-				if len(result.UpdatedFields) > 0 {
-					metrics["updated"]++
-					details = append(details, fmt.Sprintf("🔄 更新 %s：%s", result.Subject, strings.Join(result.UpdatedFields, "、")))
-				}
 				if result.CandidateSaved {
 					metrics["added"]++
 					posterDetail := "豆瓣海报"
-					if result.CandidatePromoted {
-						posterDetail += "（已设为当前海报）"
-					}
 					details = append(details, fmt.Sprintf("➕ 新增 %s：%s", result.Subject, posterDetail))
 				}
 				if result.Degraded {
 					metrics["degraded"]++
 					details = append(details, fmt.Sprintf("⚠️ 降级 %s：豆瓣完整接口受限，已保存 subject 快照", result.Subject))
-				} else if len(result.UpdatedFields) == 0 && !result.CandidateSaved {
+				} else if !result.CandidateSaved {
 					metrics["snapshot_only"]++
-					details = append(details, fmt.Sprintf("✅ 刷新 %s：已保存完整豆瓣快照，未补到新的字段或海报", result.Subject))
+					details = append(details, fmt.Sprintf("✅ 刷新 %s：已更新豆瓣资料中心", result.Subject))
 				}
 			}
 			afterID = candidate.MetadataID
@@ -384,4 +304,30 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣信息补齐完成", Metrics: metrics, Details: []string{"ℹ️ " + summary}})
 	}
 	return nil
+}
+
+// saveDoubanPresentation 将正文与海报保存在共享来源，调用者负责事务和关联校验。
+func saveDoubanPresentation(ctx context.Context, repos *repository.Container, metadataID string, details *Match, degraded bool, asset *model.ArtworkAsset) error {
+	var err error
+	if degraded {
+		err = repos.Metadata.SaveDegradedProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+	} else {
+		err = repos.Metadata.SaveProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+	}
+	if err != nil || asset == nil {
+		return err
+	}
+	subject, err := repos.Douban.FindForMetadata(ctx, metadataID)
+	if err != nil {
+		return err
+	}
+	if subject == nil {
+		return ErrDoubanSubjectMissing
+	}
+	saved, err := repos.Artwork.SaveAsset(ctx, asset)
+	if err != nil {
+		return err
+	}
+	_, err = repos.Douban.SetPoster(ctx, subject, saved.ID, details.PosterURL)
+	return err
 }

@@ -139,7 +139,7 @@ func (r *HistoryRepository) ListByUserFiltered(ctx context.Context, userID strin
 	q := r.db.WithContext(ctx).
 		Table("(?) AS ph", PlaybackStates(ctx, r.db, "legacy", userID, filter)).
 		Joins("JOIN media AS m ON m.metadata_id = ph.metadata_id").
-		Joins("JOIN metadata_items AS mi ON mi.id = ph.metadata_id").
+		Joins("JOIN metadata_presentations AS mi ON mi.id = ph.metadata_id").
 		Where("ph.deleted_at IS NULL AND ph.user_id = ?", userID)
 	q = applyMediaViewFilter(q, filter)
 	if completed != nil && *completed {
@@ -148,7 +148,7 @@ func (r *HistoryRepository) ListByUserFiltered(ctx context.Context, userID strin
 	if completed != nil && !*completed {
 		q = q.Where("ph.position_ms >= ?", int64(20_000))
 		groupKey := "CASE WHEN mi.kind = 'episode' AND season.kind = 'season' THEN season.parent_id ELSE ph.metadata_id END"
-		grouped := q.Joins("LEFT JOIN metadata_items AS season ON season.id = mi.parent_id AND mi.kind = 'episode' AND season.kind = 'season'").
+		grouped := q.Joins("LEFT JOIN metadata_presentations AS season ON season.id = mi.parent_id AND mi.kind = 'episode' AND season.kind = 'season'").
 			Select("DISTINCT ON (" + groupKey + ") ph.*").
 			Order(groupKey + ", ph.watched_at DESC, ph.id DESC")
 		var rows []model.PlaybackHistory

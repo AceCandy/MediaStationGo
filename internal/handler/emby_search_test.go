@@ -43,6 +43,9 @@ func TestEmbySearchHintsReturnsSharedMetadata(t *testing.T) {
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatalf("create metadata: %v", err)
 	}
+	if err := testdb.SaveMetadataPresentationFixture(db, metadata); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Create(&model.Media{
 		PermanentBase: model.PermanentBase{ID: "media-search"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: "扫描提示", Path: "/media/searchable.mkv",

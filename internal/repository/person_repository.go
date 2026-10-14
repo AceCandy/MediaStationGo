@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
@@ -58,78 +57,26 @@ type PersonRepository struct {
 	view *MediaViewRepository
 }
 
-type metadataCreditKey struct {
-	PersonID     string
-	Type         string
-	OriginalRole string
-}
-
-func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string, loadedTypes []string, inputs []CreditInput) error {
-	metadataID = strings.TrimSpace(metadataID)
-	if metadataID == "" {
-		return errors.New("metadata id is required")
-	}
-	types, err := normalizeCreditTypes(loadedTypes)
-	if err != nil {
-		return err
-	}
-	if len(types) == 0 {
-		return nil
-	}
+// SaveCreditPeople 保存人物译名和本地头像；作品关系完全由 TMDb 来源中心负责。
+func (r *PersonRepository) SaveCreditPeople(ctx context.Context, inputs []CreditInput) error {
 	var personIDs []string
-	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 同一作品的快照串行合并，避免并发差量同步留下已移除的关系。
-		var metadata model.MetadataItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "kind").First(&metadata, "id = ?", metadataID).Error; err != nil {
-			return err
-		}
-		// 集只读取所属季的演职员，不建立独立人物关系。
-		if metadata.Kind == model.MetadataKindEpisode {
-			return nil
-		}
-		var existing []model.MetadataCredit
-		if err := tx.Where("metadata_id = ? AND type IN ?", metadataID, types).Find(&existing).Error; err != nil {
-			return err
-		}
-		remaining := make(map[metadataCreditKey]string, len(existing))
-		for _, credit := range existing {
-			remaining[metadataCreditKey{PersonID: credit.PersonID, Type: credit.Type, OriginalRole: credit.OriginalRole}] = credit.ID
-		}
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, input := range inputs {
-			input.Type = normalizeCreditType(input.Type)
-			if !containsString(types, input.Type) {
-				continue
-			}
-			person, err := upsertCreditPerson(tx, input, func(id string) { personIDs = append(personIDs, id) })
-			if err != nil {
+			if _, err := upsertCreditPerson(tx, input, func(id string) { personIDs = append(personIDs, id) }); err != nil {
 				return err
 			}
-			if person == nil {
-				continue
-			}
-			if err := saveCredit(tx, metadataID, person.ID, input); err != nil {
-				return err
-			}
-			delete(remaining, metadataCreditKey{PersonID: person.ID, Type: input.Type, OriginalRole: strings.TrimSpace(input.OriginalRole)})
-		}
-		if len(remaining) > 0 {
-			ids := make([]string, 0, len(remaining))
-			for _, id := range remaining {
-				ids = append(ids, id)
-			}
-			return tx.Where("id = ANY(?)", &ids).Delete(&model.MetadataCredit{}).Error
 		}
 		return nil
 	})
 	if err == nil {
-		r.refreshPersonWorks(ctx, []string{metadataID}, personIDs)
+		r.refreshPersonWorks(ctx, nil, personIDs)
 	}
 	return err
 }
 
 func (r *PersonRepository) ListCredits(ctx context.Context, metadataID string) ([]model.MetadataCredit, error) {
 	var rows []model.MetadataCredit
-	err := r.db.WithContext(ctx).Where("metadata_id = ?", metadataID).Order("sort_order, id").Find(&rows).Error
+	err := r.db.WithContext(ctx).Table("metadata_credit_presentations").Where("metadata_id = ?", metadataID).Order("sort_order, id").Find(&rows).Error
 	return rows, err
 }
 
@@ -165,7 +112,7 @@ func (r *PersonRepository) ListCreditsWithPeopleByMetadataIDs(ctx context.Contex
 		return []model.MetadataCredit{}, nil
 	}
 	var rows []model.MetadataCredit
-	if err := r.db.WithContext(ctx).Preload("Person").Where("metadata_id = ANY(?)", &ids).Order("metadata_id, sort_order, id").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Table("metadata_credit_presentations").Preload("Person", func(db *gorm.DB) *gorm.DB { return db.Table("person_presentations") }).Where("metadata_id = ANY(?)", &ids).Order("metadata_id, sort_order, id").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	grouped := make(map[string][]model.MetadataCredit)
@@ -185,9 +132,9 @@ func (r *PersonRepository) ListCreditsWithPeopleByMetadataIDs(ctx context.Contex
 // ListPendingPeopleTranslations 先排除中文和当前版本的无效缓存，再限制本轮人物数。
 func (r *PersonRepository) ListPendingPeopleTranslations(ctx context.Context, language, version string, limit int) ([]model.Person, error) {
 	var rows []model.Person
-	err := r.db.WithContext(ctx).
+	err := r.db.WithContext(ctx).Table("person_presentations AS people").
 		Select("id, original_name").
-		Where("original_name <> '' AND name = original_name AND original_name !~ '[一-鿿]'").
+		Where("original_name <> '' AND name !~ '[一-鿿]' AND original_name !~ '[一-鿿]'").
 		Where(`NOT EXISTS (SELECT 1 FROM translation_caches AS cache
 			WHERE cache.kind = 'person_name' AND cache.context_key = people.id
 			AND cache.source_text = people.original_name AND cache.target_language = ? AND cache.prompt_version = ?
@@ -196,29 +143,27 @@ func (r *PersonRepository) ListPendingPeopleTranslations(ctx context.Context, la
 	return rows, err
 }
 
-// ListPendingRoleTranslations 按作品和关系 ID 翻页；上下文只加载当前有效候选页。
-func (r *PersonRepository) ListPendingRoleTranslations(ctx context.Context, language, version, afterMetadataID, afterID string, limit int) ([]model.MetadataCredit, error) {
-	var rows []model.MetadataCredit
-	err := r.db.WithContext(ctx).Model(&model.MetadataCredit{}).
-		Select("metadata_credits.id, metadata_credits.metadata_id, metadata_credits.original_role").
-		Joins("LEFT JOIN metadata_items AS work ON work.id = metadata_credits.metadata_id").
-		Preload("Metadata", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, kind, parent_id, title, original_name, year")
-		}).
-		Preload("Metadata.Parent", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, kind, parent_id, title, original_name, year")
-		}).
-		Preload("Metadata.Parent.Parent", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, kind, parent_id, title, original_name, year")
-		}).
-		Where("metadata_credits.type IN ? AND original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'", []string{model.CreditTypeActor, model.CreditTypeGuestStar}).
-		Where(`NOT EXISTS (SELECT 1 FROM translation_caches AS cache
-			WHERE cache.kind = 'role'
-			AND cache.context_key = CASE WHEN work.kind = 'episode' THEN COALESCE(work.parent_id, metadata_credits.metadata_id) ELSE metadata_credits.metadata_id END
-			AND cache.source_text = metadata_credits.original_role AND cache.target_language = ? AND cache.prompt_version = ?
-			AND cache.deleted_at IS NULL AND cache.translated_text !~ '[一-鿿]')`, language, version).
-		Where("(metadata_credits.metadata_id, metadata_credits.id) > (?, ?)", afterMetadataID, afterID).
-		Order("metadata_credits.metadata_id, metadata_credits.id").Limit(limit).Find(&rows).Error
+// PendingRoleTranslation 是来源角色与本轮翻译所需的作品上下文。
+type PendingRoleTranslation struct {
+	ID           string
+	SubjectID    string
+	OriginalRole string
+	Subject      model.TMDbSubject `gorm:"foreignKey:SubjectID"`
+}
+
+// ListPendingRoleTranslations 按来源作品分页；未绑定本地媒体的资料同样参与翻译。
+func (r *PersonRepository) ListPendingRoleTranslations(ctx context.Context, language, version, afterSubjectID, afterID string, limit int) ([]PendingRoleTranslation, error) {
+	var rows []PendingRoleTranslation
+	err := r.db.WithContext(ctx).Table("tmdb_credits AS c").
+		Select("c.id,c.subject_id,c.character AS original_role").
+		Preload("Subject").Preload("Subject.Parent").
+		Where("c.origin='subject' AND c.category='cast' AND c.character<>'' AND c.character !~ '[一-鿿]'").
+		Where(`NOT EXISTS (SELECT 1 FROM translation_caches cache WHERE cache.kind='role'
+ AND cache.context_key=c.subject_id AND cache.source_text=c.character
+ AND cache.target_language=? AND cache.deleted_at IS NULL
+ AND (cache.translated_text ~ '[一-鿿]' OR cache.prompt_version=?))`, language, version).
+		Where("(c.subject_id,c.id) > (?,?)", afterSubjectID, afterID).
+		Order("c.subject_id,c.id").Limit(limit).Find(&rows).Error
 	return rows, err
 }
 
@@ -227,12 +172,12 @@ func (r *PersonRepository) ListPersonWorkContexts(ctx context.Context, personIDs
 		return nil, nil
 	}
 	var rows []PersonWorkContext
-	err := r.db.WithContext(ctx).Table("metadata_credits AS mc").
-		Select("mc.person_id, mi.id AS metadata_id, mi.kind, mi.title, mi.original_name, mi.year, mi.release_date").
-		Joins("JOIN metadata_items AS mi ON mi.id = mc.metadata_id").
-		Where("mc.person_id = ANY(?) AND mi.kind IN ?", &personIDs, []string{model.MetadataKindMovie, model.MetadataKindSeries}).
-		Order("mc.person_id, mi.release_date DESC, mi.year DESC, mi.id DESC").
-		Scan(&rows).Error
+	err := r.db.WithContext(ctx).Table("tmdb_credits AS c").
+		Select("p.person_id,s.id AS metadata_id,s.kind,s.title,s.original_name,CASE WHEN s.release_date ~ '^[0-9]{4}' THEN left(s.release_date,4)::integer ELSE 0 END AS year,s.release_date").
+		Joins("JOIN tmdb_person_profiles p ON p.id=c.person_profile_id").
+		Joins("JOIN tmdb_subjects s ON s.id=c.subject_id").
+		Where("p.person_id = ANY(?) AND c.origin='subject' AND s.kind IN ?", &personIDs, []string{model.MetadataKindMovie, model.MetadataKindSeries}).
+		Group("p.person_id,s.id").Order("p.person_id,s.release_date DESC,s.id DESC").Scan(&rows).Error
 	return rows, err
 }
 
@@ -301,7 +246,7 @@ func (r *PersonRepository) refreshPersonWorks(ctx context.Context, metadataIDs, 
 	}
 	if len(personIDs) > 0 {
 		var related []string
-		if err := r.db.WithContext(ctx).Table("metadata_credits").Distinct("metadata_id").
+		if err := r.db.WithContext(ctx).Table("metadata_credit_presentations").Distinct("metadata_id").
 			Where("person_id = ANY(?)", &personIDs).Pluck("metadata_id", &related).Error; err != nil {
 			r.view.searchFailed.Store(true)
 			r.view.searchMu.Lock()
@@ -344,7 +289,7 @@ func (r *PersonRepository) FindCreditPeople(ctx context.Context, inputs []Credit
 
 func (r *PersonRepository) FindByID(ctx context.Context, id string) (*model.Person, error) {
 	var person model.Person
-	err := r.db.WithContext(ctx).First(&person, "id = ?", strings.TrimSpace(id)).Error
+	err := r.db.WithContext(ctx).Table("person_presentations").First(&person, "id = ?", strings.TrimSpace(id)).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -352,7 +297,7 @@ func (r *PersonRepository) FindByID(ctx context.Context, id string) (*model.Pers
 }
 
 func (r *PersonRepository) List(ctx context.Context, search string, ids []string, offset, limit int, count bool) ([]model.Person, int64, error) {
-	q := r.db.WithContext(ctx).Model(&model.Person{})
+	q := r.db.WithContext(ctx).Model(&model.Person{}).Table("person_presentations")
 	if search = strings.TrimSpace(search); search != "" {
 		term := "%" + EscapeLike(strings.ToLower(search)) + "%"
 		q = q.Where("LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(original_name) LIKE ? ESCAPE '\\'", term, term)
@@ -494,58 +439,6 @@ func personSourceUpdates(person model.Person, input CreditInput, source string) 
 	return updates
 }
 
-func saveCredit(tx *gorm.DB, metadataID, personID string, input CreditInput) error {
-	originalRole := strings.TrimSpace(input.OriginalRole)
-	var credit model.MetadataCredit
-	err := tx.Where("metadata_id = ? AND person_id = ? AND type = ? AND original_role = ?", metadataID, personID, input.Type, originalRole).First(&credit).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return tx.Create(&model.MetadataCredit{MetadataID: metadataID, PersonID: personID, Type: input.Type, OriginalRole: originalRole, Role: originalRole, SortOrder: input.SortOrder}).Error
-	}
-	if err != nil {
-		return err
-	}
-	updates := map[string]any{}
-	if strings.TrimSpace(credit.Role) == "" && credit.Role != originalRole {
-		updates["role"] = originalRole
-	}
-	if credit.SortOrder != input.SortOrder {
-		updates["sort_order"] = input.SortOrder
-	}
-	if len(updates) == 0 {
-		return nil
-	}
-	return tx.Model(&credit).Updates(updates).Error
-}
-
-func normalizeCreditTypes(values []string) ([]string, error) {
-	out := make([]string, 0, len(values))
-	for _, raw := range values {
-		value := normalizeCreditType(raw)
-		if value == "" {
-			return nil, fmt.Errorf("unsupported credit type %q", raw)
-		}
-		if !containsString(out, value) {
-			out = append(out, value)
-		}
-	}
-	return out, nil
-}
-
-func normalizeCreditType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "actor":
-		return model.CreditTypeActor
-	case "gueststar", "guest_star":
-		return model.CreditTypeGuestStar
-	case "director":
-		return model.CreditTypeDirector
-	case "writer":
-		return model.CreditTypeWriter
-	default:
-		return ""
-	}
-}
-
 func normalizePersonName(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }
@@ -575,9 +468,8 @@ func applyTranslationTargets(tx *gorm.DB, targets []TranslationTarget, translate
 				Where("id = ? AND original_name = ? AND name = ?", target.ID, target.OriginalText, target.OriginalText).
 				Update("name", translatedText)
 		case "role":
-			result = tx.Model(&model.MetadataCredit{}).
-				Where("id = ? AND original_role = ? AND role = ?", target.ID, target.OriginalText, target.OriginalText).
-				Update("role", translatedText)
+			// 角色展示直接读取按来源作品保存的翻译缓存，无需回写关系副本。
+			continue
 		default:
 			continue
 		}

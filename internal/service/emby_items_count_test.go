@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,10 +16,10 @@ func TestEmbyItemsCountModes(t *testing.T) {
 	db := e.repo.DB
 	for _, query := range []string{
 		`INSERT INTO libraries(id,name,type,path) VALUES ('movies','Movies','movie','/fixture/movies'),('tv','TV','tv','/fixture/tv'),('hg','Source','hongguo','/fixture/source')`,
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'movie-'||n,'movie','Movie '||n,'local' FROM generate_series(1,3) n`,
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('show','series','Show','local')`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) VALUES ('season','season','Season','local','show',1)`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) SELECT 'ep-'||n,'episode','Episode '||n,'local','season',n FROM generate_series(1,3) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'movie-'||n,'movie','Movie '||n,'local' FROM generate_series(1,3) n`),
+		testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('show','series','Show','local')`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num", `VALUES ('season','season','Season','local','show',1)`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,episode_num", `SELECT 'ep-'||n,'episode','Episode '||n,'local','season',n FROM generate_series(1,3) n`),
 		`INSERT INTO media(id,metadata_id,library_id,path,season_num,episode_num) SELECT 'file-'||id,id,'movies','/fixture/movies/'||id,0,0 FROM metadata_items WHERE kind='movie'`,
 		`INSERT INTO media(id,metadata_id,library_id,path,season_num,episode_num) SELECT lib||'-'||id,id,lib,'/fixture/'||lib||'/Season 01/'||id,1,episode_num FROM metadata_items CROSS JOIN (VALUES ('tv'),('movies')) l(lib) WHERE kind='episode'`,
 		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) SELECT 'work-'||n,n::text,'series','Source '||n,now() FROM generate_series(1,3) n`,

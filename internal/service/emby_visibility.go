@@ -12,11 +12,15 @@ import (
 )
 
 func (e *EmbyService) applyUserMediaVisibility(ctx context.Context, q *gorm.DB, userID string) *gorm.DB {
-	visibility := e.mediaVisibility(ctx, userID)
 	// Persisted media must always point at a live metadata row. Keep this join
 	// aligned with MediaView so counts and payloads cannot disagree on orphaned
 	// media rows.
 	q = q.Joins("JOIN metadata_items AS emby_metadata ON emby_metadata.id = media.metadata_id")
+	return e.applyUserMediaLibraryVisibility(ctx, q, userID)
+}
+
+func (e *EmbyService) applyUserMediaLibraryVisibility(ctx context.Context, q *gorm.DB, userID string) *gorm.DB {
+	visibility := e.mediaVisibility(ctx, userID)
 	if !visibility.IncludeNSFW {
 		if hidden := visibility.HiddenLibraryIDs; len(hidden) > 0 {
 			q = q.Where("media.library_id <> ALL(?)", &hidden)

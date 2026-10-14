@@ -19,6 +19,7 @@ func TestHongGuoBindingGroupingAndStableProgress(t *testing.T) {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	ctx := context.Background()
 	r := New(db)
 	library := model.Library{Name: "红果", Path: "/test/hongguo", Type: model.LibraryTypeHongGuo}
@@ -161,6 +162,7 @@ func TestHongGuoContinueGroupsEpisodesByWork(t *testing.T) {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	ctx := context.Background()
 	r := New(db)
 	library := model.Library{Name: "红果", Path: "/test/hongguo-resume", Type: model.LibraryTypeHongGuo}

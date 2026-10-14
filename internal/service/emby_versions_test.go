@@ -64,7 +64,7 @@ func TestEmbyLocalAndHTTPMovieVersionsShareMediaSources(t *testing.T) {
 			t.Fatalf("create library: %v", err)
 		}
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "流浪地球", Year: 2019, Source: "local",
 	})
 	for _, media := range []model.Media{
@@ -127,7 +127,7 @@ func TestEmbyCountsSharedMetadataOnce(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-counted-once"}, Kind: model.MetadataKindMovie,
 		Title: "同一作品", Source: "tmdb",
 	})
@@ -165,11 +165,11 @@ func TestEmbyVersionPaginationFillsLogicalPage(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	first := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	first := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-many-versions"}, Kind: model.MetadataKindMovie,
 		Title: "多版本作品", Source: "tmdb",
 	})
-	second := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	second := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-second-work"}, Kind: model.MetadataKindMovie,
 		Title: "第二部作品", Source: "tmdb",
 	})
@@ -214,11 +214,11 @@ func TestEmbySharedMetadataAcrossIndependentLibrariesUsesOneGlobalItemAndVisible
 			t.Fatalf("create library: %v", err)
 		}
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-cross-library"}, Kind: model.MetadataKindMovie,
 		Title: "跨库作品", Source: "tmdb",
 	})
-	createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-catalog-only"}, Kind: model.MetadataKindMovie,
 		Title: metadata.Title, Source: "tmdb",
 	})
@@ -290,7 +290,7 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-shared-movie"}, Kind: model.MetadataKindMovie,
 		Title: "共享电影", Source: "tmdb",
 	})
@@ -382,7 +382,7 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	if history.DurationMs != 120_000 {
 		t.Fatalf("history duration = %d", history.DurationMs)
 	}
-	unrelatedMetadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	unrelatedMetadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-unrelated-progress"}, Kind: model.MetadataKindMovie,
 		Title: "其他电影", Source: "tmdb",
 	})
@@ -513,11 +513,11 @@ func TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	first := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	first := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-latest-many"}, Kind: model.MetadataKindMovie,
 		Title: "多版本新片", ReleaseDate: "2026-08-08", Source: "tmdb",
 	})
-	second := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	second := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-latest-second"}, Kind: model.MetadataKindMovie,
 		Title: "第二部新片", ReleaseDate: "2026-08-07", Source: "tmdb",
 	})

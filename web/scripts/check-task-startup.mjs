@@ -40,7 +40,7 @@ try {
       } else if (config.url === '/tasks') {
         if (probe.holdHistory) await new Promise(resolve => {probe.releaseHistory = resolve});
         data = {items:[],page:1,page_size:1,total:0,definitions:[{
-          system:'common',key:'organize',name:'媒体整理',description:'整理下载目录',trigger:'定时 / 手动',current_state:'idle',action:'scheduler',
+          system:'common',key:'account_cleanup',name:'账号清理巡检',description:'检查账号保留规则',trigger:'定时 / 手动',current_state:'idle',action:'scheduler',
           schedule_config:{enabled:false,interval_seconds:300,min_interval_seconds:60,max_interval_seconds:2592000}
         }]};
       }

@@ -29,7 +29,7 @@ func TestTMDbRecheckUsesDedicatedDetailsTimeout(t *testing.T) {
 }
 
 func TestTMDbRecheckPassReusesScatteredSeasons(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
+	db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{})
 	if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
 		t.Fatal(err)
@@ -76,10 +76,10 @@ func TestTMDbRecheckPassReusesScatteredSeasons(t *testing.T) {
 	s.tmdb.catalog.ctx = t.Context()
 	t.Cleanup(s.tmdb.catalog.Wait)
 	metrics := map[string]int64{}
-	if err := s.runTMDbRecheckQueue(t.Context(), metrics, nil); err != nil {
+	if err := s.runTMDbSourceRechecks(t.Context(), "episode", seasonCount*2, metrics, nil); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != seasonCount || metrics["seasons_scanned"] != seasonCount || metrics["requests"] != int64(calls.Load()) || metrics["scanned"] != seasonCount*2 || metrics["checked"] != seasonCount*2 || metrics["remaining"] != 0 || metrics["failed"] != 0 {
+	if calls.Load() != seasonCount || metrics["scanned"] != seasonCount*2 || metrics["updated"] != seasonCount*2 || metrics["remaining"] != 0 || metrics["failed"] != 0 {
 		t.Fatalf("calls=%d metrics=%v", calls.Load(), metrics)
 	}
 	if _, ok := metrics["details_ms"]; !ok {
@@ -184,7 +184,7 @@ func TestTMDbRecheckStagePreservesClassificationAndRedaction(t *testing.T) {
 }
 
 func TestTMDbRecheckFailuresReportActualStage(t *testing.T) {
-	for _, stage := range []struct{ key, label string }{{"details", "详情请求"}, {"image", "图片下载及落盘"}, {"save", "数据库保存"}} {
+	for _, stage := range []struct{ key, label string }{{"details", "详情请求"}, {"save", "数据库保存"}} {
 		t.Run(stage.key, func(t *testing.T) {
 			db := newServiceTestDB(t, &model.Media{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{})
 			repos := repository.New(db)
@@ -200,7 +200,7 @@ func TestTMDbRecheckFailuresReportActualStage(t *testing.T) {
 			}
 			if stage.key == "save" {
 				if err := db.Exec(`CREATE FUNCTION reject_recheck_snapshot() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'snapshot write failed'; END; $$ LANGUAGE plpgsql;
-CREATE TRIGGER reject_recheck_snapshot BEFORE INSERT ON tmdb_payloads FOR EACH ROW EXECUTE FUNCTION reject_recheck_snapshot()`).Error; err != nil {
+CREATE TRIGGER reject_recheck_snapshot BEFORE UPDATE OF tmdb_episode_checked_at ON metadata_items FOR EACH ROW EXECUTE FUNCTION reject_recheck_snapshot()`).Error; err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -213,16 +213,19 @@ CREATE TRIGGER reject_recheck_snapshot BEFORE INSERT ON tmdb_payloads FOR EACH R
 				if stage.key == "image" {
 					still = "/still.jpg"
 				}
-				fmt.Fprintf(w, `{"id":100,"season_number":1,"episodes":[{"id":101,"season_number":1,"episode_number":1,"name":"上篇","overview":"中文简介","still_path":%q}]}`, still)
+				fmt.Fprintf(w, `{"id":100,"season_number":1,"external_ids":{},"credits":{"cast":[],"crew":[]},"episodes":[{"id":101,"season_number":1,"episode_number":1,"name":"上篇","overview":"中文简介","still_path":%q}]}`, still)
 			}))
 			defer server.Close()
 			s := &ScraperService{repo: repos, tmdb: newTMDbTestProvider(server.URL), artwork: NewArtworkStore(&config.Config{}, repos.Artwork, nil)}
+			s.tmdb.catalog = NewTMDbDataCenter(repos, s.tmdb)
+			s.tmdb.catalog.ctx = t.Context()
+			t.Cleanup(s.tmdb.catalog.Wait)
 			job, err := repos.Metadata.ClaimTMDbRecheck(t.Context())
 			if err != nil || job == nil {
 				t.Fatalf("claim=%+v err=%v", job, err)
 			}
 			metrics := map[string]int64{}
-			details, err := s.processTMDbRecheck(withTMDbSeasonBatch(t.Context()), job, metrics)
+			details, err := s.processTMDbRecheck(withTMDbSeasonBatch(repository.WithTMDbSourceRecheck(t.Context())), job, metrics)
 			if err != nil || metrics["failed"] != 1 || metrics[stage.key+"_failed"] != 1 || !strings.Contains(strings.Join(details, " "), stage.label+"（耗时") {
 				t.Fatalf("details=%v metrics=%v err=%v", details, metrics, err)
 			}

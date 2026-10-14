@@ -31,17 +31,12 @@ type ScraperService struct {
 	ai      *AIService
 
 	peopleTranslationRunMu sync.Mutex
-	peopleBackfillRunMu    sync.Mutex
-	catalogArtworkRunMu    sync.Mutex
-	catalogArtworkWake     chan struct{}
-	catalogArtworkOnce     sync.Once
 
-	catalogHydrationWake chan struct{}
-	mediaScrapeWake      chan struct{}
-	catalogHydrationOnce sync.Once
-	catalogHydrationWG   sync.WaitGroup
-	scrapeRunMu          sync.RWMutex
-	tasks                *TaskTrackerService
+	mediaScrapeWake chan struct{}
+	mediaScrapeOnce sync.Once
+	backgroundWG    sync.WaitGroup
+	scrapeRunMu     sync.RWMutex
+	tasks           *TaskTrackerService
 }
 
 func (s *ScraperService) SetTaskTracker(tasks *TaskTrackerService) {
@@ -76,9 +71,7 @@ func NewScraperService(
 	return &ScraperService{
 		cfg: cfg, log: log, repo: repo,
 		tmdb: tmdb, bangumi: bangumi, thetvdb: thetvdb, fanart: fanart, adult: adultProvider, hub: hub,
-		catalogHydrationWake: make(chan struct{}, 1),
-		mediaScrapeWake:      make(chan struct{}, autoMediaScrapeWorkerCount),
-		catalogArtworkWake:   make(chan struct{}, 1),
+		mediaScrapeWake: make(chan struct{}, autoMediaScrapeWorkerCount),
 	}
 }
 

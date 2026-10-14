@@ -18,7 +18,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
-func TestManualScrapeApplyOneReturnsUpdatedMediaViewAndPreservesFilePlacement(t *testing.T) {
+func TestManualScrapeRejectsManualFieldsAndPreservesFilePlacement(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -58,18 +58,8 @@ func TestManualScrapeApplyOneReturnsUpdatedMediaViewAndPreservesFilePlacement(t 
 	c.Request.Header.Set("Content-Type", "application/json")
 	manualScrapeApplyOneHandler(svc)(c)
 
-	if w.Code != http.StatusOK {
+	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-	var got model.MediaView
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Title != "New Metadata Title" {
-		t.Fatalf("response title = %q, want updated metadata title", got.Title)
-	}
-	if got.Path != media.Path || got.LibraryID != lib.ID {
-		t.Fatalf("response changed file placement: path=%q library_id=%q", got.Path, got.LibraryID)
 	}
 
 	var stored model.Media

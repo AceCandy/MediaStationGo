@@ -1,0 +1,8 @@
+# Design
+
+- Full scans buffer at most 500 discovered media paths and load only their narrow fingerprints using the existing unique path index. Hardlink identities are resolved in each batch against persisted library rows, then batch-local identities preserve dedup before flush. Normal Unix files reuse DirEntry.Info; symlinks retain target Stat for identity only.
+- Missing rows use library/path keyset pages, supported by a composite index. A bounded directory-entry cache avoids re-statting ordinary existing files; very large directories fall back to Stat rather than unbounded name retention. Only completed roots prune; missing candidates are rechecked and unavailable roots preserve rows. Root pruning accumulates bounded change details directly instead of retaining all removed paths.
+- Part candidate directories are tracked during discovery and persisted old part fields during paginated reconciliation. Reconcile only those directories, preserving old orphan-state cleanup. Memory may scale with candidate directories and existing probe-scope contracts, but no full file fingerprint/seen map remains.
+- HongGuo batches use the shared single-item transaction core with a transaction-local lookup cache. On batch failure rollback, restore in-memory inputs and retry individual writes for existing per-file failure behavior. Search capture remains inside transaction and publication after commit.
+- ScanResult/ScanProgress expose additive millisecond timing metrics, HTTP and scheduler terminal metrics include them.
+- No new dependency. Add one library/path index; rollback executable can keep the harmless index. Existing dirty changes must be preserved.

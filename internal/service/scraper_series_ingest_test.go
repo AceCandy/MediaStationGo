@@ -23,7 +23,7 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.AutoMigrate(&model.MediaProbeMetadata{}, &model.MetadataArtworkRecheck{}); err != nil {
+	if err := repos.DB.AutoMigrate(&model.MediaProbeMetadata{}); err != nil {
 		t.Fatal(err)
 	}
 	var requests atomic.Int32
@@ -96,9 +96,6 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 			if got.TheTVDBID != "477657" {
 				t.Fatalf("file %d retained stale TVDB ID %q", i, got.TheTVDBID)
 			}
-			if ep.CatalogMetadataHydratedAt != nil || ep.CatalogHydratedAt != nil {
-				t.Fatal("inventory incorrectly marked complete")
-			}
 			if coords[i][1] == 1 && (ep.Overview != "集简介" || ep.RuntimeSec != 1440) {
 				t.Fatalf("missing basic fields: %+v", ep)
 			}
@@ -123,7 +120,7 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Model(ep).Updates(map[string]any{"overview": "完整简介", "catalog_metadata_hydrated_at": time.Now()}).Error; err != nil {
+	if err := repos.DB.Model(&model.TMDbSubject{}).Where("kind = ? AND tmdb_id = ?", "episode", 1011).Update("overview", "完整简介").Error; err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ingestSeasonInventory(t.Context(), season, 12345); err != nil {
@@ -132,26 +129,6 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 	ep, err = repos.Metadata.FindEpisode(t.Context(), series.ID, 1, 1)
 	if err != nil || ep.Overview != "完整简介" {
 		t.Fatal("summary overwrote full details", err)
-	}
-	if err := repos.DB.Model(season).Update("catalog_hydrated_at", time.Now()).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.DB.Model(&model.CatalogHydrationJob{}).Where("external_id = ?", "12345").Updates(map[string]any{"status": model.CatalogJobStatusCompleted, "attempts": 8}).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := s.syncScrapeSeriesGroup(t.Context(), validGroup, &fresh, series.ID); err != nil {
-		t.Fatal(err)
-	}
-	season, err = repos.Metadata.FindSeason(t.Context(), series.ID, 1)
-	if err != nil || season.CatalogHydratedAt != nil {
-		t.Fatal("incomplete children remained hidden by season checkpoint", err)
-	}
-	var job model.CatalogHydrationJob
-	if err := repos.DB.Where("external_id = ?", "12345").First(&job).Error; err != nil {
-		t.Fatal(err)
-	}
-	if job.Status != model.CatalogJobStatusPending || job.Attempts != 0 {
-		t.Fatal("completed catalog job was not resumed")
 	}
 	group.Representative = rows[0]
 	if err := repos.DB.Model(&model.Media{}).Where("id = ?", rows[0].ID).Updates(map[string]any{"scrape_status": "error", "scrape_error": "failed"}).Error; err != nil {
@@ -247,7 +224,7 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 		t.Fatalf("ID-less placeholders must be eligible for recheck: %d, %v", len(candidates), err)
 	}
 	candidate := repository.TMDbMetadataRecheckCandidate{Kind: model.MetadataKindEpisode, MetadataID: placeholderID, SeriesTMDbID: "12345", SeasonNum: 1, EpisodeNum: 20, ArtworkMissing: true}
-	if _, err := s.recheckTMDbMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err == nil {
+	if _, err := s.fetchTMDbMetadataRecheck(t.Context(), candidate, 12345); err == nil {
 		t.Fatal("missing upstream episode must remain retryable")
 	}
 	item, err := repos.Metadata.FindByID(t.Context(), placeholderID)
@@ -354,11 +331,11 @@ func TestSeriesInventoryOnlySpecialsTolerateNotFound(t *testing.T) {
 					ids[i] = ep.ID
 					identifiers, err := repos.Metadata.ListIdentifiers(t.Context(), ep.ID)
 					if err != nil || round < 2 && len(identifiers) != 0 || round == 2 && len(identifiers) != 1 {
-						t.Fatal("unexpected episode provider identity", err)
+						t.Fatalf("unexpected episode provider identity round=%d ids=%+v err=%v", round, identifiers, err)
 					}
 					for _, metadataID := range []string{ep.ID, *ep.ParentID} {
 						item, err := repos.Metadata.FindByID(t.Context(), metadataID)
-						if err != nil || item.CatalogMetadataHydratedAt != nil || item.CatalogHydratedAt != nil || item.CatalogArtworkHydratedAt != nil {
+						if err != nil || item == nil {
 							t.Fatal("inventory incorrectly marked complete", err)
 						}
 						if round < 2 {
@@ -446,59 +423,5 @@ func TestMediaScrapeRecordsWaitingBeforeLock(t *testing.T) {
 	got, err := repos.Media.FindByID(t.Context(), row.ID)
 	if err != nil || got.ScrapeStatus != "pending" {
 		t.Fatal("cancel did not restore pending work", err)
-	}
-}
-
-func TestCatalogYieldReleasesLockAndHandlesCancellation(t *testing.T) {
-	s, repos, closeUpstream := newTestScraper(t)
-	defer closeUpstream()
-	s.tasks = NewTaskTrackerService(nil, nil)
-	lib := model.Library{Name: "剧库", Path: t.TempDir(), Type: "tv", Enabled: true}
-	if err := repos.DB.Create(&lib).Error; err != nil {
-		t.Fatal(err)
-	}
-	row := model.Media{LibraryID: lib.ID, Path: filepath.Join(lib.Path, "ep.mkv"), ScrapeStatus: "pending"}
-	if err := repos.DB.Create(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	for _, cancelled := range []bool{false, true} {
-		if err := repos.DB.Model(&row).Update("scrape_status", "pending").Error; err != nil {
-			t.Fatal(err)
-		}
-		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		task := s.tasks.StartTriggered(TaskKindScrape, TaskTriggerEvent, "发现目录刮削：电视剧 1", TaskUpdate{Stage: "episodes"})
-		metrics := &catalogArtworkMetrics{task: task}
-		s.scrapeRunMu.Lock()
-		done := make(chan error, 1)
-		go func() {
-			s.scrapeRunMu.RLock()
-			defer s.scrapeRunMu.RUnlock()
-			if cancelled {
-				cancel()
-				done <- nil
-				return
-			}
-			err := repos.DB.Model(&row).Update("scrape_status", "matched").Error
-			s.wakeCatalogHydration()
-			done <- err
-		}()
-		err := s.yieldCatalogToMedia(ctx, metrics)
-		s.scrapeRunMu.Unlock()
-		if cancelled && err != context.Canceled || !cancelled && err != nil {
-			t.Fatalf("yield cancelled=%v: %v", cancelled, err)
-		}
-		active := s.tasks.memorySnapshot().Active
-		wantStage := "scrape"
-		if cancelled {
-			wantStage = "waiting"
-		}
-		if len(active) != 1 || active[0].Stage != wantStage {
-			t.Fatalf("catalog state after yield: %+v, want %s", active, wantStage)
-		}
-		task.Finish(err, TaskUpdate{Stage: "completed"})
-		cancel()
-		if err := <-done; err != nil {
-			t.Fatal(err)
-		}
 	}
 }

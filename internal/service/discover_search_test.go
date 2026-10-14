@@ -57,7 +57,7 @@ func TestTMDbCenterDiscoverySearchOnlySummaries(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("query not reused: %d", calls)
 	}
-	for _, table := range []any{&model.MetadataItem{}, &model.CatalogHydrationJob{}} {
+	for _, table := range []any{&model.MetadataItem{}} {
 		var n int64
 		if e := s.repo.DB.Model(table).Count(&n).Error; e != nil || n != 0 {
 			t.Fatalf("search expanded local catalog %d %v", n, e)

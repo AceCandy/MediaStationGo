@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"testing"
 
@@ -76,14 +77,14 @@ func TestEmbyOrdinaryPersonWorksCompletePagesAndRevalidation(t *testing.T) {
 	b := &personWorkTestBackend{}
 	addMovie := func(id, libraryID, personID string, playable bool) {
 		t.Helper()
-		createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindMovie, Title: id, Source: "tmdb"})
+		createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindMovie, Title: id, Source: "tmdb"})
 		if playable {
 			if err := svc.repo.DB.Create(&model.Media{MetadataID: id, LibraryID: libraryID, Path: "/media/person-search/" + id + ".mkv"}).Error; err != nil {
 				t.Fatal(err)
 			}
 		}
 		if personID != "" {
-			if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: id, PersonID: personID, Type: model.CreditTypeActor}).Error; err != nil {
+			if err := testdb.SaveSourceCreditFixture(svc.repo.DB, &model.MetadataCredit{MetadataID: id, PersonID: personID, Type: model.CreditTypeActor}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -99,13 +100,13 @@ func TestEmbyOrdinaryPersonWorksCompletePagesAndRevalidation(t *testing.T) {
 	if err := svc.repo.DB.Create(&model.Media{MetadataID: "work-000", LibraryID: lib.ID, Path: "/media/person-search/work-000-4k.mkv"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series-work"}, Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"})
-	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, Title: "Season", SeasonNum: 1, Source: "tmdb"})
-	ep := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "Episode", EpisodeNum: 1, Source: "tmdb"})
+	series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series-work"}, Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"})
+	season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, Title: "Season", SeasonNum: 1, Source: "tmdb"})
+	ep := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "Episode", EpisodeNum: 1, Source: "tmdb"})
 	if err := svc.repo.DB.Create(&model.Media{MetadataID: ep.ID, LibraryID: lib.ID, Path: "/media/person-search/series/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: season.ID, PersonID: "actor-1", Type: model.CreditTypeActor}).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(svc.repo.DB, &model.MetadataCredit{MetadataID: season.ID, PersonID: "actor-1", Type: model.CreditTypeActor}); err != nil {
 		t.Fatal(err)
 	}
 	b.ids = append(b.ids, series.ID, "missing-index-id")
@@ -214,12 +215,12 @@ func TestEmbyPersonWorksPreserveDirectSeriesAndSeasonFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"direct-series", "direct-season-series"} {
-		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindSeries, Title: id, Source: "tmdb"})
+		series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindSeries, Title: id, Source: "tmdb"})
 		owner := series
 		if id == "direct-season-series" {
-			owner = createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, Title: "Season", SeasonNum: 1, Source: "tmdb"})
+			owner = createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, Title: "Season", SeasonNum: 1, Source: "tmdb"})
 		}
-		if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: owner.ID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+		if err := testdb.SaveSourceCreditFixture(svc.repo.DB, &model.MetadataCredit{MetadataID: owner.ID, PersonID: person.ID, Type: model.CreditTypeActor}); err != nil {
 			t.Fatal(err)
 		}
 		if err := svc.repo.DB.Create(&model.Media{MetadataID: owner.ID, LibraryID: lib.ID, Path: "/media/direct/" + id + ".mkv"}).Error; err != nil {

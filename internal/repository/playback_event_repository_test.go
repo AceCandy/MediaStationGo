@@ -17,10 +17,11 @@ func TestPlaybackEventStatsDetailsAndSeasonRanking(t *testing.T) {
 	}
 	if err := db.AutoMigrate(
 		&model.User{}, &model.Library{}, &model.MetadataItem{}, &model.Media{},
-		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.PlaybackEvent{},
+		&model.ArtworkAsset{}, &model.PlaybackEvent{},
 	); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 
 	user := model.User{Username: "viewer", PasswordHash: "hash", Role: "user", Nickname: "观众"}
 	movieLibrary := model.Library{Name: "电影库", Path: "/movies", Type: "movie", Enabled: true}
@@ -49,6 +50,11 @@ func TestPlaybackEventStatsDetailsAndSeasonRanking(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	for _, item := range []model.MetadataItem{movie, series, season, episode1, episode2} {
+		if err := testdb.SaveMetadataPresentationFixture(db, item); err != nil {
+			t.Fatal(err)
+		}
+	}
 	media := []model.Media{
 		{LibraryID: movieLibrary.ID, MetadataID: movie.ID, Title: "电影 A", Path: "/movies/a.mkv"},
 		{LibraryID: movieLibrary.ID, MetadataID: movie.ID, Title: "电影 B", Path: "/movies/b.mkv"},

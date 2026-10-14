@@ -85,7 +85,7 @@ func (r *HongGuoRepository) SaveAlbum(ctx context.Context, sourceID string, albu
 	}
 	var work model.HongGuoWork
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_id = ?", sourceID).First(&work).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_id = ? AND summary_only = false", sourceID).First(&work).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&model.HongGuoWork{}).Where("id = ?", work.ID).Updates(map[string]any{"related_album_id": album.ID, "season_index": album.Season, "album_checked_at": time.Now(), "album_retry_at": nil}).Error; err != nil {
@@ -109,7 +109,7 @@ func (r *HongGuoRepository) RetryAlbum(ctx context.Context, sourceID string, ret
 // PendingAlbums 补齐缺失关系并重试失败项；已核验的自身第一季不重复处理。
 func (r *HongGuoRepository) PendingAlbums(ctx context.Context, after string, cutoff time.Time) ([]model.HongGuoWork, error) {
 	rows := []model.HongGuoWork{}
-	err := r.db.WithContext(ctx).Where("source_id > ? AND created_at <= ? AND (album_checked_at IS NULL OR album_retry_at IS NOT NULL OR related_album_id = '' OR season_index <= 0)", after, cutoff).
+	err := r.db.WithContext(ctx).Where("summary_only = false AND source_id > ? AND created_at <= ? AND (album_checked_at IS NULL OR album_retry_at IS NOT NULL OR related_album_id = '' OR season_index <= 0)", after, cutoff).
 		Order("source_id").Limit(100).Find(&rows).Error
 	return rows, err
 }

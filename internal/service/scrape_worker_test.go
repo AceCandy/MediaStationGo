@@ -204,7 +204,7 @@ func TestResetLibraryScrapeQueuesOnlyUnfinishedRowsUnlessMatchedRequested(t *tes
 	if queued != 5 {
 		t.Fatalf("queued = %d, want 5 unfinished rows", queued)
 	}
-	if len(scraper.mediaScrapeWake) != autoMediaScrapeWorkerCount || len(scraper.catalogHydrationWake) != 0 {
+	if len(scraper.mediaScrapeWake) != autoMediaScrapeWorkerCount {
 		t.Fatal("manual library scrape must wake only media workers")
 	}
 	var stored []model.Media
@@ -243,7 +243,7 @@ func TestResetLibraryScrapeQueuesOnlyUnfinishedRowsUnlessMatchedRequested(t *tes
 		t.Fatal(err)
 	}
 	queued, err = scraper.ResetLibraryScrape(t.Context(), library.ID, false)
-	if err != nil || queued != 0 || len(scraper.mediaScrapeWake) != 0 || len(scraper.catalogHydrationWake) != 0 {
+	if err != nil || queued != 0 || len(scraper.mediaScrapeWake) != 0 {
 		t.Fatalf("empty reset must not wake workers: count=%d err=%v", queued, err)
 	}
 }

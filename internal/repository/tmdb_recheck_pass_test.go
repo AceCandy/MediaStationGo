@@ -81,12 +81,12 @@ func TestTMDbRecheckPassGroupsSeasonsAndExcludesLaterRetries(t *testing.T) {
 func TestTMDbRecheckSeasonClaimDoesNotScanOtherJobs(t *testing.T) {
 	db := recheckQueueDB(t)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source,season_num,episode_num) VALUES ('plan-series','series','','test',0,0)`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num)
-SELECT 'season-' || i::text,'season','','test','plan-series',i,0 FROM generate_series(0,999) i`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) VALUES ('target-season','season','','test','plan-series',2000,0)`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num)
-SELECT lpad(i::text,8,'0'),'episode','','test',CASE WHEN i>29970 THEN 'target-season' ELSE 'season-' || (i/30)::text END,0,i FROM generate_series(1,30000) i`,
+		`INSERT INTO metadata_items(id,kind,source,season_num,episode_num) VALUES ('plan-series','series','test',0,0)`,
+		`INSERT INTO metadata_items(id,kind,source,parent_id,season_num,episode_num)
+SELECT 'season-' || i::text,'season','test','plan-series',i,0 FROM generate_series(0,999) i`,
+		`INSERT INTO metadata_items(id,kind,source,parent_id,season_num,episode_num) VALUES ('target-season','season','test','plan-series',2000,0)`,
+		`INSERT INTO metadata_items(id,kind,source,parent_id,season_num,episode_num)
+SELECT lpad(i::text,8,'0'),'episode','test',CASE WHEN i>29970 THEN 'target-season' ELSE 'season-' || (i/30)::text END,0,i FROM generate_series(1,30000) i`,
 		`INSERT INTO tm_db_recheck_jobs(metadata_id,due_at) SELECT lpad(i::text,8,'0'),clock_timestamp()-interval '1 day' FROM generate_series(1,30000) i`,
 		`INSERT INTO tm_db_recheck_jobs(metadata_id,due_at) VALUES ('target-season',clock_timestamp()-interval '1 hour')`,
 		`ANALYZE tm_db_recheck_jobs`,

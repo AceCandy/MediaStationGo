@@ -216,24 +216,8 @@ func (s *ScraperService) BindDouban(ctx context.Context, metadataID string, req 
 		if err := tx.Model(&model.MetadataIdentifier{}).Where("metadata_id = ? AND provider = ? AND entity_kind = ?", metadataID, "douban", item.Kind).Update("douban_entity_kind", providerKind).Error; err != nil {
 			return err
 		}
-		if _, err := fillMissingDoubanFieldsDB(ctx, tx, metadataID, item.Kind, details, degraded); err != nil {
-			return err
-		}
-		// 改绑后旧豆瓣候选不能冒充新条目；当前已选海报仍保留。
-		if oldID, _ := uniqueIdentifier(identifiers, "douban", item.Kind); oldID != req.DoubanID {
-			if err := tx.Where("metadata_id = ? AND source_provider = ?", metadataID, "douban").Delete(&model.MetadataArtworkCandidate{}).Error; err != nil {
-				return err
-			}
-		}
-		if asset != nil {
-			if _, _, err := repos.Artwork.SaveCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban", details.PosterURL, asset); err != nil {
-				return err
-			}
-		}
-		if degraded {
-			return repos.Metadata.SaveDegradedProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
-		}
-		return repos.Metadata.SaveProviderData(ctx, metadataID, "douban", details.RawJSON, doubanMatchFetchedAt(details))
+
+		return saveDoubanPresentation(ctx, repos, metadataID, details, degraded, asset)
 	})
 	if err == nil {
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataID)

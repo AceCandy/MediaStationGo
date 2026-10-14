@@ -32,7 +32,7 @@ func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.ArtworkAsset{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -48,11 +48,19 @@ func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 	proxy.SetLibraryRootsProvider(func() []string { return []string{libraryDir} })
 	store := NewArtworkStore(cfg, repos.Artwork, proxy)
 
-	first, err := store.ImportLocal(t.Context(), items[0].ID, model.ArtworkTypePoster, source)
+	first, err := store.prepareLocalAsset(items[0].ID, model.ArtworkTypePoster, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.ImportLocal(t.Context(), items[1].ID, model.ArtworkTypePoster, source)
+	second, err := store.prepareLocalAsset(items[1].ID, model.ArtworkTypePoster, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err = repos.Artwork.SaveAsset(t.Context(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err = repos.Artwork.SaveAsset(t.Context(), second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,15 +78,12 @@ func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 	if !bytes.Equal(stored, data) {
 		t.Fatal("stored artwork bytes differ from source")
 	}
-	var assetCount, selectionCount int64
+	var assetCount int64
 	if err := db.Model(&model.ArtworkAsset{}).Count(&assetCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&model.MetadataArtwork{}).Count(&selectionCount).Error; err != nil {
-		t.Fatal(err)
-	}
-	if assetCount != 1 || selectionCount != 2 {
-		t.Fatalf("asset/selection counts = %d/%d, want 1/2", assetCount, selectionCount)
+	if assetCount != 1 {
+		t.Fatalf("asset count=%d, want 1", assetCount)
 	}
 
 	rec := httptest.NewRecorder()

@@ -139,7 +139,7 @@ func (r *HongGuoRepository) RemoveUnavailableHongGuoDownloads(ctx context.Contex
 				return err
 			}
 		}
-		for _, target := range []any{&model.HongGuoArtwork{}, &model.HongGuoDiscovery{}, &model.HongGuoRankEntry{}, &model.HongGuoSyncFailure{}, &model.HongGuoDownloadWork{}} {
+		for _, target := range []any{&model.HongGuoArtwork{}, &model.HongGuoRankEntry{}, &model.HongGuoSyncFailure{}, &model.HongGuoDownloadWork{}} {
 			if err := tx.Where("source_id = ?", owner.SourceID).Delete(target).Error; err != nil {
 				return err
 			}

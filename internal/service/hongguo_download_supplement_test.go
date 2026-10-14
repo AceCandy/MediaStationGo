@@ -143,3 +143,18 @@ func TestHongGuoDownloadHistoryHiddenFromTaskCenter(t *testing.T) {
 		t.Fatalf("history=%+v %v", history, err)
 	}
 }
+
+func TestHongGuoDownloadSummaryRequiresHydration(t *testing.T) {
+	s := newDownloadTestService(t)
+	work := model.HongGuoWork{SourceID: "99901", Kind: "series", Title: "只有摘要", SummaryOnly: true, EpisodeCount: 80}
+	if err := s.repo.DB.Create(&work).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Enqueue(t.Context(), work.SourceID); err == nil || err.Error() != "请先补齐该作品的红果资料" {
+		t.Fatalf("summary download admission: %v", err)
+	}
+	var n int64
+	if err := s.repo.DB.Model(&model.HongGuoDownloadWork{}).Where("source_id = ?", work.SourceID).Count(&n).Error; err != nil || n != 0 {
+		t.Fatalf("summary reserved download placement: %d %v", n, err)
+	}
+}

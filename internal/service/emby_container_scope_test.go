@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,9 +16,9 @@ func TestEmbyContainerPlaybackBoundsHierarchy(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,6000) n`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) SELECT 'season-'||n||'-'||s,'season','show-'||n,'Season','local',s FROM generate_series(1,6000) n CROSS JOIN generate_series(0,1) s`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) SELECT 'ep-'||n||'-'||s,'episode','season-'||n||'-'||s,'Episode','local',1 FROM generate_series(1,6000) n CROSS JOIN generate_series(0,1) s`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,6000) n`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num", `SELECT 'season-'||n||'-'||s,'season','show-'||n,'Season','local',s FROM generate_series(1,6000) n CROSS JOIN generate_series(0,1) s`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `SELECT 'ep-'||n||'-'||s,'episode','season-'||n||'-'||s,'Episode','local',1 FROM generate_series(1,6000) n CROSS JOIN generate_series(0,1) s`),
 		`INSERT INTO media(id,metadata_id,library_id,path,season_num,episode_num) SELECT 'file-'||i.id||'-'||v,i.id,CASE WHEN v=1 THEN 'visible' ELSE 'hidden' END,'/fixture/'||i.id||'-'||v,1,1 FROM metadata_items i CROSS JOIN generate_series(1,2) v WHERE i.kind='episode'`,
 		`INSERT INTO playback_histories(id,user_id,metadata_id,media_id,completed) VALUES ('watched','viewer','ep-1-0','file-ep-1-0-1',true),('other','other','ep-1-1','file-ep-1-1-1',true)`,
 		`ANALYZE metadata_items`, `ANALYZE media`, `ANALYZE playback_histories`,

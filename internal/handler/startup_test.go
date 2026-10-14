@@ -25,14 +25,14 @@ func TestTaskStartupGuardsAndLightweightStatus(t *testing.T) {
 		status       int
 	}{
 		{"GET", "/tasks/startup", 200},
-		{"POST", "/tasks/definitions/" + service.TaskDefinitionOrganize + "/run", 503},
+		{"POST", "/tasks/definitions/" + service.TaskDefinitionOrganize + "/run", 404},
 		{"POST", "/tasks/definitions/library_scan/run", 503},
 		{"POST", "/tasks/definitions/media_scrape/run", 503},
 		{"POST", "/tasks/definitions/probe_backfill/run", 503},
-		{"POST", "/tasks/definitions/tmdb_data_refresh/run", 503},
+		{"POST", "/tasks/definitions/tmdb_data_refresh/run", 404},
 		{"POST", "/tasks/definitions/hongguo_download_supplement/run", 503},
 		{"POST", "/scheduler/organize_source/run", 503},
-		{"PUT", "/tasks/definitions/" + service.TaskDefinitionOrganize + "/schedule", 503},
+		{"PUT", "/tasks/definitions/" + service.TaskDefinitionOrganize + "/schedule", 404},
 		{"POST", "/tasks/definitions/unknown/run", 404},
 		{"PUT", "/tasks/definitions/unknown/schedule", 404},
 	} {

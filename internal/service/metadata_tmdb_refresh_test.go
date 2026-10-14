@@ -22,14 +22,12 @@ import (
 )
 
 func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TMDbRecheckJob{})
+	db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.TMDbRecheckJob{})
 	repos := repository.New(db)
-	old := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
 	makeItem := func(kind, externalID string, parent *string, season, episode int) *model.MetadataItem {
 		return createServiceTestMetadata(t, db, model.MetadataItem{
 			Kind: kind, ParentID: parent, SeasonNum: season, EpisodeNum: episode,
 			Title: "旧标题", Overview: "旧简介", Source: "manual",
-			CatalogMetadataHydratedAt: &old, CatalogArtworkHydratedAt: &old, CatalogHydratedAt: &old,
 		}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: kind, ExternalID: externalID})
 	}
 	movie := makeItem(model.MetadataKindMovie, "10", nil, 0, 0)
@@ -108,7 +106,7 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		if item.ID == movie.ID && stored.RuntimeSec != 42*60 {
 			t.Fatalf("movie runtime = %d, want %d", stored.RuntimeSec, 42*60)
 		}
-		if stored.ID != item.ID || !reflect.DeepEqual(stored.ParentID, item.ParentID) || stored.Kind != item.Kind || !stored.CatalogHydratedAt.Equal(old) {
+		if stored.ID != item.ID || !reflect.DeepEqual(stored.ParentID, item.ParentID) || stored.Kind != item.Kind {
 			t.Fatalf("metadata identity or unrelated state changed: %#v", stored)
 		}
 		assertServiceTestTMDbSnapshot(t, repos, item.ID)
@@ -125,7 +123,7 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		}
 		if item.ID == movie.ID {
 			var creditCount int64
-			if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", item.ID).Count(&creditCount).Error; err != nil {
+			if err := db.Table("metadata_credit_presentations").Where("metadata_id = ?", item.ID).Count(&creditCount).Error; err != nil {
 				t.Fatal(err)
 			}
 			if (requests == 1 && creditCount != 1) || (requests == 5 && creditCount != 1) {
@@ -133,23 +131,29 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 			}
 			if requests == 1 {
 				var credit model.MetadataCredit
-				if err := db.Where("metadata_id = ?", item.ID).First(&credit).Error; err != nil {
+				if err := db.Table("metadata_credit_presentations").Where("metadata_id = ?", item.ID).First(&credit).Error; err != nil {
 					t.Fatal(err)
 				}
-				if err := db.Model(&model.Person{}).Where("id = ?", credit.PersonID).Update("name", "已翻译演员").Error; err != nil {
+				var person model.Person
+				if err := db.Table("person_presentations").First(&person, "id=?", credit.PersonID).Error; err != nil {
 					t.Fatal(err)
 				}
-				if err := db.Model(&model.MetadataCredit{}).Where("id = ?", credit.ID).Update("role", "已翻译角色").Error; err != nil {
-					t.Fatal(err)
+				for _, cache := range []model.TranslationCache{
+					{Kind: "person_name", ContextKey: person.ID, SourceText: person.OriginalName, TargetLanguage: "zh-CN", PromptVersion: "test", TranslatedText: "已翻译演员"},
+					{Kind: "role", ContextKey: credit.SourceSubjectID, SourceText: credit.OriginalRole, TargetLanguage: "zh-CN", PromptVersion: "test", TranslatedText: "已翻译角色"},
+				} {
+					if err := db.Create(&cache).Error; err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			if requests == 5 {
 				var credit model.MetadataCredit
-				if err := db.Where("metadata_id = ?", item.ID).First(&credit).Error; err != nil {
+				if err := db.Table("metadata_credit_presentations").Where("metadata_id = ?", item.ID).First(&credit).Error; err != nil {
 					t.Fatal(err)
 				}
 				var person model.Person
-				if err := db.First(&person, "id = ?", credit.PersonID).Error; err != nil || person.Name != "已翻译演员" || credit.Role != "已翻译角色" {
+				if err := db.Table("person_presentations").First(&person, "id = ?", credit.PersonID).Error; err != nil || person.Name != "已翻译演员" || credit.Role != "已翻译角色" {
 					t.Fatalf("translated credit was not preserved: person=%#v credit=%#v err=%v", person, credit, err)
 				}
 			}
@@ -200,7 +204,7 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 	for _, mode := range []string{"episode", "season", "episode_missing_id", "season_missing_id", "episode_stale_id", "running", "404", "wrong_identity"} {
 		t.Run(mode, func(t *testing.T) {
 			isSeason := mode == "season" || mode == "season_missing_id"
-			db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
+			db := newServiceTestDB(t, &model.Media{}, &model.Person{}, &model.PersonIdentifier{},
 				&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{})
 			if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
 				t.Fatal(err)
@@ -349,7 +353,7 @@ func TestMergeTMDbMetadataPreservesMissingFields(t *testing.T) {
 }
 
 func TestDiscoverTMDbRefreshCooldown(t *testing.T) {
-	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
+	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{})
 	repos := repository.New(db)
 	item := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "原资料", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "movie", ExternalID: "10"})
 	requests := 0

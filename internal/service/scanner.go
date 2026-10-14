@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -102,6 +103,7 @@ func (s *ScannerService) SetImageProxy(imageProxy *ImageProxy) {
 
 // ScanResult summarises a scan run.
 type ScanResult struct {
+	ScanTimings
 	LibraryID      string       `json:"library_id"`
 	Visited        int          `json:"visited"`
 	Added          int          `json:"added"`
@@ -118,6 +120,8 @@ type ScanResult struct {
 	// 自动回填范围独立于有上限的日志明细，仅记录本次成功写入的媒体。
 	probeMediaIDs      []string
 	skipAutomaticProbe bool
+	partDirectories    map[string]struct{}
+	snapshotElapsed    time.Duration
 }
 
 // addProbeMedia 在写入成功后收集自动回填范围，剧集库和 ISO 在入口跳过。
@@ -129,6 +133,7 @@ func (res *ScanResult) addProbeMedia(media *model.Media) {
 }
 
 type ScanProgress struct {
+	ScanTimings
 	Phase          string
 	RootID         string
 	RootPath       string
@@ -157,7 +162,7 @@ const (
 )
 
 func (p ScanProgress) Metrics() map[string]int64 {
-	return map[string]int64{
+	metrics := map[string]int64{
 		"roots_total":     int64(p.RootTotal),
 		"roots_completed": int64(p.RootsCompleted),
 		"visited":         int64(p.Visited),
@@ -169,6 +174,10 @@ func (p ScanProgress) Metrics() map[string]int64 {
 		"removed":         p.Removed,
 		"errors":          int64(p.Errors),
 	}
+	for key, value := range p.ScanTimings.Metrics() {
+		metrics[key] = value
+	}
+	return metrics
 }
 
 type ScanChangeAction string
@@ -266,6 +275,8 @@ func addScanError(res *ScanResult, path string, err error) {
 }
 
 type existingLocalMedia struct {
+	PartGroupKey      string
+	PartIndex         int
 	SeasonNum         int
 	ScanFileSizeBytes int64
 	ScanFileMTimeNS   int64

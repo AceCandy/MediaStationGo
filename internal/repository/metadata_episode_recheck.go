@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// SaveTMDbMetadataRecheck 只保存季/集展示字段和检查时间，不影响整剧搜索文档。
+// SaveTMDbMetadataRecheck 只保存季/集检查时间，展示资料由来源中心负责。
 func (r *MetadataRepository) SaveTMDbMetadataRecheck(ctx context.Context, item *model.MetadataItem) error {
 	if err := validateMetadataItem(item); err != nil {
 		return err
@@ -27,8 +27,7 @@ func (r *MetadataRepository) SaveTMDbMetadataRecheck(ctx context.Context, item *
 		return errors.New("TMDb metadata recheck requires checked time")
 	}
 	result := r.db.WithContext(ctx).Model(&model.MetadataItem{}).Where("id = ? AND kind = ?", item.ID, item.Kind).
-		Updates(map[string]any{"title": item.Title, "overview": item.Overview, "release_date": item.ReleaseDate, "rating": item.Rating, "year": item.Year,
-			checkedColumn: gorm.Expr("GREATEST("+checkedColumn+", ?)", *checkedAt)})
+		Updates(map[string]any{checkedColumn: gorm.Expr("GREATEST("+checkedColumn+", ?)", *checkedAt)})
 	if result.Error == nil && result.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
 	}
@@ -37,6 +36,8 @@ func (r *MetadataRepository) SaveTMDbMetadataRecheck(ctx context.Context, item *
 
 // TMDbMetadataRecheckCandidate 是具备 Series TMDb 标识的季、集信息复查候选。
 type TMDbMetadataRecheckCandidate struct {
+	SourceState     bool   `gorm:"-"`
+	BasicsMissing   bool   `gorm:"-"`
 	MetadataID      string `gorm:"column:metadata_id"`
 	Kind            string
 	Title           string
@@ -57,14 +58,14 @@ func (r *MetadataRepository) ListTMDbEpisodeMetadataRecheckAfter(ctx context.Con
 		limit = 200
 	}
 	limit = min(limit, 1000)
-	q := r.db.WithContext(ctx).Table("metadata_items AS episode").
-		Joins("JOIN metadata_items AS season ON season.id = episode.parent_id AND season.kind = ?", model.MetadataKindSeason).
-		Joins("JOIN metadata_items AS series ON series.id = season.parent_id AND series.kind = ?", model.MetadataKindSeries).
+	q := r.db.WithContext(ctx).Table("metadata_presentations AS episode").
+		Joins("JOIN metadata_presentations AS season ON season.id = episode.parent_id AND season.kind = ?", model.MetadataKindSeason).
+		Joins("JOIN metadata_presentations AS series ON series.id = season.parent_id AND series.kind = ?", model.MetadataKindSeries).
 		Where("episode.kind = ?", model.MetadataKindEpisode).
 		Where("EXISTS (SELECT 1 FROM media m WHERE m.metadata_id = episode.id)").
 		Where("episode.tmdb_episode_checked_at IS NULL OR episode.tmdb_episode_checked_at < ?", checkedBefore).
 		Where(`(COALESCE(btrim(episode.overview), '') = '' OR COALESCE(btrim(episode.release_date), '') = ''
-OR NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = episode.id AND ma.artwork_type = 'still'))`).
+OR NOT EXISTS (SELECT 1 FROM metadata_artwork_presentations ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = episode.id AND ma.artwork_type = 'still'))`).
 		Where(`(SELECT count(*) FROM metadata_identifiers mid
 WHERE mid.metadata_id = series.id AND mid.provider = 'tmdb' AND mid.entity_kind = 'series' AND btrim(mid.external_id) ~ '^[0-9]+$') = 1`)
 	if afterID = strings.TrimSpace(afterID); afterID != "" {
@@ -76,7 +77,7 @@ series.title AS series_title, season.season_num, episode.episode_num,
 (SELECT btrim(mid.external_id) FROM metadata_identifiers mid
  WHERE mid.metadata_id = series.id AND mid.provider = 'tmdb' AND mid.entity_kind = 'series' AND btrim(mid.external_id) ~ '^[0-9]+$'
  LIMIT 1) AS series_tm_db_id,
-NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id
+NOT EXISTS (SELECT 1 FROM metadata_artwork_presentations ma JOIN artwork_assets aa ON aa.id = ma.asset_id
  WHERE ma.metadata_id = episode.id AND ma.artwork_type = 'still') AS artwork_missing`).
 		Order("episode.id ASC").Limit(limit).Scan(&rows).Error
 	return rows, err
@@ -88,19 +89,19 @@ func (r *MetadataRepository) ListTMDbSeasonMetadataRecheckAfter(ctx context.Cont
 		limit = 200
 	}
 	limit = min(limit, 1000)
-	q := r.db.WithContext(ctx).Table("metadata_items AS season").
-		Joins("JOIN metadata_items AS series ON series.id = season.parent_id AND series.kind = ?", model.MetadataKindSeries).
+	q := r.db.WithContext(ctx).Table("metadata_presentations AS season").
+		Joins("JOIN metadata_presentations AS series ON series.id = season.parent_id AND series.kind = ?", model.MetadataKindSeries).
 		Where("season.kind = ?", model.MetadataKindSeason).
 		// 集合只构建一次；媒体投影阻止重新退化为逐集文件索引探测。
 		Where(`season.id IN (
 SELECT m.metadata_id FROM media m
 UNION
 SELECT episode.parent_id FROM (SELECT metadata_id FROM media OFFSET 0) m
-JOIN metadata_items episode ON episode.id = m.metadata_id AND episode.kind = 'episode'
+JOIN metadata_presentations episode ON episode.id = m.metadata_id AND episode.kind = 'episode'
 )`).
 		Where("season.tmdb_season_checked_at IS NULL OR season.tmdb_season_checked_at < ?", checkedBefore).
 		Where(`(COALESCE(btrim(season.overview), '') = '' OR COALESCE(btrim(season.release_date), '') = ''
-OR NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = season.id AND ma.artwork_type = 'poster')
+OR NOT EXISTS (SELECT 1 FROM metadata_artwork_presentations ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = season.id AND ma.artwork_type = 'poster')
 OR NOT EXISTS (SELECT 1 FROM metadata_identifiers mid WHERE mid.metadata_id = season.id AND mid.provider = 'tmdb' AND mid.entity_kind = 'season')
 OR NOT EXISTS (SELECT 1 FROM ` + tmdbSourceDataSQL + ` snapshot WHERE snapshot.metadata_id = season.id AND snapshot.provider = 'tmdb'))`).
 		Where(`(SELECT count(*) FROM metadata_identifiers mid
@@ -120,7 +121,7 @@ series.title AS series_title, season.season_num,
  WHERE mid.metadata_id = season.id AND mid.provider = 'tmdb' AND mid.entity_kind = 'season' LIMIT 1) AS tmdb_id,
 NOT EXISTS (SELECT 1 FROM ` + tmdbSourceDataSQL + ` snapshot
  WHERE snapshot.metadata_id = season.id AND snapshot.provider = 'tmdb') AS snapshot_missing,
-NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id
+NOT EXISTS (SELECT 1 FROM metadata_artwork_presentations ma JOIN artwork_assets aa ON aa.id = ma.asset_id
  WHERE ma.metadata_id = season.id AND ma.artwork_type = 'poster') AS artwork_missing`).
 		Order("season.id ASC").Limit(limit).Scan(&rows).Error
 	return rows, err

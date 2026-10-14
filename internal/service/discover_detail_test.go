@@ -85,17 +85,17 @@ func TestDiscoverDetailFieldsIdentityAndReadOnly(t *testing.T) {
 	}
 }
 
-func TestDiscoverDetailUsesSourceAndPreservesLocalEdits(t *testing.T) {
+func TestDiscoverDetailUsesSourceAndPreservesIdentity(t *testing.T) {
 	for _, kind := range []string{"movie", "tv"} {
 		t.Run(kind, func(t *testing.T) {
-			db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Person{}, &model.MetadataCredit{})
+			db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Person{})
 			repos := repository.New(db)
 			id := repository.DiscoverIdentity{TMDbID: 123, MediaType: kind}
 			lib := model.Library{Name: "可见库", Path: "/fixture/discover", Type: kind, Enabled: true}
 			if err := repos.Library.Create(t.Context(), &lib); err != nil {
 				t.Fatal(err)
 			}
-			work := createServiceTestMetadata(t, db, model.MetadataItem{Kind: id.Kind(), Title: "库内中文标题", Overview: "库内简介", Rating: 7.6, Year: 2026, ReleaseDate: "2026-08-12", Genres: "科幻,悬疑", Languages: "en,de", Countries: "US", RuntimeSec: 5580}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: id.Kind(), ExternalID: "123"}, model.MetadataIdentifier{Provider: "douban", EntityKind: id.Kind(), ExternalID: "456"})
+			work := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: id.Kind(), Title: "库内中文标题", Overview: "库内简介", Rating: 7.6, Year: 2026, ReleaseDate: "2026-08-12", Genres: "科幻,悬疑", Languages: "en,de", Countries: "US", RuntimeSec: 5580}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: id.Kind(), ExternalID: "123"}, model.MetadataIdentifier{Provider: "douban", EntityKind: id.Kind(), ExternalID: "456"})
 			createServiceTestArtwork(t, db, work.ID, "poster", "local-poster")
 			createServiceTestArtwork(t, db, work.ID, "backdrop", "local-backdrop")
 			person := model.Person{Name: "已翻译演员", OriginalName: "Original Actor", NormalizedName: "original actor", Source: "tmdb"}
@@ -106,7 +106,7 @@ func TestDiscoverDetailUsesSourceAndPreservesLocalEdits(t *testing.T) {
 				{MetadataID: work.ID, PersonID: person.ID, Type: model.CreditTypeDirector, SortOrder: 0},
 				{MetadataID: work.ID, PersonID: person.ID, Type: model.CreditTypeActor, OriginalRole: "Original Role", Role: "已翻译角色", SortOrder: 1},
 			} {
-				if err := db.Create(&credit).Error; err != nil {
+				if err := testdb.SaveSourceCreditFixture(db, &credit); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -137,8 +137,8 @@ func TestDiscoverDetailUsesSourceAndPreservesLocalEdits(t *testing.T) {
 				t.Fatalf("source projection: %+v", detail)
 			}
 			current, err := repos.Metadata.FindByID(t.Context(), work.ID)
-			if err != nil || current.Title != work.Title || current.Overview != work.Overview {
-				t.Fatalf("local edits changed: %+v %v", current, err)
+			if err != nil || current.Title != "来源标题" || current.Overview != "来源简介" || current.ID != work.ID || !current.UpdatedAt.Equal(work.UpdatedAt.Truncate(time.Microsecond)) {
+				t.Fatalf("source or identity mismatch: %+v %v", current, err)
 			}
 			var savedPerson model.Person
 			if err := db.First(&savedPerson, "id = ?", person.ID).Error; err != nil || savedPerson.Name != person.Name {

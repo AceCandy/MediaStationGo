@@ -47,7 +47,7 @@ func (e *EmbyService) ItemCounts(ctx context.Context, userID string) (map[string
 		nfo = nfo.Where("w.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
 	queries := []*gorm.DB{
-		works("metadata_items"),
+		works("metadata_presentations"),
 		nfo,
 		works("hongguo_works"),
 		works("huangguoai_works"),

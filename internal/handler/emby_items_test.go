@@ -28,8 +28,8 @@ func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, med
 	t.Helper()
 	metadataID := "metadata-" + mediaID
 	assetID := "asset-" + mediaID
-	storageKey := "test/" + mediaID + "/poster." + extension
-	path := filepath.Join(cfg.App.DataDir, "artwork", filepath.FromSlash(storageKey))
+	storageKey := "catalogs/tmdb/artwork/aa/bb/cc/" + mediaID + "." + extension
+	path := filepath.Join(cfg.App.DataDir, filepath.FromSlash(storageKey))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("create artwork dir: %v", err)
 	}
@@ -47,11 +47,13 @@ func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, med
 	}).Error; err != nil {
 		t.Fatalf("create artwork asset: %v", err)
 	}
-	if err := db.Create(&model.MetadataArtwork{
-		MetadataID: metadataID, AssetID: assetID, ArtworkType: model.ArtworkTypePoster,
-	}).Error; err != nil {
-		t.Fatalf("create metadata artwork: %v", err)
+	if err := testdb.SaveMetadataPresentationFixture(db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: metadataID}, Kind: "movie", Title: "Artwork Test"}); err != nil {
+		t.Fatal(err)
 	}
+	if err := testdb.SaveMetadataArtworkFixture(db, metadataID, model.ArtworkTypePoster, assetID); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := db.Create(&model.Media{
 		PermanentBase: model.PermanentBase{ID: mediaID}, MetadataID: metadataID, Title: "Artwork Test", Path: "/media/" + mediaID + ".mp4",
 	}).Error; err != nil {
@@ -347,7 +349,7 @@ func TestEmbyHongGuoDetailClickRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 红果文件不经过普通资料 fixture，避免生成 metadata_id。
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
 	for _, value := range []any{

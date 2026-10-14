@@ -19,6 +19,7 @@ func TestPendingPeopleTranslationsFiltersBeforeLimit(t *testing.T) {
 	if err := db.AutoMigrate(&model.Person{}, &model.TranslationCache{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	people := make([]model.Person, 1002)
 	for i := range people {
 		people[i] = model.Person{Base: model.Base{ID: fmt.Sprintf("%08d", i)}, Name: "中文", OriginalName: "中文"}

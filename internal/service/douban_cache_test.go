@@ -213,7 +213,7 @@ func TestDoubanDataRefreshOnlyChangesSharedData(t *testing.T) {
 		t.Fatalf("refresh history %#v", history)
 	}
 	for _, execution := range history {
-		if execution.System != model.TaskSystemCommon || execution.Status != TaskStatusCompleted || taskDefinitionKeyForTask(execution) != TaskDefinitionDoubanDataRefresh {
+		if execution.System != model.TaskSystemDouban || execution.Status != TaskStatusCompleted || taskDefinitionKeyForTask(execution) != TaskDefinitionDoubanDataRefresh {
 			t.Fatalf("wrong history definition %#v", execution)
 		}
 	}
@@ -221,7 +221,7 @@ func TestDoubanDataRefreshOnlyChangesSharedData(t *testing.T) {
 		t.Fatalf("refresh calls %d", calls.Load())
 	}
 	current, err := repos.Metadata.FindByID(t.Context(), item.ID)
-	if err != nil || current.Title != item.Title || current.Overview != item.Overview || current.Rating != 6 || !current.UpdatedAt.Equal(item.UpdatedAt) {
+	if err != nil || current.Title != "新标题" || current.Overview != "新简介" || current.Rating != 0 || !current.UpdatedAt.Equal(item.UpdatedAt) {
 		t.Fatalf("local metadata changed %#v %v", current, err)
 	}
 	ratings, err := repos.Metadata.DoubanRatingsByMetadataIDs(t.Context(), []string{item.ID})
@@ -232,13 +232,9 @@ func TestDoubanDataRefreshOnlyChangesSharedData(t *testing.T) {
 	if cache.GetJSON(t.Context(), "media:test", &cached) {
 		t.Fatal("display cache not invalidated")
 	}
-	var count int64
-	if err := repos.DB.Model(&model.MetadataArtworkCandidate{}).Count(&count).Error; err != nil || count != 0 {
-		t.Fatalf("artwork changed %d %v", count, err)
-	}
-	// 新任务有独立定义，历史补齐定义仍保持原 key。
+	// 旧刷新定义只保留历史查询，不再提供调度入口。
 	spec, ok := taskDefinitionSpecForKey(TaskDefinitionDoubanDataRefresh)
-	if !ok || spec.schedulerJob != "douban_data_refresh" || spec.filter.Name == "豆瓣电影信息补齐" {
+	if !ok || spec.schedulerJob != "" || spec.filter.Name == "豆瓣电影信息补齐" {
 		t.Fatalf("definition %#v", spec)
 	}
 }
@@ -325,17 +321,17 @@ func TestDoubanQueryCacheNormalizesParameters(t *testing.T) {
 	}
 }
 
-func TestDoubanFreshDegradedDataAllowsLocalCompletion(t *testing.T) {
+func TestDoubanFreshDegradedDataNeedsNoCopyTask(t *testing.T) {
 	provider, repos := newDoubanCacheTestProvider(t, func(req *http.Request) (*http.Response, error) {
 		t.Errorf("fresh degraded data unexpectedly fetched %s", req.URL.Path)
 		return nil, errors.New("unexpected request")
 	})
-	item := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "movie", Title: "中文标题"}, model.MetadataIdentifier{Provider: "douban", EntityKind: "movie", ExternalID: "100"})
+	createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "movie", Title: "中文标题"}, model.MetadataIdentifier{Provider: "douban", EntityKind: "movie", ExternalID: "100"})
 	if err := repos.Douban.Save(t.Context(), "100", "movie", []byte(`{"title":"降级资料","intro":"可补齐的简介"}`), model.DoubanQualityDegraded, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	candidates, err := repos.Metadata.ListDoubanMovieEnrichmentAfter(t.Context(), "", time.Now().Add(-24*time.Hour), 100)
-	if err != nil || len(candidates) != 1 || candidates[0].MetadataID != item.ID {
+	if err != nil || len(candidates) != 0 {
 		t.Fatalf("fresh degraded data suppressed local gaps: %v %v", candidates, err)
 	}
 	if match, degraded, err := provider.GetEnrichmentMatchByID(t.Context(), "100", "movie"); err != nil || !degraded || match.Overview != "可补齐的简介" {

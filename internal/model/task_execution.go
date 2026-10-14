@@ -39,6 +39,14 @@ func TaskSystemForKind(kind string) string {
 	return TaskSystemMedia
 }
 
+// TaskSystemForExecution 区分共用任务类型下的资料中心人物翻译，保留历史标识。
+func TaskSystemForExecution(kind, name string) string {
+	if kind == "people" && name == "人物翻译" {
+		return TaskSystemTMDb
+	}
+	return TaskSystemForKind(kind)
+}
+
 // TaskExecution 保存一次面向管理员可见的后台任务执行摘要。
 // 详细过程写入独立任务日志，不在该表中存储。
 type TaskExecution struct {

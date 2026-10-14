@@ -89,11 +89,8 @@ history is observability only; business object state owns retry and recovery.
 - `GET /api/tasks` also returns stable task `definitions`; each definition may
   expose current state, latest terminal execution, schedule, next run, and a
   server-owned manual action.
-- Common `douban_data_refresh` exposes `schedule_config.count` (default 100,
-  bounds 1–100). Timer and task-center manual actions both use the persisted
-  subject cap and refresh only due base API data; a manual task action is not
-  a bulk force refresh. Its separate log key and prior enabled/interval settings
-  remain stable. Task-center displays actual attempts separately from subjects.
+- 豆瓣按电影/电视剧拆分资料补全和评分更新，均暴露 `schedule_config.count`
+  （默认 100，上限 100）；手动运行仍处理到期待办，不做全量强刷新。
 - Configurable periodic definitions expose `schedule_config` with `enabled`,
   `interval_seconds`, `min_interval_seconds`, and `max_interval_seconds`.
 - `PUT /api/tasks/definitions/:key/schedule` accepts `enabled` and
@@ -117,53 +114,34 @@ history is observability only; business object state owns retry and recovery.
 - Claim indexes are `idx_media_scrape_pending_pick` (movie-first ordering),
   `idx_media_scrape_group` (trimmed group identity), and
   `idx_media_scrape_running` (active ordinary-source rows).
-- Automatic scrape execution uses exactly three media workers and one serial
-  catalog worker. `scrapeRunMu` is an `RWMutex`: automatic media groups hold a
-  read lock, while manual, whole-library, catalog, and people work hold the
+- Automatic scrape execution uses exactly three media workers. `scrapeRunMu` is an `RWMutex`: automatic media groups hold a
+  read lock, while manual and whole-library work hold the
   write lock.
 - Watcher batches use `TaskKindWatch`, `TaskTriggerEvent`, and the stable
   `library_watch` definition; they never reuse the full-scan kind.
-- TMDb maintenance definitions `tmdb_artwork_local_repair`,
-  `tmdb_artwork_missing_recheck`, and `tmdb_episode_metadata_recheck` use
-  separate default-off 24-hour scheduler jobs, settings, histories, and daily logs.
+- TMDb 定时任务为 `tmdb_data_movie/series/season/episode/inventory/images/people`；
+  豆瓣为 `douban_data_movie/series/movie_rating/series_rating/images`。
+  旧维护任务仅保留历史/日志查询，不能执行或配置周期。
 
 ### 3. Contracts
 
-- `series_local_correction` (剧集本地资料纠正) is a separate definition/kind;
-  `POST /api/tasks/definitions/series_local_correction/run` returns 202, 409
-  when already running, or 503 when unavailable. It reuses administrator task
-  authorization, history, daily logs and the generic action UI. No scheduler
-  toggle or network provider is involved.
-- Startup invokes `StartSeriesLocalCorrection(ctx, true)` independently of
-  ingestion. The setting `internal.series_local_correction_version` skips a
-  successful rules version; manual runs ignore it. Only an entirely successful
-  pass writes the version. Failure/cancellation remains retryable, and the
-  existing worker wait group joins the correction on shutdown.
-- Correction progress includes total, processed, succeeded, failed, remaining,
-  updated and skipped. Succeeded includes unchanged/concurrently skipped rows;
-  messages distinguish actual corrections from skips. Counts reflect the live
-  candidate set, with the final total reconciled after keyset exhaustion.
-- Regression: `TestSeriesLocalCorrectionProtectsConcurrentEdits` asserts source
-  and timestamp conflict protection. `TestSeriesLocalCorrectionTaskVersionAndRetry`
-  asserts failed-version retry, completion gating, manual execution, duplicate
-  rejection and per-definition logs. A stale snapshot must not overwrite a Web
-  save; writing only after a source/timestamp comparison in SQL is required.
+- Source and binding changes enqueue persistent metadata-index work. It refreshes
+  search and invalidates caches without copying display fields or calling providers.
 
 - Triggers are `manual`, `scheduled`, or `event`; terminal execution statuses are
   `completed`, `failed`, or `interrupted`.
 - The task-center root view lists task definitions, not one row per execution.
   Current state comes from an active execution or scheduler run, while latest
   result comes from the newest terminal execution. Same-kind business tasks
-  such as people backfill/translation and media/catalog scraping stay separate.
+  are separated by their stable definition filters.
 - Every execution of the same stable task definition appends to one local-day
   file. Resolve the definition key with the same kind/name filters used by the
-  task center; raw kinds cannot distinguish people backfill from translation or
-  media scraping from catalog scraping.
+  task center; old same-kind history must not leak into active definitions.
 - The task-log UI selects an available date and displays the complete bounded
   tail of that definition's daily file. It does not select an execution row.
 - Manual log refresh reloads the currently selected date without closing the dialog.
 - `SchedulerService` owns all configurable periodic timers. The initial jobs are
-  library scan, source organization, people backfill, people translation, and
+  library scan, source maintenance, people translation, and
   account cleanup. Their intervals are whole seconds from 60 seconds through 30
   days. Saving a schedule persists both settings and resets the live countdown;
   a disabled job has no next run and does not block its server-owned manual action.
@@ -261,11 +239,7 @@ history is observability only; business object state owns retry and recovery.
   a resume checkpoint.
 - Each automatic worker atomically claims one complete movie or series by
   changing every currently pending member to `running`. At most three distinct
-  groups run concurrently. The serial catalog worker must not claim a new job
-  while any media is `pending` or `running`. Running series catalog work releases
-  its write lock at season/episode boundaries until pending/running media clears,
-  then resumes the same durable job. In-flight entity requests are not interrupted.
-  Media execution records enter `waiting` before acquiring the read lock, so
+  groups run concurrently.   Media execution records enter `waiting` before acquiring the read lock, so
   contention is visible in task logs. Cancellation restores pending media work.
 - Each completed automatic media group emits one structured timing record with
   candidate generation, provider lookup, metadata persistence, artwork, TMDb
@@ -279,7 +253,7 @@ history is observability only; business object state owns retry and recovery.
   rechecks ordinary source and pending status; partial success rolls back.
   Cancellation returns only `group.MediaIDs`, never a newly inferred group.
 - Explicit rescrape resets the selected business objects to `pending` and wakes
-  the worker. Catalog checkpoints remain the catalog recovery authority.
+  the worker. Source completion uses source-center business state.
 - Manual `media_scrape` resets only NULL/empty, `pending`, `error`, and
   `no_match` rows in the selected supported libraries. It clears old errors,
   sets trigger `manual`, preserves `matched`/`running`, and reuses the existing
@@ -289,12 +263,6 @@ history is observability only; business object state owns retry and recovery.
   nonzero; it does not directly wake catalog work. Its response `count` counts
   files, not grouped executions. The Web action displays this count and reports
   zero work explicitly, without creating an empty execution/log.
-- Catalog work is displayed as `作品资料补全` for discover and ingested works.
-  Preserve `catalog_scrape` and the `发现目录刮削：` execution-name filter for
-  history/log compatibility. Catalog executions enter `waiting` before taking
-  the shared write lock, enter `scrape` after acquiring it, and restore active
-  progress after yielding to media. Both desktop and mobile task status render
-  the current execution's waiting message rather than a generic running label.
 - Scanner and watcher changes wake media scraping by default. The retired
   `scrape.auto_on_scan` setting has no runtime reader; organizer retains only
   its independent `organize.scrape_after` policy.
@@ -305,18 +273,6 @@ history is observability only; business object state owns retry and recovery.
 - Scrape issue remediation queries `media.scrape_status` and sanitized
   `scrape_error`, never task logs. Network libraries may use provider manual
   matching for `no_match`; NFO-only libraries require sidecar repair and retry.
-- Global People backfill selects TMDB movie/series metadata with missing credits
-  and `people_hydrated_at IS NULL`, but only when TMDB is the metadata's current
-  source and the identifier kind matches the metadata kind. A successful
-  provider response sets that timestamp even when the provider returns no
-  credits; task history is not the checkpoint. A credits 404 invalidates that
-  exact TMDB identifier and returns associated media to the regular scrape
-  queue; transient failures retain the identifier for retry. The worker releases
-  the shared scrape lock after each metadata object so newly imported media can
-  take priority before the next object.
-- People backfill runs only through its scheduler job, either periodically or
-  through the manual action. Service startup must not enqueue an event pass.
-  Legacy manual HTTP routes resolve to the same scheduler job.
 - People translation creates an execution only after it finds pending names or
   roles without a negative cache. Disabled AI, an empty sweep, and cache-only
   idle checks create no task.
@@ -383,8 +339,7 @@ history is observability only; business object state owns retry and recovery.
   present, without adding generic start or finish lines.
 - Good: equal role source text in two episodes of the same season creates one
   translation group with two write-back targets.
-- Base: no People work exists; scheduled passes stay silent, while a manual
-  People backfill records the empty completed run.
+- Base: a source completion pass with no due candidates records zero processed.
 - Base: a disabled periodic job reports no `next_run`; its manual action still runs.
 - Base: an unmarked summary is written with `ℹ️`; historical labeled lines are
   displayed without their label and remain unchanged on disk.
@@ -443,8 +398,8 @@ history is observability only; business object state owns retry and recovery.
   confirmation sends exactly one request; other scheduler actions require no confirmation.
 - Watcher tests assert one execution per debounce batch, semantic per-path details,
   partial-failure continuation, create-failure requeue, and scan/watch isolation.
-- People backfill tests assert no startup/event worker remains, scheduled empty
-  passes stay silent, and manual empty passes remain observable.
+- Source people completion tests cover empty credit lists, incomplete responses,
+  independent retry, budget exhaustion and cancellation without metadata.
 - People translation tests assert manual/scheduled trigger attribution, a
   1,000-group pass limit with the remainder left pending, same-season role reuse,
   cross-season isolation, and invalid-result negative caching without changing
@@ -636,8 +591,10 @@ progress, complete probe-document invalidation, or automatic track backfill.
   transactions and all source/library checks; see the NFO catalog contract.
 - A scan owns a `MediaRepository.WithBatchedHongGuoSearch(100)` writer and must
   flush its committed search changes even when its new-file buffer is empty.
-  Existing files still write immediately in individual transactions. Root
-  completion, walk failure and cancellation all settle the batch before return;
+  Ordinary-source updates still write immediately. HongGuo scan additions and
+  updates use transactions of at most 100 files with transaction-local catalog
+  lookups, actual insert-result counts and individual retry after batch rollback.
+  Root completion, walk failure and cancellation settle the batch before return;
   see the HongGuo catalog search contract for publication/fallback semantics.
 - Enabled roots are scanned serially in configured order. Each root flushes its
   pending writes before pruning missing media. A failed root is not pruned and
@@ -975,20 +932,28 @@ only when the source timestamp is unchanged too; preserve payloads, relationship
 image state and job settlement. Local parent-chain lookups select each identifier
 by primary-key order, retaining missing-binding and parent-conflict checks.
 
-`tmdb_data_refresh` belongs to the TMDb task system, independent of media ownership.
-Existing artwork and episode maintenance keys remain stable.
-Source periodic refresh defaults off, runs hourly when enabled, and uses 100 real
-HTTP attempts per run (configurable 1–1000). Each attempt consumes admission budget;
-images are separate. Requests share concurrency 2, 250 ms start spacing, persisted
-retry/cooldown and 5-minute leases. 429 respects the full Retry-After across restart.
+TMDb 按电影、电视剧、季、集独立补缺；完整性为中文标题、简介、来源图片，集还需
+正式集名与播出日期。季通用中文名允许。评分和图片下载成功与否不影响基础完整度。
+活跃目录检查独立于补缺，沿用现有活跃/未知时间规则。季集复查复用原租约、所属季冷却、
+404/清单缺集证据及请求身份保护；来源模式使用独立首次扫描游标，按季共享响应，不逐集联网。
+来源成功写入后重取来源状态，仅在请求身份仍一致时结算，避免自己的写入造成冲突。
+目录检查使用独立 inventory 组件、请求 key 与缓存；只请求基础接口，已有来源仅更新
+活跃状态及目录计数/时间，新坐标可保存摘要。不推进已有正文时间，不覆盖正文 payload、
+评分、图片路径或演职员；缺失/null 清单不能计成功。普通基础/详情缓存不能复用目录响应。
+季集来源状态查询限定当前批次的剧/季/集坐标，不按整剧反复加载全部来源；保留身份与租约校验。
+
+
+新补缺任务默认关闭；TMDb 周期默认一小时、豆瓣一天，各任务独立保存
+`metadata.<task_key>_enabled/_interval_seconds/_count`。旧设置保留但不隐式复制开关，
+避免拆分放大已启用预算。TMDb 每轮实际 HTTP 预算默认 100、范围 1–1000，图片独立；
+请求共享并发 2、250ms 间隔、持久重试/冷却及五分钟租约。无配置/空响应不能计成功。
+新图片及失败待办由一分钟工作者恢复，每轮最多 100；完整资产七天巡检由定时开关控制。
 
 Explicit ensure work has `explicit_pending=true`. The 3-second worker only handles
 that class; exhausted periodic work cannot escape the run budget through it. A
 periodic run may also satisfy explicit work under its own budget. Completed work
 clears the requester/quota slot. Single-episode extensions are not periodic targets.
-Migration creates ready maintenance slots only for successfully loaded components,
-using their original times; identity/search summaries never become automatic full
-fetches. Task metrics distinguish selected entities/scopes, actual HTTP attempts,
+资料补全按来源缺项选候选，包括身份/搜索摘要；explicit worker 仍仅消费显式入队。 Task metrics distinguish selected entities/scopes, actual HTTP attempts,
 updated, failed, cache hits and deferred work. Partial request failure is not a
 successful all-updated run; old source records remain readable.
 
@@ -1018,8 +983,7 @@ roots. Task executions persist `system` on creation; database and memory filters
 compare that value directly instead of inferring ownership when it is empty.
 Systems are `common`, `media`, `tmdb`, `douban`, `hongguo` and `huangguoai`.
 Common contains cross-source operations such as cleanup. Media owns scan, watch,
-scrape, local artwork/people maintenance, translation and media episode recheck;
-using an upstream provider does not change local maintenance ownership.
+and scrape. TMDb owns source completion, source images and people translation.
 Source refresh and supplement definitions belong to TMDb or Douban. Schema
 initialization classifies stored history using the same current kind mapping,
 updating only mismatched systems and retaining execution IDs, logs and timestamps.
@@ -1087,3 +1051,38 @@ definition routes. There are no `/scheduler/tasks`, `/scheduler/status` or
 `/admin/system/scheduler/:name/trigger` aliases. Current `/events` uses the
 authenticated stream; no obsolete Vue configuration/schema or ticket endpoints,
 ticket stores or unused ticket validation methods are retained.
+
+
+## 普通媒体来源展示改造：任务入口边界
+
+- 媒体整理退出任务列表、调度注册以及手动 HTTP 路由；旧配置
+  `organize.auto=true` 不能重新启用整理。退休定义只提供历史和日志读取。
+- 人物翻译归属 TMDb；保留 `kind=people,name=人物翻译` 的历史标识与日志键。
+  `TaskSystemForExecution` 同时用于执行记录和任务定义归类；启动分类同步历史记录，
+  不改变记录 ID、时间和状态。旧人物补齐定义与接口已删除，人物资料补全使用 tmdb_data_people。
+- 文件管理页保留浏览和显式文件操作，删除自动/手动整理面板与专用 API。
+- 验证：`TestSchedulerDoesNotRegisterRetiredOrganizer`、
+  `TestSourcePresentationTaskSurfaces`、`TestTaskSystemHistoryReclassification`、
+  `TestAdminRouteSurfacesAreRegistered`。
+- 普通媒体直接读取来源展示；旧媒体资料复制同步、媒体整理和本地文字纠正入口已退休。持久 metadata-index 待办仅更新搜索与失效缓存，人物翻译直接读取 TMDb 来源。
+
+## Source-owned credits and person completion
+
+`tmdb_data_people` is a TMDb scheduler definition, disabled by default, with a
+one-hour interval and an HTTP budget of 100 (configurable 1–1000). It uses existing
+Fetch leases, rate limits, cancellation and durable request backoff. It never
+selects metadata or media as its work queue and never invalidates local bindings.
+
+Candidates are movie/series/season sources missing valid credits and person sources
+missing a Chinese/und base/detail payload of quality >= 2. Both cast and crew must
+be arrays; empty arrays mean fetched, missing/null/one-sided data means incomplete.
+Empty biography is valid in a fetched person detail. Person requests append only
+external IDs, not filmography. Each source has independent `next_people_at`; source
+response writes preserve it, and maintenance settles conditionally on its observed
+value. Failure waits five minutes; budget exhaustion does not discard earlier errors
+or enqueue explicit work. Logs report processed/updated/failed/requested counts.
+
+`catalog_scrape`, `people_backfill`, their HTTP routes, `people_backfill_periodic`,
+metadata hydration workers and metadata artwork workers are retired. No aliases
+or old setting can run them. Scanning still owns local season/episode bindings;
+source image workers continue to download and recover pending images/avatars.

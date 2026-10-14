@@ -17,6 +17,7 @@ func TestDoubanSharedSubjectWriteAndAssociation(t *testing.T) {
 	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	repos := New(db)
 	item := model.MetadataItem{Kind: "movie", Title: "本地片名", Rating: 6}
 	if err := repos.Metadata.Create(t.Context(), &item, []model.MetadataIdentifier{{Provider: "douban", EntityKind: "movie", DoubanEntityKind: "series", ExternalID: "100"}}); err != nil {
@@ -49,8 +50,8 @@ func TestDoubanSharedSubjectWriteAndAssociation(t *testing.T) {
 		t.Fatalf("ratings %v %v", ratings, err)
 	}
 	saved, err := repos.Metadata.FindByID(t.Context(), item.ID)
-	if err != nil || saved.Rating != 6 {
-		t.Fatalf("general rating changed: %#v %v", saved, err)
+	if err != nil || saved.Rating != 0 || saved.Title != "远端剧集" {
+		t.Fatalf("source presentation mixed old values: %#v %v", saved, err)
 	}
 	retryAt := at.Add(2 * time.Hour)
 	if err := repos.Douban.RecordFailure(t.Context(), "100", "series", at.Add(time.Hour), retryAt); err != nil {
@@ -97,6 +98,7 @@ func TestDoubanSubjectSuccessPreservesNewerFailure(t *testing.T) {
 			if err := db.AutoMigrate(&model.DoubanSubject{}); err != nil {
 				t.Fatal(err)
 			}
+			ensureSourcePresentationTestSchema(t, db)
 			repo := New(db).Douban
 			at := time.Now().UTC().Truncate(time.Microsecond)
 			if withPayload {
@@ -138,6 +140,7 @@ func TestDoubanWritesRejectInvalidIdentity(t *testing.T) {
 	if err := db.AutoMigrate(&model.DoubanSubject{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	repo := New(db).Douban
 	at := time.Now()
 	for _, identity := range []struct{ id, kind string }{{"", "movie"}, {" ", "series"}, {"100", "season"}, {"100", "episode"}, {"100", "invalid"}} {

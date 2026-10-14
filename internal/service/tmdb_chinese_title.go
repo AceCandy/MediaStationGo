@@ -1,8 +1,6 @@
 package service
 
 import (
-	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -13,20 +11,7 @@ type tmdbAlternativeTitle struct {
 	Title   string `json:"title"`
 }
 
-type tmdbTranslation struct {
-	Country  string `json:"iso_3166_1"`
-	Language string `json:"iso_639_1"`
-	Data     struct {
-		Title    string `json:"title"`
-		Name     string `json:"name"`
-		Overview string `json:"overview"`
-	} `json:"data"`
-}
-
-var (
-	tmdbGeneratedEpisodeTitleRE = regexp.MustCompile(`(?i)^(?:episode|ep\.?)[\s._-]*0*[0-9]+$|^第\s*[0-9]+\s*(?:集|话|話)$`)
-	tmdbGeneratedSeasonTitleRE  = regexp.MustCompile(`(?i)^season[\s._-]*0*[0-9]+$|^第\s*[0-9]+\s*季$|^(?:specials?|特别篇|特別篇)$`)
-)
+type tmdbTranslation = model.TMDbTranslation
 
 func applyTMDbChineseTitle(match *Match, alternatives []tmdbAlternativeTitle, translations []tmdbTranslation) {
 	if match == nil {
@@ -76,86 +61,10 @@ func preferredTMDbChineseTitle(alternatives []tmdbAlternativeTitle, translations
 }
 
 func preferredTMDbEntityTitle(current string, translations []tmdbTranslation, kind string, number int) string {
-	current = strings.TrimSpace(current)
-	generated := tmdbEntityTitleIsGenerated(current, kind)
-	if current != "" && !generated && !metadataTitleNeedsChineseLocalization(&Match{Title: current}) {
-		return current
-	}
-	if translated := preferredTMDbTranslationText(translations, func(translation tmdbTranslation) string {
-		// 标题只采用中英文翻译，不能把其他语言的通用季集名误当成正式标题。
-		language := strings.ToLower(strings.TrimSpace(translation.Language))
-		if language != "zh" && language != "en" {
-			return ""
-		}
-		return firstNonEmpty(translation.Data.Name, translation.Data.Title)
-	}, func(value string) bool {
-		return !tmdbEntityTitleIsGenerated(value, kind)
-	}); translated != "" {
-		return translated
-	}
-	if current != "" && !generated {
-		return current
-	}
-	if kind == model.MetadataKindSeason {
-		return seasonName(number)
-	}
-	return fmt.Sprintf("第 %d 集", number)
+	return model.TMDbEntityTitle(current, translations, kind, number)
 }
-
 func preferredTMDbEntityOverview(current string, translations []tmdbTranslation) string {
-	current = strings.TrimSpace(current)
-	if current != "" && !metadataTitleNeedsChineseLocalization(&Match{Title: current}) {
-		return current
-	}
-	if translated := preferredTMDbTranslationText(translations, func(translation tmdbTranslation) string {
-		return translation.Data.Overview
-	}, nil); translated != "" {
-		return translated
-	}
-	return current
-}
-
-func preferredTMDbTranslationText(translations []tmdbTranslation, value func(tmdbTranslation) string, accept func(string) bool) string {
-	locales := []struct {
-		language string
-		country  string
-	}{
-		{language: "zh", country: "CN"},
-		{language: "zh", country: "SG"},
-		{language: "zh", country: "HK"},
-		{language: "zh", country: "TW"},
-		{language: "zh"},
-		{language: "en", country: "US"},
-		{language: "en"},
-		{},
-	}
-	for _, locale := range locales {
-		for _, translation := range translations {
-			if locale.language != "" && !strings.EqualFold(strings.TrimSpace(translation.Language), locale.language) {
-				continue
-			}
-			if locale.country != "" && !strings.EqualFold(strings.TrimSpace(translation.Country), locale.country) {
-				continue
-			}
-			candidate := strings.TrimSpace(value(translation))
-			if candidate != "" && (accept == nil || accept(candidate)) {
-				return candidate
-			}
-		}
-	}
-	return ""
-}
-
-func tmdbEntityTitleIsGenerated(title, kind string) bool {
-	title = strings.TrimSpace(title)
-	switch kind {
-	case model.MetadataKindSeason:
-		return tmdbGeneratedSeasonTitleRE.MatchString(title)
-	case model.MetadataKindEpisode:
-		return tmdbGeneratedEpisodeTitleRE.MatchString(title)
-	default:
-		return false
-	}
+	return model.TMDbEntityOverview(current, translations)
 }
 
 func metadataTitleNeedsChineseLocalization(match *Match) bool {
@@ -176,4 +85,8 @@ func metadataTitleNeedsChineseLocalization(match *Match) bool {
 func chineseTitleCandidate(title string) bool {
 	title = strings.TrimSpace(title)
 	return title != "" && containsCJK(title)
+}
+
+func tmdbEntityTitleIsGenerated(title, kind string) bool {
+	return model.TMDbEntityTitleIsGenerated(title, kind)
 }

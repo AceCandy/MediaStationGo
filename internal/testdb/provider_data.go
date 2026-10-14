@@ -74,6 +74,14 @@ func SaveProviderDataFixture(db *gorm.DB, data model.ProviderData) error {
 		if err != nil {
 			return err
 		}
+		if body != nil && rawID <= 0 {
+			body["id"], _ = json.Marshal(owner.TMDbID)
+			encoded, err := json.Marshal(body)
+			if err != nil {
+				return err
+			}
+			data.Payload = string(encoded)
+		}
 		payload := model.TMDbPayload{SubjectID: &owner.ID, Component: "detail", Language: "und", Body: data.Payload, Origin: "api", Quality: 3, FetchedAt: data.FetchedAt}
 		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "subject_id"}, {Name: "component"}, {Name: "language"}}, TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "subject_id IS NOT NULL"}}}, DoUpdates: clause.AssignmentColumns([]string{"body", "fetched_at"})}).Create(&payload).Error
 	})

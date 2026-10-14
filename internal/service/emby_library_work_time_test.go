@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -37,17 +38,17 @@ func TestEmbyLibraryWorkTimeSort(t *testing.T) {
 				if id == "b" {
 					title, release, rating, year = "Alpha", "2000-01-01", 9, 2030
 				}
-				if err := db.Exec(`INSERT INTO metadata_items(id,kind,title,source,release_date,rating,year) VALUES (?,?,?,'local',?,?,?)`, id, kind, title, release, rating, year).Error; err != nil {
+				if err := db.Exec(testdb.MetadataFixtureSQL("id,kind,title,source,release_date,rating,year", `VALUES (?,?,?,'local',?,?::real,?::integer)`), id, kind, title, release, rating, year).Error; err != nil {
 					t.Fatal(err)
 				}
 				itemID := id
 				season, episode := 0, 0
 				path := "/fixture/visible/" + id + ".mkv"
 				if kind == "series" {
-					if err := db.Exec(`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) VALUES (?,'season',?,'Season','local',1)`, id+"-season", id).Error; err != nil {
+					if err := db.Exec(testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num", `VALUES (?,'season',?,'Season','local',1)`), id+"-season", id).Error; err != nil {
 						t.Fatal(err)
 					}
-					if err := db.Exec(`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) VALUES (?,'episode',?,'Episode','local',1)`, id+"-episode", id+"-season").Error; err != nil {
+					if err := db.Exec(testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `VALUES (?,'episode',?,'Episode','local',1)`), id+"-episode", id+"-season").Error; err != nil {
 						t.Fatal(err)
 					}
 					itemID = id + "-episode"
@@ -162,7 +163,7 @@ func TestEmbyLibraryWorkTimeSort(t *testing.T) {
 					t.Fatalf("recursive leaf listing changed: %+v", items)
 				}
 			}
-			for _, tc := range []struct{ sort, order, want string }{{"PremiereDate", "Descending", "a"}, {"Name", "Ascending", "b"}, {"Name", "Descending", "a"}, {"CommunityRating", "Descending", "b"}, {"ProductionYear", "Descending", "b"}, {"ProductionYear", "Ascending", "a"}} {
+			for _, tc := range []struct{ sort, order, want string }{{"PremiereDate", "Descending", "a"}, {"Name", "Ascending", "b"}, {"Name", "Descending", "a"}, {"CommunityRating", "Descending", "b"}, {"ProductionYear", "Descending", "a"}, {"ProductionYear", "Ascending", "b"}} {
 				queries = nil
 				bindings = nil
 				out, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, SortBy: tc.sort, SortOrder: tc.order, Limit: 1})

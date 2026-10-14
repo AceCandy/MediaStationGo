@@ -14,6 +14,7 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
 
 const mediaMetadataFixtureCallback = "testutil:media-metadata"
@@ -32,7 +33,7 @@ func RegisterMediaMetadataFixtures(db *gorm.DB) error {
 			return
 		}
 		for _, media := range mediaFixtures(tx.Statement.Dest) {
-			if media == nil || strings.TrimSpace(media.MetadataID) != "" {
+			if media == nil || strings.TrimSpace(media.MetadataID) != "" || (media.CatalogSource != "" && media.CatalogSource != "metadata") {
 				continue
 			}
 			if err := attachMediaFixtureMetadata(tx, media); err != nil {
@@ -90,6 +91,10 @@ func attachMediaFixtureMetadata(tx *gorm.DB, media *model.Media) error {
 		if err != nil {
 			return err
 		}
+		item.Title, item.Year = title, media.Year
+		if err := testdb.SaveMetadataPresentationFixture(db, *item); err != nil {
+			return err
+		}
 		media.MetadataID = item.ID
 		return nil
 	}
@@ -126,6 +131,14 @@ func attachMediaFixtureMetadata(tx *gorm.DB, media *model.Media) error {
 	})
 	if err != nil {
 		return err
+	}
+	series.Title, series.Year = title, media.Year
+	season.Title = fmt.Sprintf("Season %d", media.SeasonNum)
+	episode.Title = episodeTitle
+	for _, item := range []*model.MetadataItem{series, season, episode} {
+		if err := testdb.SaveMetadataPresentationFixture(db, *item); err != nil {
+			return err
+		}
 	}
 	media.MetadataID = episode.ID
 	media.SeriesID = series.ID

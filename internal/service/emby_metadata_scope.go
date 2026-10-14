@@ -37,11 +37,16 @@ func (e *EmbyService) metadataPageWithCount(ctx context.Context, q *gorm.DB, use
 		MetadataID string `gorm:"column:metadata_id"`
 	}
 	var idRows []metadataIDRow
+	// 只有排序需要展示字段；文件资格和数量仍只连接身份。
+	order = strings.NewReplacer("emby_metadata.title", "emby_display.title", "emby_metadata.year", "emby_display.year", "emby_metadata.rating", "emby_display.rating", "emby_metadata.release_date", "emby_display.release_date").Replace(order)
 	idQuery := q.Session(&gorm.Session{}).
 		Select("media.metadata_id AS metadata_id").
 		Group("media.metadata_id").
 		Order(order).
 		Offset(start)
+	if strings.Contains(order, "emby_display.") {
+		idQuery = idQuery.Joins("JOIN metadata_presentations emby_display ON emby_display.id=media.metadata_id")
+	}
 	if limit > 0 {
 		idQuery = idQuery.Limit(limit)
 	}
@@ -163,7 +168,7 @@ func preferredMetadataViewsInOrder(views []model.MediaView) []model.MediaView {
 func seriesScopeQuery(q *gorm.DB) *gorm.DB {
 	return q.
 		Joins("JOIN metadata_items AS scope_season ON scope_season.id = emby_metadata.parent_id AND scope_season.kind = 'season'").
-		Joins("JOIN metadata_items AS scope_series ON scope_series.id = scope_season.parent_id AND scope_series.kind = 'series'")
+		Joins("JOIN metadata_presentations AS scope_series ON scope_series.id = scope_season.parent_id AND scope_series.kind = 'series'")
 }
 
 func (e *EmbyService) seriesMetadataPage(ctx context.Context, q *gorm.DB, userID string, p ItemsParams, start, limit int) ([]embySeriesGroup, int64, error) {
@@ -173,9 +178,9 @@ func (e *EmbyService) seriesMetadataPage(ctx context.Context, q *gorm.DB, userID
 // applySeriesPageFilters 在整剧别名可用后统一约束计数、分页和摘要。
 func (e *EmbyService) applySeriesPageFilters(ctx context.Context, q *gorm.DB, p ItemsParams) *gorm.DB {
 	if len(p.PersonIDs) > 0 {
-		credits := e.repo.DB.WithContext(ctx).Table("metadata_credits AS credit").
+		credits := e.repo.DB.WithContext(ctx).Table("metadata_credit_presentations AS credit").
 			Select("CASE WHEN work.kind = 'season' THEN work.parent_id ELSE work.id END").
-			Joins("JOIN metadata_items AS work ON work.id = credit.metadata_id").Where("credit.person_id = ANY(?)", &p.PersonIDs)
+			Joins("JOIN metadata_presentations AS work ON work.id = credit.metadata_id").Where("credit.person_id = ANY(?)", &p.PersonIDs)
 		q = q.Where("scope_series.id IN (?)", credits)
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {

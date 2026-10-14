@@ -354,3 +354,18 @@ only exercises the first supported key. Native player latency remains a separate
 - 快照是请求凭据注入前的 JSON 字节，每次命中解码为独立对象。列表顶层保留 `[]map[string]any`、`int64` 总数和 `int` 起始位置，嵌套数字用 `json.Number` 保精度；内部消费者不能依赖嵌套冷读 Go 类型。HTTP 最后逐请求注入 token。
 - 当前仅支持单后端实例。沿用共享本地 L1 和可选 Redis L2；版本换代在本地完成，不依赖 Redis 删除或请求 context 成功。重启由仓储实例标识隔离旧 Redis 响应。
 - 关键回归：`TestEmbyResponseCacheFinalPages`、`TestEmbyResponseCacheNFOHierarchy`、`TestEmbyResponseCacheInvalidationAndOldFill`、`TestEmbyResponseCacheUsesCurrentRequestToken`。
+
+## Search-index person hydration
+
+`metadataSearchPeople` first selects distinct current TMDb credit relationships
+for the batch's Movie/Series identities and their Seasons, then reads
+`person_presentations` by the resulting person IDs. Do not join both unrestricted
+credit and person presentation views in one query: a generic prepared plan can
+rescan the complete person/translation projection for each relationship.
+Source identity lookup uses a guarded numeric binding comparison to the existing
+`(kind, tmdb_id)` unique index, retaining exact text equality and ambiguous-binding
+exclusion. Match the credit view's subject-origin and cast/director/writing rules;
+indexing does not need role translations. Preserve current person-name translation,
+soft-delete exclusion, and rename/unbind removal from refreshed documents.
+`TestMetadataSearchPeopleScopeAndPlan` verifies these semantics plus actual relation
+visits and generic prepared plans over 20,000 unrelated source/person rows.

@@ -54,19 +54,7 @@ func (d *DoubanProvider) subjectPoster(ctx context.Context, id string, store *Ar
 	}
 	var asset *model.ArtworkAsset
 	if sourceURL != "" {
-		assets, reuseErr := store.repo.FindDoubanPosterAssets(ctx, subject.DoubanID, subject.EntityKind, sourceURL)
-		err = reuseErr
-		if err == nil {
-			for _, candidate := range assets {
-				asset, err = store.assetAvailable(ctx, &candidate.ID)
-				if err != nil || asset != nil {
-					break
-				}
-			}
-		}
-		if err == nil && asset == nil {
-			asset, err = store.importRemoteAsset(ctx, "douban", sourceURL)
-		}
+		asset, err = store.importRemoteAsset(ctx, "douban", sourceURL)
 	}
 	if asset == nil || err != nil {
 		if old != nil {

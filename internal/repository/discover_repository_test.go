@@ -15,6 +15,7 @@ func TestDiscoverLibraryItemsUseVisibleFilesAndExactKind(t *testing.T) {
 	if err := db.AutoMigrate(&model.Library{}, &model.MetadataItem{}, &model.MetadataIdentifier{}, &model.Media{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	repos := New(db)
 	lib := model.Library{Name: "visible", Path: "/visible", Enabled: true}
 	hidden := model.Library{Name: "hidden", Path: "/hidden", Enabled: true}

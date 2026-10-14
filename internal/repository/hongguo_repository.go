@@ -61,15 +61,8 @@ func (r *HongGuoRepository) SaveDetailWithChange(ctx context.Context, input hong
 		if found.Error != nil && !errors.Is(found.Error, gorm.ErrRecordNotFound) {
 			return found.Error
 		}
-		if err := tx.Model(&model.HongGuoDiscovery{}).Select("source_category").Where("source_id = ?", input.SourceID).Scan(&work.SourceCategory).Error; err != nil {
-			return err
-		}
-		if work.SourceCategory == "" {
-			if err := tx.Model(&model.HongGuoWork{}).Select("source_category").Where("source_id = ?", input.SourceID).Scan(&work.SourceCategory).Error; err != nil {
-				return err
-			}
-		}
-		if found.Error == nil {
+		work.SourceCategory = previous.SourceCategory
+		if found.Error == nil && !previous.SummaryOnly {
 			change = "updated"
 			var previousSnapshot model.HongGuoSnapshot
 			result := tx.Where("work_id = ?", previous.ID).Take(&previousSnapshot)
@@ -94,7 +87,7 @@ func (r *HongGuoRepository) SaveDetailWithChange(ctx context.Context, input hong
 			}
 		}
 		// 冲突更新同时持有作品行锁，串行刷新其分集、人物与快照。
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"source_category", "kind", "title", "overview", "tags", "episode_count", "total_episodes", "accessible_episodes", "update_text", "source_status", "completed", "first_visible_at", "rating", "rating_count", "refreshed_at", "updated_at"})}, clause.Returning{}).Create(&work).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"summary_only", "kind", "title", "overview", "tags", "episode_count", "total_episodes", "accessible_episodes", "update_text", "source_status", "completed", "first_visible_at", "rating", "rating_count", "refreshed_at", "updated_at"})}, clause.Returning{}).Create(&work).Error; err != nil {
 			return err
 		}
 		// 不删除已存在分集：上游临时缩短列表不应破坏绑定或观看身份。
@@ -190,29 +183,23 @@ func hongGuoArtworkUpdates(sourceURL string, now time.Time) map[string]any {
 
 func (r *HongGuoRepository) FindBySourceID(ctx context.Context, id string) (*model.HongGuoWork, error) {
 	var work model.HongGuoWork
-	err := r.db.WithContext(ctx).Where("source_id = ?", id).First(&work).Error
+	err := r.db.WithContext(ctx).Where("source_id = ? AND summary_only = false", id).First(&work).Error
 	return &work, err
 }
 
-// SetSourceCategory 同步修改摘要和完整资料，避免后续刷新从另一张表恢复旧分类。
+// SetSourceCategory 修改作品的唯一分类来源。
 func (r *HongGuoRepository) SetSourceCategory(ctx context.Context, sourceID, category string) error {
 	if !hongguo.ValidID(sourceID) || !hongguo.ValidCategory(category) {
 		return errors.New("红果作品分类无效")
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var affected int64
-		for _, target := range []any{&model.HongGuoDiscovery{}, &model.HongGuoWork{}} {
-			result := tx.Model(target).Where("source_id = ?", sourceID).Update("source_category", category)
-			if result.Error != nil {
-				return result.Error
-			}
-			affected += result.RowsAffected
-		}
-		if affected == 0 {
-			return gorm.ErrRecordNotFound
-		}
-		return nil
-	})
+	result := r.db.WithContext(ctx).Model(&model.HongGuoWork{}).Where("source_id = ?", sourceID).Update("source_category", category)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // HongGuoListWork 是海报目录投影，只携带本地图片标识和题材，不暴露上游图片地址。
@@ -225,7 +212,7 @@ type HongGuoListWork struct {
 	Downloaded bool     `gorm:"-" json:"downloaded"`
 }
 
-// List 在数据库分页前合并正式作品和仅发现摘要，不加载分集、人物或图片原始地址。
+// List 直接分页读取作品表，摘要与详情共用一条记录。
 func (r *HongGuoRepository) List(ctx context.Context, search, sourceCategory, category, rank string, page, pageSize int) ([]HongGuoListWork, int64, error) {
 	if page < 1 || page > 1000000 || pageSize < 1 || pageSize > 100 {
 		return nil, 0, errors.New("分页参数无效")
@@ -241,16 +228,8 @@ func (r *HongGuoRepository) List(ctx context.Context, search, sourceCategory, ca
 SELECT w.id, w.source_id, w.source_category, w.kind, w.title, w.overview, w.tags,
        w.episode_count, w.total_episodes, w.accessible_episodes, w.update_text,
        w.source_status, w.completed, w.first_visible_at, w.rating, w.rating_count,
-       w.refreshed_at, w.created_at, w.updated_at, TRUE AS hydrated
+       w.refreshed_at, w.created_at, w.updated_at, NOT w.summary_only AS hydrated
 FROM hongguo_works AS w
-UNION ALL
-SELECT d.source_id AS id, d.source_id, d.source_category, 'series' AS kind, d.title, d.overview, '[]' AS tags,
-       d.episode_count, 0 AS total_episodes, 0 AS accessible_episodes, d.update_text,
-       '' AS source_status, FALSE AS completed, NULL::timestamptz AS first_visible_at,
-       0::real AS rating, 0::bigint AS rating_count, TIMESTAMPTZ '0001-01-01 00:00:00+00' AS refreshed_at,
-       d.created_at, d.updated_at, FALSE AS hydrated
-FROM hongguo_discoveries AS d
-WHERE NOT EXISTS (SELECT 1 FROM hongguo_works AS w WHERE w.source_id = d.source_id)
 )`
 	joins := " FROM catalog"
 	args := []any{}
@@ -361,7 +340,7 @@ func (r *HongGuoRepository) WorksAfter(ctx context.Context, id string, limit int
 	}
 	var rows []model.HongGuoWork
 	err := r.db.WithContext(ctx).Where("id > ?", id).
-		Where("completed = ?", false).
+		Where("summary_only = false AND completed = ?", false).
 		Where("refreshed_at < ?", time.Now().Add(-24*time.Hour)).
 		Where("source_id NOT IN (SELECT source_id FROM hongguo_sync_failures)").
 		Order("id").Limit(limit).Find(&rows).Error

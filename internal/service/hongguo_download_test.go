@@ -289,7 +289,7 @@ func TestHongGuoDownloadQueuePlacementCancelAndRecovery(t *testing.T) {
 	}
 	encoded, _ := json.Marshal(newOwner)
 	for _, key := range []string{"lease_token", "video_id", "sha256", "staging_path"} {
-		if bytes.Contains(encoded, []byte(key)) {
+		if bytes.Contains(encoded, []byte(`"`+key+`":`)) {
 			t.Fatalf("leaked %s", key)
 		}
 	}

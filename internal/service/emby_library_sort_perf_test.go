@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"strings"
 	"testing"
 	"time"
@@ -24,16 +25,15 @@ func TestEmbyLibrarySortPlans(t *testing.T) {
 			if err := db.Create(&lib).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := db.Exec(`INSERT INTO metadata_items(id,kind,title,source,release_date,year)
-SELECT 'work-'||n,?, LPAD(n::text,5,'0'),'local',to_char(DATE '2000-01-01'+n,'YYYY-MM-DD'),2000+n%20 FROM generate_series(1,4000) n`, kind).Error; err != nil {
+			if err := db.Exec(testdb.MetadataFixtureSQL("id,kind,title,source,release_date,year", `SELECT 'work-'||n,?, LPAD(n::text,5,'0'),'local',to_char(DATE '2000-01-01'+n,'YYYY-MM-DD'),2000+n%20 FROM generate_series(1,4000) n`), kind).Error; err != nil {
 				t.Fatal(err)
 			}
 			identity := "'work-'||n"
 			season, episode := 0, 0
 			if series {
 				for _, sql := range []string{
-					`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) SELECT 'season-'||n,'season','Season','local','work-'||n,1 FROM generate_series(1,4000) n`,
-					`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) SELECT 'episode-'||n||'-'||v,'episode','Episode','local','season-'||n,v FROM generate_series(1,4000) n CROSS JOIN generate_series(1,20) v`,
+					testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num", `SELECT 'season-'||n,'season','Season','local','work-'||n,1 FROM generate_series(1,4000) n`),
+					testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,episode_num", `SELECT 'episode-'||n||'-'||v,'episode','Episode','local','season-'||n,v FROM generate_series(1,4000) n CROSS JOIN generate_series(1,20) v`),
 				} {
 					if err := db.Exec(sql).Error; err != nil {
 						t.Fatal(err)
@@ -120,6 +120,9 @@ SELECT 'file-'||n||'-'||v,` + identity + `,?,'/fixture/sort/'||n||'/'||v,TIMESTA
 					}
 					walk(plan[0].Plan)
 					t.Logf("sort=%s query=%d plan_ms=%.3f media_visits=%.0f metadata_visits=%.0f", sortBy, i, plan[0].Time, mediaVisits, metadataVisits)
+					if metadataVisits > 20000 {
+						t.Errorf("page qualification repeatedly scans unrelated metadata: %.0f", metadataVisits)
+					}
 					if sortBy == "PremiereDate" && mediaVisits > 8000 {
 						t.Errorf("distinct release/year ordering reads all file dates: %.0f", mediaVisits)
 					}

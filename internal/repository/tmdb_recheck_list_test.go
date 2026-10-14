@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"maps"
 	"slices"
 	"testing"
@@ -19,6 +20,9 @@ func TestTMDbRecheckListOrdersEpisodesBeforePagination(t *testing.T) {
 		if err := db.Create(&series).Error; err != nil {
 			t.Fatal(err)
 		}
+		if err := testdb.SaveMetadataPresentationFixture(db, series); err != nil {
+			t.Fatal(err)
+		}
 		for _, seasonNum := range []int{2, 10} {
 			season := model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: seasonNum}
 			if err := db.Create(&season).Error; err != nil {
@@ -27,6 +31,9 @@ func TestTMDbRecheckListOrdersEpisodesBeforePagination(t *testing.T) {
 			for _, episodeNum := range []int{2, 10, 110} {
 				episode := model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: episodeNum, Title: "Episode"}
 				if err := db.Create(&episode).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := testdb.SaveMetadataPresentationFixture(db, episode); err != nil {
 					t.Fatal(err)
 				}
 				if err := db.Create(&model.Media{MetadataID: episode.ID, Path: "/recheck/" + episode.ID + ".strm"}).Error; err != nil {
@@ -67,6 +74,9 @@ func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 	repo := New(db).Metadata
 	series := model.MetadataItem{Kind: "series", Title: "Series"}
 	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testdb.SaveMetadataPresentationFixture(db, series); err != nil {
 		t.Fatal(err)
 	}
 	season := model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1}
@@ -194,9 +204,9 @@ func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 func TestTMDbRecheckListCountsAvoidPerEpisodeProbes(t *testing.T) {
 	db := recheckQueueDB(t)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source,season_num,episode_num) VALUES ('series','series','Series','tmdb',0,0)`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) SELECT 's'||i,'season','Season','tmdb','series',i,0 FROM generate_series(1,3000) i`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) SELECT 'e'||i,'episode','Episode','tmdb','s'||((i-1)/100+1),0,i FROM generate_series(1,30000) i`,
+		testdb.MetadataFixtureSQL("id,kind,title,source,season_num,episode_num", `VALUES ('series','series','Series','tmdb',0,0)`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num,episode_num", `SELECT 's'||i,'season','Season','tmdb','series',i,0 FROM generate_series(1,3000) i`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num,episode_num", `SELECT 'e'||i,'episode','Episode','tmdb','s'||((i-1)/100+1),0,i FROM generate_series(1,30000) i`),
 		`INSERT INTO media(id,path,metadata_id) SELECT 'm'||i,'/test/'||i,'e'||i FROM generate_series(1,30000) i`,
 		`INSERT INTO tm_db_recheck_jobs(metadata_id,status) SELECT 'e'||i,'pending' FROM generate_series(1,30000) i`,
 		`INSERT INTO tm_db_recheck_jobs(metadata_id,status) SELECT 's'||i,'pending' FROM generate_series(1,30) i`,

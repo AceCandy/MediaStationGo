@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/testutil"
@@ -169,15 +170,17 @@ func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
 	t.Helper()
 	models := []any{
 		&model.Library{}, &model.LibraryRoot{}, &model.DoubanSubject{}, &model.DoubanQueryCache{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
-		&model.CatalogHydrationJob{},
-		&model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{},
+		&model.TranslationCache{}, &model.TMDbCredit{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{},
-		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.MetadataArtworkRecheck{}, &model.Media{}, &model.MediaProbeMetadata{},
+		&model.ArtworkAsset{}, &model.Media{}, &model.MediaProbeMetadata{},
 		&model.Favorite{}, &model.PlaybackHistory{}, &model.PlaylistItem{},
-		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
+		&model.Person{}, &model.PersonIdentifier{},
 	}
 	models = append(models, extra...)
 	if err := db.AutoMigrate(models...); err != nil {
+		return err
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		return err
 	}
 	return testutil.RegisterMediaMetadataFixtures(db)

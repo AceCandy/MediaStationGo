@@ -49,71 +49,30 @@ func (s *ArtworkStore) ImportRemote(ctx context.Context, metadataID, artworkType
 		if err != nil {
 			return nil, err
 		}
-		return s.repo.SaveSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
+		return s.repo.SaveSourceArtwork(ctx, metadataID, artworkType, sourceURL, asset)
 	}
 	if s.imageProxy == nil {
 		return nil, errors.New("image proxy is unavailable")
 	}
-	data, mimeType, err := s.imageProxy.Fetch(ctx, sourceURL)
-	if err != nil {
-		return nil, err
-	}
-	return s.save(ctx, metadataID, artworkType, provider, sourceURL, data, mimeType)
-}
-
-func (s *ArtworkStore) importCatalogRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, bool, error) {
-	if s.repo != nil {
-		if selected, err := s.repo.FindSelection(ctx, metadataID, artworkType); err != nil || selected != nil {
-			return selected, true, err
-		}
-	}
-	if provider == "tmdb" && s.tmdbCenter != nil {
-		asset, err := s.tmdbCenter.importArtworkSource(ctx, sourceURL)
-		if err != nil {
-			return nil, false, err
-		}
-		asset, selected, err := s.repo.SaveCatalogSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
-		return asset, !selected, err
-	}
-	if s.imageProxy == nil {
-		return nil, false, errors.New("image proxy is unavailable")
-	}
-	if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
-		return nil, false, err
-	}
-	data, mimeType, err := s.imageProxy.Fetch(ctx, sourceURL)
-	if err != nil {
-		return nil, false, err
-	}
-	asset, selected, err := s.saveCatalog(ctx, metadataID, artworkType, provider, sourceURL, data, mimeType)
-	return asset, !selected, err
-}
-
-func (s *ArtworkStore) importRemoteCandidate(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, bool, error) {
-	if s.imageProxy == nil {
-		return nil, false, errors.New("image proxy is unavailable")
-	}
 	data, _, err := s.imageProxy.Fetch(ctx, sourceURL)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	asset, err := s.prepareAsset(metadataID, artworkType, provider, data)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return s.repo.SaveCandidate(ctx, metadataID, artworkType, provider, sourceURL, asset)
+	return s.repo.SaveSourceArtwork(ctx, metadataID, artworkType, sourceURL, asset)
 }
 
-func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType, sourcePath string) (*model.ArtworkAsset, error) {
-	asset, err := s.prepareLocalAsset(metadataID, artworkType, sourcePath)
-	if err != nil {
-		return nil, err
+func (s *ArtworkStore) importCatalogRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, bool, error) {
+	if s.imageProxy != nil {
+		if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
+			return nil, false, err
+		}
 	}
-	abs, err := filepath.Abs(filepath.Clean(sourcePath))
-	if err != nil {
-		return nil, err
-	}
-	return s.repo.SaveSelection(ctx, metadataID, artworkType, "local_nfo", abs, asset)
+	asset, err := s.ImportRemote(ctx, metadataID, artworkType, provider, sourceURL)
+	return asset, false, err
 }
 
 // prepareLocalAsset 仅准备受控本地图片字节，关联资料的事务由各资料体系负责。
@@ -145,82 +104,7 @@ func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provid
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.SaveSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
-}
-
-func (s *ArtworkStore) saveCatalog(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, bool, error) {
-	asset, err := s.prepareAsset(metadataID, artworkType, provider, data)
-	if err != nil {
-		return nil, false, err
-	}
-	return s.repo.SaveCatalogSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
-}
-
-func (s *ArtworkStore) repairTMDbRemote(ctx context.Context, snapshot repository.TMDbArtworkSelection, sourceURL string, clearFailure bool) (*model.ArtworkAsset, bool, error) {
-	if s == nil || s.imageProxy == nil || s.repo == nil {
-		return nil, false, errors.New("artwork repair dependencies unavailable")
-	}
-	if s.tmdbCenter != nil {
-		asset, err := s.tmdbCenter.importArtworkSource(ctx, sourceURL)
-		if err != nil {
-			return nil, false, err
-		}
-		return s.repo.RepairTMDbSelection(ctx, snapshot, sourceURL, asset)
-	}
-	if clearFailure {
-		if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
-			return nil, false, err
-		}
-	}
-	data, _, err := s.imageProxy.Fetch(ctx, sourceURL)
-	if err != nil {
-		return nil, false, err
-	}
-	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, "tmdb", data)
-	if err != nil {
-		return nil, false, err
-	}
-	return s.repo.RepairTMDbSelection(ctx, snapshot, sourceURL, asset)
-}
-
-func (s *ArtworkStore) repairDoubanCandidate(ctx context.Context, snapshot repository.DoubanArtworkCandidate, sourceURL string) (*model.ArtworkAsset, bool, error) {
-	if s == nil || s.imageProxy == nil || s.repo == nil {
-		return nil, false, errors.New("artwork repair dependencies unavailable")
-	}
-	if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
-		return nil, false, err
-	}
-	data, _, err := s.imageProxy.Fetch(ctx, sourceURL)
-	if err != nil {
-		return nil, false, err
-	}
-	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, "douban", data)
-	if err != nil {
-		return nil, false, err
-	}
-	return s.repo.RepairDoubanCandidate(ctx, snapshot, sourceURL, asset)
-}
-
-func (s *ArtworkStore) tmdbSelectionFileAvailable(snapshot repository.TMDbArtworkSelection) (bool, error) {
-	if s == nil {
-		return false, errors.New("artwork store is unavailable")
-	}
-	path, err := s.pathForStorageKey(snapshot.StorageKey)
-	if err != nil {
-		return false, err
-	}
-	return localArtworkFileAvailable(path)
-}
-
-func (s *ArtworkStore) doubanCandidateFileAvailable(snapshot repository.DoubanArtworkCandidate) (bool, error) {
-	if s == nil {
-		return false, errors.New("artwork store is unavailable")
-	}
-	path, err := s.pathForStorageKey(snapshot.StorageKey)
-	if err != nil {
-		return false, err
-	}
-	return localArtworkFileAvailable(path)
+	return s.repo.SaveSourceArtwork(ctx, metadataID, artworkType, sourceURL, asset)
 }
 
 func (s *ArtworkStore) prepareAsset(metadataID, artworkType, provider string, data []byte) (*model.ArtworkAsset, error) {
@@ -235,6 +119,9 @@ func (s *ArtworkStore) prepareAsset(metadataID, artworkType, provider string, da
 
 // importRemoteAsset 为独立资料保存原图，不创建媒体图片关联。
 func (s *ArtworkStore) importRemoteAsset(ctx context.Context, provider, sourceURL string) (*model.ArtworkAsset, error) {
+	if provider == "tmdb" && s.tmdbCenter != nil {
+		return s.tmdbCenter.importArtworkSource(ctx, sourceURL)
+	}
 	if s.imageProxy == nil {
 		return nil, errors.New("image proxy is unavailable")
 	}

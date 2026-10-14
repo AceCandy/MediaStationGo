@@ -23,7 +23,7 @@ func (e *EmbyService) globalBatchCandidates(ctx context.Context, p ItemsParams, 
 	legacy := e.legacyGlobalBatchCandidates(ctx, base)
 	if workLatest {
 		// Latest 按作品唯一身份展示，不沿用全局浏览的祖父分组多行。
-		legacy = e.workLibraryScope(ctx, db.Table("metadata_items item"), "item.library_ids", base).
+		legacy = e.workLibraryScope(ctx, db.Table("metadata_presentations item"), "item.library_ids", base).
 			Where("item.kind IN ?", globalItemKinds(base)).Select(`item.id,item.kind,item.title,item.created_at,
 item.latest_media_added_at AS latest_at,NULL::timestamp AS played_at,FALSE AS favorite,item.rating,
 COALESCE(item.release_date,'') AS release_date,item.year,NULL::text AS origin_id,NULL::text[] AS work_ids,'legacy-work' AS source`)
@@ -87,17 +87,17 @@ END AS favorite_at`, p.UserID, p.UserID, p.UserID, p.UserID))
 // legacyGlobalBatchCandidates 从资料关系生成旧分组，仅为文件依赖排序读取文件。
 func (e *EmbyService) legacyGlobalBatchCandidates(ctx context.Context, p ItemsParams) *gorm.DB {
 	db := e.repo.DB.WithContext(ctx)
-	q := e.workLibraryScope(ctx, db.Table("metadata_items item"), "item.library_ids", p).
+	q := e.workLibraryScope(ctx, db.Table("metadata_presentations item"), "item.library_ids", p).
 		Where("item.kind IN ?", globalItemKinds(p)).
-		Joins("LEFT JOIN metadata_items origin_parent ON origin_parent.id=item.parent_id").
-		Joins("LEFT JOIN metadata_items origin_grandparent ON origin_grandparent.id=origin_parent.parent_id").
+		Joins("LEFT JOIN metadata_presentations origin_parent ON origin_parent.id=item.parent_id").
+		Joins("LEFT JOIN metadata_presentations origin_grandparent ON origin_grandparent.id=origin_parent.parent_id").
 		Joins(`CROSS JOIN LATERAL (
 SELECT origin_grandparent.id AS id
-UNION SELECT item.parent_id WHERE EXISTS (SELECT 1 FROM metadata_items WHERE parent_id=item.id)
-UNION SELECT item.id WHERE EXISTS (SELECT 1 FROM metadata_items p JOIN metadata_items leaf ON leaf.parent_id=p.id WHERE p.parent_id=item.id)
+UNION SELECT item.parent_id WHERE EXISTS (SELECT 1 FROM metadata_presentations WHERE parent_id=item.id)
+UNION SELECT item.id WHERE EXISTS (SELECT 1 FROM metadata_presentations p JOIN metadata_presentations leaf ON leaf.parent_id=p.id WHERE p.parent_id=item.id)
 ) origin`)
 	if len(p.PersonIDs) > 0 {
-		q = q.Where(`EXISTS (SELECT 1 FROM metadata_credits c WHERE c.person_id IN ?
+		q = q.Where(`EXISTS (SELECT 1 FROM metadata_credit_presentations c WHERE c.person_id IN ?
 AND c.metadata_id=CASE WHEN item.kind='episode' THEN item.parent_id ELSE item.id END)`, p.PersonIDs)
 	}
 	files := e.globalLegacyFiles(ctx, p, "origin.id")
@@ -122,8 +122,8 @@ origin.id AS origin_id,NULL::text[] AS work_ids,'legacy' AS source`, p.UserID)
 func (e *EmbyService) globalLegacyFiles(ctx context.Context, p ItemsParams, origin string) *gorm.DB {
 	db := e.repo.DB.WithContext(ctx)
 	return metadataWorkFiles(db, e.applyUserMediaVisibility(ctx, db.Model(&model.Media{}), p.UserID)).
-		Joins("LEFT JOIN metadata_items parent ON parent.id=emby_metadata.parent_id").
-		Joins("LEFT JOIN metadata_items grandparent ON grandparent.id=parent.parent_id").
+		Joins("LEFT JOIN metadata_presentations parent ON parent.id=emby_metadata.parent_id").
+		Joins("LEFT JOIN metadata_presentations grandparent ON grandparent.id=parent.parent_id").
 		Where("grandparent.id IS NOT DISTINCT FROM " + origin)
 }
 
@@ -134,7 +134,7 @@ func (e *EmbyService) globalBatchEligibility(ctx context.Context, p ItemsParams)
 	legacy := e.globalLegacyFiles(ctx, p, "item.origin_id")
 	works := metadataWorkFiles(db, e.applyUserMediaVisibility(ctx, db.Model(&model.Media{}), p.UserID)).
 		Where(`(item.kind='movie' AND emby_metadata.id=item.id) OR (item.kind='series' AND emby_metadata.parent_id IN (
-SELECT id FROM metadata_items WHERE parent_id=item.id AND kind='season'))`)
+SELECT id FROM metadata_presentations WHERE parent_id=item.id AND kind='season'))`)
 	localID := "SUBSTRING(item.id FROM 5)"
 	local := e.repo.MediaView.NFOCandidateFiles(ctx, filter, localID).
 		Where("ni.id=" + localID + " OR ns.id=" + localID + " OR nw.id=" + localID)

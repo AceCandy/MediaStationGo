@@ -16,7 +16,11 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func TestMediaUpsertConcurrentPath(t *testing.T) {
+func TestMediaUpsertConcurrentPath(t *testing.T) { testMediaUpsertConcurrentPath(t, false) }
+
+func TestMediaScanBatchConcurrentPath(t *testing.T) { testMediaUpsertConcurrentPath(t, true) }
+
+func testMediaUpsertConcurrentPath(t *testing.T, hongGuoBatch bool) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +102,12 @@ func TestMediaUpsertConcurrentPath(t *testing.T) {
 						_, wasAdded, err := New(worker).NFO.IngestWithResult(ctx, &media[i], nil)
 						added[i] = wasAdded
 						done[i] <- err
+					} else if source == model.TaskSystemHongGuo && hongGuoBatch {
+						created, err := (&MediaRepository{db: worker}).UpsertHongGuoScanBatch(ctx, []*model.Media{&media[i]})
+						if len(created) == 1 {
+							added[i] = created[0]
+						}
+						done[i] <- err
 					} else {
 						done[i] <- (&MediaRepository{db: worker}).Upsert(ctx, &media[i])
 					}
@@ -127,6 +137,9 @@ func TestMediaUpsertConcurrentPath(t *testing.T) {
 				}
 			} else if sources[0] == model.CatalogSourceNFO && !added[0] || sources[1] == model.CatalogSourceNFO && added[1] {
 				t.Fatalf("NFO added result does not match committed writer: %v", added)
+			}
+			if hongGuoBatch && ((sources[0] == model.TaskSystemHongGuo && !added[0]) || (sources[1] == model.TaskSystemHongGuo && added[1])) {
+				t.Fatalf("batch created result does not match committed writer: %v", added)
 			}
 			if sources[0] == sources[1] {
 				if secondErr != nil || media[0].ID != media[1].ID {

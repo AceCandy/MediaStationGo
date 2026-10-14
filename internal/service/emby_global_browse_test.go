@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,16 +22,16 @@ func originalGlobalBrowseCandidates(t *testing.T, e *EmbyService, p ItemsParams)
 		Joins("JOIN metadata_items leaf ON leaf.id = f.metadata_id").
 		Joins("LEFT JOIN metadata_items parent ON parent.id = leaf.parent_id").
 		Joins("LEFT JOIN metadata_items grandparent ON grandparent.id = parent.parent_id").
-		Joins("JOIN metadata_items item ON item.id IN (leaf.id, parent.id, grandparent.id)").
+		Joins("JOIN metadata_presentations item ON item.id IN (leaf.id, parent.id, grandparent.id)").
 		Joins("LEFT JOIN (?) h ON h.metadata_id = leaf.id", repository.PlaybackStates(ctx, db, "legacy", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
 		Joins("LEFT JOIN favorites fav ON fav.metadata_id = item.id AND fav.user_id = ? AND fav.deleted_at IS NULL", p.UserID).
 		Select(`item.id, CASE WHEN item.kind='episode' THEN 'legacy:'||COALESCE(grandparent.id,item.id) ELSE 'legacy:'||item.id END AS resume_key,
 item.kind,item.title,MAX(f.created_at) AS created_at,item.latest_media_added_at AS latest_at,
 COALESCE(MAX(h.watched_at),MAX(f.created_at)) AS played_at,BOOL_AND(COALESCE(h.completed,FALSE)) AS played,
 BOOL_OR(fav.id IS NOT NULL) AS favorite,MAX(COALESCE(h.position_ms,0)) AS position_ms,
-item.rating,COALESCE(item.release_date,'') AS release_date,item.year`).Group("item.id,grandparent.id")
+item.rating,COALESCE(item.release_date,'') AS release_date,item.year`).Group("item.id,grandparent.id,item.kind,item.title,item.latest_media_added_at,item.rating,item.release_date,item.year,item.parent_id")
 	if len(p.PersonIDs) > 0 {
-		legacy = legacy.Where(`EXISTS (SELECT 1 FROM metadata_credits c WHERE c.person_id IN ?
+		legacy = legacy.Where(`EXISTS (SELECT 1 FROM metadata_credit_presentations c WHERE c.person_id IN ?
 AND c.metadata_id=CASE WHEN item.kind='episode' THEN item.parent_id ELSE item.id END)`, p.PersonIDs)
 	}
 	source := e.hongGuoPersonFilter(ctx, e.hongGuoNodes(ctx, p.UserID, ""), p.UserID, "", p.PersonIDs).
@@ -359,8 +360,8 @@ func TestEmbyGlobalBrowseCandidateBatches(t *testing.T) {
 func TestEmbyGlobalWorkDirectBindingsPreserveGroups(t *testing.T) {
 	e := nfoBrowseFixture(t, 1, 2)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('direct-series','series','Series','local'),('direct-movie','movie','Movie','local')`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id) VALUES ('direct-season','season','Season','local','direct-series'),('direct-episode','episode','Episode','local','direct-season')`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('direct-series','series','Series','local'),('direct-movie','movie','Movie','local')`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id", `VALUES ('direct-season','season','Season','local','direct-series'),('direct-episode','episode','Episode','local','direct-season')`),
 		`INSERT INTO media(id,library_id,metadata_id,path,created_at) SELECT 'file-'||id,'direct-library',id,'/direct/'||id,'2026-01-01' FROM metadata_items WHERE id LIKE 'direct-%'`,
 		`INSERT INTO playback_histories(id,user_id,media_id,metadata_id,completed) VALUES ('direct-played','viewer','file-direct-episode','direct-episode',true)`,
 	} {

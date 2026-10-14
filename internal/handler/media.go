@@ -395,7 +395,9 @@ func updateMediaMetadataHandler(svc *service.Container) gin.HandlerFunc {
 			status := http.StatusInternalServerError
 			if strings.Contains(strings.ToLower(err.Error()), "not found") {
 				status = http.StatusNotFound
-			} else if strings.Contains(strings.ToLower(err.Error()), "required") {
+			} else if errors.Is(err, repository.ErrMetadataAssociationChanged) {
+				status = http.StatusConflict
+			} else if errors.Is(err, service.ErrSourceMetadataReadOnly) || strings.Contains(strings.ToLower(err.Error()), "required") {
 				status = http.StatusBadRequest
 			}
 			c.JSON(status, gin.H{"error": err.Error()})

@@ -12,7 +12,7 @@ import (
 
 func tmdbRecheckListHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Param("key") != "tmdb_episode_metadata_recheck" {
+		if key := c.Param("key"); key != "tmdb_episode_metadata_recheck" && key != service.TaskKindTMDbSeasonSupplement && key != service.TaskKindTMDbEpisodeSupplement {
 			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
 			return
 		}

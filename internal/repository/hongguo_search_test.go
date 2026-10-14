@@ -37,7 +37,7 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	if err = r.SaveAlbum(ctx, saved.SourceID, hongguo.Album{ID: groupID, Season: 2}); err != nil {
 		t.Fatal(err)
 	}
-	comic := model.HongGuoDiscovery{SourceID: "9000000000000000003", Title: "漫画", SourceCategory: "comic"}
+	comic := model.HongGuoWork{SummaryOnly: true, Kind: "series", SourceID: "9000000000000000003", Title: "漫画", SourceCategory: "comic"}
 	if err = db.Create(&comic).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 		t.Fatal("upstream URL leaked")
 	}
 	var count int64
-	for _, table := range []string{"hongguo_works", "hongguo_discoveries", "hongguo_artworks"} {
+	for _, table := range []string{"hongguo_works", "hongguo_artworks"} {
 		if err = db.Table(table).Where("source_id = ?", remote[0].SourceID).Count(&count).Error; err != nil || count != 0 {
 			t.Fatalf("search mutated %s: %d %v", table, count, err)
 		}
@@ -84,7 +84,7 @@ func TestHongGuoSearchQueuesMissingDetails(t *testing.T) {
 	if err := r.QueueMissingSearchResults(ctx, results); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "90001").Updates(map[string]any{"source_category": "ai-drama", "title": "已分类"}).Error; err != nil {
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id = ?", "90001").Updates(map[string]any{"source_category": "ai-drama", "title": "已分类"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := r.QueueMissingSearchResults(ctx, append(results, results[0])); err != nil {
@@ -104,7 +104,7 @@ func TestHongGuoSearchQueuesMissingDetails(t *testing.T) {
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("cooling item requeued: %+v %v", pending, err)
 	}
-	for _, table := range []string{"hongguo_works", "hongguo_episodes", "hongguo_artworks"} {
+	for _, table := range []string{"hongguo_episodes", "hongguo_artworks"} {
 		var count int64
 		if err := db.Table(table).Count(&count).Error; err != nil || count != 0 {
 			t.Fatalf("unexpected %s writes: %d %v", table, count, err)

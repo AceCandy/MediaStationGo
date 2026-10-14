@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -31,12 +32,16 @@ func (r *MetadataRepository) ConfirmTMDbRecheckFound(ctx context.Context, id str
 func (r *MetadataRepository) ScanTMDbRecheckFiles(ctx context.Context) (bool, int, error) {
 	more := false
 	scanned := 0
+	scanID := 1
+	if source, _ := ctx.Value(tmdbSourceRecheckKey{}).(bool); source {
+		scanID = 2
+	}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.TMDbRecheckScan{ID: 1, NextAt: time.Unix(0, 0)}).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.TMDbRecheckScan{ID: scanID, NextAt: time.Unix(0, 0)}).Error; err != nil {
 			return err
 		}
 		var scan model.TMDbRecheckScan
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&scan, 1).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&scan, scanID).Error; err != nil {
 			return err
 		}
 		var now time.Time
@@ -223,13 +228,23 @@ type TMDbRecheckState struct {
 	CheckedAt     *time.Time
 }
 
+type tmdbSourceRecheckKey struct{}
+
+// WithTMDbSourceRecheck 保留媒体坐标与租约，只将缺项判断切换到资料中心。
+func WithTMDbSourceRecheck(ctx context.Context) context.Context {
+	return context.WithValue(ctx, tmdbSourceRecheckKey{}, true)
+}
+
 // RequestIdentity 只跟踪请求身份，普通资料/图片变化不得缩短 404 冷却。
 func (s *TMDbRecheckState) RequestIdentity() string {
 	return fmt.Sprintf("%s|%s|%s|%s|%d|%d|%s|%t", s.Kind, s.ParentID, s.SeriesID, s.SeriesTMDbID, s.SeasonNum, s.EpisodeNum, s.TMDbID, s.IdentityValid)
 }
 
 func (s *TMDbRecheckState) NeedsData() bool {
-	return strings.TrimSpace(s.Overview) == "" || strings.TrimSpace(s.ReleaseDate) == "" || s.ArtworkMissing || (s.Kind == "season" && (s.TMDbID == "" || s.SnapshotMissing))
+	if s.SourceState {
+		return s.BasicsMissing || s.TMDbID == ""
+	}
+	return s.BasicsMissing || strings.TrimSpace(s.Overview) == "" || strings.TrimSpace(s.ReleaseDate) == "" || s.ArtworkMissing || (s.Kind == "season" && (s.TMDbID == "" || s.SnapshotMissing))
 }
 
 func (r *MetadataRepository) ExpandTMDbRecheckAsset(ctx context.Context) (bool, error) {
@@ -245,7 +260,7 @@ func (r *MetadataRepository) ExpandTMDbRecheckAsset(ctx context.Context) (bool, 
 		}
 		worked = true
 		var ids []string
-		if err := tx.Model(&model.MetadataArtwork{}).Distinct("metadata_id").Where("asset_id=? AND artwork_type IN ('poster','still') AND metadata_id>?", change.AssetID, change.Cursor).Order("metadata_id").Limit(200).Pluck("metadata_id", &ids).Error; err != nil {
+		if err := tx.Table("metadata_artwork_presentations").Distinct("metadata_id").Where("asset_id=? AND artwork_type IN ('poster','still') AND metadata_id>?", change.AssetID, change.Cursor).Order("metadata_id").Limit(200).Pluck("metadata_id", &ids).Error; err != nil {
 			return err
 		}
 		for _, id := range ids {
@@ -283,21 +298,89 @@ sid.external_id AS series_tm_db_id, own.external_id AS tmdb_id,
 (sid.n=1 AND COALESCE(sid.external_id,'') ~ '^[0-9]+$' AND (mi.kind='episode' OR own.n<=1)) AS identity_valid,
 CASE WHEN mi.kind='season' THEN mi.tmdb_season_checked_at ELSE mi.tmdb_episode_checked_at END AS checked_at,
 NOT EXISTS(SELECT 1 FROM `+tmdbSourceDataSQL+` p WHERE p.metadata_id=mi.id AND p.provider='tmdb') AS snapshot_missing,
-NOT EXISTS(SELECT 1 FROM metadata_artworks a JOIN artwork_assets aa ON aa.id=a.asset_id WHERE a.metadata_id=mi.id AND a.artwork_type=CASE WHEN mi.kind='season' THEN 'poster' ELSE 'still' END) AS artwork_missing,
+NOT EXISTS(SELECT 1 FROM metadata_artwork_presentations a JOIN artwork_assets aa ON aa.id=a.asset_id WHERE a.metadata_id=mi.id AND a.artwork_type=CASE WHEN mi.kind='season' THEN 'poster' ELSE 'still' END) AS artwork_missing,
 (EXISTS(SELECT 1 FROM media m WHERE m.metadata_id=mi.id) OR (mi.kind='season' AND EXISTS(
  SELECT 1 FROM metadata_items e JOIN media m ON m.metadata_id=e.id WHERE e.parent_id=mi.id AND e.kind='episode'))) AS playable,
 md5(concat_ws('|',mi.updated_at,mi.title,mi.overview,mi.release_date,season.updated_at,series.updated_at, COALESCE(c.revision,0),COALESCE(pc.revision,0),COALESCE(sc.revision,0))) AS fingerprint
-FROM metadata_items mi
+FROM metadata_presentations mi
 LEFT JOIN metadata_items season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'
-LEFT JOIN metadata_items timing_season ON timing_season.id=CASE WHEN mi.kind='season' THEN mi.id ELSE mi.parent_id END AND timing_season.kind='season'
-JOIN metadata_items series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'
+LEFT JOIN metadata_presentations timing_season ON timing_season.id=CASE WHEN mi.kind='season' THEN mi.id ELSE mi.parent_id END AND timing_season.kind='season'
+JOIN metadata_presentations series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'
 LEFT JOIN tm_db_recheck_changes c ON c.metadata_id=mi.id
 LEFT JOIN tm_db_recheck_changes pc ON pc.metadata_id=mi.parent_id
 LEFT JOIN tm_db_recheck_changes sc ON sc.metadata_id=series.id
 JOIN LATERAL(SELECT count(*) AS n, min(btrim(external_id)) AS external_id FROM metadata_identifiers WHERE metadata_id=series.id AND provider='tmdb' AND entity_kind='series' AND btrim(external_id) ~ '^[0-9]+$') sid ON true
 JOIN LATERAL(SELECT count(*) AS n, min(btrim(external_id)) AS external_id FROM metadata_identifiers WHERE metadata_id=mi.id AND provider='tmdb' AND entity_kind=mi.kind) own ON true
 WHERE mi.id=ANY(?) AND mi.kind IN ('season','episode')`, &ids).Scan(&states).Error
+	if err == nil {
+		if source, _ := ctx.Value(tmdbSourceRecheckKey{}).(bool); source {
+			err = r.loadTMDbRecheckSources(ctx, states)
+		}
+	}
 	return states, err
+}
+
+func (r *MetadataRepository) loadTMDbRecheckSources(ctx context.Context, states []TMDbRecheckState) error {
+	if len(states) == 0 {
+		return nil
+	}
+	type coordinate struct {
+		Series  string `json:"series"`
+		Kind    string `json:"kind"`
+		Season  int    `json:"season"`
+		Episode int    `json:"episode"`
+	}
+	coordinates := make([]coordinate, 0, len(states))
+	for _, state := range states {
+		coordinates = append(coordinates, coordinate{state.SeriesTMDbID, state.Kind, state.SeasonNum, state.EpisodeNum})
+	}
+	var sources []struct {
+		model.TMDbSubject
+		SeriesTMDbID string
+		SeasonNum    int
+	}
+	err := r.db.WithContext(ctx).Raw(`WITH targets AS (
+ SELECT DISTINCT * FROM jsonb_to_recordset(?::jsonb) AS t(series text, kind text, season int, episode int)
+ )
+ SELECT child.id,child.kind,child.number,child.title,child.overview,child.release_date,child.fields,child.quality,
+ t.series AS series_tm_db_id,t.season AS season_num
+ FROM targets t
+ JOIN tmdb_subjects root ON root.kind='series' AND root.tmdb_id=CASE WHEN t.series ~ '^[0-9]{1,10}$' THEN t.series::bigint END
+ JOIN tmdb_subjects season ON season.parent_id=root.id AND season.kind='season' AND season.number=t.season
+ JOIN tmdb_subjects child ON child.kind=t.kind AND
+ ((t.kind='season' AND child.id=season.id) OR
+ (t.kind='episode' AND child.parent_id=season.id AND child.number=t.episode))`, tmdbJSON(coordinates)).Scan(&sources).Error
+	if err != nil {
+		return err
+	}
+	byCoordinate := map[string]model.TMDbSubject{}
+	key := func(series, kind string, season, episode int) string {
+		return fmt.Sprintf("%s/%s/%d/%d", series, kind, season, episode)
+	}
+	for _, source := range sources {
+		episode := 0
+		if source.Kind == "episode" && source.Number != nil {
+			episode = *source.Number
+		}
+		byCoordinate[key(source.SeriesTMDbID, source.Kind, source.SeasonNum, episode)] = source.TMDbSubject
+	}
+	for i := range states {
+		state := &states[i]
+		source := byCoordinate[key(state.SeriesTMDbID, state.Kind, state.SeasonNum, state.EpisodeNum)]
+		state.Title, state.Overview, state.ReleaseDate = source.Title, source.Overview, source.ReleaseDate
+		var fields map[string]any
+		_ = json.Unmarshal([]byte(source.Fields), &fields)
+		imageKey := "poster_path"
+		if state.Kind == "episode" {
+			imageKey = "still_path"
+		}
+		image, _ := fields[imageKey].(string)
+		state.SourceState = true
+		state.ArtworkMissing = strings.TrimSpace(image) == ""
+		state.SnapshotMissing = source.ID == "" || source.Quality < 2
+		state.BasicsMissing = !model.CatalogBasicsComplete(state.Kind, source.Title, source.Overview, image, source.ReleaseDate)
+	}
+	return nil
 }
 
 // CommitTMDbRecheck 锁定快照涉及的层级和变更行，再检查租约；回调中不得访问网络。

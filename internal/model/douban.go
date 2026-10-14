@@ -32,12 +32,18 @@ type DoubanSubject struct {
 	RichFetchedAt *time.Time
 	// RichNextRetryAt 独立控制网页补充退避，基础详情成功不推迟补充重试。
 	RichNextRetryAt *time.Time
+	// 评分检查不推进基础详情时间，失败也保留独立退避。
+	RatingCheckedAt *time.Time `gorm:"index"`
+	RatingRetryAt   *time.Time
+	RatingPayload   *string `gorm:"type:jsonb" json:"-"`
 	Rating          float32
 	Quality         string     `gorm:"size:16;not null;default:''"`
 	FetchedAt       *time.Time `gorm:"index"`
 	LastAttemptAt   *time.Time
 	NextRetryAt     *time.Time `gorm:"index"`
 	// PosterAssetID 独立引用本地原图，未绑定媒体的资料也可保存海报。
+	PosterCheckedAt *time.Time    `gorm:"index" json:"-"`
+	PosterRetryAt   *time.Time    `json:"-"`
 	PosterAssetID   *string       `gorm:"size:36;index"`
 	PosterSourceURL string        `gorm:"type:text;not null;default:''"`
 	PosterAsset     *ArtworkAsset `gorm:"foreignKey:PosterAssetID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"-"`

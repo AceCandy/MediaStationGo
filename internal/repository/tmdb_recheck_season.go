@@ -2,6 +2,9 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -69,15 +72,26 @@ WHERE j.due_at<=? AND (j.lease_until IS NULL OR j.lease_until<=statement_timesta
 ORDER BY j.metadata_id LIMIT 200 FOR UPDATE OF j SKIP LOCKED`
 
 // ClaimTMDbRecheckSeasonPage 分批领取同季目标，网络访问与结果保存不持有本事务。
-func (r *MetadataRepository) ClaimTMDbRecheckSeasonPage(ctx context.Context, lease *model.TMDbRecheckSeasonLease, cutoff time.Time) ([]model.TMDbRecheckJob, error) {
+func (r *MetadataRepository) ClaimTMDbRecheckSeasonPage(ctx context.Context, lease *model.TMDbRecheckSeasonLease, cutoff time.Time, scope ...string) ([]model.TMDbRecheckJob, error) {
 	var jobs []model.TMDbRecheckJob
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockTMDbRecheckSeason(tx, lease.MetadataID, lease.LeaseToken); err != nil {
 			return err
 		}
-		if err := tx.Raw(tmdbRecheckSeasonPageSQL, lease.MetadataID, lease.MetadataID, cutoff).Scan(&jobs).Error; err != nil {
+		query := tmdbRecheckSeasonPageSQL
+		args := []any{lease.MetadataID, lease.MetadataID, cutoff}
+		if len(scope) == 2 {
+			n, e := strconv.Atoi(scope[1])
+			if e != nil || n < 1 || (scope[0] != "season" && scope[0] != "episode") {
+				return errors.New("invalid recheck scope")
+			}
+			query = strings.Replace(query, "ORDER BY j.metadata_id LIMIT 200", "AND EXISTS(SELECT 1 FROM metadata_items m WHERE m.id=j.metadata_id AND m.kind=?) ORDER BY j.metadata_id LIMIT ?", 1)
+			args = append(args, scope[0], min(n, 200))
+		}
+		if err := tx.Raw(query, args...).Scan(&jobs).Error; err != nil {
 			return err
 		}
+
 		if len(jobs) == 0 {
 			return nil
 		}

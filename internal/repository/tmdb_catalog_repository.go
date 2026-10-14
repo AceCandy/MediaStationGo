@@ -75,6 +75,9 @@ func mergeTMDbFields(old, new string, fillOnly bool) string {
 		a = tmdbObject{}
 	}
 	for k, v := range b {
+		if (k == "poster_path" || k == "backdrop_path" || k == "still_path") && (string(v) == "null" || string(v) == `""`) && len(a[k]) > 0 {
+			continue
+		}
 		if !fillOnly || len(a[k]) == 0 || string(a[k]) == "null" || string(a[k]) == `""` {
 			a[k] = v
 		}
@@ -89,6 +92,21 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 		return errors.New("invalid TMDb response")
 	}
 	return withTMDbWriteTransaction(ctx, r.db, func(tx *gorm.DB) error {
+		saveSubject := saveTMDbSubject
+		if req.Component == "inventory" {
+			if req.Kind != "series" && req.Kind != "season" {
+				return errors.New("invalid TMDb inventory kind")
+			}
+			field := "seasons"
+			if req.Kind == "season" {
+				field = "episodes"
+			}
+			if rows, ok := tmdbArray(o, field); !ok || rows == nil {
+				return errors.New("TMDb inventory missing")
+			}
+			saveSubject = saveTMDbInventorySubject
+		}
+
 		if token != "" {
 			var j model.TMDbRefreshJob
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("key = ? AND token = ? AND lease_until > ?", req.Key, token, time.Now()).First(&j).Error; err != nil {
@@ -116,7 +134,7 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 						return err
 					}
 				} else if kind == "movie" || kind == "series" {
-					if _, err := saveTMDbSubject(tx, kind, nil, nil, v, 1, at); err != nil {
+					if _, err := saveSubject(tx, kind, nil, nil, v, 1, at); err != nil {
 						return err
 					}
 				}
@@ -204,7 +222,7 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 			var number *int
 			if req.Kind == "season" || req.Kind == "episode" {
 				seriesObj := tmdbObject{"id": json.RawMessage(strconv.Itoa(req.SeriesID))}
-				root, e := saveTMDbSubject(tx, "series", nil, nil, seriesObj, 0, at)
+				root, e := saveSubject(tx, "series", nil, nil, seriesObj, 0, at)
 				if e != nil {
 					return e
 				}
@@ -233,7 +251,7 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 				if req.TMDbID > 0 && tmdbInt(o, "id") != req.TMDbID {
 					return errors.New("TMDb subject identity mismatch")
 				}
-				subject, err = saveTMDbSubject(tx, req.Kind, parent, number, o, projectionQuality, at)
+				subject, err = saveSubject(tx, req.Kind, parent, number, o, projectionQuality, at)
 			}
 		}
 		if err != nil {
@@ -268,7 +286,7 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 			return nil
 		}
 		primary := req.Language == "zh-CN" || req.Language == "und"
-		if primary {
+		if primary && req.Component != "inventory" {
 			if req.Component == "filmography" {
 				if err = saveTMDbCredits(tx, nil, person, o, "person", at, true); err != nil {
 					return err
@@ -304,11 +322,11 @@ func (r *TMDbCatalogRepository) SaveResponse(ctx context.Context, req TMDbSource
 					if !primary {
 						childQuality = 0
 					}
-					child, e := saveTMDbSubject(tx, kind, &subject.ID, &n, v, childQuality, at)
+					child, e := saveSubject(tx, kind, &subject.ID, &n, v, childQuality, at)
 					if e != nil {
 						return e
 					}
-					if kind == "episode" {
+					if kind == "episode" && req.Component != "inventory" {
 						p := model.TMDbPayload{SubjectID: &child.ID, Component: "season_episode", Language: payload.Language, Body: tmdbJSON(v), Origin: "season", Quality: 1, FetchedAt: at}
 						ok, e := saveTMDbPayload(tx, &p)
 						if e != nil {
@@ -402,15 +420,30 @@ func saveTMDbSubject(tx *gorm.DB, kind string, parent *string, number *int, o tm
 		row.ParentID, row.Number = parent, number
 	}
 	set := func(dst *string, key string) {
-		if _, ok := o[key]; ok && (!fill || *dst == "") {
-			*dst = tmdbString(o, key)
+		if value := tmdbString(o, key); value != "" && (!fill || *dst == "") {
+			*dst = value
 		}
 	}
 	set(&row.Title, "title")
 	set(&row.Title, "name")
+	if model.HasChineseText(old.Title) && !model.HasChineseText(row.Title) {
+		row.Title = old.Title
+	}
 	set(&row.OriginalName, "original_title")
 	set(&row.OriginalName, "original_name")
 	set(&row.Overview, "overview")
+	if !fill && (kind == model.MetadataKindSeason || kind == model.MetadataKindEpisode) {
+		var translated struct {
+			Translations []model.TMDbTranslation `json:"translations"`
+		}
+		_ = json.Unmarshal(o["translations"], &translated)
+		n := 0
+		if number != nil {
+			n = *number
+		}
+		row.Title = model.TMDbEntityTitle(tmdbString(o, "name"), translated.Translations, kind, n)
+		row.Overview = model.TMDbEntityOverview(tmdbString(o, "overview"), translated.Translations)
+	}
 	set(&row.Status, "status")
 	for _, k := range []string{"release_date", "first_air_date", "air_date"} {
 		set(&row.ReleaseDate, k)
@@ -432,7 +465,7 @@ func saveTMDbSubject(tx *gorm.DB, kind string, parent *string, number *int, o tm
 		row.FetchedAt = old.FetchedAt
 	}
 	if !exists || !reflect.DeepEqual(old, row) {
-		if err = tx.Omit("Parent").Save(&row).Error; err != nil {
+		if err = tx.Omit("Parent", "NextPeopleAt").Save(&row).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -450,7 +483,7 @@ func saveTMDbSubject(tx *gorm.DB, kind string, parent *string, number *int, o tm
 			return nil, e
 		}
 		path := tmdbString(o, field)
-		if fill && e == nil {
+		if e == nil && (fill || path == "" && art.SourcePath != "") {
 			continue
 		}
 		if art.ID != "" && art.SourcePath == path {
@@ -561,7 +594,7 @@ func saveTMDbPerson(tx *gorm.DB, o tmdbObject, quality int, at time.Time) (*mode
 		row.FetchedAt = old.FetchedAt
 	}
 	if old.ID == "" || !reflect.DeepEqual(old, row) {
-		omit := []string{"Person"}
+		omit := []string{"Person", "NextPeopleAt"}
 		if old.ID != "" {
 			// 下载结果独立更新，来源缓存不能把预读的旧图片状态写回。
 			omit = append(omit, "ImageKey", "ImageSourcePath")

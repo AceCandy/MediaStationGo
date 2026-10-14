@@ -44,8 +44,8 @@ func TestMediaViewDisplayFallbackQueryStaysWithinHierarchy(t *testing.T) {
 		"previous_episode.parent_id = mi.parent_id",
 		"previous_episode.episode_num < mi.episode_num",
 		"ORDER BY previous_episode.episode_num DESC",
-		"series_poster.metadata_id = series_metadata.id",
-		"series_backdrop.metadata_id = series_metadata.id",
+		"series_poster_asset.id = series_metadata.poster_asset_id",
+		"series_backdrop_asset.id = series_metadata.backdrop_asset_id",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("media view fallback query missing %q: %s", want, sql)
@@ -136,6 +136,11 @@ func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 	if err := repos.DB.Create(&[]model.MetadataItem{publicMetadata, adultMetadata}).Error; err != nil {
 		t.Fatal(err)
 	}
+	for _, item := range []model.MetadataItem{publicMetadata, adultMetadata} {
+		if err := testdb.SaveMetadataPresentationFixture(repos.DB, item); err != nil {
+			t.Fatal(err)
+		}
+	}
 	media := []model.Media{
 		{PermanentBase: model.PermanentBase{ID: "media-public"}, LibraryID: library.ID, MetadataID: publicMetadata.ID, Title: "Raw Public", Path: "/media/movies/public.mkv"},
 		{PermanentBase: model.PermanentBase{ID: "media-adult"}, LibraryID: adultLibrary.ID, MetadataID: adultMetadata.ID, Title: "Raw Adult", Path: "/media/adult/adult.mkv"},
@@ -191,6 +196,11 @@ func TestMediaViewFiltersMissingPosterAndChineseTitle(t *testing.T) {
 	if err := repos.DB.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
 	}
+	for _, item := range metadata {
+		if err := testdb.SaveMetadataPresentationFixture(repos.DB, item); err != nil {
+			t.Fatal(err)
+		}
+	}
 	media := []model.Media{
 		{PermanentBase: model.PermanentBase{ID: "media-chinese"}, LibraryID: library.ID, MetadataID: metadata[0].ID, Title: metadata[0].Title, Path: "/media/movies/chinese.mkv"},
 		{PermanentBase: model.PermanentBase{ID: "media-english-no-poster"}, LibraryID: library.ID, MetadataID: metadata[1].ID, Title: metadata[1].Title, Path: "/media/movies/english-missing.mkv"},
@@ -203,7 +213,7 @@ func TestMediaViewFiltersMissingPosterAndChineseTitle(t *testing.T) {
 	if err := repos.DB.Create(&asset).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&model.MetadataArtwork{MetadataID: metadata[2].ID, AssetID: asset.ID, ArtworkType: model.ArtworkTypePoster}).Error; err != nil {
+	if err := saveSourceArtworkFixture(repos.DB, metadata[2].ID, asset.ID, model.ArtworkTypePoster); err != nil {
 		t.Fatal(err)
 	}
 
@@ -266,7 +276,6 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	}
 	identifiers := []model.MetadataIdentifier{
 		{PermanentBase: model.PermanentBase{ID: "identifier-tmdb"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "123"},
-		{PermanentBase: model.PermanentBase{ID: "identifier-tmdb-alias"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "456"},
 		{PermanentBase: model.PermanentBase{ID: "identifier-tmdb-movie"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "999"},
 		{PermanentBase: model.PermanentBase{ID: "identifier-douban"}, MetadataID: series.ID, Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "db-123"},
 		{PermanentBase: model.PermanentBase{ID: "identifier-episode-tmdb"}, MetadataID: episodes[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "601"},
@@ -276,6 +285,11 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	for _, item := range []model.MetadataItem{series, episodes[0]} {
+		if err := testdb.SaveMetadataPresentationFixture(repos.DB, item); err != nil {
+			t.Fatal(err)
+		}
+	}
 	assets := []model.ArtworkAsset{
 		{PermanentBase: model.PermanentBase{ID: "asset-poster"}, SHA256: strings.Repeat("1", 64), StorageKey: "poster.jpg", MimeType: "image/jpeg"},
 		{PermanentBase: model.PermanentBase{ID: "asset-backdrop"}, SHA256: strings.Repeat("2", 64), StorageKey: "backdrop.jpg", MimeType: "image/jpeg"},
@@ -289,8 +303,10 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 		{MetadataID: series.ID, AssetID: "asset-backdrop", ArtworkType: model.ArtworkTypeBackdrop},
 		{MetadataID: episodes[0].ID, AssetID: "asset-still", ArtworkType: model.ArtworkTypeStill},
 	}
-	if err := repos.DB.Create(&artworks).Error; err != nil {
-		t.Fatal(err)
+	for _, artwork := range artworks {
+		if err := saveSourceArtworkFixture(repos.DB, artwork.MetadataID, artwork.AssetID, artwork.ArtworkType); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	media := []model.Media{

@@ -38,7 +38,7 @@ func TestScanRepairsExplicitNegativeSeasonWithoutFileChanges(t *testing.T) {
 			if err := repos.Media.Upsert(t.Context(), &media); err != nil {
 				t.Fatal(err)
 			}
-			cached, err := scanner.existingLocalMediaSnapshot(t.Context(), lib.ID)
+			cached, err := scanner.existingLocalMediaSnapshot(t.Context(), lib.ID, []string{path})
 			if err != nil {
 				t.Fatal(err)
 			}

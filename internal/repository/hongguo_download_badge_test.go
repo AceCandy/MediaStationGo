@@ -44,7 +44,7 @@ func TestHongGuoDownloadedBadgeUsesCompletedHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := db.Create(&model.HongGuoDiscovery{SourceID: "92000", Title: "摘要作品"}).Error; err != nil {
+	if err := db.Create(&model.HongGuoWork{SummaryOnly: true, Kind: "series", SourceID: "92000", Title: "摘要作品"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	remote = append(remote, hongguo.Work{SourceID: "92000", Title: "摘要作品"})

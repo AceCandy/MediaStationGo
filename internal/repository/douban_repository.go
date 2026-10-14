@@ -131,10 +131,13 @@ func (r *DoubanRepository) SaveWithResult(ctx context.Context, id, kind string, 
 	}
 	text := string(payload)
 	subject := model.DoubanSubject{DoubanID: id, EntityKind: kind, Payload: &text,
-		Rating: doubanSnapshotRating(text), Quality: quality, FetchedAt: &fetchedAt, LastAttemptAt: &fetchedAt}
-	updates := clause.AssignmentColumns([]string{"payload", "rating", "quality", "fetched_at", "updated_at"})
+		Rating: doubanSnapshotRating(text), Quality: quality, FetchedAt: &fetchedAt, LastAttemptAt: &fetchedAt, RatingCheckedAt: &fetchedAt}
+	updates := clause.AssignmentColumns([]string{"payload", "quality", "fetched_at", "updated_at"})
 	// 成功资料仍可补录，但迟到结果不能清除较新的失败退避。
 	updates = append(updates,
+		clause.Assignment{Column: clause.Column{Name: "rating"}, Value: clause.Expr{SQL: `CASE WHEN excluded.rating > 0 AND (douban_subjects.rating_checked_at IS NULL OR douban_subjects.rating_checked_at <= excluded.fetched_at) THEN excluded.rating ELSE douban_subjects.rating END`}},
+		clause.Assignment{Column: clause.Column{Name: "rating_checked_at"}, Value: clause.Expr{SQL: `GREATEST(douban_subjects.rating_checked_at, excluded.fetched_at)`}},
+		clause.Assignment{Column: clause.Column{Name: "rating_retry_at"}, Value: clause.Expr{SQL: `CASE WHEN douban_subjects.rating_checked_at IS NULL OR douban_subjects.rating_checked_at <= excluded.fetched_at THEN NULL ELSE douban_subjects.rating_retry_at END`}},
 		clause.Assignment{Column: clause.Column{Name: "last_attempt_at"}, Value: clause.Expr{SQL: `CASE WHEN douban_subjects.last_attempt_at IS NULL OR douban_subjects.last_attempt_at <= excluded.last_attempt_at THEN excluded.last_attempt_at ELSE douban_subjects.last_attempt_at END`}},
 		clause.Assignment{Column: clause.Column{Name: "next_retry_at"}, Value: clause.Expr{SQL: `CASE WHEN douban_subjects.last_attempt_at IS NULL OR douban_subjects.last_attempt_at <= excluded.last_attempt_at THEN excluded.next_retry_at ELSE douban_subjects.next_retry_at END`}},
 	)

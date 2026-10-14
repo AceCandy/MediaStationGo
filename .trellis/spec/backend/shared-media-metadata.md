@@ -53,7 +53,6 @@ supersedes older requirements for per-Episode extended responses and credits.
   refresh and identity edits retain the original complete single-episode request.
 - `PersonRepository.ListCreditsWithPeopleByMetadataIDs` resolves Episode to
   Season, but projects the requested metadata ID for existing batch consumers.
-- `retireEpisodeCredits` runs during `database.AutoMigrate`.
 
 ### 3. Contracts
 
@@ -70,15 +69,12 @@ supersedes older requirements for per-Episode extended responses and credits.
 - A Season-derived Episode JSON must not overwrite a same-ID historical snapshot
   containing extended objects. Preserve that snapshot and its fetch time; metadata
   fields may still update. Full manual refresh or a changed identity can replace it.
-- Startup snapshot localization skips Episodes updated after the snapshot's
-  fetch time, so retained extended history cannot revert fresher Season text.
 - Web/Emby Episode credits come from its Season, never Series. Do not copy Season
   rows into Episodes. Person filters must use the same ownership in single-file,
   Series and search paths. Movie/Series/Season retain their own credit ownership.
-- Reject Episode writes at the shared repository boundary; skip profile imports
-  in the scraper. Backfill missing Season credits from a valid Season snapshot
-  first, otherwise fetch the Season. Migration removes only Episode credit rows;
-  shared people, identifiers, avatars, other works and raw snapshots remain.
+- Keep Season relationships in the TMDb center and resolve them at read time.
+  Ordinary metadata has no copied credit table. Shared people IDs and avatars
+  remain independent of the source relationships.
 
 ### 4. Validation & Error Matrix
 
@@ -294,139 +290,31 @@ supersedes older requirements for per-Episode extended responses and credits.
 
 ## Scenario: People Credits and Localization
 
-### 1. Scope / Trigger
-
-- Apply this contract when changing TMDb/NFO credit collection, shared people,
-  Emby People responses, people backfill, or AI localization.
-- `Person` owns shared identity, `PersonIdentifier` owns provider identity, and
-  `MetadataCredit` owns the relationship between one person and one work.
-
-### 2. Signatures
-
-- Shared identity: `Person{Name, OriginalName, NormalizedName, Overview, ProfileURL, Source}`.
-- Provider identity: `PersonIdentifier{PersonID, Provider, ExternalID}` with
-  uniqueness on `(provider, external_id)`.
-- Work relationship: `MetadataCredit{MetadataID, PersonID, Type, OriginalRole, Role, SortOrder}`.
-- Supported types: `Actor`, `GuestStar`, `Director`, and `Writer`.
-- Provider-neutral scrape payload: `PersonCredit` plus `LoadedCreditTypes`.
-- Backfill API: admin-only `POST /api/libraries/:id/people-backfill`.
-- Translation cache identity: `(kind, context_key, source_text, target_language, prompt_version)`.
-
-### 3. Contracts
-
-- TMDb people are reused only through TMDb person IDs. NFO-only people are
-  reused by normalized local name and are never merged into TMDb people by
-  name alone.
-- Concurrent first writes of the same `(provider, external_id)` use targeted
-  `ON CONFLICT DO NOTHING`. The losing transaction hard-deletes only its own
-  unlinked provisional Person, then reloads/reuses the winning identifier.
-  Do not catch a PostgreSQL unique violation and continue in the aborted
-  transaction, remove the unique index, or leave orphan/soft-deleted provisional
-  people. `TestReplaceCreditsConcurrentPersonCreation` synchronizes two real
-  connections after missing-ID reads and asserts both writes succeed, one
-  Person/identifier remains, and each work retains its own role.
-- A loaded credit type is an authoritative snapshot, including an explicitly
-  empty snapshot. A type absent from `LoadedCreditTypes` must preserve existing
-  rows. NFO may fill only a provider-loaded type whose provider snapshot is empty.
-- Credit replacement is transactional and idempotent. `MetadataCredit` uses
-  `PermanentBase`; removed relationships are physically deleted, while an
-  unchanged source role preserves its translated display role. Metadata graph
-  merge moves and deduplicates credits before deleting the source metadata.
-- `ReplaceCredits` locks the owning metadata row and applies a delta within the
-  loaded scopes. Unchanged relationships retain IDs and timestamps; sorting
-  changes update the existing row. Only disappeared keys are deleted. Person
-  source updates write changed fields only, retain translated names and usable
-  image keys on import failure, and restore soft-deleted identities when needed.
-  Do not delete/recreate a whole scope or touch unchanged Person identifiers.
-  Verify with `TestReplaceCreditsIsIdempotentAndReplacesLoadedType` and
-  `TestPersonSourceUpdatesOnlyChangesSourceFields`.
-- Movie, Series and Season expose their own ordered credits. Episode reads
-  its Season's credits in Web and Emby (single and batch responses); it never
-  copies them into episode rows or falls back further to Series.
-- Credit source/display roles and translation source/display values use `text`;
-  existing PostgreSQL columns must be upgraded explicitly during migration.
-- Credit persistence is independent from translation. The configured periodic
-  sweep discovers untranslated rows and processes at most 1,000 deduplicated
-  translation groups per execution.
-- Person-name translation carries up to three related works. Role translation
-  carries the current title, original title, year, and media kind. Requests use
-  Responses API without tools and contain at most 100 unique entries per batch.
-- Cache hits apply without an AI request. A successful request that returns no
-  valid Chinese text for an entry saves an empty negative cache under the same
-  prompt-versioned identity; later sweeps skip its request and write-back.
-  Writes update a target only while its original and display values still equal
-  the request snapshot.
-- AI request failure, malformed top-level output, or timeout never saves a
-  cache, rolls back, or fails the authoritative metadata scrape. Pending rows
-  remain for a later periodic sweep.
-
-### 4. Validation & Error Matrix
-
-| Condition | Required result |
-| --- | --- |
-| TMDb person ID already exists | Reuse its `Person`; do not create a name-based duplicate |
-| NFO name matches a TMDb person | Keep separate identities unless an explicit external ID connects them |
-| Loaded type has no credits | Remove stale credits of that type |
-| Type is not loaded | Preserve existing credits of that type |
-| Provider type is non-empty and NFO also has rows | Keep provider rows; do not union guessed identities |
-| Season has no credit rows for one type | Keep that type empty; do not query Series |
-| Episode credits requested | Read its Season; never create episode credit rows |
-| AI is disabled/unconfigured or request fails | Keep original display values and let scraping succeed |
-| AI request succeeds but one entry has no valid Chinese result | Keep its original display value and negative-cache the entry until the prompt version changes |
-| Original changes while AI request is running | Reject the stale conditional write |
-| Provider role exceeds 255 characters | Persist and cache it without truncation |
-
-### 5. Good / Base / Bad Cases
-
-- Good: repeated TMDb scrape reuses the same person ID and replaces only the
-  loaded credit types while preserving translated display values whose source
-  text did not change.
-- Good: Episode guest stars and crew come only from the Episode provider
-  response; Series actors remain on the Series.
-- Base: AI localization is disabled; original people and role values remain
-  fully usable through Emby.
-- Bad: merge people solely because normalized names match across local and TMDb.
-- Bad: call AI before committing credits, or overwrite a re-scraped role with a
-  response generated for its previous original value.
-- Bad: let translation failure roll back authoritative credit persistence.
-
-### 6. Tests Required
-
-- Repository: provider-ID reuse, local-name isolation, loaded-type replacement,
-  empty snapshots, hard deletion without tombstones, merge deduplication,
-  translated-role preservation, and long roles.
-- Provider/NFO: movie/Series cast and crew, Episode guest stars and crew, and
-  provider-empty versus provider-missing type behavior.
-- Emby: item `People`, no Season/Episode inheritance, Persons pagination/search,
-  person detail, image proxy, uppercase/lowercase routes, and ID filtering.
-- Backfill: only metadata without current credits and with usable TMDb identity;
-  verify task progress and request-independent service context.
-- Translation: scheduled-only discovery, cache hit without AI, 100-entry
-  splitting, a 1,000-group execution limit with pending remainder, work context,
-  valid Chinese filtering, invalid-result negative caching, cancellation, and
-  stale-write rejection.
-- PostgreSQL: assert role/cache fields resolve to `text`; when a test DSN is
-  available, migrate legacy `varchar(255)` columns and round-trip a long role.
-
-### 7. Wrong vs Correct
-
-```go
-// Wrong: provider and local identities can collide on a common name.
-person := findOrCreateByNormalizedName(input.Name)
-
-// Correct: stable provider IDs own remote identity; local names stay local.
-person := findOrCreateByProviderID(input.Provider, input.ExternalID)
-```
-
-```go
-// Wrong: a late AI result can overwrite refreshed provider data.
-db.Model(&credit).Update("role", translated)
-
-// Correct: apply only to the unchanged source/display snapshot.
-db.Model(&credit).
-    Where("original_role = ? AND role = ?", original, original).
-    Update("role", translated)
-```
+- Ordinary work credits come from current TMDb subject-origin relations through
+  `metadata_credit_presentations`; `MetadataCredit` is a read DTO. Movie,
+  Series and Season read their own source. Episode reads its Season; it never
+  copies credits or inherits Series credits. Ambiguous bindings expose no credits.
+- `people` and `person_identifiers` retain stable identity and local image
+  ownership. `person_presentations` reads current TMDb name/original name and
+  biography, with a translation matching the current original text. Independent
+  local/NFO people keep their own data. Source changes never fall back to obsolete
+  TMDb copies in `people`.
+- Source relations and translations are separate. Role caches use TMDb subject
+  ID, original role, language and prompt version. Name caches use public person
+  ID and current source original name. Changed originals cannot reuse old text.
+- Translation candidates read source credits directly, including unbound source
+  works. Page by subject ID and credit ID, hydrate only the current page's subject
+  and parent, and retain 1,000-group/100-entry limits plus negative-cache handling.
+  A source partial index bounds scans of already localized roles.
+- Source profile/credit and translation-cache changes enqueue affected metadata
+  for search and response-cache invalidation. Source display reads do not wait
+  for a copy task. Translation cache hits require no upstream request.
+- `SaveCreditPeople` maintains public identities/local avatars only. Concurrent
+  first creation reuses the unique provider identity transactionally and removes
+  only the losing transaction's provisional person.
+- Verify source refresh, stale translation isolation, unbound roles, long roles,
+  shared person creation, source indexing, and current-page Web/Emby credits with
+  real PostgreSQL. Independent NFO/HongGuo/HuangGuo data paths remain separate.
 
 ## Scenario: Canonical Metadata and Managed Artwork
 
@@ -1943,373 +1831,33 @@ fillMissingDoubanFields(ctx, metadata.ID, metadata.Kind, detail, degraded)
 repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
 ```
 
-## Scenario: Asynchronous Catalog Artwork Handoff
+## Source completion and local season identity
 
-### 1. Scope / Trigger
-
-Catalog hydration saves details, snapshots and credits before handing off images.
-Manual refresh and normal media scraping retain their existing behavior.
-
-### 2. Signatures
-
-- Private metadata fields: `CatalogArtworkDueAt *time.Time` (partial due index),
-  `CatalogArtworkAttempts int`; person field: `ProfileImageSourceURL string`.
-- Repository: `QueueCatalogArtwork(ctx, id) error`,
-  `SaveCatalogArtworkAsset(ctx, item, snapshot, kind, source, asset) (bool, error)`,
-  `CompleteCatalogArtwork(ctx, item, snapshot, missing) error`.
-- `StartCatalogArtworkWorker(ctx)` joins the existing shutdown wait group.
-
-### 3. Contracts
-
-- Queue after metadata completion, preserving existing due/backoff state.
-  `CatalogHydratedAt` means details and child handoffs finished, not image bytes.
-- Startup restores pending work from PostgreSQL; wake signals only reduce latency.
-  Passes consume a fixed cutoff in bounded pages. Failed entities back off with
-  `catalogRetryDelay`; cancellation leaves durable pending work unchanged.
-- First download parses saved snapshots without requesting TMDb details. Existing
-  selections win. Save/completion locks and validates source, kind, due time,
-  snapshot timestamp and same-kind provider identity after network work.
-- Profiles use current Series/Season credits, never duplicate Episode credits.
-  Save downloaded URL/key together, conditional on current URL and old key.
-  A matching persisted source and valid file avoid downloads after restart.
-- Clear due/attempts only after images and profiles succeed. Explicit missing
-  Movie/Series images enter existing no-image recheck state; Season/Episode missing
-  images remain owned by the media-scoped Season/Episode recheck.
-- Graph merge transfers the earlier pending due before deleting source.
-  Public image URLs remain local; no API fields or settings are added.
-
-### 4. Validation & Error Matrix
-
-- Download failure → preserve successful assets and retry; no detail retry.
-- Changed source/snapshot → `ErrCatalogArtworkChanged`; reject stale writes.
-- Concurrent manual selection → preserve selection, no overwrite.
-- Cancellation → cancel I/O and join; restart consumes remaining due work.
-
-### 5. Good / Base / Bad Cases
-
-- Good: blocked Episode still does not block Series metadata completion.
-- Base: empty upstream path completes handling without inventing an asset.
-- Bad: treat download failure as upstream absence or discard due work on restart.
-
-### 6. Tests Required
-
-- `TestCatalogArtworkMetadataFirstRetryAndRestart`: no image I/O during hydration,
-  cancellation/join, restart, isolated retry, no extra details and profile reuse.
-- `TestCatalogArtworkRejectsStaleSnapshotAndPreservesManualSelection`: stale result
-  rejection and manual-selection protection on PostgreSQL.
-- `TestCatalogArtworkMergeAndIdleWake`: merge preserves pending work; idle wake-up.
-- `TestFindIncompleteCatalogChildWaitsForHandoffButNotArtwork`: parent waits for
-  handoff, not downloads. Migration tests assert new fields and due index.
-
-### 7. Wrong vs Correct
-
-Wrong: download originals/avatars inside catalog hydration, then complete details.
-
-Correct: save details/credits → persist image due → complete catalog handoff;
-the artwork worker downloads and completes its own checkpoint independently.
-
-## Scenario: Durable TMDb Catalog Hydration
-
-### 1. Scope / Trigger
-
-- Apply when changing TMDb discover persistence, canonical TV hierarchy,
-  provider snapshots, catalog jobs, or Series/Season/Episode artwork.
-
-### 2. Signatures
-
-- Canonical item checkpoints:
-  `MetadataItem{RuntimeSec, CatalogMetadataHydratedAt, CatalogArtworkHydratedAt, CatalogHydratedAt}`.
-- Raw response: `ProviderData{MetadataID, Provider, Payload, FetchedAt} (read DTO from provider centers)`.
-- Durable work: `CatalogHydrationJob{Provider, EntityKind, ExternalID, MetadataID, Status, Stage, Attempts, NextAttemptAt, LastError}`.
-- Queue boundary:
-  `QueueCatalogHydrationContext(context.Context, []ExternalMediaResult) error`.
-- Episode display ownership:
-  `MetadataItem{Title, OriginalName, Overview}` contains only the Episode's own
-  values; `MediaView{SeriesID, SeriesTitle, SeasonID}` projects hierarchy
-  context separately. There is no persisted or serialized `episode_title`.
-- Legacy title migration: non-empty `metadata_items.episode_title` values are
-  trimmed into Episode `title`, then the legacy column is dropped in the same
-  PostgreSQL transaction.
-- Snapshot backfill boundary:
-  `ListProviderSnapshotsAfter(context.Context, provider, kinds, afterID, limit)`
-  keyset-pages provider snapshots and their owned metadata.
-- Artwork diagnostics:
-  `ListMissingCatalogArtworkAfter(context.Context, afterID, limit)` keyset-pages
-  TMDb-owned Movie/Series/Season/Episode metadata and reports the applicable
-  missing poster, backdrop, or still flags without reading `media`.
-- Missing-image state:
-  `MetadataArtworkRecheck{MetadataID, ArtworkType, LastNoImageAt}` is unique per
-  metadata/type and records only a successful TMDb response with no owned image.
-- Local repair boundary:
-  `ListTMDbArtworkSelectionsAfter(context.Context, afterSelectionID, limit)`
-  keyset-pages current TMDb selections. A repaired asset replaces the selection
-  only while its ID, asset, provider, and source URL still match the snapshot.
-- Missing-image recheck boundary:
-  `ListTMDbArtworkRecheckMetadataAfter(context.Context, afterMetadataID, limit)`
-  admits metadata with an artwork checkpoint or per-type state and excludes
-  never-hydrated metadata with neither.
-- Periodic jobs: `tmdb_artwork_local_repair` and
-  `tmdb_artwork_missing_recheck`; both are disabled by default with independent
-  24-hour schedules. Each execution keyset-pages all current candidates without
-  a persisted cursor or a total scan/request cap.
-
-### 3. Contracts
-
-- Discover requests synchronously upsert only valid TMDb Movie/Series jobs and
-  then return; provider details, credits, profile images, and artwork run in one
-  service-lifetime worker.
-- The database job keyed by `(provider, entity_kind, external_id)` is queue
-  truth. A wake channel only shortens sleep. Startup changes `running` jobs to
-  retryable work.
-- Series details create every Season shell, including Season 0. One seasons
-  turn hydrates one Season and all Episodes listed by that Season response,
-  then yields to another job.
-- Season inventory may populate each Episode's own title, overview, air date,
-  rating and runtime before full hydration. Reuse persisted Season snapshots
-  and request each missing Season once per ingestion group; do not mark basic
-  inventory as full metadata/artwork completion or overwrite completed/local fields.
-  Ancestor descriptions are never copied into child metadata.
-- Series group synchronization binds each file by its own season/episode coordinates;
-  only versions of the same Episode share its attachment. Failed matching preserves
-  existing attachments; conflicting provider IDs and unknown season coordinates
-  must not silently inherit the representative's Episode ID.
-- After a successful Season inventory load, a missing local Episode is created
-  by hierarchy/episode number without invented provider identifiers, snapshots,
-  or completion checkpoints; Media becomes `matched`. The only season-request
-  exception is HTTP 404 for Season 0 after Series identity is confirmed:
-  `ingestSeasonInventory` permits the same local placeholders without inventing
-  snapshots or completion checkpoints. Other seasons' 404 and all other errors
-  still fail. Catalog hydration remains retryable and is not marked complete.
-  `TestSeriesInventoryOnlySpecialsTolerateNotFound` covers this boundary, repeat
-  binding and recovery when the season becomes available. Invalid season
-  coordinates and provider conflicts still fail. Trace group
-  synchronization as well as optional detail fetching when assessing ingestion;
-  optional-detail tolerance alone does not prove admission behavior.
-- Every TMDb Series, Season, and Episode stores its own TMDb identifier, typed
-  display fields, credits, complete provider response JSONB, and selected
-  original image bytes. Episode runtime is seconds on `MetadataItem`.
-- Episode `Title` stores the best title for that Episode. The Series name is
-  exposed only through the real parent hierarchy as `MediaView.SeriesTitle`;
-  Episode `OriginalName`, `Overview`, identifiers, and artwork never inherit
-  from Series or Season. NFO/scanner episode-title hints are internal input and
-  must be normalized into `MetadataItem.Title`, never serialized as a second
-  API field.
-- Library and recent Series cards are a separate presentation boundary:
-  `FindSeriesPresentations` batch-loads the visible cards' canonical Series
-  fields, then `attachSeriesCardPresentations` replaces only `SeriesCard.Rep`
-  display fields. Preserve file identity, technical facts, grouping key, count
-  and the unmodified `LinkMedia` playback target. Apply missing-poster/title
-  filters after this projection. Never copy ancestor fields into Episode rows
-  or use an Episode poster when the Series has no poster.
-- `mediaSeriesKeyResolver.key` must honor an existing canonical Series ID before
-  heuristic external-ID/title/year grouping. Episode provider IDs can repeat
-  across file versions, and Episode years can be missing or differ within one
-  Series; neither may split or merge confirmed Series identities. The same
-  resolver serves card grouping and episode selection. Regression:
-  `TestGroupMediaSeriesCardsPrioritizesCanonicalSeriesOverEpisodeHints` checks
-  167 two-version Episodes and 123 mixed-year Episodes form two cards, with
-  complete file selection and subset-independent keys.
-- Regression: `TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget`
-  must cover owned title/year/rating/artwork, unchanged Episode detail/playback
-  identity, library visibility and missing-poster filtering. Recent cards must
-  retain complete logical-episode counts and show the Series title.
-- Startup compatibility migration copies each non-blank legacy Episode
-  `episode_title` into `title` before dropping the column. A blank legacy value
-  preserves the existing title, non-Episode rows are unchanged, and repeated
-  startup skips the absent column.
-- Season/Episode title and overview localization considers only that entity's
-  TMDb response and translations. Prefer a concrete top-level Chinese value,
-  then `zh-CN`, `zh-SG/HK/TW`, other Chinese, `en-US`, and other English.
-  Title candidates must have a `zh` or `en` language tag; never select an
-  arbitrary-language translation (e.g. Thai `ซีซั่น 1`) over `第 1 季`.
-  Preserve a concrete upstream title when no allowed translation exists.
-  Overview fallback may still use other languages; do not narrow it as a
-  side effect of title repair.
-  Generated labels such as `Episode 1`, `第 1 集`, `Season 1`, and `Specials`
-  do not beat a concrete translation; generate a numbered fallback only when
-  no concrete entity-owned title exists.
-  Regression: `TestPreferredTMDbEntityTitleRejectsUnrelatedTranslationLanguage`
-  covers numbered Season/Episode fallbacks and preserved concrete titles;
-  `TestLocalizeTMDbCatalogSnapshotsRepairsUnrelatedSeasonTranslation` checks
-  historical repair from the original snapshot and repeat execution.
-- `series_local_correction` keyset-pages TMDb Season/Episode JSONB snapshots
-  without network requests. Startup runs it asynchronously once per successful
-  rules version; manual execution bypasses the version marker. It does not gate
-  media/catalog worker startup. Only `source=tmdb` rows are selected. Writes
-  atomically require both `source=tmdb` and the read-time `updated_at`, and update
-  only title, overview and original_name. A concurrent edit is skipped, never
-  overwritten; unchanged display fields do not write. Malformed/failed items
-  are logged by metadata ID while later pages continue, but any failure prevents
-  recording completion. List-query/context errors terminate the pass.
-- Own metadata and own artwork checkpoints advance independently. Episode full
-  completion requires metadata plus durable artwork handoff, not downloaded bytes;
-  Season waits for all expected Episodes; Series and its job wait for all expected
-  Seasons. Explicitly absent image paths satisfy artwork completion, while a failed
-  download does not. See the asynchronous handoff contract below.
-- A Catalog artwork retry removes only that source URL's fresh image-proxy
-  failure marker before importing. It preserves successful cached bytes and
-  does not change the generic browser proxy's negative-cache behavior.
-- Provider/log/job errors contain endpoint/entity/status only. Never persist or
-  log request URLs, query strings, API keys, headers, signed image URLs, or
-  credentials.
-- Catalog-only metadata creates no `Media` and stays outside physical Emby
-  library membership until a visible Media links to it.
-- Artwork completeness is entity-owned: Movie/Series require poster and
-  backdrop, Season requires poster, and Episode requires still. A candidate
-  must have its own valid TMDb identifier, an empty artwork checkpoint, and a
-  missing selection-to-asset join. Parent fallback images never satisfy it.
-- Artwork repair jobs read only the canonical metadata graph and never create,
-  claim, revive, or wake `catalog_hydration_jobs`. First-time artwork hydration
-  is handed off by catalog ingestion to the existing TMDb artwork task.
-- Catalog image persistence is insert-if-absent. An existing valid selection
-  from any source wins both the pre-download check and the transactional write
-  race; explicit manual import keeps overwrite behavior. Metadata editing does
-  not accept artwork URLs and cannot clear a selection.
-- Local repair scans only current TMDb selections with HTTP(S) source URLs. A
-  missing file is downloaded from its saved URL first; only an exact HTTP 404
-  permits one TMDb detail lookup. Other HTTP statuses, connection failures,
-  timeouts, invalid content, and fresh negative-cache results remain retryable
-  failures and preserve the selection.
-- Missing-image recheck handles only Movie/Series, per metadata/type with a
-  24-hour cooldown and one detail request for due poster/backdrop types.
-  Season posters and Episode stills belong to Season/Episode metadata recheck.
-  A successful empty result advances only
-  the affected type; provider or download failure never advances the timestamp.
-- Automatic writes use insert-if-absent for an empty selection and conditional
-  replacement for a dangling TMDb selection. A concurrent manual/local choice
-  always wins. Repair scans and missing-image rechecks do not change catalog
-  checkpoints or non-artwork metadata; the first-download phase alone completes
-  the artwork checkpoint and persists downloaded person image keys.
-- `media`, `metadata_items`, `metadata_identifiers`,
-  `metadata_provider_snapshots`, `catalog_hydration_jobs`,
-  `metadata_artworks`, `artwork_assets`, and `metadata_credits` use
-  `PermanentBase` and hard deletion. Upgrade removes their legacy `deleted_at`
-  columns transactionally, rejects referenced metadata tombstones, purges media
-  and credit tombstones, restores tombstoned assets as ordinary assets,
-  detaches surviving catalog jobs from retired metadata, and never deletes
-  image files.
-
-### 4. Validation & Error Matrix
-
-| Condition | Required result |
-| --- | --- |
-| TMDb ID is non-positive or media type is unsupported | Create no job and send no wake signal |
-| Duplicate discover rows | Keep one durable job identity |
-| HTTP 429 | Honor valid `Retry-After`; otherwise use bounded, cancelable backoff |
-| Worker stops while a job is running | Reset it to retry on next startup |
-| Required own image download fails | Preserve the old own selection and leave artwork/full checkpoints empty |
-| Catalog retry follows a recent proxy image failure | Retry the upstream URL without deleting a successful cached image |
-| Provider explicitly returns no own image | Mark own artwork complete without persisting ancestor artwork; display projections may still fall back |
-| One Episode is incomplete | Keep its Season, Series, and durable job incomplete |
-| Episode/Season top-level title is a generated label | Continue through its own translations before accepting or generating a fallback |
-| Snapshot belongs to manual or non-TMDb metadata | Leave its display fields unchanged |
-| Snapshot-localized fields already match | Perform no metadata update |
-| One snapshot cannot decode or update | Log that metadata ID and continue with later rows; never log its payload |
-| Legacy Episode has a non-blank `episode_title` | Trim it into `title`, then remove the legacy column atomically |
-| Legacy `episode_title` is blank or belongs to a non-Episode | Preserve the current `title` |
-| Legacy column is already absent | Skip the compatibility migration successfully |
-| A saved TMDb image URL returns 404 | Query TMDb for that metadata and image type only |
-| A saved image URL returns 403, 429, another 4xx/5xx, or a network error | Preserve the selection and record a retryable failure; do not query TMDb |
-| TMDb successfully returns no owned image | Upsert the per-type no-image time and wait 24 hours |
-| Metadata has no artwork checkpoint and no per-type state | Exclude it from missing-image recheck |
-| A catalog image write races with a manual/local selection | Preserve the manual/local selection; the downloaded asset may remain unselected |
-| An automatic repair races with a manual/local selection | Preserve the manual/local selection; the downloaded asset may remain unselected |
-| A selected TMDb local file is missing | Preserve the relationship until validated bytes are stored and a conditional replacement succeeds |
-| A selected asset path is invalid, unreadable, or fails for a non-missing I/O reason | Record a per-item retryable failure and preserve the selection |
-| Legacy soft-deleted metadata still has Media, user-state, credit, event, or active-child references | Abort and roll back the schema migration |
-
-### 5. Good / Base / Bad Cases
-
-- Good: discovering one Series eventually stores `Series -> Season 0/1 ->
-  Episode`, each with its own TMDb ID, JSON snapshot and original image;
-  Episodes reference Season credits instead of persisting their own.
-- Good: an Episode stores its localized name in `Title`, while clients receive
-  the parent show name from `SeriesTitle`.
-- Base: a Series has no Seasons or an entity has no image path; explicit empty
-  inventories/scopes complete without synthetic children or inherited selections.
-- Base: a historical TMDb Episode snapshot is relocalized at startup without a
-  provider request; a manual Episode with the same shape remains untouched.
-- Bad: an in-memory map is queue truth, a root-only timestamp suppresses child
-  hydration, or a Season/Episode persists copied Series artwork or people.
-- Bad: storing the Series name in `Episode.Title` or copying the Series
-  `OriginalName`, overview, or provider IDs into an Episode projection.
-- Bad: a browser-facing image failure marker suppresses the durable job's own
-  scheduled retry for the full negative-cache TTL.
-- Good: one Series with many missing Season/Episode images produces one root
-  job and later fills only each entity's own image.
-- Good: an available saved URL restores its missing local file without a TMDb
-  metadata request; a 404 may refresh only that image source.
-- Good: a per-type empty TMDb result is retried after 24 hours without admitting
-  never-hydrated metadata.
-- Bad: join `media`, use offset pagination, enqueue catalog work, or let an
-  automatic repair overwrite a manual selection.
-- Bad: trust the selection-to-asset join without checking the managed local
-  file, or use the remote source URL as the display fallback.
-
-### 6. Tests Required
-
-- Provider: Series/Season/Episode inventories, raw unknown-field retention,
-  original image URLs, external IDs, runtime, 429 retry/cancel, and errors with
-  no URL/API key.
-- Repository/PostgreSQL: JSONB round-trip, job uniqueness, claim/retry/recovery,
-  bounded root priority, child completion gating, and idempotent provider-ID
-  attachment/merge.
-- Service: Season 0 plus all Episodes, partial resume, no Media creation, own
-  artwork/profile bytes, image retry past a fresh proxy failure marker, and
-  bottom-up completion.
-- Localization/backfill: placeholder-title rejection, locale priority,
-  entity-owned overview fallback, keyset pagination beyond one batch,
-  per-item failure isolation, manual-source protection, and idempotent no-op
-  updates.
-- Migration/API: backfill a non-empty legacy Episode title, preserve blank and
-  non-Episode titles, drop the column idempotently, and omit `episode_title`
-  from serialized media payloads.
-- MediaView/Emby: Episode-owned title and identifiers, parent `SeriesTitle`, own
-  artwork precedence, read-only Series artwork fallback for missing Season/Episode
-  images, same-Season previous-date fallback, Season-owned people, and catalog-only
-  exclusion from physical libraries.
-- Artwork repair/recheck: PostgreSQL tests cover both keyset scans without a
-  `media` table, never-hydrated exclusion, task-one state handoff, per-type
-  cooldown, conditional selection races, full-sweep pagination, and exact retired
-  setting cleanup. Service tests cover old-URL success without TMDb, exact 404
-  detection, one request for multiple due types, and item-local failures.
-- Run both artwork queries with `EXPLAIN (ANALYZE, BUFFERS)` on production-scale
-  PostgreSQL data before adding any new index.
-
-### 7. Wrong vs Correct
-
-```go
-// Wrong: a wake-only in-memory queue loses work on restart.
-pending[key] = discoverItem
-
-// Correct: persist the idempotent identity, then coalesce only the wake signal.
-repo.Metadata.EnqueueCatalogJob(ctx, "tmdb", entityKind, externalID)
-```
-
-```go
-// Wrong: display fallback is persisted as child-owned artwork.
-repo.SaveSelection(ctx, season.ID, "poster", "fallback", seriesPosterAsset)
-
-// Correct: fallback exists only in the read projection.
-seasonPoster := firstNonEmpty(ownSeasonPoster, seriesPoster)
-```
-
-```go
-// Wrong: automatic catalog import overwrites the current selection.
-repo.SaveSelection(ctx, metadataID, artworkType, "tmdb", source, asset)
-
-// Correct: automatic work only fills an absent or dangling selection.
-repo.SaveCatalogSelection(ctx, metadataID, artworkType, "tmdb", source, asset)
-```
-
-```go
-// Wrong: overload Episode.Title with hierarchy context.
-episode.Title = series.Title
-
-// Correct: keep the Episode title on the entity and project context separately.
-episode.Title = localizedEpisodeTitle
-view.SeriesTitle = parentSeries.Title
-```
+- Ordinary display fields, credits and images are read from source-center projections.
+  Metadata retains identity, hierarchy and bindings; it has no hydration checkpoints
+  or catalog job queue. `catalog_hydration_jobs` and the six metadata hydration/artwork
+  checkpoint columns are retired and are not created by the current schema.
+- TMDb movie/series/season/episode maintenance owns source completeness. Summary
+  quality alone is insufficient even when basic display fields look complete.
+  `tmdb_data_people` supplements missing source credits and person details without
+  creating metadata or media. See the background-task contract for evidence and retry.
+- TMDb/Douban source image workers own downloads and retry, including person avatars.
+  No separate metadata artwork worker or handoff checkpoint remains.
+- Scanning still creates stable season/episode identities and binds each file to its
+  own coordinates. Reuse the saved season inventory; refresh once per group when a
+  requested episode is absent. Never copy ancestor descriptions into child fields.
+- Missing episodes may have local coordinate placeholders without fabricated provider
+  identifiers or snapshots. Only season 0 HTTP 404 tolerates a missing season; other
+  HTTP failures remain errors. A later valid inventory fills identifiers while keeping
+  local identity and file attachment stable.
+- Source presentation retains the identity's source marker while its provider record
+  is unavailable. This is not a fallback for title/overview or other retired fields.
+- Series cards use series presentation without changing the underlying episode playback
+  target. Existing canonical series identity wins over title/year grouping hints.
+- Provider failures and task logs never expose URLs, query strings or credentials.
+- Regression: `TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot`,
+  `TestSeriesInventoryMissingEpisodesBindAndRecover`,
+  `TestSeriesInventoryOnlySpecialsTolerateNotFound`, and `TestTMDbPeopleMaintenance*`.
 
 ## Scenario: TMDb Season / Episode Metadata Recheck
 
@@ -2630,8 +2178,7 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
   identity after fetching; concurrent source data wins. Retry happens through
   subsequent ingestion or source-center refresh, never startup legacy backfill.
 - Local metadata deletion/merge moves local associations only. It never deletes
-  independent center data. Shared people, local display overrides, media and
-  artwork selections remain business records.
+  independent center data. Shared person identities, media, user state and source-owned assets remain business records.
 - Startup maintains only the current schema; retired source tables and settings
   were removed by a completed one-time operation. There is no startup retirement
   or import chain. Center tables and local associations remain intact. Removed
@@ -2699,37 +2246,24 @@ Series detail separates canonical Series presentation from selected Episode and 
 - Correct: submit one visible file ID with `scope: "series"`, resolve its canonical Series, and leave episode/file linkage untouched.
 - Wrong: reuse Episode-only search representative eligibility to decide whether Series detail exists. Correct: validate the current file, resolve its existing parent chain, and project the Series record directly.
 
-## TMDb independent source center
+## Direct source presentation
 
-`tmdb_subjects`, `tmdb_person_profiles`, `tmdb_payloads`, `tmdb_credits`,
-`tmdb_artworks`, `tmdb_query_cache`, and `tmdb_refresh_jobs` own TMDb source facts.
-The public people/person_identifiers/metadata_credits IDs and local presentation
-remain stable. Bind local works through provider+kind+external_id, never titles.
-
-- All TMDbProvider JSON reads use TMDbDataCenter; search/feed results only seed
-  summaries. Detail/base/filmography/season_episode payloads keep source language,
-  provenance and success time. Season responses split episode basics while keeping
-  full episode extensions separately. Source refresh does not apply local edits.
-- Snapshot wrappers write the center only. Their transitional read relation joins
-  identifiers to source payloads, merges newer basics over extensions, and uses
-  conservative component time. Legacy rows are a fallback only for unmigrated
-  identities. Identifier rollback/CAS and full parent coordinates still apply.
-- Source scope writes and relations are transactional. Person/subject credit
-  origins are isolated; full person filmography requires both cast and crew arrays.
-  Stable role hashes exclude display ordering. Person works group before paging.
-- API requests hold a persisted lease/token. Older component responses cannot
-  replace newer ones, but must finish their own lease using the accepted payload
-  and its real timestamp. Configuration changes retire the old request slot and
-  hand off to the current configuration; credentials never enter persisted keys.
-- Startup migration is bounded, offline and retryable. It preserves legacy success
-  time, unmatched identities and existing image references. Local text without a
-  raw response is explicitly `legacy_projection`; it is not full source detail.
-  Failed identity/parent checks remain visible and prevent a completion marker.
-- Source images use `data/catalogs/tmdb/{artwork|people}/aa/bb/cc/hash.ext`, with
-  adjacent thumbnails. Persisted source path-to-asset/key mappings survive restart;
-  source imports create no cache/images intermediate copy. Failed replacement
-  retains the prior image with private/no-store and never records new-path success.
-- Verification: TestTMDbCenter* in repository/service/handler, schema hierarchy
-  test, snapshot/season/localization/ID rollback and discovery regressions. Use an
-  isolated real PostgreSQL instance; mock upstream counts do not prove live API
-  connectivity or production migration completion.
+- `metadata_items` owns stable identity, hierarchy, library membership and
+  checkpoints. Basic title/overview/date/year/rating fields are read-only DTO
+  fields; current schema does not create those columns.
+- `metadata_presentations` merges local TMDb first and Douban only for missing
+  values. TMDb and Douban ratings remain independent. `metadata_artwork_presentations`
+  reads center asset relationships. There is no old-value or manual-copy fallback.
+- Ordinary editing corrects provider bindings only. Parent rebinding locks the
+  hierarchy in ancestor order, checks the observed revision, detaches descendants'
+  old source identities and resets checkpoints while retaining local IDs/state.
+- Retired artwork/credit copy tables are absent from AllModels. Source tables,
+  image assets, translations and public person identity still have responsibilities.
+- Identity-only qualification/count/hierarchy queries use identity tables.
+  Load source projections only for display-dependent filters/sorts and final
+  candidates. Verify actual PostgreSQL plans, not query counts alone.
+- Persistent metadata-index jobs refresh search and invalidate caches, with
+  revision-safe completion and retries. They do not copy presentation data.
+- Current schema only: no startup import, legacy projection, old-image-key
+  conversion or historical task compatibility. Old development schemas must be
+  recreated separately; development verification never mutates a user's database.

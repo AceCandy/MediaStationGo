@@ -19,6 +19,7 @@ import (
 )
 
 type tmdbForceKey struct{}
+type tmdbInventoryKey struct{}
 type tmdbBudgetKey struct{}
 type tmdbAutomaticKey struct{}
 type tmdbBudget struct {
@@ -134,6 +135,10 @@ func (s *TMDbDataCenter) Fetch(ctx context.Context, rawURL string, out any) ([]b
 	req, err := s.parseRequest(ctx, rawURL)
 	if err != nil {
 		return nil, err
+	}
+	if inventory, _ := ctx.Value(tmdbInventoryKey{}).(bool); inventory {
+		req.Component = "inventory"
+		req.Key = tmdbDigest(req.Key + "/inventory")
 	}
 	req.Automatic, _ = ctx.Value(tmdbAutomaticKey{}).(bool)
 	force, _ := ctx.Value(tmdbForceKey{}).(bool)

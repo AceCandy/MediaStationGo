@@ -41,7 +41,7 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 	}
 	lib := model.Library{Base: model.Base{ID: "search-library"}, Name: "Search", Type: "mixed", Path: "/test/search"}
 	create(&lib)
-	create(&model.MetadataItem{PermanentBase: model.PermanentBase{ID: "ordinary"}, Kind: "movie", Title: "航海王", Source: "test"})
+	createServiceSourceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "ordinary"}, Kind: "movie", Title: "航海王", Source: "test"})
 	create(&model.Media{PermanentBase: model.PermanentBase{ID: "ordinary-file"}, LibraryID: lib.ID, MetadataID: "ordinary", Path: "/test/search/movie.mkv"})
 	create(&model.MediaProbeMetadata{MediaID: "ordinary-file", DurationMS: 90000, ProbeJSON: "{}"})
 	create(&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "source"}, SourceID: "12345678901", Kind: "series", Title: "航海王续篇"})

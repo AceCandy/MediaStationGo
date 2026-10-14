@@ -8,7 +8,7 @@ import (
 )
 
 // WithBatchedHongGuoSearch 返回仅供当前串行批次使用的副本；调用者须在退出时刷新不足一批的已提交变更。
-// 文件事务和旧绑定捕获保持逐条执行，副本不改变其他调用者的即时索引刷新。
+// 旧绑定仍在各文件行锁下捕获，副本不改变其他调用者的即时索引刷新。
 func (r *MediaRepository) WithBatchedHongGuoSearch(limit int) (*MediaRepository, func(context.Context)) {
 	batch := &hongGuoMediaSearchBatch{repo: r.hongGuo, limit: max(1, limit)}
 	writer := *r

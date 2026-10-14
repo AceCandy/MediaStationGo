@@ -23,10 +23,10 @@ m.*,
 	COALESCE(mi.original_name, '') AS view_original_name,
 	COALESCE(mi.overview, '') AS view_overview,
 	COALESCE(mi.rating, 0) AS view_rating,
-	COALESCE(mi.year, m.scan_year, 0) AS view_year,
+	COALESCE(NULLIF(mi.year, 0), m.scan_year, 0) AS view_year,
 	COALESCE(NULLIF(mi.release_date, ''), CASE WHEN mi.kind = 'episode' THEN (
 		SELECT NULLIF(previous_episode.release_date, '')
-		FROM metadata_items AS previous_episode
+		FROM metadata_presentations AS previous_episode
 		WHERE previous_episode.kind = 'episode'
 			AND previous_episode.parent_id = mi.parent_id
 			AND previous_episode.episode_num < mi.episode_num
@@ -83,9 +83,9 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).
 		Table("media AS m").
 		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
-		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
-		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season'").
-		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series'").
+		Joins("JOIN LATERAL (SELECT * FROM metadata_presentations WHERE id=m.metadata_id OFFSET 0) AS mi ON TRUE").
+		Joins("LEFT JOIN LATERAL (SELECT * FROM metadata_presentations WHERE id=mi.parent_id AND mi.kind='episode' AND kind='season' OFFSET 0) AS season_metadata ON TRUE").
+		Joins("LEFT JOIN LATERAL (SELECT * FROM metadata_presentations WHERE id=CASE WHEN mi.kind='episode' THEN season_metadata.parent_id WHEN mi.kind='season' THEN mi.parent_id ELSE NULL END AND kind='series' OFFSET 0) AS series_metadata ON TRUE").
 		Joins(`LEFT JOIN LATERAL (
 			SELECT
 				MIN(CASE WHEN mid.provider = 'tmdb' THEN mid.external_id END) AS tmdb_external_id,
@@ -95,16 +95,11 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 			FROM metadata_identifiers AS mid
 			WHERE mid.metadata_id = mi.id AND mid.entity_kind = mi.kind
 		) AS identifiers ON TRUE`).
-		Joins("LEFT JOIN metadata_artworks AS poster ON poster.metadata_id = mi.id AND poster.artwork_type = 'poster'").
-		Joins("LEFT JOIN artwork_assets AS poster_asset ON poster_asset.id = poster.asset_id").
-		Joins("LEFT JOIN metadata_artworks AS backdrop ON backdrop.metadata_id = mi.id AND backdrop.artwork_type = 'backdrop'").
-		Joins("LEFT JOIN artwork_assets AS backdrop_asset ON backdrop_asset.id = backdrop.asset_id").
-		Joins("LEFT JOIN metadata_artworks AS still ON still.metadata_id = mi.id AND still.artwork_type = 'still'").
-		Joins("LEFT JOIN artwork_assets AS still_asset ON still_asset.id = still.asset_id").
-		Joins("LEFT JOIN metadata_artworks AS series_poster ON series_poster.metadata_id = series_metadata.id AND series_poster.artwork_type = 'poster'").
-		Joins("LEFT JOIN artwork_assets AS series_poster_asset ON series_poster_asset.id = series_poster.asset_id").
-		Joins("LEFT JOIN metadata_artworks AS series_backdrop ON series_backdrop.metadata_id = series_metadata.id AND series_backdrop.artwork_type = 'backdrop'").
-		Joins("LEFT JOIN artwork_assets AS series_backdrop_asset ON series_backdrop_asset.id = series_backdrop.asset_id")
+		Joins("LEFT JOIN artwork_assets AS poster_asset ON poster_asset.id = mi.poster_asset_id").
+		Joins("LEFT JOIN artwork_assets AS backdrop_asset ON backdrop_asset.id = mi.backdrop_asset_id").
+		Joins("LEFT JOIN artwork_assets AS still_asset ON still_asset.id = mi.still_asset_id").
+		Joins("LEFT JOIN artwork_assets AS series_poster_asset ON series_poster_asset.id = series_metadata.poster_asset_id").
+		Joins("LEFT JOIN artwork_assets AS series_backdrop_asset ON series_backdrop_asset.id = series_metadata.backdrop_asset_id")
 }
 
 func applyMediaViewFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
@@ -344,18 +339,18 @@ func (r *MediaViewRepository) ListFavoriteCards(ctx context.Context, userID stri
 	// 从收藏展开作品、季和集，避免先给整个元数据库反查媒体文件。
 	base := r.db.WithContext(ctx).
 		Table("favorites AS f").
-		Joins("JOIN metadata_items AS favorite_metadata ON favorite_metadata.id = f.metadata_id AND favorite_metadata.kind IN ('movie', 'series')").
+		Joins("JOIN metadata_presentations AS favorite_metadata ON favorite_metadata.id = f.metadata_id AND favorite_metadata.kind IN ('movie', 'series')").
 		Joins(`JOIN LATERAL (
 SELECT favorite_metadata.id
 UNION ALL
-SELECT s.id FROM metadata_items s
+SELECT s.id FROM metadata_presentations s
 WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id AND s.kind = 'season'
 UNION ALL
-SELECT e.id FROM metadata_items s
-JOIN metadata_items e ON e.parent_id = s.id AND e.kind = 'episode'
+SELECT e.id FROM metadata_presentations s
+JOIN metadata_presentations e ON e.parent_id = s.id AND e.kind = 'episode'
 WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id AND s.kind = 'season'
 ) AS candidate ON TRUE`).
-		Joins("JOIN metadata_items AS mi ON mi.id = candidate.id").
+		Joins("JOIN metadata_presentations AS mi ON mi.id = candidate.id").
 		Joins("JOIN media AS m ON m.metadata_id = mi.id").
 		Where("f.user_id = ? AND f.deleted_at IS NULL", userID)
 	base = applyMediaViewFilter(base, filter)
@@ -409,7 +404,7 @@ func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit 
 		limit = 24
 	}
 	db := r.db.WithContext(ctx)
-	ordinary := db.Table("metadata_items recent").Select("recent.id, recent.latest_media_added_at AS latest").
+	ordinary := db.Table("metadata_presentations recent").Select("recent.id, recent.latest_media_added_at AS latest").
 		Where("recent.kind IN ('movie','series')")
 	ordinary = FilterVisibleWorkLibraries(db, ordinary, "recent.library_ids", nil, filter).
 		Select("recent.id, recent.id AS work_id, recent.kind, recent.library_ids, recent.latest_media_added_at AS latest, 'legacy' AS source, NULL::text[] AS work_ids")
@@ -436,9 +431,9 @@ func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit 
 	hongGuoFiles := r.hongGuoFileScope(ctx, "", filter).Select("1").Where("b.work_id=ANY(recent.work_ids)")
 	ordinaryFiles := applyMediaViewFilter(r.query(ctx), filter).Select("1").
 		Where(`m.metadata_id IN (SELECT recent.work_id UNION ALL
-SELECT id FROM metadata_items WHERE parent_id=recent.work_id UNION ALL
-SELECT leaf.id FROM metadata_items parent JOIN LATERAL (
-SELECT id FROM metadata_items WHERE parent_id=parent.id OFFSET 0
+SELECT id FROM metadata_presentations WHERE parent_id=recent.work_id UNION ALL
+SELECT leaf.id FROM metadata_presentations parent JOIN LATERAL (
+SELECT id FROM metadata_presentations WHERE parent_id=parent.id OFFSET 0
 ) leaf ON TRUE WHERE parent.parent_id=recent.work_id)`).
 		Where("CASE WHEN mi.kind IN ('episode','season') THEN series_metadata.id ELSE mi.id END = recent.work_id")
 	localFiles := r.NFOCandidateFiles(ctx, filter, "recent.work_id").Select("1").Where("COALESCE(nw.id,ni.id)=recent.work_id")
@@ -505,7 +500,7 @@ func (r *MediaViewRepository) ListByLibrariesFiltered(ctx context.Context, libra
 		return nil, 0, err
 	}
 	var rows []model.MediaView
-	q = q.Order("COALESCE(mi.release_date, '') DESC, COALESCE(mi.year, m.scan_year, 0) DESC, m.updated_at DESC, m.created_at DESC, m.id DESC").
+	q = q.Order("COALESCE(mi.release_date, '') DESC, COALESCE(NULLIF(mi.year, 0), m.scan_year, 0) DESC, m.updated_at DESC, m.created_at DESC, m.id DESC").
 		Offset(offset).Limit(limit)
 	if err := scanMediaViews(q, &rows); err != nil {
 		return nil, 0, err

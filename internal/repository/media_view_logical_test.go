@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 func TestRecentLogicalWorksPreservesBatchTiesAndFilters(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('newest','movie','Newest','local'),('a-tie','movie','A','local'),('z-tie','movie','Z','local'),('old','movie','Old','local'),('nsfw','movie','Hidden','local')`,
+		`INSERT INTO metadata_items(id,kind,source) VALUES ('newest','movie','local'),('a-tie','movie','local'),('z-tie','movie','local'),('old','movie','local'),('nsfw','movie','local')`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'new-'||i,'newest','recent','/new/'||i,'2026-01-03' FROM generate_series(1,127) i`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) VALUES ('zzz-tie','a-tie','recent','/tie/a','2026-01-02'),('aaa-tie','z-tie','recent','/tie/z','2026-01-02'),('hidden','nsfw','hidden','/hidden','2026-01-04')`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'old-'||i,'old','recent','/old/'||i,'2020-01-01' FROM generate_series(1,10000) i`,
@@ -23,6 +24,9 @@ func TestRecentLogicalWorksPreservesBatchTiesAndFilters(t *testing.T) {
 		if err := repos.DB.Exec(sql).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := testdb.SeedMetadataPresentationTitles(repos.DB, `SELECT id,CASE WHEN id LIKE 'work-%' THEN CASE WHEN id IN ('work-51','work-103','work-155') THEN 'Show' ELSE '中文' END ELSE id END AS title FROM metadata_items`); err != nil {
+		t.Fatal(err)
 	}
 	type statement struct {
 		sql  string
@@ -106,7 +110,7 @@ func TestRecentLogicalWorksPreservesBatchTiesAndFilters(t *testing.T) {
 	if err := repos.DB.Exec(`UPDATE media SET created_at='2026-01-02' WHERE id='aaa-tie'`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Exec(`UPDATE metadata_items SET title='中文标题'`).Error; err != nil {
+	if err := repos.DB.Exec(`UPDATE tmdb_subjects SET title='中文标题'`).Error; err != nil {
 		t.Fatal(err)
 	}
 	compare(MediaQueryFilter{MissingChineseTitle: true})
@@ -115,12 +119,15 @@ func TestRecentLogicalWorksPreservesBatchTiesAndFilters(t *testing.T) {
 func TestRecentWorkTimeSharedAcrossLibraries(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('shared','movie','Shared','local'),('other','movie','Other','local')`,
+		`INSERT INTO metadata_items(id,kind,source) VALUES ('shared','movie','local'),('other','movie','local')`,
 		`INSERT INTO media(id,path,library_id,metadata_id,created_at) VALUES ('a','/test/a','a','shared','2026-01-01'),('b','/test/b','b','shared','2026-01-03'),('c','/test/c','a','other','2026-01-02')`,
 	} {
 		if err := repos.DB.Exec(sql).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := testdb.SeedMetadataPresentationTitles(repos.DB, `SELECT id,CASE WHEN id LIKE 'work-%' THEN CASE WHEN id IN ('work-51','work-103','work-155') THEN 'Show' ELSE '中文' END ELSE id END AS title FROM metadata_items`); err != nil {
+		t.Fatal(err)
 	}
 	for _, want := range []string{"shared", "other"} {
 		rows, err := repos.MediaView.ListRecentLogicalWorks(t.Context(), 1, MediaQueryFilter{AllowedLibraryIDs: []string{"a"}})
@@ -211,12 +218,15 @@ func TestRecentLogicalWorksRefillsWithDates(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	db := repos.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'work-'||n,'movie',CASE WHEN n IN (51,103,155) THEN 'Show' ELSE '中文' END,'local' FROM generate_series(1,155) n`,
+		`INSERT INTO metadata_items(id,kind,source) SELECT 'work-'||n,'movie','local' FROM generate_series(1,155) n`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||n,'work-'||n,'visible','/fixture/'||n,TIMESTAMP '2026-01-01' - n * INTERVAL '1 hour' FROM generate_series(1,155) n`,
 	} {
 		if err := db.Exec(sql).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := testdb.SeedMetadataPresentationTitles(repos.DB, `SELECT id,CASE WHEN id LIKE 'work-%' THEN CASE WHEN id IN ('work-51','work-103','work-155') THEN 'Show' ELSE '中文' END ELSE id END AS title FROM metadata_items`); err != nil {
+		t.Fatal(err)
 	}
 	batches, dateQueries := 0, 0
 	if err := db.Callback().Row().After("gorm:row").Register("test:recent-refill", func(tx *gorm.DB) {
@@ -257,7 +267,7 @@ func TestRecentLibraryMembershipAcrossSources(t *testing.T) {
 		}
 	}
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('shared','movie','Shared','local')`,
+		`INSERT INTO metadata_items(id,kind,source) VALUES ('shared','movie','local')`,
 		`INSERT INTO nfo_items(id,library_id,local_key,kind,title) VALUES ('local-a','a','local','movie','Local A'),('local-b','b','local','movie','Local B')`,
 		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at) VALUES ('first','101','series','First','1000',1,now()),('second','102','series','Second','1000',2,now()),('third','103','series','Third','1000',3,now())`,
 		`INSERT INTO hongguo_episodes(id,work_id,number) VALUES ('second-ep','second',1),('third-ep','third',1)`,
@@ -267,6 +277,9 @@ func TestRecentLibraryMembershipAcrossSources(t *testing.T) {
 		`INSERT INTO hongguo_media_bindings(media_id,work_id,episode_id) VALUES ('source-a','second','second-ep'),('source-b','third','third-ep')`,
 	} {
 		exec(sql)
+	}
+	if err := testdb.SeedMetadataPresentationTitles(repos.DB, `SELECT id,CASE WHEN id LIKE 'work-%' THEN CASE WHEN id IN ('work-51','work-103','work-155') THEN 'Show' ELSE '中文' END ELSE id END AS title FROM metadata_items`); err != nil {
+		t.Fatal(err)
 	}
 	// 索引集合与尚未补算的 NULL 必须返回相同完整结果；受限空权限、隐藏库仍拒绝。
 	filters := []MediaQueryFilter{
@@ -333,7 +346,7 @@ func TestRecentLibraryMembershipAcrossSources(t *testing.T) {
 func TestRecentWorksMergeAllSourcesBeforePaging(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('ordinary','movie','Ordinary','local')`,
+		`INSERT INTO metadata_items(id,kind,source) VALUES ('ordinary','movie','local')`,
 		`INSERT INTO nfo_items(id,library_id,local_key,kind,title) VALUES ('local','a','local','movie','Local')`,
 		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at) VALUES ('source','100','series','Source','100',1,now())`,
 		`INSERT INTO media(id,path,library_id,metadata_id,created_at) VALUES ('ordinary-file','/test/ordinary','a','ordinary','2026-01-02')`,
@@ -345,6 +358,9 @@ func TestRecentWorksMergeAllSourcesBeforePaging(t *testing.T) {
 		if err := repos.DB.Exec(sql).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := testdb.SeedMetadataPresentationTitles(repos.DB, `SELECT id,CASE WHEN id LIKE 'work-%' THEN CASE WHEN id IN ('work-51','work-103','work-155') THEN 'Show' ELSE '中文' END ELSE id END AS title FROM metadata_items`); err != nil {
+		t.Fatal(err)
 	}
 	rows, err := repos.MediaView.ListRecentByLibraries(t.Context(), []string{"a"}, 3, MediaQueryFilter{})
 	if err != nil {

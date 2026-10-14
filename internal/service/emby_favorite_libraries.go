@@ -40,7 +40,7 @@ func (e *EmbyService) favoriteLibraryMembership(ctx context.Context, userID stri
 		known := db.Table("jsonb_array_elements_text(item.library_ids) AS membership(id)").Select("id")
 		files := metadataWorkFiles(db, db.Model(&model.Media{})).
 			Where("item.library_ids IS NULL").Select("DISTINCT media.library_id AS id")
-		queries = append(queries, db.Table("metadata_items item").Where("item.id IN ?", ordinary).
+		queries = append(queries, db.Table("metadata_presentations item").Where("item.id IN ?", ordinary).
 			Joins("JOIN LATERAL (? UNION ?) membership ON TRUE", known, files).
 			Select("item.id, membership.id AS library_id"))
 	}

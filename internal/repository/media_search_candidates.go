@@ -19,7 +19,7 @@ func (r *MediaViewRepository) SearchCandidateDetails(ctx context.Context, ids []
 	for _, source := range []struct {
 		table, prefix string
 		ids           []string
-	}{{"metadata_items", "", legacyIDs}, {"nfo_items", "nfo-", localIDs}} {
+	}{{"metadata_presentations", "", legacyIDs}, {"nfo_items", "nfo-", localIDs}} {
 		if len(source.ids) == 0 {
 			continue
 		}

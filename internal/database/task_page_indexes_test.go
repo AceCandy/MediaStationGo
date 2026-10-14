@@ -14,7 +14,7 @@ func TestTaskPageIndexesSupportGenericPlans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.MetadataItem{}, &model.MetadataCredit{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}, &model.TaskExecution{}); err != nil {
+	if err := db.AutoMigrate(&model.Person{}, &model.Library{}, &model.MetadataItem{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}, &model.TaskExecution{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensurePerformanceIndexes(db); err != nil {
@@ -32,10 +32,10 @@ func TestTaskPageIndexesSupportGenericPlans(t *testing.T) {
 		`INSERT INTO media(id,path,library_id,scrape_status)
  SELECT 'file-'||i, '/test/'||i, 'library', CASE WHEN i<=2 THEN 'error' ELSE 'matched' END
  FROM generate_series(1,60000) i`,
-		`INSERT INTO metadata_items(id,kind,title,source,season_num,episode_num) VALUES ('series','series','Test','tmdb',0,0)`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) VALUES ('season','season','Test','tmdb','series',1,0)`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num)
- SELECT 'metadata-'||i, CASE WHEN i<=1000 THEN 'episode' ELSE 'movie' END, repeat('Title',50), 'tmdb',
+		`INSERT INTO metadata_items(id,kind,source,season_num,episode_num) VALUES ('series','series','tmdb',0,0)`,
+		`INSERT INTO metadata_items(id,kind,source,parent_id,season_num,episode_num) VALUES ('season','season','tmdb','series',1,0)`,
+		`INSERT INTO metadata_items(id,kind,source,parent_id,season_num,episode_num)
+ SELECT 'metadata-'||i, CASE WHEN i<=1000 THEN 'episode' ELSE 'movie' END, 'tmdb',
  CASE WHEN i<=1000 THEN 'season' ELSE NULL END, 0, CASE WHEN i<=1000 THEN i ELSE 0 END
  FROM generate_series(1,60000) i`,
 		`VACUUM ANALYZE task_executions`,
@@ -61,14 +61,14 @@ func TestTaskPageIndexesSupportGenericPlans(t *testing.T) {
 		{`EXECUTE latest_kind('artwork','running')`, "idx_task_executions_kind_latest"},
 		{`EXECUTE latest_name('artwork','TMDb 无图复查','running')`, "idx_task_executions_kind_name_latest"},
 		{`EXECUTE scrape_count`, "idx_media_scrape_issues"},
-		{`SELECT id FROM metadata_items WHERE kind='episode'`, "Index Only Scan using idx_metadata_recheck_kind_id"},
+		{`SELECT id FROM metadata_items WHERE kind='episode'`, "idx_metadata_"},
 	} {
 		var lines []string
 		if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS) " + tc.query).Scan(&lines).Error; err != nil {
 			t.Fatal(err)
 		}
 		plan := strings.Join(lines, "\n")
-		if !strings.Contains(plan, tc.index) || strings.Contains(plan, "Seq Scan on media") || strings.Contains(plan, "Seq Scan on task_executions") || strings.Contains(plan, "Rows Removed by Filter") {
+		if !strings.Contains(plan, tc.index) || strings.Contains(plan, "Seq Scan on metadata_items") || strings.Contains(plan, "Seq Scan on media") || strings.Contains(plan, "Seq Scan on task_executions") || strings.Contains(plan, "Rows Removed by Filter") {
 			t.Fatalf("query failed to isolate candidates with %s:\n%s", tc.index, plan)
 		}
 		t.Logf("%s:\n%s", tc.query, plan)

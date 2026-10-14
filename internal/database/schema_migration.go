@@ -11,6 +11,10 @@ import (
 
 // AutoMigrate 建立现行模型、业务约束和增量维护，不转换旧版数据结构。
 func AutoMigrate(db *gorm.DB) error {
+	// GORM 会调整列类型；只读视图在模型维护后重新建立。
+	if err := db.Exec("DROP VIEW IF EXISTS person_presentations, metadata_credit_presentations, metadata_artwork_presentations, metadata_presentations").Error; err != nil {
+		return err
+	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
@@ -47,7 +51,13 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := EnsurePlaybackProgressRevisionTriggers(db); err != nil {
 		return err
 	}
-	return EnsureLatestMediaAddedTriggers(db)
+	if err := EnsureMetadataIndexTriggers(db); err != nil {
+		return err
+	}
+	if err := EnsureLatestMediaAddedTriggers(db); err != nil {
+		return err
+	}
+	return EnsureMetadataPresentationSchema(db)
 }
 
 // reclassifyTaskSystems 按现行任务归属更新执行历史，任务标识和日志路径保持稳定。
@@ -58,10 +68,31 @@ func reclassifyTaskSystems(db *gorm.DB) error {
 	}
 	for _, kind := range kinds {
 		system := model.TaskSystemForKind(kind)
-		if err := db.Model(&model.TaskExecution{}).Where("kind = ? AND system IS DISTINCT FROM ?", kind, system).UpdateColumn("system", system).Error; err != nil {
+		query := db.Model(&model.TaskExecution{}).Where("kind = ? AND system IS DISTINCT FROM ?", kind, system)
+		if kind == "people" {
+			query = query.Where("name <> ?", "人物翻译")
+		}
+		if err := query.UpdateColumn("system", system).Error; err != nil {
 			return err
 		}
 	}
+	if err := db.Model(&model.TaskExecution{}).Where("kind='artwork' AND name IN ?", []string{"TMDb 图片本地化修复", "TMDb 无图复查", "TMDb 集信息补全/复查"}).UpdateColumn("system", model.TaskSystemTMDb).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&model.TaskExecution{}).Where("kind='artwork' AND name=?", "豆瓣图片本地化修复").UpdateColumn("system", model.TaskSystemDouban).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&model.TaskExecution{}).Where("kind=?", "tmdb_episode_metadata_recheck").UpdateColumn("system", model.TaskSystemTMDb).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&model.TaskExecution{}).Where("kind=? OR (kind='artwork' AND name=?)", "douban_movie_enrichment", "豆瓣电影信息补齐").UpdateColumn("system", model.TaskSystemDouban).Error; err != nil {
+		return err
+	}
+
+	if err := db.Model(&model.TaskExecution{}).Where("kind='people' AND name=? AND system IS DISTINCT FROM ?", "人物翻译", model.TaskSystemTMDb).UpdateColumn("system", model.TaskSystemTMDb).Error; err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -122,11 +153,11 @@ func EnsurePlayerRequestLogPartitions(db *gorm.DB, at time.Time) error {
 
 func ensurePerformanceIndexes(db *gorm.DB) error {
 	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_media_library_scan_path ON media(library_id, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_parent_path ON media(library_id, lower(regexp_replace(path, '[^/]*$', '')))`,
 		`CREATE INDEX IF NOT EXISTS idx_media_recent_metadata ON media(created_at DESC, id DESC) WHERE metadata_id IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_people_pending_translation ON people(id) WHERE deleted_at IS NULL AND original_name <> '' AND name = original_name AND original_name !~ '[一-鿿]'`,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_credits_type_pending_translation ON metadata_credits(type, metadata_id, id) WHERE original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_scan_year_active ON media(library_id, scan_year DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_episode_active ON media(library_id, season_num, episode_num, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_root_active ON media(library_id, library_root_id)`,
@@ -137,7 +168,6 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_running ON media (id) WHERE COALESCE(catalog_source, '') = '' AND scrape_status = 'running'`,
 		`CREATE INDEX IF NOT EXISTS idx_media_scrape_issues ON media (library_id, updated_at DESC, id DESC) WHERE scrape_status IN ('error', 'no_match')`,
 		`CREATE INDEX IF NOT EXISTS idx_media_probe_automatic_candidates ON media (id) INCLUDE (library_id, metadata_id) WHERE COALESCE(episode_num, 0) = 0 AND LOWER(path) NOT LIKE '%.iso'`,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_kind_release_active ON metadata_items(kind, release_date DESC, year DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_season_active ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_episode_active ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_recheck_kind_id ON metadata_items(kind, id) WHERE kind IN ('episode', 'season')`,
@@ -175,8 +205,6 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		)
 	}
 	statements = append(statements,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_title_active ON metadata_items(title)`,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_original_name_active ON metadata_items(original_name)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_scan_title_active ON media(scan_title)`,
 	)
 	for _, stmt := range statements {

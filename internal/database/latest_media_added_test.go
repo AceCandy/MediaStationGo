@@ -55,8 +55,8 @@ func TestLatestMediaAdded(t *testing.T) {
 			t.Fatalf("%s/%s libraries want=%s err=%v", table, id, want, err)
 		}
 	}
-	exec(`INSERT INTO metadata_items(id,kind,title,source,season_num,episode_num) VALUES ('a','series','a','local',0,0),('b','series','b','local',0,0)`)
-	exec(`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) VALUES ('s','season','s','local','a',1,0),('e','episode','e','local','s',0,1)`)
+	exec(`INSERT INTO metadata_items(id,kind,source,season_num,episode_num) VALUES ('a','series','local',0,0),('b','series','local',0,0)`)
+	exec(`INSERT INTO metadata_items(id,kind,source,parent_id,season_num,episode_num) VALUES ('s','season','local','a',1,0),('e','episode','local','s',0,1)`)
 	checkLibraries("metadata_items", "e", "")
 	exec(`INSERT INTO media(id,path,metadata_id,library_id,created_at) VALUES ('m1','/test/m1','e','a','2026-01-01'),('m2','/test/m2','e','b','2026-01-02')`)
 	for _, id := range []string{"a", "s", "e"} {
@@ -239,7 +239,7 @@ func TestLatestMediaAdded(t *testing.T) {
 		t.Fatalf("library-only change enqueued metadata recheck: before=%d after=%d err=%v", revisionsBefore, revisionsAfter, err)
 	}
 	// 移动分集必须沿旧、新季继续刷新两边的整剧祖先。
-	exec(`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) VALUES ('s2','season','S2','local','b',2)`)
+	exec(`INSERT INTO metadata_items(id,kind,source,parent_id,season_num) VALUES ('s2','season','local','b',2)`)
 	exec(`UPDATE metadata_items SET parent_id='s2' WHERE id='e'`)
 	for _, id := range []string{"a", "s"} {
 		checkLibraries("metadata_items", id, `[]`)

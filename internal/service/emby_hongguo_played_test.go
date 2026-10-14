@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
@@ -23,6 +24,9 @@ func TestHongGuoContainerPlayedScopeAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))

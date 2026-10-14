@@ -334,22 +334,8 @@ func (s *TMDbDataCenter) ServeImage(ctx context.Context, w http.ResponseWriter, 
 		if e != nil {
 			return e
 		}
-		if p.ProfilePath != "" && (force || p.ImageKey == "" || p.ImageSourcePath != p.ProfilePath || !s.people.hasUsableImage(p.ImageKey)) && (force || p.ImageRetryAt == nil || p.ImageRetryAt.Before(time.Now())) {
-			importImage := s.people.ImportCached
-			if force {
-				importImage = s.people.Import
-			}
-			key, e := importImage(ctx, "tmdb", tmdbOriginalImageURL(s.provider.imgCDN, p.ProfilePath))
-			if e != nil {
-				_ = s.repo.TMDb.SavePersonImage(ctx, p, "", true)
-				p.ImageStatus = "error"
-			} else {
-				if e = s.repo.TMDb.SavePersonImage(ctx, p, key, false); e != nil {
-					return e
-				}
-				p.ImageKey = key
-				p.ImageSourcePath, p.ImageStatus = p.ProfilePath, "ready"
-			}
+		if e := s.ensurePersonImage(ctx, p, force); e != nil {
+			return e
 		}
 		if p.ImageKey == "" {
 			return ErrPeopleImageNotFound
@@ -371,34 +357,8 @@ func (s *TMDbDataCenter) ServeImage(ctx context.Context, w http.ResponseWriter, 
 	if e != nil {
 		return e
 	}
-	available, e := s.artwork.assetAvailable(ctx, a.AssetID)
-	if e != nil {
+	if _, e := s.ensureSubjectArtwork(ctx, a, force); e != nil {
 		return e
-	}
-	if a.SourcePath != "" && (force || available == nil || a.DownloadedPath != a.SourcePath) && (force || a.RetryAt == nil || a.RetryAt.Before(time.Now())) {
-		data, _, err := s.artwork.imageProxy.fetchRemoteImageDirect(ctx, tmdbOriginalImageURL(s.provider.imgCDN, a.SourcePath))
-		if err == nil {
-			var asset *model.ArtworkAsset
-			asset, err = s.artwork.prepareImageAsset("tmdb", data)
-			if err == nil {
-				asset, err = s.repo.Artwork.SaveAsset(ctx, asset)
-			}
-			if err == nil {
-				err = s.repo.TMDb.SaveArtwork(ctx, a, &asset.ID, false)
-				if err == nil {
-					a.AssetID = &asset.ID
-					available = asset
-					a.DownloadedPath, a.Status = a.SourcePath, "ready"
-				}
-			}
-		}
-		if err != nil {
-			_ = s.repo.TMDb.SaveArtwork(ctx, a, nil, true)
-			a.Status = "error"
-		}
-	}
-	if available == nil || a.AssetID == nil {
-		return ErrArtworkNotFound
 	}
 	cache := imageBrowserCacheControl
 	if a.Status == "error" || a.SourcePath != a.DownloadedPath {
@@ -509,4 +469,60 @@ func (s *TMDbDataCenter) importArtworkSource(ctx context.Context, source string)
 		err = s.repo.TMDb.SaveArtwork(ctx, row, &asset.ID, false)
 	}
 	return asset, err
+}
+
+// ensureSubjectArtwork 供按需展示和后台维护共用，失败保留旧资产。
+func (s *TMDbDataCenter) ensureSubjectArtwork(ctx context.Context, a *model.TMDbArtwork, force bool) (*model.ArtworkAsset, error) {
+	available, e := s.artwork.assetAvailable(ctx, a.AssetID)
+	if e != nil {
+		return nil, e
+	}
+	if a.SourcePath != "" && (force || available == nil || a.DownloadedPath != a.SourcePath) && (force || a.RetryAt == nil || a.RetryAt.Before(time.Now())) {
+		data, _, err := s.artwork.imageProxy.fetchRemoteImageDirect(ctx, tmdbOriginalImageURL(s.provider.imgCDN, a.SourcePath))
+		if err == nil {
+			var asset *model.ArtworkAsset
+			asset, err = s.artwork.prepareImageAsset("tmdb", data)
+			if err == nil {
+				asset, err = s.repo.Artwork.SaveAsset(ctx, asset)
+			}
+			if err == nil {
+				err = s.repo.TMDb.SaveArtwork(ctx, a, &asset.ID, false)
+				if err == nil {
+					a.AssetID = &asset.ID
+					available = asset
+					a.DownloadedPath, a.Status = a.SourcePath, "ready"
+				}
+			}
+		}
+		if err != nil {
+			_ = s.repo.TMDb.SaveArtwork(ctx, a, nil, true)
+			a.Status = "error"
+		}
+	}
+	if available == nil || a.AssetID == nil {
+		return nil, ErrArtworkNotFound
+	}
+	return available, nil
+}
+
+// ensurePersonImage 共用人物来源图片下载及独立失败退避。
+func (s *TMDbDataCenter) ensurePersonImage(ctx context.Context, p *model.TMDbPersonProfile, force bool) error {
+	if p.ProfilePath != "" && (force || p.ImageKey == "" || p.ImageSourcePath != p.ProfilePath || !s.people.hasUsableImage(p.ImageKey)) && (force || p.ImageRetryAt == nil || p.ImageRetryAt.Before(time.Now())) {
+		importImage := s.people.ImportCached
+		if force {
+			importImage = s.people.Import
+		}
+		key, e := importImage(ctx, "tmdb", tmdbOriginalImageURL(s.provider.imgCDN, p.ProfilePath))
+		if e != nil {
+			_ = s.repo.TMDb.SavePersonImage(ctx, p, "", true)
+			p.ImageStatus = "error"
+		} else {
+			if e = s.repo.TMDb.SavePersonImage(ctx, p, key, false); e != nil {
+				return e
+			}
+			p.ImageKey = key
+			p.ImageSourcePath, p.ImageStatus = p.ProfilePath, "ready"
+		}
+	}
+	return nil
 }

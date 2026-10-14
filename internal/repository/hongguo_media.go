@@ -35,31 +35,7 @@ func (r *HongGuoRepository) PendingMedia(ctx context.Context, page int) ([]HongG
 func (r *MediaRepository) upsertHongGuoMedia(ctx context.Context, m *model.Media) error {
 	refresh := func() {}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var library model.Library
-		if err := tx.First(&library, "id = ? AND type = ?", m.LibraryID, model.LibraryTypeHongGuo).Error; err != nil {
-			return err
-		}
-		var existing model.Media
-		err := tx.Where("path = ?", m.Path).First(&existing).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if existing.ID != "" && (existing.MetadataID != "" || existing.CatalogSource != model.TaskSystemHongGuo) {
-			return errors.New("不能把现有体系文件自动改绑到红果")
-		}
-		if m.MetadataID != "" {
-			return errors.New("红果媒体不能携带旧资料绑定")
-		}
-		if _, err := (&MediaRepository{db: tx}).upsert(ctx, m); err != nil {
-			return err
-		}
-		// 冲突插入也可能复用刚提交的文件；在替换绑定前锁定最终行并捕获旧身份。
-		var locked model.Media
-		if err := tx.Select("id").Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, "id = ?", m.ID).Error; err != nil {
-			return err
-		}
-		refresh = r.hongGuo.prepareMediaSearchRefresh(tx.Model(&model.Media{}).Where("id = ?", m.ID), r.hongGuoSearchBatch, m.LookupCatalogID)
-		return bindHongGuoMedia(tx, m)
+		return r.upsertHongGuoMediaTx(ctx, tx, m, nil, &refresh, nil)
 	})
 	if err == nil {
 		refresh()
@@ -67,12 +43,55 @@ func (r *MediaRepository) upsertHongGuoMedia(ctx context.Context, m *model.Media
 	return err
 }
 
-// bindHongGuoMedia 仅按作品 ID 与源季集坐标绑定，未知资料保留待匹配文件。
-func bindHongGuoMedia(tx *gorm.DB, m *model.Media) error {
-	if enabled, err := New(tx).Setting.Get(tx.Statement.Context, "hongguo.enabled"); err != nil {
+func (r *MediaRepository) upsertHongGuoMediaTx(ctx context.Context, tx *gorm.DB, m *model.Media, lookup *hongGuoScanLookup, refresh *func(), created *bool) error {
+	if lookup == nil || !lookup.libraries[m.LibraryID] {
+		var library model.Library
+		if err := tx.First(&library, "id = ? AND type = ?", m.LibraryID, model.LibraryTypeHongGuo).Error; err != nil {
+			return err
+		}
+		if lookup != nil {
+			lookup.libraries[m.LibraryID] = true
+		}
+	}
+	var existing model.Media
+	err := tx.Where("path = ?", m.Path).First(&existing).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
-	} else if enabled == "false" {
-		return errors.New("HongGuoDB 已停用，文件绑定保持不变")
+	}
+	if existing.ID != "" && (existing.MetadataID != "" || existing.CatalogSource != model.TaskSystemHongGuo) {
+		return errors.New("不能把现有体系文件自动改绑到红果")
+	}
+	if m.MetadataID != "" {
+		return errors.New("红果媒体不能携带旧资料绑定")
+	}
+	_, wasCreated, err := (&MediaRepository{db: tx}).upsertWithResult(ctx, m)
+	if err != nil {
+		return err
+	}
+	if created != nil {
+		*created = wasCreated
+	}
+	// 冲突插入也可能复用刚提交的文件；在替换绑定前锁定最终行并捕获旧身份。
+	var locked model.Media
+	if err := tx.Select("id").Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, "id = ?", m.ID).Error; err != nil {
+		return err
+	}
+	*refresh = r.hongGuo.prepareMediaSearchRefresh(tx.Model(&model.Media{}).Where("id = ?", m.ID), r.hongGuoSearchBatch, m.LookupCatalogID)
+	return bindHongGuoMedia(tx, m, lookup)
+}
+
+// bindHongGuoMedia 仅按作品 ID 与源季集坐标绑定，未知资料保留待匹配文件。
+func bindHongGuoMedia(tx *gorm.DB, m *model.Media, lookups ...*hongGuoScanLookup) error {
+	var lookup *hongGuoScanLookup
+	if len(lookups) > 0 {
+		lookup = lookups[0]
+	}
+	if lookup == nil {
+		if enabled, err := New(tx).Setting.Get(tx.Statement.Context, "hongguo.enabled"); err != nil {
+			return err
+		} else if enabled == "false" {
+			return errors.New("HongGuoDB 已停用，文件绑定保持不变")
+		}
 	}
 	pending := func(reason string) error {
 		if err := tx.Where("media_id = ?", m.ID).Delete(&model.HongGuoMediaBinding{}).Error; err != nil {
@@ -82,7 +101,15 @@ func bindHongGuoMedia(tx *gorm.DB, m *model.Media) error {
 		return tx.Model(m).Updates(map[string]any{"scrape_status": m.ScrapeStatus, "scrape_error": reason}).Error
 	}
 	var work model.HongGuoWork
-	err := tx.Where("source_id = ?", m.LookupCatalogID).First(&work).Error
+	var err error
+	if lookup == nil {
+		err = tx.Where("source_id = ? AND summary_only = false", m.LookupCatalogID).First(&work).Error
+	} else {
+		work = lookup.works[m.LookupCatalogID]
+		if work.ID == "" {
+			err = gorm.ErrRecordNotFound
+		}
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return pending("等待对应红果资料或修正来源 ID")
 	}
@@ -94,7 +121,15 @@ func bindHongGuoMedia(tx *gorm.DB, m *model.Media) error {
 		return pending("红果源作品使用 S01Exxx，聚合季号不改变源文件坐标")
 	}
 	var episode model.HongGuoEpisode
-	if err := tx.Where("work_id = ? AND number = ?", work.ID, m.EpisodeNum).First(&episode).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+	if lookup == nil {
+		err = tx.Where("work_id = ? AND number = ?", work.ID, m.EpisodeNum).First(&episode).Error
+	} else {
+		episode = lookup.episodes[hongGuoScanEpisodeKey{work.ID, m.EpisodeNum}]
+		if episode.ID == "" {
+			err = gorm.ErrRecordNotFound
+		}
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return pending("红果资料尚无对应集号")
 	} else if err != nil {
 		return err

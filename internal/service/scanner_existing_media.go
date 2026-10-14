@@ -10,12 +10,23 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, libraryID string) (map[string]existingLocalMedia, error) {
-	var rows []model.Media
+func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, libraryID string, paths []string) (map[string]existingLocalMedia, error) {
+	if len(paths) == 0 {
+		return map[string]existingLocalMedia{}, nil
+	}
+	var rows []struct {
+		Path              string
+		SeasonNum         int
+		ScanFileSizeBytes int64
+		ScanFileMTimeNS   int64 `gorm:"column:scan_file_mtime_ns"`
+		FileID            string
+		PartGroupKey      string
+		PartIndex         int
+	}
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("path", "season_num", "scan_file_size_bytes", "scan_file_mtime_ns", "file_id").
-		Where("library_id = ?", libraryID).
+		Select("path", "season_num", "scan_file_size_bytes", "scan_file_mtime_ns", "file_id", "part_group_key", "part_index").
+		Where("library_id = ? AND path IN ?", libraryID, paths).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -29,6 +40,8 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 			ScanFileSizeBytes: row.ScanFileSizeBytes,
 			ScanFileMTimeNS:   row.ScanFileMTimeNS,
 			FileID:            row.FileID,
+			PartGroupKey:      row.PartGroupKey,
+			PartIndex:         row.PartIndex,
 		}
 	}
 	return snapshot, nil

@@ -12,7 +12,8 @@ import (
 
 // containerEpisodeScope 让整剧/季的写入和汇总使用同一组可见、有文件的分集。
 func (e *EmbyService) containerEpisodeScope(ctx context.Context, userID string, ids []string) *gorm.DB {
-	q := e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), userID)
+	q := e.applyUserMediaLibraryVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), userID).
+		Joins("JOIN metadata_items AS emby_metadata ON emby_metadata.id = media.metadata_id")
 	// 先收紧季范围，避免跨表 OR 让规划器先连接整库的季与剧。
 	seasons := e.repo.DB.WithContext(ctx).Table("metadata_items").Select("id,parent_id").
 		Where("kind = 'season' AND (id IN ? OR parent_id IN ?)", ids, ids)

@@ -46,7 +46,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 			if strings.TrimSpace(p.UserID) == "" {
 				return nil
 			}
-			q = q.Joins("LEFT JOIN metadata_items AS favorite_season ON favorite_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND favorite_season.kind = 'season'").
+			q = q.Joins("LEFT JOIN metadata_presentations AS favorite_season ON favorite_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND favorite_season.kind = 'season'").
 				Joins("JOIN favorites ON favorites.user_id = ? AND favorites.deleted_at IS NULL AND favorites.metadata_id = CASE WHEN emby_metadata.kind = 'episode' THEN favorite_season.parent_id ELSE media.metadata_id END", p.UserID)
 		}
 		return q
@@ -68,7 +68,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	// 两种身份共用作品成员预筛；作品时间不再现场聚合文件日期。
 	candidates := func(files *gorm.DB, identity, kind string) *gorm.DB {
 		scope := files.Session(&gorm.Session{}).Where(identity + "=candidate.id")
-		q := repository.FilterVisibleWorkLibraries(e.repo.DB, e.repo.DB.WithContext(ctx).Table("metadata_items candidate"), "candidate.library_ids", libIDs, e.mediaQueryFilter(ctx, p.UserID))
+		q := repository.FilterVisibleWorkLibraries(e.repo.DB, e.repo.DB.WithContext(ctx).Table("metadata_presentations candidate"), "candidate.library_ids", libIDs, e.mediaQueryFilter(ctx, p.UserID))
 		if embyRandomSort(p) {
 			return q.Select("? || candidate.id AS id, candidate.id AS work_id, ? AS kind", kind+":", kind)
 		}
@@ -90,7 +90,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 			return q.Where("EXISTS (? OFFSET 0)", scope.Select("1")).Select("candidate.id, ? AS kind, "+expression+" AS sort_at", kind)
 		}
 		// 日期本就必须读取合格文件；同一次聚合确认存在性，不再重复 EXISTS。
-		return q.Joins("JOIN LATERAL (?) dates ON TRUE", scope.Select(embyReleaseOrderSQL("emby_metadata")+" AS sort_at").Having("COUNT(*) > 0")).
+		return q.Joins("JOIN LATERAL (?) dates ON TRUE", scope.Joins("JOIN metadata_presentations release_metadata ON release_metadata.id=media.metadata_id").Select(embyReleaseOrderSQL("release_metadata")+" AS sort_at").Having("COUNT(*) > 0")).
 			Select("candidate.id, ? AS kind, dates.sort_at", kind)
 	}
 	movies := candidates(movieQ, "media.metadata_id", "movie")

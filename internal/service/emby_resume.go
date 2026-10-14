@@ -70,7 +70,7 @@ func (e *EmbyService) legacyResumeCandidates(ctx context.Context, p ItemsParams)
 		Where("h.position_ms > 0 AND emby_metadata.kind IN ('movie','episode')")
 	q = e.workLibraryScope(ctx, q, "emby_metadata.library_ids", p)
 	if len(p.PersonIDs) > 0 {
-		q = q.Where(`EXISTS (SELECT 1 FROM metadata_credits c WHERE c.person_id IN ?
+		q = q.Where(`EXISTS (SELECT 1 FROM metadata_credit_presentations c WHERE c.person_id IN ?
  AND c.metadata_id = CASE WHEN emby_metadata.kind = 'episode' THEN emby_metadata.parent_id ELSE emby_metadata.id END)`, p.PersonIDs)
 	}
 	favorite := "FALSE"
@@ -78,12 +78,16 @@ func (e *EmbyService) legacyResumeCandidates(ctx context.Context, p ItemsParams)
 		q = q.Where("EXISTS (SELECT 1 FROM favorites f WHERE f.metadata_id = emby_metadata.id AND f.user_id = ? AND f.deleted_at IS NULL)", p.UserID)
 		favorite = "TRUE"
 	}
-	return q.Select(`emby_metadata.id,
- CASE WHEN emby_metadata.kind = 'episode' THEN 'legacy:' || COALESCE(grandparent.id,emby_metadata.id) ELSE 'legacy:' || emby_metadata.id END AS resume_key,
- emby_metadata.kind, emby_metadata.title, MAX(media.created_at) AS created_at,
- COALESCE(MAX(h.watched_at),MAX(media.created_at)) AS played_at, BOOL_AND(h.completed) AS played, ` + favorite + ` AS favorite,
- emby_metadata.rating, COALESCE(emby_metadata.release_date,'') AS release_date, emby_metadata.year`).
-		Group("emby_metadata.id, grandparent.id")
+	// 先聚合有进度的身份，再按候选读取来源，避免计划器展开未观看目录。
+	candidates := q.Select(`emby_metadata.id,
+ CASE WHEN emby_metadata.kind='episode' THEN 'legacy:'||COALESCE(grandparent.id,emby_metadata.id) ELSE 'legacy:'||emby_metadata.id END AS resume_key,
+ emby_metadata.kind,MAX(media.created_at) AS created_at,
+ COALESCE(MAX(h.watched_at),MAX(media.created_at)) AS played_at,BOOL_AND(h.completed) AS played,` + favorite + ` AS favorite`).
+		Group("emby_metadata.id,grandparent.id,emby_metadata.kind")
+	return e.repo.DB.WithContext(ctx).Table("(? OFFSET 0) resume", candidates).
+		Joins("JOIN LATERAL (SELECT title,rating,release_date,year FROM metadata_presentations WHERE id=resume.id OFFSET 0) display ON TRUE").
+		Select("resume.id,resume.resume_key,resume.kind,display.title,resume.created_at,resume.played_at,resume.played,resume.favorite,display.rating,COALESCE(display.release_date,'') AS release_date,display.year")
+
 }
 
 // resumeSourceFiles 按库权限限定独立来源的文件。

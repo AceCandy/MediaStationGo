@@ -206,7 +206,7 @@ func scanTaskMetrics(res *service.ScanResult) map[string]int64 {
 	if res == nil {
 		return nil
 	}
-	return map[string]int64{
+	metrics := map[string]int64{
 		"visited":        int64(res.Visited),
 		"added":          int64(res.Added),
 		"updated":        int64(res.Updated),
@@ -217,6 +217,10 @@ func scanTaskMetrics(res *service.ScanResult) map[string]int64 {
 		"removed":        res.Removed,
 		"errors":         int64(res.ErrorCount),
 	}
+	for key, value := range res.ScanTimings.Metrics() {
+		metrics[key] = value
+	}
+	return metrics
 }
 
 func scanTaskDetails(res *service.ScanResult, limit int) []string {

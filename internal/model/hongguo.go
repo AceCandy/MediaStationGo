@@ -2,22 +2,6 @@ package model
 
 import "time"
 
-// HongGuoDiscovery 保存分类摘要；没有对应正式作品且不在失败冷却中的记录即为待补齐项。
-// 不作为可绑定媒体资料，避免列表集数和状态被误当作详情证据。
-type HongGuoDiscovery struct {
-	SourceID       string    `gorm:"primaryKey;size:32" json:"source_id"`
-	SourceCategory string    `gorm:"size:32;not null;default:'';index" json:"source_category"`
-	Title          string    `gorm:"type:text" json:"title"`
-	Overview       string    `gorm:"type:text" json:"overview"`
-	CoverURL       string    `gorm:"type:text" json:"-"`
-	EpisodeCount   int       `json:"episode_count"`
-	UpdateText     string    `gorm:"type:text" json:"update_text"`
-	CreatedAt      time.Time `gorm:"index" json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-}
-
-func (HongGuoDiscovery) TableName() string { return "hongguo_discoveries" }
-
 // HongGuoRankEntry 保存官网榜单中的作品名次；作品可同时属于总榜和类型榜。
 type HongGuoRankEntry struct {
 	RankKey   string    `gorm:"primaryKey;size:32" json:"rank_key"`
@@ -36,6 +20,8 @@ type HongGuoWork struct {
 	// LibraryIDs 仅记录本源作品现存文件的库集合，不包含合集其他季；NULL 表示尚未初始化。
 	LibraryIDs *string `gorm:"type:jsonb;->" json:"-"`
 
+	// SummaryOnly 表示只有发现摘要，不能作为分集绑定或下载依据。
+	SummaryOnly    bool   `gorm:"not null;default:false;index" json:"-"`
 	SourceID       string `gorm:"size:32;not null;uniqueIndex" json:"source_id"`
 	SourceCategory string `gorm:"size:32;not null;default:'';index" json:"source_category"`
 	// Kind 固定为剧集，一集完结短剧也保留季、集身份。
@@ -155,5 +141,5 @@ func (HongGuoMediaBinding) TableName() string { return "hongguo_media_bindings" 
 
 // HongGuoModels 集中声明来源拥有的表，不包含公共文件和用户状态的生命周期。
 func HongGuoModels() []interface{} {
-	return []interface{}{&HongGuoDiscovery{}, &HongGuoRankEntry{}, &HongGuoWork{}, &HongGuoEpisode{}, &HongGuoPerson{}, &HongGuoCredit{}, &HongGuoSnapshot{}, &HongGuoArtwork{}, &HongGuoSyncState{}, &HongGuoSyncFailure{}, &HongGuoMediaBinding{}}
+	return []interface{}{&HongGuoRankEntry{}, &HongGuoWork{}, &HongGuoEpisode{}, &HongGuoPerson{}, &HongGuoCredit{}, &HongGuoSnapshot{}, &HongGuoArtwork{}, &HongGuoSyncState{}, &HongGuoSyncFailure{}, &HongGuoMediaBinding{}}
 }

@@ -72,17 +72,11 @@ func TestTMDbOnlinePriorityMoviesAndSeries(t *testing.T) {
 				if err != nil || item == nil || item.Kind != kind || item.Title != "在线片名" {
 					t.Fatalf("metadata: %+v %v", item, err)
 				}
-				wantOverview := "本地简介"
-				if round > 0 {
-					wantOverview = "已存简介"
-				}
+				wantOverview := "" // 普通媒体不再从旁挂 NFO 或旧副本补正文。
 				if item.Overview != wantOverview {
 					t.Fatalf("round %d: overview %q, want %q", round, item.Overview, wantOverview)
 				}
 				if round == 0 {
-					if err := repos.DB.Model(item).Update("overview", "已存简介").Error; err != nil {
-						t.Fatal(err)
-					}
 					if err := repos.Metadata.ReplaceIdentifier(t.Context(), item.ID, "imdb", kind, "tt00000001"); err != nil {
 						t.Fatal(err)
 					}

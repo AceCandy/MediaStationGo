@@ -77,10 +77,6 @@ func (s *ScraperService) fetchAndSaveTMDbSeasonSnapshot(ctx context.Context, epi
 	}
 	seasonID := *item.ParentID
 	if snapshot, findErr := s.repo.Metadata.FindProviderData(ctx, seasonID, "tmdb"); findErr == nil && snapshot != nil {
-		season, err := s.repo.Metadata.FindByID(ctx, seasonID)
-		if err == nil && season != nil && season.PeopleHydratedAt == nil {
-			return s.backfillSeasonPeople(ctx, seasonID) == nil
-		}
 		return false
 	}
 	seasonCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tmdbDetailsTimeout)

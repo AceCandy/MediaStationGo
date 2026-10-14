@@ -31,9 +31,9 @@ func TestEmbyDetailReusesViewsAndPreservesPayload(t *testing.T) {
 	if err := db.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
-	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "Movie", Source: "local"},
+	metadata := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "Movie", Source: "local"},
 		model.MetadataIdentifier{Provider: "imdb", EntityKind: "movie", ExternalID: "tt-fixture"})
-	otherMetadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "Part 2", Source: "local"})
+	otherMetadata := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "Part 2", Source: "local"})
 	for _, row := range []model.Media{
 		{PermanentBase: model.PermanentBase{ID: "detail-part-1"}, MetadataID: metadata.ID, Path: "/fixture/movie-part1.mkv", LibraryID: lib.ID, PartGroupKey: "parts", PartIndex: 1, Width: 1920},
 		{PermanentBase: model.PermanentBase{ID: "detail-part-2"}, MetadataID: metadata.ID, Path: "/fixture/movie-part2.mkv", LibraryID: lib.ID, PartGroupKey: "parts", PartIndex: 2, Width: 1920},

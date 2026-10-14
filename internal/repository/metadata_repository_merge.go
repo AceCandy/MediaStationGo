@@ -64,86 +64,10 @@ func mergeMetadataGraph(tx *gorm.DB, sourceID, targetID string) error {
 	if err := mergePlaylistItems(tx, source.ID, target.ID); err != nil {
 		return err
 	}
-	if err := mergeMetadataArtwork(tx, source.ID, target.ID); err != nil {
-		return err
-	}
-	if err := mergeMetadataArtworkCandidates(tx, source.ID, target.ID); err != nil {
-		return err
-	}
-	if err := mergeMetadataArtworkRechecks(tx, source.ID, target.ID); err != nil {
-		return err
-	}
-	if err := mergeMetadataCredits(tx, source.ID, target.ID); err != nil {
-		return err
-	}
 	if err := tx.Model(&model.MetadataIdentifier{}).Where("metadata_id = ?", source.ID).Update("metadata_id", target.ID).Error; err != nil {
 		return err
 	}
-	// 来源图像待办随资料图合并，不能随源实体删除而丢失。
-	if source.CatalogArtworkDueAt != nil && (target.CatalogArtworkDueAt == nil || source.CatalogArtworkDueAt.Before(*target.CatalogArtworkDueAt)) {
-		if err := tx.Model(&target).UpdateColumns(map[string]any{"catalog_artwork_due_at": source.CatalogArtworkDueAt, "catalog_artwork_attempts": 0}).Error; err != nil {
-			return err
-		}
-	}
 	return tx.Delete(&source).Error
-}
-
-func mergeMetadataArtworkRechecks(tx *gorm.DB, sourceID, targetID string) error {
-	var rows []model.MetadataArtworkRecheck
-	if err := tx.Where("metadata_id = ?", sourceID).Find(&rows).Error; err != nil {
-		return err
-	}
-	for i := range rows {
-		var existing model.MetadataArtworkRecheck
-		err := tx.Where("metadata_id = ? AND artwork_type = ?", targetID, rows[i].ArtworkType).First(&existing).Error
-		if err == nil {
-			if rows[i].LastNoImageAt.After(existing.LastNoImageAt) {
-				if err := tx.Model(&existing).Update("last_no_image_at", rows[i].LastNoImageAt).Error; err != nil {
-					return err
-				}
-			}
-			if err := tx.Delete(&rows[i]).Error; err != nil {
-				return err
-			}
-			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if err := tx.Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func mergeMetadataCredits(tx *gorm.DB, sourceID, targetID string) error {
-	var rows []model.MetadataCredit
-	if err := tx.Where("metadata_id = ?", sourceID).Find(&rows).Error; err != nil {
-		return err
-	}
-	for i := range rows {
-		var existing model.MetadataCredit
-		err := tx.Where("metadata_id = ? AND person_id = ? AND type = ? AND original_role = ?", targetID, rows[i].PersonID, rows[i].Type, rows[i].OriginalRole).First(&existing).Error
-		if err == nil {
-			if rows[i].SortOrder < existing.SortOrder {
-				if err := tx.Model(&existing).Update("sort_order", rows[i].SortOrder).Error; err != nil {
-					return err
-				}
-			}
-			if err := tx.Delete(&rows[i]).Error; err != nil {
-				return err
-			}
-			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if err := tx.Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func mergeMetadataChildren(tx *gorm.DB, sourceID, targetID, kind, identityColumn string) error {
@@ -253,54 +177,6 @@ func mergePlaylistItems(tx *gorm.DB, sourceID, targetID string) error {
 			return err
 		}
 		if err := tx.Unscoped().Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func mergeMetadataArtwork(tx *gorm.DB, sourceID, targetID string) error {
-	var rows []model.MetadataArtwork
-	if err := tx.Where("metadata_id = ?", sourceID).Find(&rows).Error; err != nil {
-		return err
-	}
-	for i := range rows {
-		var existing model.MetadataArtwork
-		err := tx.Where("metadata_id = ? AND artwork_type = ?", targetID, rows[i].ArtworkType).First(&existing).Error
-		if err == nil {
-			if err := tx.Delete(&rows[i]).Error; err != nil {
-				return err
-			}
-			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if err := tx.Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func mergeMetadataArtworkCandidates(tx *gorm.DB, sourceID, targetID string) error {
-	var rows []model.MetadataArtworkCandidate
-	if err := tx.Where("metadata_id = ?", sourceID).Find(&rows).Error; err != nil {
-		return err
-	}
-	for i := range rows {
-		var existing model.MetadataArtworkCandidate
-		err := tx.Where("metadata_id = ? AND artwork_type = ? AND source_provider = ?", targetID, rows[i].ArtworkType, rows[i].SourceProvider).First(&existing).Error
-		if err == nil {
-			if err := tx.Delete(&rows[i]).Error; err != nil {
-				return err
-			}
-			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if err := tx.Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
 			return err
 		}
 	}

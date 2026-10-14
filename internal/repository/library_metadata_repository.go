@@ -25,6 +25,10 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 		candidates := r.logicalMetadataCandidates(ctx, []string{metadataID})
 		q = q.Table("(SELECT * FROM media WHERE library_id = ? AND metadata_id IN (?) OFFSET 0) AS m", libraryID, candidates)
 	}
+	workTable := "metadata_items"
+	if filter.MissingChineseTitle {
+		workTable = "metadata_presentations"
+	}
 	filtered := filter.MissingPoster || filter.MissingChineseTitle
 	if filtered && kind == model.MetadataKindSeries && metadataID == "" {
 		q = r.libraryFilteredSeriesScope(ctx, libraryID)
@@ -32,7 +36,7 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 		q = q.Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id")
 		if kind == model.MetadataKindMovie {
 			// 电影直接关联作品，避免父级 CASE 阻止按元数据索引定位文件。
-			q = q.Joins("JOIN metadata_items AS work ON work.id = mi.id")
+			q = q.Joins("JOIN " + workTable + " AS work ON work.id = mi.id")
 		} else {
 			seasonTable := "metadata_items"
 			if kind == model.MetadataKindSeries && metadataID == "" && !filtered {
@@ -40,7 +44,7 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 				seasonTable = "(SELECT id, parent_id, season_num, kind FROM metadata_items WHERE kind = 'season' OFFSET 0)"
 			}
 			q = q.Joins("LEFT JOIN " + seasonTable + " AS season ON season.id = mi.parent_id AND mi.kind = 'episode' AND season.kind = 'season'").
-				Joins("JOIN metadata_items AS work ON work.id = CASE WHEN mi.kind = 'episode' THEN season.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE mi.id END")
+				Joins("JOIN " + workTable + " AS work ON work.id = CASE WHEN mi.kind = 'episode' THEN season.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE mi.id END")
 		}
 	}
 	q = q.Where("m.library_id = ? AND work.kind = ?", libraryID, kind)
@@ -58,7 +62,7 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 
 func applyLibraryMetadataFilters(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
 	if filter.MissingPoster {
-		q = q.Where(`NOT EXISTS (SELECT 1 FROM metadata_artworks AS art JOIN artwork_assets AS asset ON asset.id = art.asset_id WHERE art.metadata_id = work.id AND art.artwork_type = 'poster')`)
+		q = q.Where(`NOT EXISTS (SELECT 1 FROM metadata_artwork_presentations AS art JOIN artwork_assets AS asset ON asset.id = art.asset_id WHERE art.metadata_id = work.id AND art.artwork_type = 'poster')`)
 	}
 	if filter.MissingChineseTitle {
 		q = q.Where(`COALESCE(NULLIF(work.title, ''), work.original_name, '') !~ '[㐀-䶿一-鿿豈-﫿]'`)
@@ -70,9 +74,9 @@ func applyLibraryMetadataFilters(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
 func (r *MediaViewRepository) libraryFilteredSeriesScope(ctx context.Context, libraryID string) *gorm.DB {
 	// 各级 OFFSET 0 保留相关主键查找边界，不截断文件，也不依赖优化器的行数估计。
 	return r.db.WithContext(ctx).Table("(SELECT * FROM media WHERE library_id = ? AND metadata_id IS NOT NULL OFFSET 0) AS m", libraryID).
-		Joins("JOIN LATERAL (SELECT * FROM metadata_items WHERE id = m.metadata_id OFFSET 0) AS mi ON TRUE").
-		Joins("LEFT JOIN LATERAL (SELECT * FROM metadata_items WHERE id = mi.parent_id AND mi.kind = 'episode' AND kind = 'season' OFFSET 0) AS season ON TRUE").
-		Joins("JOIN LATERAL (SELECT * FROM metadata_items WHERE id = CASE WHEN mi.kind = 'episode' THEN season.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE mi.id END OFFSET 0) AS work ON TRUE")
+		Joins("JOIN LATERAL (SELECT * FROM metadata_presentations WHERE id = m.metadata_id OFFSET 0) AS mi ON TRUE").
+		Joins("LEFT JOIN LATERAL (SELECT * FROM metadata_presentations WHERE id = mi.parent_id AND mi.kind = 'episode' AND kind = 'season' OFFSET 0) AS season ON TRUE").
+		Joins("JOIN LATERAL (SELECT * FROM metadata_presentations WHERE id = CASE WHEN mi.kind = 'episode' THEN season.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE mi.id END OFFSET 0) AS work ON TRUE")
 }
 
 // ListLibraryMetadataPage 在数据库按作品统计、排序和分页，只读取当前页的一个操作文件。
@@ -117,7 +121,11 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 // libraryMoviePage 按作品最近入库时间分页，仅为当前页选择首选版本和统计数量。
 func (r *MediaViewRepository) libraryMoviePage(ctx context.Context, files *gorm.DB, libraryID, metadataID string, offset, limit int, filter MediaQueryFilter) ([]LibraryMetadataSummary, int64, error) {
 	db := r.db.WithContext(ctx)
-	candidates := FilterVisibleWorkLibraries(db, db.Table("metadata_items work"), "work.library_ids", []string{libraryID}, filter).
+	candidateTable := "metadata_items work"
+	if filter.MissingChineseTitle {
+		candidateTable = "metadata_presentations work"
+	}
+	candidates := FilterVisibleWorkLibraries(db, db.Table(candidateTable), "work.library_ids", []string{libraryID}, filter).
 		Where("work.kind='movie'")
 	if metadataID != "" {
 		candidates = candidates.Where("work.id=?", metadataID)
@@ -187,10 +195,17 @@ ORDER BY page.latest_media_added_at DESC NULLS LAST, page.metadata_id DESC`, can
 // librarySeriesWorkPage 按作品全局最新入库时间分页，当前页再补版本和代表文件。
 func (r *MediaViewRepository) librarySeriesWorkPage(ctx context.Context, libraryID string, offset, limit int, filter MediaQueryFilter) ([]LibraryMetadataSummary, int64, error) {
 	db := r.db.WithContext(ctx)
-	candidates := FilterVisibleWorkLibraries(db, db.Table("metadata_items work"), "work.library_ids", []string{libraryID}, filter).Where("work.kind='series'")
+	candidateTable := "metadata_items work"
+	if filter.MissingChineseTitle {
+		candidateTable = "metadata_presentations work"
+	}
+	candidates := FilterVisibleWorkLibraries(db, db.Table(candidateTable), "work.library_ids", []string{libraryID}, filter).Where("work.kind='series'")
 	candidates = applyLibraryMetadataFilters(candidates, filter).Select("work.id,work.library_ids,work.latest_media_added_at")
 	// 历史未知归属按真实文件回退；无未知候选时完全跳过库内扫描。
-	unknown := r.libraryFilteredSeriesScope(ctx, libraryID).
+	unknown := db.Table("(SELECT * FROM media WHERE library_id=? AND metadata_id IS NOT NULL OFFSET 0) m", libraryID).
+		Joins("JOIN LATERAL (SELECT * FROM metadata_items WHERE id=m.metadata_id OFFSET 0) mi ON TRUE").
+		Joins("LEFT JOIN LATERAL (SELECT * FROM metadata_items WHERE id=mi.parent_id AND mi.kind='episode' AND kind='season' OFFSET 0) season ON TRUE").
+		Joins("JOIN LATERAL (SELECT * FROM metadata_items WHERE id=CASE WHEN mi.kind='episode' THEN season.parent_id WHEN mi.kind='season' THEN mi.parent_id ELSE mi.id END OFFSET 0) work ON TRUE").
 		Where("EXISTS (SELECT 1 FROM scoped WHERE library_ids IS NULL)").
 		Where("work.id IN (SELECT id FROM scoped WHERE library_ids IS NULL)").Select("DISTINCT work.id")
 	// 先按页内元数据定位文件，防止库统计滞后时为每个分集重扫同一媒体库。
@@ -245,10 +260,10 @@ func (r *MediaViewRepository) librarySeriesPage(ctx context.Context, q *gorm.DB,
 	if metadataID == "" && !filtered {
 		q = q.Table("(SELECT * FROM media WHERE library_id = ? OFFSET 0) AS m", libraryID)
 	}
-	q = q.Select(`work.id AS metadata_id, m.id AS media_id, mi.id AS item_id,
+	q = q.Joins("JOIN LATERAL (SELECT release_date,year FROM metadata_presentations WHERE id=mi.id OFFSET 0) display ON TRUE").Select(`work.id AS metadata_id, m.id AS media_id, mi.id AS item_id,
 COALESCE(season.season_num, mi.season_num, 0) AS season_num, COALESCE(mi.episode_num, 0) AS episode_num, m.created_at,
-CASE WHEN COALESCE(mi.release_date, '') <> '' THEN mi.release_date
-WHEN COALESCE(mi.year, 0) > 0 THEN LPAD(mi.year::text, 4, '0') || '-12-31'
+CASE WHEN COALESCE(display.release_date, '') <> '' THEN display.release_date
+WHEN COALESCE(display.year, 0) > 0 THEN LPAD(display.year::text, 4, '0') || '-12-31'
 ELSE to_char(GREATEST(m.updated_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') END AS sort_date`)
 	page := r.db.Table("works").Order("sort_date DESC, metadata_id DESC").Offset(offset).Limit(limit)
 	var rows []struct {

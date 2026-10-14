@@ -23,6 +23,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Shared Media Metadata](./shared-media-metadata.md) | Canonical metadata, MediaView, artwork, and sidecar contracts | Active |
 | [STRM Target Inspection](./strm-target.md) | Authenticated on-demand STRM sidecar target reads | Active |
+| [Large Library Scans](./large-library-scans.md) | Bounded scan reads, filesystem identity reuse, safe pruning and HongGuo batch transactions | Active |
 | [Background Task Execution](./background-task-execution.md) | Startup readiness, persistent execution summaries, per-task logs, and scrape scheduling | Active |
 | [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) | Required backend-to-frontend catalog updates for player-visible Emby contract changes | Active |
 | [Emby Extension Discovery](./emby-extension-discovery.md) | Source-center rankings, persistent weekly calendar and visible external-ID matching | Active |

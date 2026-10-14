@@ -18,7 +18,6 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	registerAdminPermissionRoutes(admin, svc)
 	registerAdminNotificationRoutes(admin, svc)
 	registerAdminTelegramRoutes(admin, svc)
-	registerAdminOrganizerRoutes(admin, svc)
 	registerAdminAPIConfigRoutes(admin, svc)
 	registerAdminSchedulerRoutes(admin, svc)
 	registerAdminRecognitionWordRoutes(admin, svc)
@@ -61,13 +60,6 @@ func registerAdminTelegramRoutes(admin *gin.RouterGroup, svc *service.Container)
 	admin.POST("/telegram/webhook", telegramSetWebhookHandler(svc))
 	admin.POST("/telegram/polling/start", telegramStartPollingHandler(svc))
 	admin.POST("/telegram/polling/stop", telegramStopPollingHandler(svc))
-}
-
-func registerAdminOrganizerRoutes(admin *gin.RouterGroup, svc *service.Container) {
-	admin.POST("/media/:id/organize", organizeMediaHandler(svc))
-	admin.POST("/libraries/:id/organize", organizeLibraryHandler(svc))
-	admin.GET("/organize/sources", organizeSourcesHandler(svc))
-	admin.POST("/organize/source", organizeDirectoryHandler(svc))
 }
 
 func registerAdminAPIConfigRoutes(admin *gin.RouterGroup, svc *service.Container) {

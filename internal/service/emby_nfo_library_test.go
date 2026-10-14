@@ -26,6 +26,9 @@ func nfoBrowseFixture(t *testing.T, works, episodes int) *EmbyService {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 		t.Fatal(err)
 	}

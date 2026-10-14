@@ -33,7 +33,6 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		"PUT /api/libraries/:id/cover",
 		"DELETE /api/libraries/:id/cover",
 		"POST /api/libraries/:id/probe",
-		"POST /api/libraries/:id/people-backfill",
 		"GET /api/media",
 		"POST /api/metadata/:id/tmdb/refresh",
 		"GET /api/media/:id/versions",
@@ -56,6 +55,8 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+ "POST /api/libraries/:id/people-backfill",
+ "POST /api/tasks/people-backfill",
 		"GET /api/system/config",
 		"GET /api/settings/schema",
 		"GET /api/system/events/ticket",

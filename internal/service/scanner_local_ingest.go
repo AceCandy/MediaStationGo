@@ -18,7 +18,7 @@ import (
 
 // ingestFile upserts a single media file. seenInodes dedups hardlinks within a
 // single scan; pass a fresh map for one-off ingests. It mutates res counters.
-func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size, modTimeNS int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) {
+func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size, modTimeNS int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult, fileIDs ...string) {
 	res.Visited++
 	if libraryUsesNFOOnly(lib) {
 		s.ingestNFOMedia(ctx, lib, root, path, size, modTimeNS, writeBatch, res)
@@ -27,7 +27,7 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 	ext := strings.ToLower(filepath.Ext(path))
 	cleanPath := filepath.Clean(path)
 
-	fileID, skippedDuplicate := s.recordLocalFileIdentity(ctx, path, seenInodes, existingMedia, res)
+	fileID, skippedDuplicate := s.recordLocalFileIdentity(ctx, path, seenInodes, existingMedia, res, fileIDs...)
 	if skippedDuplicate {
 		return
 	}
@@ -41,6 +41,12 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		existingMedia: existingMedia,
 	})
 	if skipUnchanged {
+		// 文件新增硬链接不改变大小/mtime；补存身份使后续批次仍能找到旧主路径。
+		if old, ok := existingMedia[cleanPath]; ok && fileID != "" && old.FileID != fileID {
+			if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("library_id = ? AND path = ?", lib.ID, path).Update("file_id", fileID).Error; err != nil {
+				addScanError(res, path, err)
+			}
+		}
 		res.Skipped++
 		return
 	}
@@ -88,8 +94,15 @@ func scanEpisodeNumbers(lib *model.Library, path string) (int, int) {
 	return ParseEpisode(path)
 }
 
-func (s *ScannerService) recordLocalFileIdentity(ctx context.Context, path string, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, res *ScanResult) (string, bool) {
-	fileID, hasID := fileIdentity(path)
+func (s *ScannerService) recordLocalFileIdentity(ctx context.Context, path string, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, res *ScanResult, fileIDs ...string) (string, bool) {
+	var fileID string
+	var hasID bool
+	if len(fileIDs) > 0 {
+		fileID, hasID = fileIDs[0], fileIDs[0] != ""
+	} else {
+		fileID, hasID = fileIdentity(path)
+	}
+
 	if !hasID {
 		return "", false
 	}
@@ -295,7 +308,7 @@ type localScanWriteInput struct {
 }
 
 func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
-	if in.isNewMedia && in.writeBatch != nil {
+	if in.writeBatch != nil && (in.isNewMedia || in.media.CatalogSource == model.TaskSystemHongGuo) {
 		in.writeBatch.AddWithReason(in.path, in.media, in.updateReason)
 		return
 	}

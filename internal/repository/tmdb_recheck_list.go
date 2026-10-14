@@ -41,11 +41,11 @@ func (r *MetadataRepository) ListTMDbRecheckFiles(ctx context.Context, id string
 	}
 	err := r.db.WithContext(ctx).Raw(`SELECT m.id AS media_id, m.path, m.library_id
 FROM tm_db_recheck_jobs job
-JOIN metadata_items target ON target.id=job.metadata_id AND target.kind IN ('season','episode')
+JOIN metadata_presentations target ON target.id=job.metadata_id AND target.kind IN ('season','episode')
 JOIN LATERAL (
  SELECT target.id
  UNION ALL
- SELECT child.id FROM metadata_items child WHERE target.kind='season' AND child.parent_id=target.id AND child.kind='episode'
+ SELECT child.id FROM metadata_presentations child WHERE target.kind='season' AND child.parent_id=target.id AND child.kind='episode'
 ) linked ON true
 JOIN media m ON m.metadata_id=linked.id
 WHERE job.metadata_id=? AND job.status='not_found'
@@ -86,15 +86,15 @@ type TMDbRecheckSummary struct {
 // 集的半连接可批量执行；季先限定到队列范围，避免为全库无待办的季检查文件。
 const tmdbRecheckCountsSQL = `SELECT status, count(*) AS n FROM (
  SELECT jobs.status FROM (?) jobs
- JOIN metadata_items target ON target.id=jobs.metadata_id AND target.kind='episode'
+ JOIN metadata_presentations target ON target.id=jobs.metadata_id AND target.kind='episode'
  WHERE EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
  UNION ALL
  SELECT target.status FROM (
   SELECT jobs.status, mi.id FROM (?) jobs
-  JOIN metadata_items mi ON mi.id=jobs.metadata_id AND mi.kind='season' OFFSET 0
+  JOIN metadata_presentations mi ON mi.id=jobs.metadata_id AND mi.kind='season' OFFSET 0
  ) target
  WHERE EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
- OR EXISTS (SELECT 1 FROM metadata_items child JOIN media m ON m.metadata_id=child.id
+ OR EXISTS (SELECT 1 FROM metadata_presentations child JOIN media m ON m.metadata_id=child.id
   WHERE child.parent_id=target.id AND child.kind='episode')
 ) visible GROUP BY status`
 
@@ -157,11 +157,11 @@ func (r *MetadataRepository) listTMDbRechecks(ctx context.Context, status, keywo
 	}
 	// 与关联文件列表使用相同范围；媒体删除后无需等待后台归并，统计与分页同步排除空待办。
 	q := r.db.WithContext(ctx).Table("tm_db_recheck_jobs AS jobs").Where(`EXISTS (
-SELECT 1 FROM metadata_items target
+SELECT 1 FROM metadata_presentations target
 WHERE target.id=jobs.metadata_id AND target.kind IN ('season','episode')
 AND (EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
  OR (target.kind='season' AND EXISTS (
-  SELECT 1 FROM metadata_items child JOIN media m ON m.metadata_id=child.id
+  SELECT 1 FROM metadata_presentations child JOIN media m ON m.metadata_id=child.id
   WHERE child.parent_id=target.id AND child.kind='episode'))))`)
 	keyword = strings.TrimSpace(keyword)
 	if withSummary {
@@ -188,9 +188,9 @@ AND (EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
 		q = q.Where("jobs.status=?", status)
 	}
 	q = q.
-		Joins("LEFT JOIN metadata_items mi ON mi.id=jobs.metadata_id").
-		Joins("LEFT JOIN metadata_items season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'").
-		Joins("LEFT JOIN metadata_items series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'").
+		Joins("LEFT JOIN metadata_presentations mi ON mi.id=jobs.metadata_id").
+		Joins("LEFT JOIN metadata_presentations season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'").
+		Joins("LEFT JOIN metadata_presentations series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'").
 		Select(`jobs.*, mi.title, mi.kind, series.title AS series_title,
 CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS season_num, mi.episode_num`)
 	const displayOrder = "LOWER(COALESCE(NULLIF(series_title,''), title,'')), season_num, episode_num, metadata_id"

@@ -18,7 +18,6 @@ func registerAuthedStatsDiscoveryAndAIRoutes(authed *gin.RouterGroup, svc *servi
 	authed.GET("/tasks/definitions/:key/pending/:metadataID/files", middleware.AdminRequired(), tmdbRecheckListHandler(svc))
 	authed.POST("/tasks/definitions/:key/run", middleware.AdminRequired(), taskDefinitionRunHandler(svc))
 	authed.PUT("/tasks/definitions/:key/schedule", middleware.AdminRequired(), taskDefinitionScheduleHandler(svc))
-	authed.POST("/tasks/people-backfill", middleware.AdminRequired(), peopleBackfillHandler(svc))
 
 	authed.GET("/discover/trending", requirePermission(svc, "can_view_discover"), trendingHandler(svc))
 	authed.GET("/discover/popular", requirePermission(svc, "can_view_discover"), popularHandler(svc))

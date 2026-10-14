@@ -20,15 +20,12 @@ func TestArtworkAssetConcurrentReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.Library{}, &model.NFOItem{}, &model.NFOMediaBinding{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.ArtworkAsset{}, &model.Library{}, &model.NFOItem{}, &model.NFOMediaBinding{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	library := model.Library{Name: "Local", Path: "/local", Type: model.LibraryTypeNFOMovie}
 	if err := db.Create(&library).Error; err != nil {
-		t.Fatal(err)
-	}
-	old := model.ArtworkAsset{SHA256: "old", StorageKey: "old.jpg", MimeType: "image/jpeg"}
-	if err := db.Create(&old).Error; err != nil {
 		t.Fatal(err)
 	}
 	var schemaName string
@@ -39,7 +36,7 @@ func TestArtworkAssetConcurrentReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := []string{"SaveSelection", "SaveCatalogSelection", "SaveCandidate", "RepairTMDbSelection", "RepairDoubanCandidate", "NFOIngest"}
+	names := []string{"SaveAsset", "SaveSourceArtwork", "NFOIngest"}
 	pool.SetMaxOpenConns(len(names))
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -70,16 +67,17 @@ func TestArtworkAssetConcurrentReuse(t *testing.T) {
 		if err := db.Create(&items).Error; err != nil {
 			t.Fatal(err)
 		}
-		selections := []model.MetadataArtwork{
-			{MetadataID: items[3].ID, ArtworkType: model.ArtworkTypePoster, AssetID: old.ID, SourceProvider: "tmdb", SourceURL: "old.jpg"},
-			{MetadataID: items[4].ID, ArtworkType: model.ArtworkTypePoster, AssetID: old.ID, SourceProvider: "douban", SourceURL: "old.jpg"},
-		}
-		if err := db.Create(&selections).Error; err != nil {
-			t.Fatal(err)
-		}
-		candidate := model.MetadataArtworkCandidate{MetadataID: items[4].ID, ArtworkType: model.ArtworkTypePoster, AssetID: old.ID, SourceProvider: "douban", SourceURL: "old.jpg"}
-		if err := db.Create(&candidate).Error; err != nil {
-			t.Fatal(err)
+		for _, item := range items {
+			if err := testdb.SaveMetadataPresentationFixture(db, item); err != nil {
+				t.Fatal(err)
+			}
+			var subject model.TMDbSubject
+			if err := db.Table("tmdb_subjects s").Select("s.*").Joins("JOIN metadata_identifiers b ON b.provider='tmdb' AND b.entity_kind=s.kind AND b.external_id=s.tmdb_id::text").Where("b.metadata_id=?", item.ID).Take(&subject).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Create(&model.TMDbArtwork{SubjectID: subject.ID, Type: "poster", SourcePath: "/new.jpg", Status: "pending"}).Error; err != nil {
+				t.Fatal(err)
+			}
 		}
 		nfoMedia := model.Media{LibraryID: library.ID, Path: fmt.Sprintf("/local/%d.mkv", round), CatalogSource: model.CatalogSourceNFO, ScrapeStatus: "matched"}
 		save := func(i int, asset *model.ArtworkAsset) (*model.ArtworkAsset, error) {
@@ -97,26 +95,12 @@ func TestArtworkAssetConcurrentReuse(t *testing.T) {
 				err := repo.db.WithContext(ctx).First(&saved, "id = ?", input.Items[0].PosterAssetID).Error
 				return &saved, err
 			}
-			id := items[i].ID
-			switch i {
-			case 0:
-				return repo.SaveSelection(ctx, id, model.ArtworkTypePoster, "tmdb", "new.jpg", asset)
-			case 1:
-				saved, _, err := repo.SaveCatalogSelection(ctx, id, model.ArtworkTypePoster, "tmdb", "new.jpg", asset)
-				return saved, err
-			case 2:
-				saved, _, err := repo.SaveCandidate(ctx, id, model.ArtworkTypePoster, "douban", "new.jpg", asset)
-				return saved, err
-			case 3:
-				snapshot := TMDbArtworkSelection{SelectionID: selections[0].ID, MetadataID: id, ArtworkType: model.ArtworkTypePoster, AssetID: old.ID, SourceURL: "old.jpg"}
-				saved, _, err := repo.RepairTMDbSelection(ctx, snapshot, "new.jpg", asset)
-				return saved, err
-			default:
-				snapshot := DoubanArtworkCandidate{CandidateID: candidate.ID, MetadataID: id, ArtworkType: model.ArtworkTypePoster, AssetID: old.ID, SourceURL: "old.jpg"}
-				saved, _, err := repo.RepairDoubanCandidate(ctx, snapshot, "new.jpg", asset)
-				return saved, err
+			if i == 0 {
+				return repo.SaveAsset(ctx, asset)
 			}
+			return repo.SaveSourceArtwork(ctx, items[i].ID, model.ArtworkTypePoster, "https://example.test/new.jpg", asset)
 		}
+
 		hash := fmt.Sprintf("shared-%d", round)
 		results := make([]struct {
 			asset *model.ArtworkAsset
@@ -155,14 +139,13 @@ func TestArtworkAssetConcurrentReuse(t *testing.T) {
 				}
 				continue
 			}
+			if i == 0 {
+				continue
+			}
 			selected, err := workers[i].FindSelection(ctx, items[i].ID, model.ArtworkTypePoster)
 			if err != nil || selected == nil || selected.ID != stored.ID {
 				t.Fatalf("%s selection=%+v err=%v", names[i], selected, err)
 			}
-		}
-		var candidateCount int64
-		if err := db.Model(&model.MetadataArtworkCandidate{}).Where("asset_id = ?", stored.ID).Count(&candidateCount).Error; err != nil || candidateCount != 2 {
-			t.Fatalf("candidate links=%d err=%v", candidateCount, err)
 		}
 		// 重复引用保留首条资产属性，不覆盖图片记录。
 		duplicate := &model.ArtworkAsset{SHA256: hash, StorageKey: stored.StorageKey, MimeType: "image/jpeg", Width: 999}
@@ -172,7 +155,7 @@ func TestArtworkAssetConcurrentReuse(t *testing.T) {
 		}
 	}
 	var count int64
-	if err := db.Model(&model.ArtworkAsset{}).Count(&count).Error; err != nil || count != rounds+1 {
-		t.Fatalf("asset count=%d, want %d: %v", count, rounds+1, err)
+	if err := db.Model(&model.ArtworkAsset{}).Count(&count).Error; err != nil || count != rounds {
+		t.Fatalf("asset count=%d, want %d: %v", count, rounds, err)
 	}
 }

@@ -127,7 +127,7 @@ func TestHongGuoDiscoveryScansUntilCategoryEnd(t *testing.T) {
 				t.Fatalf("404 was not verified against the preceding page: %v", requestPaths)
 			}
 			var rows int64
-			if err := db.Model(&model.HongGuoDiscovery{}).Count(&rows).Error; err != nil || rows != tc.wantRows {
+			if err := db.Model(&model.HongGuoWork{}).Count(&rows).Error; err != nil || rows != tc.wantRows {
 				t.Fatalf("rows=%d %v", rows, err)
 			}
 			state, err := repos.HongGuo.SyncState(ctx, hongguo.Categories[0])
@@ -203,7 +203,7 @@ func TestHongGuoDiscoveryDefersDetailsAndResumes(t *testing.T) {
 		t.Fatalf("discovery fetched details: %v", paths)
 	}
 	var n int64
-	if err := db.Model(&model.HongGuoWork{}).Count(&n).Error; err != nil || n != 0 {
+	if err := db.Model(&model.HongGuoWork{}).Where("summary_only = false").Count(&n).Error; err != nil || n != 0 {
 		t.Fatalf("summary became canonical: %d %v", n, err)
 	}
 	pending, err := repos.HongGuo.PendingDiscoveries(ctx, "", time.Now())
@@ -313,7 +313,7 @@ func TestHongGuoDiscoveryIncrementalReachesSecondPage(t *testing.T) {
 		t.Fatalf("incremental pages=%v", requests)
 	}
 	var count int64
-	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "300").Count(&count).Error; err != nil || count != 1 {
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id = ?", "300").Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("second-page new work missing: count=%d err=%v", count, err)
 	}
 	state, err := repos.HongGuo.SyncState(ctx, "real-drama")
@@ -429,7 +429,7 @@ func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 		}
 	}
 	var count int64
-	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "200").Count(&count).Error; err != nil || count != 1 {
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id = ?", "200").Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("new discovery count=%d err=%v", count, err)
 	}
 	if _, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoSync); err != nil {

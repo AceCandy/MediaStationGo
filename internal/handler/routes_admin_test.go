@@ -30,7 +30,6 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/admin/users/:id/permissions",
 		"GET /api/admin/notify/channels",
 		"GET /api/admin/telegram/webhook",
-		"GET /api/admin/organize/sources",
 		"GET /api/admin/api-configs",
 		"GET /api/admin/douban/subjects",
 		"GET /api/admin/douban/subjects/:id",
@@ -55,6 +54,11 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		}
 	}
 	for _, retired := range []string{
+		"/api/admin/organize/sources",
+		"/api/admin/organize/source",
+		"/api/admin/media/:id/organize",
+		"/api/admin/libraries/:id/organize",
+		"/api/media/organize",
 		"/api/admin/system/scheduler/:name/trigger",
 		"/api/admin/download/clients",
 		"/api/admin/storage/status",

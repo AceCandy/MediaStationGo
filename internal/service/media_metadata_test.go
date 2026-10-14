@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,7 +25,7 @@ func newMediaMetadataTMDbProvider(t *testing.T, handler http.HandlerFunc) *TMDbP
 	return NewTMDbProvider(cfg, zap.NewNop(), nil)
 }
 
-func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
+func TestUpdateMediaMetadataUsesSourceAndRejectsManualFields(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "自采集", Path: "/media/custom", Type: "movie", Enabled: true}
@@ -40,23 +41,21 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": 12345, "title": "手动标题", "future_field": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 12345, "title": "来源标题", "overview": "来源简介", "release_date": "2026-06-23", "future_field": true})
 	})
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos).SetTMDbProvider(tmdb)
-	title := "手动标题"
-	overview := "手动简介"
+	title := "来源标题"
+	overview := "来源简介"
 	releaseDate := "2026-06-23"
 	tmdbID := 12345
-	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
-		Title:       &title,
-		Overview:    &overview,
-		ReleaseDate: &releaseDate,
-		TMDbID:      &tmdbID,
-	})
+	if _, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Title: &title}); !errors.Is(err, ErrSourceMetadataReadOnly) {
+		t.Fatalf("manual edit error = %v", err)
+	}
+	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{TMDbID: &tmdbID})
 	if err != nil {
 		t.Fatalf("update metadata: %v", err)
 	}
-	if updated.Title != title || updated.Overview != overview || updated.ScrapeStatus != "matched" {
+	if updated.Title != title || updated.Overview != overview {
 		t.Fatalf("metadata not saved: %#v", updated)
 	}
 	if updated.TMDbID != tmdbID {
@@ -70,7 +69,7 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	}
 }
 
-func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T) {
+func TestUpdateEpisodeMetadataDoesNotModifyParentIdentity(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Series", Path: "/media/series", Type: "tv", Enabled: true}
@@ -116,12 +115,12 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 	tmdb.catalog.ctx = t.Context()
 	t.Cleanup(tmdb.catalog.Wait)
 	updated, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).SetTMDbProvider(tmdb).UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
-		Title: &title, TMDbID: &tmdbID,
+		TMDbID: &tmdbID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Title != title || updated.TMDbID != tmdbID || updated.PosterURL == "" {
+	if updated.Title != title || updated.TMDbID != tmdbID {
 		t.Fatalf("episode metadata not updated on the episode: %#v", updated)
 	}
 	if item, findErr := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindEpisode, "9876"); findErr != nil || item == nil || item.ID != episode.ID {
@@ -130,11 +129,11 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 	if item, findErr := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "9876"); findErr != nil || item != nil {
 		t.Fatalf("parent received episode identifier: %#v, err = %v", item, findErr)
 	}
-	if asset, findErr := repos.Artwork.FindSelection(t.Context(), episode.ID, model.ArtworkTypePoster); findErr != nil || asset == nil || asset.ID != "episode-poster" {
-		t.Fatalf("episode poster = %#v, err = %v", asset, findErr)
+	if parent, findErr := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeries, "500"); findErr != nil || parent == nil || parent.ID != *season.ParentID {
+		t.Fatalf("parent identity changed: %+v %v", parent, findErr)
 	}
-	if asset, findErr := repos.Artwork.FindSelection(t.Context(), seasonID, model.ArtworkTypePoster); findErr != nil || asset == nil || asset.ID != "season-poster" {
-		t.Fatalf("parent poster changed: %#v, err = %v", asset, findErr)
+	if updated.PosterURL != "" {
+		t.Fatalf("legacy artwork leaked: %s", updated.PosterURL)
 	}
 	if snapshot, findErr := repos.Metadata.FindProviderData(t.Context(), episode.ID, "tmdb"); findErr != nil || snapshot == nil {
 		t.Fatalf("episode TMDB snapshot = %#v, err = %v", snapshot, findErr)
@@ -173,25 +172,5 @@ func TestUpdateMediaMetadataRejectsTMDbIDWhenDetailsFail(t *testing.T) {
 	var payload map[string]any
 	if err != nil || snapshot == nil || json.Unmarshal([]byte(snapshot.Payload), &payload) != nil || payload["id"] != float64(111) || payload["kept"] != true {
 		t.Fatalf("old TMDB snapshot changed: %#v, err = %v", snapshot, err)
-	}
-}
-
-func TestManualEpisodeParentDoesNotCreateParentFromEpisodeMetadata(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{})
-	svc := NewMediaService(&config.Config{}, zap.NewNop(), repository.New(db))
-	episode := &model.MetadataItem{
-		Kind: model.MetadataKindEpisode, Title: "Episode title", Overview: "Episode overview",
-		Year: 2026, Genres: "Episode genre", Source: "manual",
-	}
-
-	if parent, err := svc.manualEpisodeParent(t.Context(), episode); err == nil || parent != nil {
-		t.Fatalf("parent = %#v, err = %v", parent, err)
-	}
-	var seriesCount int64
-	if err := db.Model(&model.MetadataItem{}).Where("kind = ?", model.MetadataKindSeries).Count(&seriesCount).Error; err != nil {
-		t.Fatal(err)
-	}
-	if seriesCount != 0 {
-		t.Fatalf("created %d series rows from episode metadata", seriesCount)
 	}
 }

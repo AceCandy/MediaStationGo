@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -27,6 +28,12 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 		if err := db.Create(value).Error; err != nil {
 			t.Fatal(err)
 		}
+		if item, ok := value.(*model.MetadataItem); ok {
+			if err := testdb.SaveMetadataPresentationFixture(db, *item); err != nil {
+				t.Fatal(err)
+			}
+		}
+
 	}
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	user := "resume-viewer"
@@ -167,7 +174,9 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 	p.Filters = []string{"IsResumable", "IsFavorite"}
 	assertPage(p, 2, []string{"nfo-nfo-item-1", "legacy-item-1"})
 	create(&model.Person{Base: model.Base{ID: "actor"}, Name: "Actor"})
-	create(&model.MetadataCredit{MetadataID: "legacy-season", PersonID: "actor", Type: "Actor"})
+	if err := testdb.SaveSourceCreditFixture(e.repo.DB, &model.MetadataCredit{MetadataID: "legacy-season", PersonID: "actor", Type: "Actor"}); err != nil {
+		t.Fatal(err)
+	}
 	create(&model.HongGuoPerson{PermanentBase: model.PermanentBase{ID: "actor"}, SourceID: "actor", Name: "Actor"})
 	create(&model.HongGuoCredit{WorkID: "hongguo-item-3", PersonID: "actor"})
 	p.Filters, p.PersonIDs = []string{"IsResumable"}, []string{"actor", "hg-person-actor"}
@@ -219,12 +228,12 @@ func oldResumePage(t *testing.T, e *EmbyService, p ItemsParams) []string {
 		Joins("JOIN metadata_items leaf ON leaf.id = f.metadata_id").
 		Joins("LEFT JOIN metadata_items parent ON parent.id = leaf.parent_id").
 		Joins("LEFT JOIN metadata_items grandparent ON grandparent.id = parent.parent_id").
-		Joins("JOIN metadata_items item ON item.id IN (leaf.id,parent.id,grandparent.id)").
+		Joins("JOIN metadata_presentations item ON item.id IN (leaf.id,parent.id,grandparent.id)").
 		Joins("LEFT JOIN playback_histories h ON h.metadata_id = leaf.id AND h.user_id = ? AND h.deleted_at IS NULL", p.UserID).
 		Select(`item.id, CASE WHEN item.kind = 'episode' THEN 'legacy:' || COALESCE(grandparent.id,item.id) ELSE 'legacy:' || item.id END AS resume_key,
  item.kind, item.title, MAX(f.created_at) AS created_at, COALESCE(MAX(h.watched_at),MAX(f.created_at)) AS played_at,
  BOOL_AND(COALESCE(h.completed,FALSE)) AS played, MAX(COALESCE(h.position_ms,0)) AS position_ms,
- item.rating, COALESCE(item.release_date,'') AS release_date, item.year`).Group("item.id, grandparent.id")
+ item.rating, COALESCE(item.release_date,'') AS release_date, item.year`).Group("item.id,grandparent.id,item.kind,item.title,item.rating,item.release_date,item.year")
 	hg := e.hongGuoNodes(t.Context(), p.UserID, "").Select("id,resume_key,LOWER(kind) AS kind,title,file_latest_at AS created_at,COALESCE(played_at,file_latest_at) AS played_at,played,position_ms,rating,'' AS release_date,0 AS year")
 	nfo := e.nfoNodes(t.Context(), p.UserID, "").Select("id,resume_key,LOWER(kind) AS kind,title,file_latest_at AS created_at,COALESCE(played_at,file_latest_at) AS played_at,played,position_ms,rating,release_date,year")
 	combined := db.Raw("? UNION ALL ? UNION ALL ?", legacy, hg, nfo)
@@ -244,7 +253,7 @@ func TestEmbyResumeCandidatesIgnoreUnwatchedCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, sql := range []string{
-		`INSERT INTO metadata_items (id,kind,title,source) SELECT 'movie-' || n,'movie','Movie','test' FROM generate_series(1,20000) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'movie-' || n,'movie','Movie','test' FROM generate_series(1,20000) n`),
 		`INSERT INTO media (id,metadata_id,path,created_at) SELECT 'file-' || n,'movie-' || n,'/test/' || n,now() FROM generate_series(1,20000) n`,
 		`INSERT INTO playback_histories (id,user_id,metadata_id,media_id,position_ms,completed,watched_at) VALUES ('history','viewer','movie-1','file-1',1,false,now())`,
 		`INSERT INTO playback_histories (id,user_id,metadata_id,media_id,position_ms,completed,watched_at) SELECT 'other-' || n,'other-user','movie-' || n,'file-' || n,1,false,now() FROM generate_series(1,20000) n`,

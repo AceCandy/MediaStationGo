@@ -4,6 +4,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 
 	"golang.org/x/sys/windows"
 )
@@ -37,3 +38,5 @@ func fileIdentity(path string) (string, bool) {
 	fileIndex := (uint64(info.FileIndexHigh) << 32) | uint64(info.FileIndexLow)
 	return fmt.Sprintf("%d:%d", info.VolumeSerialNumber, fileIndex), true
 }
+
+func fileIdentityFromInfo(path string, _ os.FileInfo) (string, bool) { return fileIdentity(path) }

@@ -42,7 +42,7 @@ func (s *HongGuoDownloadService) Supplement(ctx context.Context, count int) (Dow
 		return result, errors.New("请先在下载空间设置存储目录")
 	}
 	var ids []string
-	err = s.repo.DB.WithContext(ctx).Model(&model.HongGuoWork{}).Select("hongguo_works.source_id").
+	err = s.repo.DB.WithContext(ctx).Model(&model.HongGuoWork{}).Select("hongguo_works.source_id").Where("summary_only = false").
 		Where("source_category <> ? AND source_id ~ ?", "comic", `^[1-9][0-9]{0,31}$`).
 		Where("NOT EXISTS (SELECT 1 FROM hongguo_download_works d WHERE d.source_id = hongguo_works.source_id)").
 		Where("NOT EXISTS (SELECT 1 FROM hongguo_downloads d WHERE d.source_id = hongguo_works.source_id)").

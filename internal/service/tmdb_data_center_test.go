@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
@@ -31,6 +32,9 @@ func tmdbCenterTest(t *testing.T, h http.HandlerFunc) (*TMDbDataCenter, *TMDbPro
 		t.Fatal(e)
 	}
 	if e = db.AutoMigrate(model.AllModels()...); e != nil {
+		t.Fatal(e)
+	}
+	if e := database.EnsureMetadataPresentationSchema(db); e != nil {
 		t.Fatal(e)
 	}
 	up := httptest.NewServer(h)

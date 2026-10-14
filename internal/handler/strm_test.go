@@ -29,7 +29,7 @@ func TestSTRMRefreshNFOUsesCommonScanWithoutScrape(t *testing.T) {
 		t.Run(libraryType, func(t *testing.T) {
 			// 不可达目录让后台扫描快速结束；排队结果仍必须明确禁止网络刮削。
 			lib := model.Library{Name: libraryType, Type: libraryType, Path: filepath.Join(t.TempDir(), "missing"), Enabled: true}
-			if err := repos.Library.Create(t.Context(), &lib); err != nil {
+			if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{Path: lib.Path, Enabled: true}}); err != nil {
 				t.Fatal(err)
 			}
 			tracker := service.NewTaskTrackerService(log, nil)
@@ -52,7 +52,7 @@ func TestSTRMRefreshNFOUsesCommonScanWithoutScrape(t *testing.T) {
 				t.Fatalf("NFO refresh must scan without scraping: %+v", refresh)
 			}
 			history, err := tracker.List(1, 10)
-			if err != nil || len(history.Items) != 1 || history.Items[0].Kind != service.TaskKindScan || history.Items[0].System != model.TaskSystemCommon {
+			if err != nil || len(history.Items) != 1 || history.Items[0].Kind != service.TaskKindScan || history.Items[0].System != model.TaskSystemMedia {
 				t.Fatalf("NFO refresh history=%+v err=%v", history, err)
 			}
 		})

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"testing"
 	"time"
 
@@ -14,11 +15,11 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-series"}, Kind: model.MetadataKindSeries,
 		Title: "间谍过家家", OriginalName: "SPY×FAMILY", Source: "tmdb",
 	})
-	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-season-2"}, Kind: model.MetadataKindSeason,
 		ParentID: &series.ID, SeasonNum: 2, Title: "第 2 季", Source: "tmdb",
 	})
@@ -28,6 +29,11 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	}
 	if err := svc.repo.DB.Create(&episodeMetadata).Error; err != nil {
 		t.Fatalf("create episodes: %v", err)
+	}
+	for _, item := range episodeMetadata {
+		if err := testdb.SaveMetadataPresentationFixture(svc.repo.DB, item); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for i, media := range []model.Media{
 		{
@@ -247,15 +253,15 @@ func TestEmbySeriesHierarchyCountsEpisodeMetadataOnceAcrossVersions(t *testing.T
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "series-version-count"}, Kind: model.MetadataKindSeries,
 		Title: "版本计数", Source: "tmdb",
 	})
-	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "season-version-count"}, Kind: model.MetadataKindSeason,
 		ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "tmdb",
 	})
-	episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	episode := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "episode-version-count"}, Kind: model.MetadataKindEpisode,
 		ParentID: &season.ID, EpisodeNum: 1, Title: "第一集", Source: "tmdb",
 	})
@@ -291,14 +297,14 @@ func TestEmbyItemsKeepSpecialsInSeasonZero(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-specials-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb",
 	})
-	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-specials-season"}, Kind: model.MetadataKindSeason,
 		ParentID: &series.ID, SeasonNum: 0, Title: "特别篇", Source: "tmdb",
 	})
-	episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	episode := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-specials-episode"}, Kind: model.MetadataKindEpisode,
 		ParentID: &season.ID, Title: "间谍过家家", EpisodeNum: 1, Source: "tmdb",
 	})
@@ -359,7 +365,7 @@ func TestEmbyEpisodeStillIsPrimaryImageNotArt(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
+	episode := createServiceSourceTestEpisodeMetadata(t, svc.repo.DB,
 		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-still-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb"},
 		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-still-episode"}, Kind: model.MetadataKindEpisode,
 			Title: "间谍过家家", SeasonNum: 2, EpisodeNum: 1, Source: "tmdb",
@@ -412,7 +418,7 @@ func TestEmbySeriesArtworkUsesSharedMetadata(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	seriesID := "metadata-cache-series"
-	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
+	episode := createServiceSourceTestEpisodeMetadata(t, svc.repo.DB,
 		model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "剑来", Source: "tmdb"},
 		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-cache-episode"}, Kind: model.MetadataKindEpisode,
 			Title: "剑来", SeasonNum: 1, EpisodeNum: 1, Source: "tmdb",
@@ -457,7 +463,7 @@ func TestEmbySeriesArtworkUsesSharedMetadata(t *testing.T) {
 func TestEmbySeasonAndEpisodeUseDisplayArtworkFallbackWithoutPeopleInheritance(t *testing.T) {
 	svc := newTestEmbyService(t)
 	seriesID := "metadata-no-inherit-series"
-	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
+	episode := createServiceSourceTestEpisodeMetadata(t, svc.repo.DB,
 		model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "独立元数据", Source: "tmdb"},
 		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-no-inherit-episode"}, Kind: model.MetadataKindEpisode, Title: "独立元数据", SeasonNum: 1, EpisodeNum: 1, Source: "tmdb"},
 	)
@@ -471,7 +477,7 @@ func TestEmbySeasonAndEpisodeUseDisplayArtworkFallbackWithoutPeopleInheritance(t
 	if err := svc.repo.DB.Create(&person).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: seriesID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(svc.repo.DB, &model.MetadataCredit{MetadataID: seriesID, PersonID: person.ID, Type: model.CreditTypeActor}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ id, want string }{{*episode.ParentID, wantPoster}, {episode.ID, wantEpisodeBackdrop}} {
@@ -486,19 +492,19 @@ func TestEmbySeasonAndEpisodeUseDisplayArtworkFallbackWithoutPeopleInheritance(t
 			t.Fatalf("metadata %s inherited series people: %#v", tc.id, people)
 		}
 	}
-	if err := svc.repo.DB.Where("metadata_id = ? AND artwork_type = ?", episode.ID, model.ArtworkTypeBackdrop).Delete(&model.MetadataArtwork{}).Error; err != nil {
+	if err := svc.repo.DB.Where("subject_id = ? AND type = ?", sourceSubjectIDFixture(t, svc.repo.DB, episode.ID), model.ArtworkTypeBackdrop).Delete(&model.TMDbArtwork{}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if image, err := svc.ImageURL(t.Context(), episode.ID, "Primary"); err != nil || image != wantBackdrop {
 		t.Fatalf("episode series backdrop fallback = %q, want %q: %v", image, wantBackdrop, err)
 	}
-	if err := svc.repo.DB.Where("metadata_id = ? AND artwork_type = ?", seriesID, model.ArtworkTypeBackdrop).Delete(&model.MetadataArtwork{}).Error; err != nil {
+	if err := svc.repo.DB.Where("subject_id = ? AND type = ?", sourceSubjectIDFixture(t, svc.repo.DB, seriesID), model.ArtworkTypeBackdrop).Delete(&model.TMDbArtwork{}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if image, err := svc.ImageURL(t.Context(), episode.ID, "Primary"); err != nil || image != wantPoster {
 		t.Fatalf("episode poster fallback = %q, want %q: %v", image, wantPoster, err)
 	}
-	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: *episode.ParentID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+	if err := testdb.SaveSourceCreditFixture(svc.repo.DB, &model.MetadataCredit{MetadataID: *episode.ParentID, PersonID: person.ID, Type: model.CreditTypeActor}); err != nil {
 		t.Fatal(err)
 	}
 	if people := svc.peopleForMetadata(t.Context(), episode.ID); len(people) != 1 || people[0].Id != person.ID {

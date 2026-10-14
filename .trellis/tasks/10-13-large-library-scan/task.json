@@ -1,0 +1,28 @@
+{
+  "id": "large-library-scan",
+  "name": "large-library-scan",
+  "title": "优化百万级媒体库全量扫描",
+  "description": "减少重复文件属性读取，分批核对已有媒体与缺失记录，合并红果入库事务并提供阶段耗时，保持扫描与删除安全边界",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-13",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "verification": "PostgreSQL targeted regressions and race passed; go vet and diff check passed; independently reviewed; real 2-million-file workload not measured; uncommitted"
+  }
+}

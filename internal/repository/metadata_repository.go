@@ -29,7 +29,7 @@ type DoubanMovieEnrichmentCandidate struct {
 
 func (r *MetadataRepository) FindByID(ctx context.Context, id string) (*model.MetadataItem, error) {
 	var item model.MetadataItem
-	if err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Table("metadata_presentations").First(&item, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -44,7 +44,7 @@ func (r *MetadataRepository) FindByIDs(ctx context.Context, ids []string) ([]mod
 		return []model.MetadataItem{}, nil
 	}
 	var items []model.MetadataItem
-	err := r.db.WithContext(ctx).Where("id = ANY(?)", &ids).Find(&items).Error
+	err := r.db.WithContext(ctx).Table("metadata_presentations").Where("id = ANY(?)", &ids).Find(&items).Error
 	return items, err
 }
 
@@ -54,8 +54,8 @@ func (r *MetadataRepository) FindByIdentifier(ctx context.Context, provider, ent
 		return nil, err
 	}
 	var item model.MetadataItem
-	err := r.db.WithContext(ctx).
-		Table("metadata_items AS mi").
+	err := r.db.WithContext(ctx).Table("metadata_presentations").
+		Table("metadata_presentations AS mi").
 		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id").
 		Where("mid.provider = ? AND mid.entity_kind = ? AND mid.external_id = ?", identifier.Provider, identifier.EntityKind, identifier.ExternalID).
 		First(&item).Error
@@ -70,7 +70,7 @@ func (r *MetadataRepository) FindByIdentifier(ctx context.Context, provider, ent
 
 func (r *MetadataRepository) FindSeason(ctx context.Context, seriesID string, seasonNum int) (*model.MetadataItem, error) {
 	var item model.MetadataItem
-	err := r.db.WithContext(ctx).
+	err := r.db.WithContext(ctx).Table("metadata_presentations").
 		Where("kind = ? AND parent_id = ? AND season_num = ?", model.MetadataKindSeason, seriesID, seasonNum).
 		First(&item).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -88,7 +88,7 @@ func (r *MetadataRepository) FindEpisode(ctx context.Context, seriesID string, s
 		return nil, err
 	}
 	var item model.MetadataItem
-	err = r.db.WithContext(ctx).
+	err = r.db.WithContext(ctx).Table("metadata_presentations").
 		Where("kind = ? AND parent_id = ? AND episode_num = ?", model.MetadataKindEpisode, season.ID, episodeNum).
 		First(&item).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -126,9 +126,6 @@ func (r *MetadataRepository) Create(ctx context.Context, item *model.MetadataIte
 
 // UpsertCanonical 按 provider 标识解析共享实体；多个标识若已指向不同实体则拒绝合并。
 func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.MetadataItem, identifiers []model.MetadataIdentifier, preferredID string) (*model.MetadataItem, error) {
-	if item == nil || strings.TrimSpace(item.Title) == "" {
-		return nil, errors.New("metadata title is required")
-	}
 	if err := validateMetadataItem(item); err != nil {
 		return nil, err
 	}
@@ -455,29 +452,15 @@ WHERE mi.kind IN ?
   AND (mps.next_retry_at IS NULL OR mps.next_retry_at <= NOW())
   AND (
     mps.payload IS NULL
-    OR (btrim(COALESCE(mi.overview, '')) = '' AND btrim(COALESCE(mps.payload ->> 'intro', mps.payload ->> 'summary', mps.payload ->> 'short_comment', '')) <> '')
-    OR (mps.quality <> 'degraded' AND mi.title !~ '[㐀-䶿一-鿿豈-﫿]' AND COALESCE(mps.payload ->> 'title', '') ~ '[㐀-䶿一-鿿豈-﫿]')
     OR (
       (jsonb_exists(mps.payload, 'cover_url') OR jsonb_exists(mps.payload, 'pic') OR jsonb_exists(mps.payload, 'cover'))
-      AND NOT EXISTS (
-        SELECT 1 FROM metadata_artwork_candidates mac JOIN artwork_assets aa ON aa.id = mac.asset_id
-        WHERE mac.metadata_id = mi.id AND mac.artwork_type = 'poster' AND mac.source_provider = 'douban'
-        UNION ALL
-        SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id
-        WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster' AND ma.source_provider = 'douban'
-      )
+      AND mps.poster_asset_id IS NULL
     )
     OR (mps.fetched_at < ? AND (
       mps.quality = 'partial'
-      OR btrim(COALESCE(mi.overview, '')) = ''
-      OR mi.title !~ '[㐀-䶿一-鿿豈-﫿]'
-      OR NOT EXISTS (
-        SELECT 1 FROM metadata_artwork_candidates mac JOIN artwork_assets aa ON aa.id = mac.asset_id
-        WHERE mac.metadata_id = mi.id AND mac.artwork_type = 'poster' AND mac.source_provider = 'douban'
-        UNION ALL
-        SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id
-        WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster' AND ma.source_provider = 'douban'
-      )
+      OR btrim(COALESCE(mps.payload ->> 'intro', mps.payload ->> 'summary', '')) = ''
+      OR COALESCE(mps.payload ->> 'title', '') !~ '[㐀-䶿一-鿿豈-﫿]'
+      OR mps.poster_asset_id IS NULL
     ))
   )
 GROUP BY mi.id
@@ -518,6 +501,49 @@ func replaceMetadataIdentifier(tx *gorm.DB, metadataID, provider, entityKind, ex
 	externalID = strings.TrimSpace(externalID)
 	if externalID != "" {
 		externalID = identifier.ExternalID
+	}
+	if provider == "tmdb" {
+		if err := lockMetadataHierarchy(tx, metadataID); err != nil {
+			return err
+		}
+	}
+	// 父来源变更时解除旧子来源，保留文件和用户状态使用的本地身份。
+	if provider == "tmdb" && (entityKind == model.MetadataKindSeries || entityKind == model.MetadataKindSeason) {
+		var current model.MetadataItem
+		if err := tx.Select("id").Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ?", metadataID).Error; err != nil {
+			return err
+		}
+		var previous []model.MetadataIdentifier
+		if err := tx.Where("metadata_id = ? AND provider = ? AND entity_kind = ?", metadataID, provider, entityKind).Find(&previous).Error; err != nil {
+			return err
+		}
+		if len(previous) != 1 || previous[0].ExternalID != externalID {
+			var descendants []string
+			if err := tx.Raw(`SELECT id FROM metadata_items WHERE parent_id = ?
+UNION ALL SELECT child.id FROM metadata_items child JOIN metadata_items parent ON child.parent_id = parent.id WHERE parent.parent_id = ?`, metadataID, metadataID).Scan(&descendants).Error; err != nil {
+				return err
+			}
+			if len(descendants) > 0 {
+				if err := tx.Where("metadata_id IN ? AND provider = 'tmdb'", descendants).Delete(&model.MetadataIdentifier{}).Error; err != nil {
+					return err
+				}
+			}
+			ids := append(descendants, metadataID)
+			if err := tx.Model(&model.MetadataItem{}).Where("id IN ?", ids).UpdateColumns(map[string]any{
+				"tmdb_episode_checked_at": nil, "tmdb_season_checked_at": nil, "updated_at": time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	if provider == "tmdb" {
+		source := ""
+		if externalID != "" {
+			source = "tmdb"
+		}
+		if err := tx.Model(&model.MetadataItem{}).Where("id=?", metadataID).Update("source", source).Error; err != nil {
+			return err
+		}
 	}
 	q := tx.Where("metadata_id = ? AND provider = ? AND entity_kind = ?", metadataID, provider, entityKind)
 	if externalID == "" {
@@ -597,10 +623,6 @@ func metadataItemUpdates(item *model.MetadataItem) map[string]any {
 	return map[string]any{
 		"kind": item.Kind, "parent_id": item.ParentID,
 		"season_num": item.SeasonNum, "episode_num": item.EpisodeNum,
-		"title": item.Title, "original_name": item.OriginalName,
-		"overview": item.Overview, "rating": item.Rating, "year": item.Year, "release_date": item.ReleaseDate,
-		"runtime_sec": item.RuntimeSec,
-		"languages":   item.Languages, "countries": item.Countries, "genres": item.Genres,
 		"source": item.Source, "updated_at": time.Now(),
 	}
 }
@@ -686,4 +708,13 @@ func normalizeMetadataIdentifier(identifier *model.MetadataIdentifier) error {
 		return fmt.Errorf("unsupported metadata identifier kind %q", identifier.EntityKind)
 	}
 	return nil
+}
+
+// lockMetadataHierarchy 按父到子的固定顺序锁定，使父子来源改绑串行提交。
+func lockMetadataHierarchy(tx *gorm.DB, id string) error {
+	var ids []string
+	return tx.Raw(`WITH RECURSIVE ancestors AS (
+SELECT id,parent_id,0 AS depth FROM metadata_items WHERE id=?
+UNION ALL SELECT m.id,m.parent_id,a.depth+1 FROM metadata_items m JOIN ancestors a ON m.id=a.parent_id WHERE a.depth<2)
+SELECT m.id FROM metadata_items m JOIN ancestors a ON m.id=a.id ORDER BY a.depth DESC FOR UPDATE OF m`, id).Scan(&ids).Error
 }

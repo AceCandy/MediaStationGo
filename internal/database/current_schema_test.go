@@ -38,7 +38,7 @@ func TestCurrentSchemaPreservesDataAndConstraints(t *testing.T) {
 	if columnType != "text" {
 		t.Fatal("credential column must be text")
 	}
-	for _, table := range []string{"series", "metadata_provider_snapshots", "tmdb_migration_failures", "hongguo_groups", "hongguo_group_members"} {
+	for _, table := range []string{"hongguo_discoveries", "series", "metadata_provider_snapshots", "tmdb_migration_failures", "hongguo_groups", "hongguo_group_members", "metadata_artworks", "metadata_artwork_candidates", "metadata_artwork_rechecks", "metadata_credits", "catalog_hydration_jobs"} {
 		if db.Migrator().HasTable(table) {
 			t.Fatalf("retired table created: %s", table)
 		}

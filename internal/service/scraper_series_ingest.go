@@ -44,18 +44,6 @@ func (s *ScraperService) syncScrapeSeriesGroup(ctx context.Context, group scrape
 			tmdbID, _ = strconv.Atoi(id.ExternalID)
 		}
 	}
-	// 先持久化完整补全任务，基础入库不等待单集详情、演职员或图片。
-	if tmdbID > 0 && s.tmdb != nil && s.tmdb.Enabled() {
-		if err := s.QueueCatalogHydrationContext(ctx, []ExternalMediaResult{{Source: "tmdb", MediaType: "tv", TMDbID: tmdbID}}); err != nil {
-			return err
-		}
-		// 已完成的目录也可能新增本地季，重新检查子项；已有检查点仍然复用。
-		if err := s.repo.DB.WithContext(ctx).Model(&model.CatalogHydrationJob{}).
-			Where("provider = ? AND entity_kind = ? AND external_id = ? AND status = ?", "tmdb", model.MetadataKindSeries, strconv.Itoa(tmdbID), model.CatalogJobStatusCompleted).
-			Updates(map[string]any{"status": model.CatalogJobStatusPending, "completed_at": nil, "attempts": 0}).Error; err != nil {
-			return err
-		}
-	}
 	var rows []model.Media
 	if err := s.repo.DB.WithContext(ctx).Where("id = ANY(?)", &group.MediaIDs).Order("season_num, episode_num, id").Find(&rows).Error; err != nil {
 		return err
@@ -225,7 +213,7 @@ func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *mode
 			return nil, err
 		}
 	}
-	if season.Source == "tmdb" && season.CatalogMetadataHydratedAt == nil {
+	if season.Source == "tmdb" {
 		item := catalogSeasonItem(*season.ParentID, details)
 		preserveMissingLocalEpisodeDetails(item, season)
 		if _, err := s.repo.Metadata.UpsertSeasonWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindSeason, details.ID, details.ExternalIDs)); err != nil {
@@ -237,15 +225,6 @@ func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *mode
 			return nil, err
 		}
 	}
-	if season.CatalogHydratedAt != nil {
-		child, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, season.ID, model.MetadataKindEpisode)
-		if err != nil {
-			return nil, err
-		}
-		if child != nil {
-			return available, s.repo.DB.WithContext(ctx).Model(&model.MetadataItem{}).
-				Where("id IN ?", []string{season.ID, *season.ParentID}).Update("catalog_hydrated_at", nil).Error
-		}
-	}
+
 	return available, nil
 }

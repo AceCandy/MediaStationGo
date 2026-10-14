@@ -23,14 +23,12 @@ func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 	if sqlDB, err := db.DB(); err == nil {
 		t.Cleanup(func() { _ = sqlDB.Close() })
 	}
-	if len(models) > 0 {
+	{
 		models = append(models,
 			&model.LibraryRoot{},
-			&model.MediaProbeMetadata{}, &model.MetadataArtworkRecheck{},
-			&model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{},
+			&model.MediaProbeMetadata{}, &model.TranslationCache{}, &model.TMDbCredit{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{},
 			&model.DoubanSubject{}, &model.DoubanQueryCache{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
-			&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{},
-		)
+			&model.ArtworkAsset{})
 		if err := db.AutoMigrate(models...); err != nil {
 			t.Fatal(err)
 		}
@@ -44,6 +42,9 @@ func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 			if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 				t.Fatal(err)
 			}
+		}
+		if err := database.EnsureMetadataPresentationSchema(db); err != nil {
+			t.Fatal(err)
 		}
 		if err := testutil.RegisterMediaMetadataFixtures(db); err != nil {
 			t.Fatal(err)
@@ -97,11 +98,10 @@ func createServiceTestArtwork(t *testing.T, db *gorm.DB, metadataID, artworkType
 	}).Error; err != nil {
 		t.Fatalf("create artwork asset: %v", err)
 	}
-	if err := db.Create(&model.MetadataArtwork{
-		MetadataID: metadataID, AssetID: assetID, ArtworkType: artworkType,
-	}).Error; err != nil {
-		t.Fatalf("create metadata artwork: %v", err)
+	if err := testdb.SaveMetadataArtworkFixture(db, metadataID, artworkType, assetID); err != nil {
+		t.Fatal(err)
 	}
+
 	return "/api/artwork/" + assetID
 }
 
@@ -143,4 +143,23 @@ func serviceTestLocalMetadataHint(t *testing.T, media model.Media) *LocalMetadat
 		t.Fatalf("decode local metadata hint for %q: %#v %v", media.Path, local, err)
 	}
 	return local
+}
+
+func createServiceSourceTestMetadata(t *testing.T, db *gorm.DB, item model.MetadataItem, identifiers ...model.MetadataIdentifier) *model.MetadataItem {
+	t.Helper()
+	saved := createServiceTestMetadata(t, db, item, identifiers...)
+	if err := testdb.SaveMetadataPresentationFixture(db, *saved); err != nil {
+		t.Fatal(err)
+	}
+	return saved
+}
+
+// createServiceSourceTestEpisodeMetadata 建立展示测试使用的完整来源层级。
+func createServiceSourceTestEpisodeMetadata(t *testing.T, db *gorm.DB, series, episode model.MetadataItem, identifiers ...model.MetadataIdentifier) *model.MetadataItem {
+	t.Helper()
+	seriesItem := createServiceSourceTestMetadata(t, db, series, identifiers...)
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &seriesItem.ID, SeasonNum: episode.SeasonNum, Title: series.Title, Source: series.Source})
+	episode.ParentID = &season.ID
+	episode.SeasonNum = 0
+	return createServiceSourceTestMetadata(t, db, episode)
 }

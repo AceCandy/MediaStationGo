@@ -141,17 +141,21 @@ func (s *SchedulerService) Start(ctx context.Context) {
 	s.stopParent = context.AfterFunc(ctx, s.runCancel)
 	s.jobs = []*scheduledJob{
 		s.configuredJob(ctx, "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, 24*time.Hour, s.jobScanLibraries),
-		s.configuredJob(ctx, "organize_source", "organize.auto", "organize.interval_seconds", false, 5*time.Minute, s.jobOrganizeSource),
-		s.configuredJob(ctx, "people_backfill_periodic", "people.backfill_periodic_enabled", "people.backfill_interval_seconds", true, 10*time.Minute, s.jobPeopleBackfill),
 		s.configuredJob(ctx, "people_translation_periodic", "people.translation_periodic_enabled", "people.translation_interval_seconds", true, 10*time.Minute, s.jobPeopleTranslation),
-		s.configuredJob(ctx, "tmdb_artwork_local_repair", "metadata.tmdb_artwork_local_repair_enabled", "metadata.tmdb_artwork_local_repair_interval_seconds", false, 24*time.Hour, s.jobTMDbArtworkLocalRepair),
-		s.configuredJob(ctx, "tmdb_artwork_missing_recheck", "metadata.tmdb_artwork_missing_recheck_enabled", "metadata.tmdb_artwork_missing_recheck_interval_seconds", false, 24*time.Hour, s.jobTMDbArtworkMissingRecheck),
-		s.configuredJob(ctx, "douban_artwork_local_repair", "metadata.douban_artwork_local_repair_enabled", "metadata.douban_artwork_local_repair_interval_seconds", false, 24*time.Hour, s.jobDoubanArtworkLocalRepair),
-		s.configuredJob(ctx, "tmdb_episode_metadata_recheck", "metadata.tmdb_episode_metadata_recheck_enabled", "metadata.tmdb_episode_metadata_recheck_interval_seconds", false, 24*time.Hour, s.jobTMDbEpisodeMetadataRecheck),
-		s.configuredCountJob(ctx, s.configuredJob(ctx, TaskKindTMDbDataRefresh, "metadata.tmdb_data_refresh_enabled", "metadata.tmdb_data_refresh_interval_seconds", false, time.Hour, s.jobTMDbDataRefresh), tmdbDataRefreshCountKey, 100),
-		s.configuredCountJob(ctx, s.configuredJob(ctx, "douban_data_refresh", "metadata.douban_data_refresh_enabled", "metadata.douban_data_refresh_interval_seconds", false, 24*time.Hour, s.jobDoubanDataRefresh), doubanDataRefreshCountKey, doubanDataRefreshDefaultCount),
-		s.configuredJob(ctx, "douban_movie_enrichment", "metadata.douban_movie_enrichment_enabled", "metadata.douban_movie_enrichment_interval_seconds", false, 24*time.Hour, s.jobDoubanMovieEnrichment),
 		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
+	}
+	for _, spec := range catalogMaintenanceTasks {
+		prefix := "metadata." + spec.key
+		interval := 24 * time.Hour
+		if strings.HasPrefix(spec.key, "tmdb_") {
+			interval = time.Hour
+		}
+		job := s.configuredJob(ctx, spec.key, prefix+"_enabled", prefix+"_interval_seconds", false, interval, func(ctx context.Context) error { return s.runCatalogMaintenance(ctx, spec) })
+		s.jobs = append(s.jobs, s.configuredCountJob(ctx, job, prefix+"_count", 100))
+	}
+	for _, kind := range []string{TaskKindTMDbImages, TaskKindDoubanImages} {
+		prefix := "metadata." + kind
+		s.jobs = append(s.jobs, s.configuredJob(ctx, kind, prefix+"_enabled", prefix+"_interval_seconds", false, 24*time.Hour, func(ctx context.Context) error { return s.runSourceImages(ctx, kind) }))
 	}
 	if s.huangguoai != nil {
 		for _, kind := range []string{TaskKindHuangGuoAISync, TaskKindHuangGuoAIRefresh, TaskKindHuangGuoAIArtwork, TaskKindHuangGuoAIRank} {
@@ -177,6 +181,8 @@ func (s *SchedulerService) Start(ctx context.Context) {
 	if s.huangguoDownloads != nil {
 		s.jobs = append(s.jobs, s.configuredSupplementJob(ctx, TaskKindHuangGuoAISupplement, "huangguoai.download_supplement", s.jobHuangGuoAISupplement))
 	}
+	s.runWG.Add(1)
+	go func() { defer s.runWG.Done(); s.sourceImageWorker(s.runCtx) }()
 	for _, j := range s.jobs {
 		delay := j.interval
 		s.runWG.Add(1)
@@ -197,7 +203,7 @@ func (s *SchedulerService) configuredSupplementJob(ctx context.Context, kind, pr
 func (s *SchedulerService) configuredCountJob(ctx context.Context, job *scheduledJob, key string, defaultCount int) *scheduledJob {
 	job.count, job.countKey = defaultCount, key
 	job.maxCount = 100
-	if job.name == TaskKindTMDbDataRefresh {
+	if strings.HasPrefix(job.name, "tmdb_data_") {
 		job.maxCount = 1000
 	}
 	if s.repo != nil && s.repo.Setting != nil {

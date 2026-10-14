@@ -168,7 +168,7 @@ func (t *TaskTrackerService) startTriggered(kind, trigger, name string, update T
 	}
 	now := t.currentTime()
 	task := &BackgroundTask{
-		System: model.TaskSystemForKind(kind),
+		System: model.TaskSystemForExecution(kind, name),
 		ID:     uuid.NewString(), Kind: kind, Trigger: trigger, Name: name, Status: TaskStatusRunning,
 		Stage: update.Stage, SourcePath: update.SourcePath, DestPath: update.DestPath,
 		Message: update.Message, Metrics: cloneTaskMetrics(update.Metrics), StartedAt: now, UpdatedAt: now,

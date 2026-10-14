@@ -21,7 +21,10 @@ func recheckQueueDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
+	if err = db.AutoMigrate(&model.MetadataItem{}, &model.DoubanSubject{}, &model.MetadataIdentifier{}, &model.TranslationCache{}, &model.TMDbCredit{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -309,6 +312,17 @@ func TestTMDbRecheckCommitConsumesOnlySelfRegistration(t *testing.T) {
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: series.ID, Provider: "tmdb", EntityKind: "series", ExternalID: "42"}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := testdb.SaveMetadataPresentationFixture(db, series); err != nil {
+		t.Fatal(err)
+	}
+	source := model.TMDbSubject{Kind: "episode", TMDbID: 123}
+	if err := db.Create(&source).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: episode.ID, Provider: "tmdb", EntityKind: "episode", ExternalID: "123"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	if err := db.Exec("UPDATE tm_db_recheck_changes SET pending=false, expand=false, cursor=''").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +343,7 @@ func TestTMDbRecheckCommitConsumesOnlySelfRegistration(t *testing.T) {
 	}
 	rollback := errors.New("rollback self registration")
 	err = repo.CommitTMDbRecheck(t.Context(), &episodeJob, episodeState, func(repos *Container) error {
-		if err := repos.DB.Model(&model.MetadataItem{}).Where("id=?", episode.ID).Update("overview", "rolled back").Error; err != nil {
+		if err := repos.DB.Model(&model.TMDbSubject{}).Where("id=?", source.ID).Update("overview", "rolled back").Error; err != nil {
 			return err
 		}
 		return rollback
@@ -337,8 +351,8 @@ func TestTMDbRecheckCommitConsumesOnlySelfRegistration(t *testing.T) {
 	if !errors.Is(err, rollback) {
 		t.Fatal(err)
 	}
-	var unchanged model.MetadataItem
-	if err := db.First(&unchanged, "id=?", episode.ID).Error; err != nil || unchanged.Overview != "" {
+	var unchanged model.TMDbSubject
+	if err := db.First(&unchanged, "id=?", source.ID).Error; err != nil || unchanged.Overview != "" {
 		t.Fatalf("failed save persisted: %+v err=%v", unchanged, err)
 	}
 	var change model.TMDbRecheckChange
@@ -346,7 +360,7 @@ func TestTMDbRecheckCommitConsumesOnlySelfRegistration(t *testing.T) {
 		t.Fatalf("failed save consumed change: %+v err=%v", change, err)
 	}
 	err = repo.CommitTMDbRecheck(t.Context(), &episodeJob, episodeState, func(repos *Container) error {
-		if err := repos.DB.Model(&model.MetadataItem{}).Where("id=?", episode.ID).Update("overview", "saved").Error; err != nil {
+		if err := repos.DB.Model(&model.TMDbSubject{}).Where("id=?", source.ID).Update("overview", "saved").Error; err != nil {
 			return err
 		}
 		return repos.Metadata.FinishTMDbRecheck(t.Context(), &episodeJob, "done", "", nil, 0)
@@ -357,7 +371,7 @@ func TestTMDbRecheckCommitConsumesOnlySelfRegistration(t *testing.T) {
 	if err := db.First(&change, "metadata_id=?", episode.ID).Error; err != nil || change.Revision != initial.Revision+1 || change.Pending || change.Expand {
 		t.Fatalf("self registration retained: %+v err=%v", change, err)
 	}
-	if err := db.Model(&episode).Update("release_date", "2026-09-13").Error; err != nil {
+	if err := db.Model(&source).Update("release_date", "2026-09-13").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.First(&change, "metadata_id=?", episode.ID).Error; err != nil || change.Revision != initial.Revision+2 || !change.Pending {
@@ -439,11 +453,14 @@ func TestTMDbRecheckScanBatchesStateReadsAndRegistration(t *testing.T) {
 	}
 	files := make([]model.Media, 0, 200)
 	for i, episode := range episodes {
+		if err := testdb.SaveMetadataPresentationFixture(db, episode); err != nil {
+			t.Fatal(err)
+		}
 		for version := range 2 {
 			files = append(files, model.Media{MetadataID: episode.ID, Path: fmt.Sprintf("/batch-%d-%d.mkv", i, version)})
 		}
 		if i%2 == 0 {
-			if err := db.Create(&model.MetadataArtwork{MetadataID: episode.ID, AssetID: asset.ID, ArtworkType: "still"}).Error; err != nil {
+			if err := testdb.SaveMetadataArtworkFixture(db, episode.ID, "still", asset.ID); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -643,6 +660,17 @@ func TestTMDbRecheckQueueTransactionsAndClaims(t *testing.T) {
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: series.ID, Provider: "tmdb", EntityKind: "series", ExternalID: "42"}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := testdb.SaveMetadataPresentationFixture(db, series); err != nil {
+		t.Fatal(err)
+	}
+	source := model.TMDbSubject{Kind: "episode", TMDbID: 123}
+	if err := db.Create(&source).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: episode.ID, Provider: "tmdb", EntityKind: "episode", ExternalID: "123"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	for i := 0; i < 20; i++ {
 		more, err := repo.ExpandTMDbRecheckChange(t.Context())
 		if err != nil {
@@ -677,7 +705,7 @@ func TestTMDbRecheckQueueTransactionsAndClaims(t *testing.T) {
 	if job == nil {
 		t.Fatal("episode missing")
 	}
-	if err := db.Model(&episode).Update("overview", "manual edit").Error; err != nil {
+	if err := db.Model(&source).Update("overview", "manual edit").Error; err != nil {
 		t.Fatal(err)
 	}
 	err = repo.CommitTMDbRecheck(t.Context(), job, state, func(*Container) error { t.Fatal("stale callback executed"); return nil })
@@ -756,12 +784,13 @@ func TestTMDbRecheckIdleIndexAndBoundedExpansion(t *testing.T) {
 	if err := db.Create(&asset).Error; err != nil {
 		t.Fatal(err)
 	}
-	links := make([]model.MetadataArtwork, len(children))
-	for i, child := range children {
-		links[i] = model.MetadataArtwork{MetadataID: child.ID, AssetID: asset.ID, ArtworkType: "poster"}
-	}
-	if err := db.CreateInBatches(&links, 100).Error; err != nil {
-		t.Fatal(err)
+	for _, child := range children {
+		if err := testdb.SaveMetadataPresentationFixture(db, child); err != nil {
+			t.Fatal(err)
+		}
+		if err := testdb.SaveMetadataArtworkFixture(db, child.ID, "poster", asset.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := db.Exec("UPDATE tm_db_recheck_changes SET pending=false").Error; err != nil {
 		t.Fatal(err)
@@ -779,6 +808,9 @@ func TestTMDbRecheckIdleIndexAndBoundedExpansion(t *testing.T) {
 	}
 	if worked, err := repo.ExpandTMDbRecheckAsset(t.Context()); err != nil || worked {
 		t.Fatalf("asset did not finish: %v %v", worked, err)
+	}
+	if err := db.Model(&model.TMDbArtwork{}).Where("asset_id=?", asset.ID).Update("asset_id", nil).Error; err != nil {
+		t.Fatal(err)
 	}
 	if err := db.Delete(&asset).Error; err != nil {
 		t.Fatal(err)

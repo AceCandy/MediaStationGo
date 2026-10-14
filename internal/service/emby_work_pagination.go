@@ -106,7 +106,7 @@ func (e *EmbyService) metadataWorkPage(ctx context.Context, files *gorm.DB, p It
 		p = workDateSortParams(p)
 	}
 	db := e.repo.DB.WithContext(ctx)
-	q := e.orderedWorkLibraryScope(ctx, db.Table("metadata_items recent"), "recent", p, nil)
+	q := e.orderedWorkLibraryScope(ctx, db.Table("metadata_presentations recent"), "recent", p, nil)
 	scope := files.Session(&gorm.Session{}).Where("media.metadata_id=recent.id")
 	order := metadataOrderSQL(p, false)
 	if primarySupportedEmbySort(p.SortBy, false) == "favoriteadded" {
@@ -170,10 +170,10 @@ SELECT b.id, b.ordinal FROM work_batch b JOIN qualified q ON q.ordinal=b.ordinal
 func (e *EmbyService) seriesWorkPage(ctx context.Context, files *gorm.DB, p ItemsParams, start, limit int) ([]embySeriesGroup, int64, error) {
 	p = workDateSortParams(p)
 	db := e.repo.DB.WithContext(ctx)
-	q := e.applySeriesPageFilters(ctx, db.Table("metadata_items scope_series").Where("scope_series.kind='series'"), p)
+	q := e.applySeriesPageFilters(ctx, db.Table("metadata_presentations scope_series").Where("scope_series.kind='series'"), p)
 	q = e.orderedWorkLibraryScope(ctx, q, "scope_series", p, nil)
 	scope := files.Session(&gorm.Session{}).Where(`emby_metadata.parent_id IN (
-SELECT id FROM metadata_items WHERE parent_id=scope_series.id AND kind='season')`)
+SELECT id FROM metadata_presentations WHERE parent_id=scope_series.id AND kind='season')`)
 	order := seriesOrderSQL(p)
 	if primarySupportedEmbySort(p.SortBy, false) == "favoriteadded" {
 		q = q.Joins("JOIN (?) favorite_order ON favorite_order.metadata_id=scope_series.id", e.favoriteAdditionTimes(ctx, p.UserID))
@@ -215,7 +215,7 @@ SELECT id FROM metadata_items WHERE parent_id=scope_series.id AND kind='season')
 	unknown := db.Table("work_batch").Where("latest_media_added_at IS NULL")
 	countFiles := files.Session(&gorm.Session{}).Select("emby_metadata.parent_id").Where("EXISTS (?)", unknown.Select("1"))
 	fallback := db.Table("(? OFFSET 0) files", countFiles).
-		Joins("JOIN metadata_items season ON season.id=files.parent_id AND season.kind='season'").
+		Joins("JOIN metadata_presentations season ON season.id=files.parent_id AND season.kind='season'").
 		Joins("JOIN (?) work ON work.id=season.parent_id", unknown.Session(&gorm.Session{}).Select("id,ordinal")).Select("DISTINCT work.ordinal")
 	countEligible := db.Raw("? UNION ALL ?", known, fallback)
 	if embyRandomSort(p) {

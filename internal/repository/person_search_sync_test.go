@@ -11,9 +11,9 @@ func TestPersonSearchDocumentsFollowCreditsAndNames(t *testing.T) {
 	repos := searchPlayableWorksFixture(t)
 	b := &recordingMetadataSearchBackend{}
 	repos.MediaView.SetSearchBackend(b)
-	input := CreditInput{Provider: "tmdb", ExternalID: "actor", Name: "Actor Name", Type: model.CreditTypeActor}
+	input := CreditInput{Provider: "tmdb", ExternalID: "1", Name: "Actor Name", Type: model.CreditTypeActor}
 	for _, id := range []string{"search-movie", "search-season"} {
-		if err := repos.Person.ReplaceCredits(t.Context(), id, []string{model.CreditTypeActor}, []CreditInput{input}); err != nil {
+		if err := repos.Person.SaveSourceCreditsFixture(t.Context(), id, []string{model.CreditTypeActor}, []CreditInput{input}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -21,6 +21,7 @@ func TestPersonSearchDocumentsFollowCreditsAndNames(t *testing.T) {
 	if err := repos.DB.Where("name=?", input.Name).First(&person).Error; err != nil {
 		t.Fatal(err)
 	}
+	repos.Person.refreshPersonWorks(t.Context(), []string{"search-movie", "search-season"}, []string{person.ID})
 	assertLatest := func(id string, names []string) {
 		t.Helper()
 		for i := len(b.upserts) - 1; i >= 0; i-- {
@@ -40,27 +41,29 @@ func TestPersonSearchDocumentsFollowCreditsAndNames(t *testing.T) {
 	assertLatest("search-movie", []string{"actor name"})
 	assertLatest("search-series", []string{"actor name"})
 	targets := []TranslationTarget{{Kind: "person_name", ID: person.ID, OriginalText: input.Name}}
-	if err := repos.Person.ApplyCachedTranslation(t.Context(), targets, "演员姓名"); err != nil {
+	if err := repos.Person.SaveAndApplyTranslation(t.Context(), model.TranslationCache{Kind: "person_name", ContextKey: person.ID, SourceText: input.Name, TargetLanguage: "zh-CN", PromptVersion: "v1", TranslatedText: "演员姓名"}, targets); err != nil {
 		t.Fatal(err)
 	}
 	assertLatest("search-movie", []string{"actor name", "演员姓名"})
 	assertLatest("search-series", []string{"actor name", "演员姓名"})
 	input.Name = "New Actor"
-	if err := repos.Person.ReplaceCredits(t.Context(), "search-movie", []string{model.CreditTypeActor}, []CreditInput{input}); err != nil {
+	if err := repos.Person.SaveSourceCreditsFixture(t.Context(), "search-movie", []string{model.CreditTypeActor}, []CreditInput{input}); err != nil {
 		t.Fatal(err)
 	}
+	repos.Person.refreshPersonWorks(t.Context(), nil, []string{person.ID})
 	assertLatest("search-movie", []string{"new actor"})
 	assertLatest("search-series", []string{"new actor"})
-	if err := repos.Person.ReplaceCredits(t.Context(), "search-season", []string{model.CreditTypeActor}, nil); err != nil {
+	if err := repos.Person.SaveSourceCreditsFixture(t.Context(), "search-season", []string{model.CreditTypeActor}, nil); err != nil {
 		t.Fatal(err)
 	}
+	repos.Person.refreshPersonWorks(t.Context(), []string{"search-season"}, nil)
 	assertLatest("search-series", []string{})
 
 	// 重建已读过旧文档时，后续改名仍需追补到新索引。
 	b.indexed = nil
 	b.onIndex = func() {
 		b.onIndex = nil
-		if err := repos.Person.ApplyCachedTranslation(t.Context(), []TranslationTarget{{Kind: "person_name", ID: person.ID, OriginalText: "New Actor"}}, "新演员"); err != nil {
+		if err := repos.Person.SaveAndApplyTranslation(t.Context(), model.TranslationCache{Kind: "person_name", ContextKey: person.ID, SourceText: "New Actor", TargetLanguage: "zh-CN", PromptVersion: "v1", TranslatedText: "新演员"}, []TranslationTarget{{Kind: "person_name", ID: person.ID, OriginalText: "New Actor"}}); err != nil {
 			t.Fatal(err)
 		}
 	}

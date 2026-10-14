@@ -25,7 +25,7 @@ func TestTaskPendingCountsCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Media{}, &model.MetadataItem{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.Media{}, &model.MetadataItem{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{}); err != nil {
 		t.Fatal(err)
 	}
 	seriesID, seasonID := "series", "season"

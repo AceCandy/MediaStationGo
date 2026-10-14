@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/gorm"
@@ -16,7 +17,7 @@ func TestPlaybackStatsAllSystems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := database.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
 	create := func(row any) {
@@ -31,6 +32,8 @@ func TestPlaybackStatsAllSystems(t *testing.T) {
 	create(&libs)
 	movie := model.MetadataItem{Kind: "movie", Title: "同名作品", Source: "test"}
 	create(&movie)
+	create(&model.TMDbSubject{Kind: "movie", TMDbID: 991, Title: movie.Title, Fields: "{}"})
+	create(&model.MetadataIdentifier{MetadataID: movie.ID, Provider: "tmdb", EntityKind: "movie", ExternalID: "991"})
 	work := model.HongGuoWork{SourceID: "stats-source", Kind: "series", Title: movie.Title}
 	create(&work)
 	episode := model.HongGuoEpisode{WorkID: work.ID, Number: 1}

@@ -13,23 +13,20 @@ import (
 
 func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
-	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Stage: "people"})
+	startFinishedTask(t, tracker, TaskKindTMDbPeopleSupplement, "TMDb 演职员与人物资料补全", TaskUpdate{Stage: "people"})
 	startFinishedTask(t, tracker, TaskKindPeople, "人物翻译", TaskUpdate{Stage: "translation"})
 	startFinishedTask(t, tracker, TaskKindScrape, "媒体入库刮削：本地电影", TaskUpdate{Stage: "scrape", SourcePath: "/media/movie.mkv"})
 	startFinishedTask(t, tracker, TaskKindScrape, "发现目录刮削：电影 1221950", TaskUpdate{Stage: "scrape"})
-	startFinishedTask(t, tracker, TaskKindArtwork, "TMDb 集信息补全/复查", TaskUpdate{Stage: "recheck"})
-	startFinishedTask(t, tracker, TaskKindArtwork, "TMDb 图片本地化修复", TaskUpdate{Stage: "repair"})
+	startFinishedTask(t, tracker, TaskKindTMDbImages, "TMDb 图片本地化修复", TaskUpdate{Stage: "repair"})
 
 	tests := []struct {
 		key  string
 		name string
 	}{
-		{TaskDefinitionPeopleBackfill, "人物信息补齐"},
+		{TaskKindTMDbPeopleSupplement, "TMDb 演职员与人物资料补全"},
 		{TaskDefinitionPeopleTranslation, "人物翻译"},
 		{TaskDefinitionMediaScrape, "媒体入库刮削：本地电影"},
-		{TaskDefinitionCatalogScrape, "发现目录刮削：电影 1221950"},
-		{TaskDefinitionTMDbEpisodeMetadataRecheck, "TMDb 集信息补全/复查"},
-		{TaskDefinitionTMDbArtworkLocalRepair, "TMDb 图片本地化修复"},
+		{TaskKindTMDbImages, "TMDb 图片本地化修复"},
 	}
 	for _, tt := range tests {
 		page, err := tracker.DefinitionHistory(tt.key, 1, 30)
@@ -45,11 +42,8 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, definition := range definitions {
-		if definition.Key == TaskDefinitionTMDbArtworkLocalRepair && (definition.Name != "TMDb 图片下载与修复" || definition.Latest == nil) {
+		if definition.Key == TaskKindTMDbImages && (definition.Name != "TMDb 图片下载与修复" || definition.Latest == nil) {
 			t.Fatalf("renamed image definition lost history: %+v", definition)
-		}
-		if definition.Key == TaskDefinitionCatalogScrape && (definition.Name != "作品资料补全" || definition.Latest == nil || definition.Latest.Name != "发现目录刮削：电影 1221950") {
-			t.Fatalf("renamed catalog definition lost history: %+v", definition)
 		}
 	}
 }
@@ -60,7 +54,7 @@ func TestTaskDefinitionLogsSeparateSharedKinds(t *testing.T) {
 	tracker.ConfigurePersistence(repository.New(db).TaskExecution, t.TempDir())
 	tracker.now = func() time.Time { return time.Date(2026, 8, 13, 19, 0, 0, 0, time.Local) }
 
-	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Details: []string{"backfill"}})
+	startFinishedTask(t, tracker, TaskKindTMDbPeopleSupplement, "TMDb 演职员与人物资料补全", TaskUpdate{Details: []string{"backfill"}})
 	startFinishedTask(t, tracker, TaskKindPeople, "人物翻译", TaskUpdate{Details: []string{"translation"}})
 	startFinishedTask(t, tracker, TaskKindScrape, "媒体入库刮削：本地电影", TaskUpdate{Details: []string{"media scrape"}})
 	startFinishedTask(t, tracker, TaskKindScrape, "发现目录刮削：电影 1221950", TaskUpdate{Details: []string{"catalog scrape"}})
@@ -70,10 +64,9 @@ func TestTaskDefinitionLogsSeparateSharedKinds(t *testing.T) {
 		want    string
 		notWant string
 	}{
-		{TaskDefinitionPeopleBackfill, "backfill", "translation"},
+		{TaskKindTMDbPeopleSupplement, "backfill", "translation"},
 		{TaskDefinitionPeopleTranslation, "translation", "backfill"},
 		{TaskDefinitionMediaScrape, "media scrape", "catalog scrape"},
-		{TaskDefinitionCatalogScrape, "catalog scrape", "media scrape"},
 	}
 	for _, tt := range tests {
 		log, err := tracker.ReadDefinitionLog(tt.key, "", 0)
@@ -133,20 +126,19 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		TaskKindHuangGuoAISupplement:             true,
-		TaskKindHongGuoSupplement:                true,
-		TaskKindHongGuoSync:                      true,
-		TaskKindHongGuoRank:                      true,
-		TaskDefinitionOrganize:                   true,
-		TaskDefinitionLibraryScan:                true,
-		TaskDefinitionPeopleBackfill:             true,
-		TaskDefinitionPeopleTranslation:          true,
-		TaskDefinitionTMDbArtworkLocalRepair:     true,
-		TaskDefinitionTMDbArtworkMissingRecheck:  true,
-		TaskDefinitionDoubanArtworkLocalRepair:   true,
-		TaskDefinitionTMDbEpisodeMetadataRecheck: true,
-		TaskDefinitionDoubanEnrichment:           true,
-		TaskDefinitionAccountCleanup:             true,
+		TaskKindHuangGuoAISupplement:    true,
+		TaskKindHongGuoSupplement:       true,
+		TaskKindHongGuoSync:             true,
+		TaskKindHongGuoRank:             true,
+		TaskDefinitionLibraryScan:       true,
+		TaskKindTMDbPeopleSupplement:    true,
+		TaskDefinitionPeopleTranslation: true,
+		TaskKindTMDbImages:              true,
+		TaskKindTMDbInventory:           true,
+		TaskKindDoubanImages:            true,
+		TaskKindTMDbEpisodeSupplement:   true,
+		TaskKindDoubanMovieSupplement:   true,
+		TaskDefinitionAccountCleanup:    true,
 	}
 	for _, definition := range definitions {
 		if !want[definition.Key] {
@@ -156,7 +148,7 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		if definition.Key == TaskDefinitionLibraryScan {
 			expectedTrigger = "定时 / 手动 / 新增后自动"
 		}
-		if definition.Key == TaskDefinitionTMDbArtworkLocalRepair {
+		if definition.Key == TaskKindTMDbImages || definition.Key == TaskKindDoubanImages {
 			expectedTrigger = "资料入库后自动 / 定时 / 手动"
 		}
 		if definition.Action != "scheduler" || definition.Trigger != expectedTrigger {
@@ -180,8 +172,8 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 
 func TestTaskDefinitionsSeparateCurrentStateFromLatestResult(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
-	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Stage: "people"})
-	running := tracker.StartTriggered(TaskKindPeople, TaskTriggerEvent, "人物信息补齐", TaskUpdate{Stage: "people"})
+	startFinishedTask(t, tracker, TaskKindTMDbPeopleSupplement, "TMDb 演职员与人物资料补全", TaskUpdate{Stage: "people"})
+	running := tracker.StartTriggered(TaskKindTMDbPeopleSupplement, TaskTriggerEvent, "TMDb 演职员与人物资料补全", TaskUpdate{Stage: "people"})
 	if running == nil {
 		t.Fatal("expected running task")
 	}
@@ -191,7 +183,7 @@ func TestTaskDefinitionsSeparateCurrentStateFromLatestResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, definition := range definitions {
-		if definition.Key != TaskDefinitionPeopleBackfill {
+		if definition.Key != TaskKindTMDbPeopleSupplement {
 			continue
 		}
 		if definition.CurrentState != TaskStatusRunning {
@@ -215,32 +207,6 @@ func TestTaskDefinitionHistoryRejectsUnknownKey(t *testing.T) {
 	}
 }
 
-func TestTaskDefinitionHistorySeparatesPersistedLegacyCatalogScrape(t *testing.T) {
-	db := newServiceTestDB(t, &model.TaskExecution{})
-	repo := repository.New(db).TaskExecution
-	now := time.Now().UTC()
-	rows := []model.TaskExecution{
-		{Base: model.Base{ID: "00000000-0000-0000-0000-000000000101"}, Kind: TaskKindScrape, Trigger: TaskTriggerEvent, Name: "发现目录刮削：电影 1221950", Status: TaskStatusCompleted, Metrics: "{}", StartedAt: now},
-		{Base: model.Base{ID: "00000000-0000-0000-0000-000000000102"}, Kind: TaskKindScrape, Trigger: TaskTriggerEvent, Name: "媒体入库刮削：本地电影", Status: TaskStatusCompleted, SourcePath: "/media/movie.mkv", Metrics: "{}", StartedAt: now.Add(-time.Minute)},
-	}
-	for i := range rows {
-		if err := repo.Create(t.Context(), &rows[i]); err != nil {
-			t.Fatal(err)
-		}
-	}
-	tracker := NewTaskTrackerService(zap.NewNop(), nil)
-	tracker.ConfigurePersistence(repo, t.TempDir())
-
-	catalog, err := tracker.DefinitionHistory(TaskDefinitionCatalogScrape, 1, 30)
-	if err != nil || catalog.Total != 1 || catalog.Items[0].Name != rows[0].Name {
-		t.Fatalf("catalog history = %#v, err = %v", catalog, err)
-	}
-	media, err := tracker.DefinitionHistory(TaskDefinitionMediaScrape, 1, 30)
-	if err != nil || media.Total != 1 || media.Items[0].Name != rows[1].Name {
-		t.Fatalf("media history = %#v, err = %v", media, err)
-	}
-}
-
 func startFinishedTask(t *testing.T, tracker *TaskTrackerService, kind, name string, update TaskUpdate) {
 	t.Helper()
 	task := tracker.StartTriggered(kind, TaskTriggerEvent, name, update)
@@ -253,7 +219,7 @@ func startFinishedTask(t *testing.T, tracker *TaskTrackerService, kind, name str
 
 func TestDoubanRefreshBelongsToSourceTasks(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
-	startFinishedTask(t, tracker, TaskKindDoubanDataRefresh, "豆瓣资料刷新", TaskUpdate{})
+	startFinishedTask(t, tracker, TaskKindDoubanMovieRating, "豆瓣资料刷新", TaskUpdate{})
 	for _, system := range []string{model.TaskSystemCommon, model.TaskSystemMedia, model.TaskSystemDouban, model.TaskSystemTMDb} {
 		definitions, err := tracker.DefinitionsForSystem(nil, system)
 		if err != nil {
@@ -261,18 +227,49 @@ func TestDoubanRefreshBelongsToSourceTasks(t *testing.T) {
 		}
 		found := false
 		for _, definition := range definitions {
-			if definition.Key == TaskDefinitionDoubanDataRefresh {
+			if definition.Key == TaskKindDoubanMovieRating {
 				found = true
 				if definition.Latest == nil || definition.Latest.System != model.TaskSystemDouban {
 					t.Fatalf("refresh history: %#v", definition)
 				}
 			}
-			if (definition.Key == TaskDefinitionDoubanEnrichment || definition.Key == TaskDefinitionTMDbArtworkLocalRepair) && system != model.TaskSystemMedia {
+			if (definition.Key == TaskDefinitionDoubanEnrichment || definition.Key == TaskKindTMDbImages) && system != model.TaskSystemMedia {
 				t.Fatalf("media task moved to common: %#v", definition)
 			}
 		}
 		if found != (system == model.TaskSystemDouban) {
 			t.Fatalf("refresh definition in %s: %v", system, found)
 		}
+	}
+}
+
+func TestSourcePresentationTaskSurfaces(t *testing.T) {
+	tracker := NewTaskTrackerService(nil, nil)
+	startFinishedTask(t, tracker, TaskKindPeople, "人物翻译", TaskUpdate{})
+	definitions, err := tracker.Definitions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	peopleFound := false
+	for _, definition := range definitions {
+		if definition.Key == TaskDefinitionOrganize || definition.Key == "catalog_scrape" || definition.Key == "people_backfill" {
+			t.Fatal("retired organizer is still visible")
+		}
+		if definition.Key == TaskKindTMDbPeopleSupplement {
+			peopleFound = definition.System == model.TaskSystemTMDb && definition.Action == "scheduler"
+		}
+		if definition.Key == TaskDefinitionPeopleTranslation {
+			found = true
+			if definition.System != model.TaskSystemTMDb || definition.Latest == nil || definition.Latest.System != model.TaskSystemTMDb {
+				t.Fatalf("translation has wrong system: %+v", definition)
+			}
+		}
+	}
+	if !found || !peopleFound {
+		t.Fatal("translation definition missing")
+	}
+	if _, ok := TaskDefinitionSchedulerJob(TaskDefinitionOrganize); ok {
+		t.Fatal("retired organizer can still run")
 	}
 }

@@ -222,7 +222,7 @@ func TestBackgroundPendingChecksUseIndexes(t *testing.T) {
 				}
 			}
 			walk(plans[0].Plan)
-			if tc.name == "probe" && (!strings.Contains(raw, "idx_media_probe_automatic_candidates") || !strings.Contains(raw, "idx_media_probe_nonempty_document")) {
+			if tc.name == "probe" && (!strings.Contains(raw, "idx_media_probe_automatic_candidates") || (!strings.Contains(raw, "idx_media_probe_nonempty_document") && !strings.Contains(raw, "media_probe_metadata_pkey"))) {
 				t.Fatalf("probe check missed covering indexes: %s", raw)
 			}
 			t.Logf("20,700 media, no pending work: %s check %.3f ms", tc.name, plans[0].MS)

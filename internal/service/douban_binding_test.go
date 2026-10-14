@@ -89,7 +89,7 @@ func TestDoubanBindingImmediateAndForced(t *testing.T) {
 			if err := repos.DB.Callback().Create().Remove("fail_douban_snapshot"); err != nil {
 				t.Fatal(err)
 			}
-			if got, _ := repos.Metadata.FindByIdentifier(t.Context(), "douban", tc.local, "99"); got == nil || got.Title != "Original" {
+			if got, _ := repos.Metadata.FindByIdentifier(t.Context(), "douban", tc.local, "99"); got == nil || got.ID != item.ID {
 				t.Fatal("transaction did not roll back")
 			}
 			if poster, err := repos.Artwork.FindSelection(t.Context(), item.ID, "poster"); err != nil || poster != nil {
@@ -99,7 +99,7 @@ func TestDoubanBindingImmediateAndForced(t *testing.T) {
 				t.Fatalf("binding = %v, %v", degraded, err)
 			}
 			got, err := repos.Metadata.FindByID(t.Context(), item.ID)
-			if err != nil || got.Title != "豆瓣中文名" || got.Overview != "已有简介" || got.Rating != 8.2 || got.Kind != tc.local || got.Source != "tmdb" {
+			if err != nil || got.Title != "豆瓣中文名" || got.Overview != "豆瓣简介" || got.Rating != 0 || got.Kind != tc.local || got.Source != "douban" {
 				t.Fatalf("bound metadata = %#v, %v", got, err)
 			}
 			ids, err := repos.Metadata.ListIdentifiers(t.Context(), item.ID)
@@ -195,7 +195,7 @@ func TestDoubanBackgroundRejectsResponseAfterRebind(t *testing.T) {
 		t.Fatalf("stale result = %#v, %v", result, err)
 	}
 	got, _ := repos.Metadata.FindByID(t.Context(), item.ID)
-	if got.Title != "Original" {
+	if got.Title != "" {
 		t.Fatal("stale response overwrote metadata")
 	}
 	if snapshot, _ := repos.Metadata.FindProviderData(t.Context(), item.ID, "douban"); snapshot != nil {

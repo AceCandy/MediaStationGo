@@ -12,7 +12,7 @@ import (
 
 // QueueMissingSearchResults 只登记缺失详情的搜索摘要，复用资料刷新队列；重复搜索不覆盖分类或重试状态。
 func (r *HongGuoRepository) QueueMissingSearchResults(ctx context.Context, results []HongGuoListWork) error {
-	rows := make([]model.HongGuoDiscovery, 0, len(results))
+	rows := make([]model.HongGuoWork, 0, len(results))
 	for _, item := range results {
 		if item.Hydrated {
 			continue
@@ -20,7 +20,7 @@ func (r *HongGuoRepository) QueueMissingSearchResults(ctx context.Context, resul
 		if !hongguo.ValidID(item.SourceID) {
 			return errors.New("红果搜索作品 ID 无效")
 		}
-		rows = append(rows, model.HongGuoDiscovery{SourceID: item.SourceID, SourceCategory: item.SourceCategory, Title: item.Title, Overview: item.Overview, EpisodeCount: item.EpisodeCount, UpdateText: item.UpdateText})
+		rows = append(rows, model.HongGuoWork{SummaryOnly: true, Kind: model.MetadataKindSeries, SourceID: item.SourceID, SourceCategory: item.SourceCategory, Title: item.Title, Overview: item.Overview, EpisodeCount: item.EpisodeCount, UpdateText: item.UpdateText})
 	}
 	if len(rows) == 0 {
 		return nil
@@ -42,10 +42,6 @@ func (r *HongGuoRepository) SearchResults(ctx context.Context, remote []hongguo.
 	if err := r.db.WithContext(ctx).Where("source_id IN ?", ids).Find(&works).Error; err != nil {
 		return nil, err
 	}
-	var discoveries []model.HongGuoDiscovery
-	if err := r.db.WithContext(ctx).Select("source_id, source_category").Where("source_id IN ?", ids).Find(&discoveries).Error; err != nil {
-		return nil, err
-	}
 	var artwork []model.HongGuoArtwork
 	if err := r.db.WithContext(ctx).Select("id, source_id").Where("source_id IN ?", ids).Find(&artwork).Error; err != nil {
 		return nil, err
@@ -55,7 +51,7 @@ func (r *HongGuoRepository) SearchResults(ctx context.Context, remote []hongguo.
 		local[work.SourceID] = work
 	}
 	categories := map[string]string{}
-	for _, work := range discoveries {
+	for _, work := range works {
 		categories[work.SourceID] = work.SourceCategory
 	}
 	images := map[string]string{}
@@ -66,7 +62,7 @@ func (r *HongGuoRepository) SearchResults(ctx context.Context, remote []hongguo.
 	}
 	for _, work := range remote {
 		row := HongGuoListWork{HongGuoWork: model.HongGuoWork{SourceID: work.SourceID, Kind: model.MetadataKindSeries, SourceCategory: categories[work.SourceID], Title: work.Title, Overview: work.Overview, EpisodeCount: work.EpisodeCount, UpdateText: work.UpdateText}, ArtworkID: images[work.SourceID], TagList: work.Tags}
-		if saved, ok := local[work.SourceID]; ok {
+		if saved, ok := local[work.SourceID]; ok && !saved.SummaryOnly {
 			row.HongGuoWork, row.Hydrated = saved, true
 			if err := json.Unmarshal([]byte(saved.Tags), &row.TagList); err != nil {
 				return nil, err

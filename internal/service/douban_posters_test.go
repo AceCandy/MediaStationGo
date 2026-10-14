@@ -80,7 +80,7 @@ func TestDoubanPosterUnboundPersistenceRepairAndFailure(t *testing.T) {
 	if stored.PosterAssetID == nil || *stored.PosterAssetID != asset.ID || !stored.FetchedAt.Equal(at) || !stored.LastAttemptAt.Equal(at) || stored.NextRetryAt != nil {
 		t.Fatalf("poster changed subject state: %#v", stored)
 	}
-	for _, table := range []string{"metadata_items", "metadata_artworks", "metadata_artwork_candidates"} {
+	for _, table := range []string{"metadata_items"} {
 		var count int64
 		if err := repos.DB.Table(table).Count(&count).Error; err != nil || count != 0 {
 			t.Fatalf("poster created media state in %s: %d %v", table, count, err)
@@ -153,7 +153,7 @@ func TestDoubanPosterUnboundPersistenceRepairAndFailure(t *testing.T) {
 	}
 }
 
-func TestDoubanPosterReusesMediaAssetWithoutSelectingIt(t *testing.T) {
+func TestDoubanPosterReusesSourceAssetWithoutChangingIdentity(t *testing.T) {
 	provider, repos := newDoubanCacheTestProvider(t, nil)
 	store := newDoubanPosterTestStore(t, repos, func(*http.Request) (*http.Response, error) {
 		t.Error("available media asset was downloaded")
@@ -171,9 +171,10 @@ func TestDoubanPosterReusesMediaAssetWithoutSelectingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&model.MetadataArtworkCandidate{MetadataID: local.ID, ArtworkType: "poster", SourceProvider: "douban", SourceURL: source, AssetID: asset.ID}).Error; err != nil {
-		t.Fatal(err)
+	if saved, err := repos.Douban.SetPoster(t.Context(), subject, asset.ID, source); err != nil || !saved {
+		t.Fatalf("save source poster: %v %v", saved, err)
 	}
+
 	before, _ := repos.Metadata.FindByID(t.Context(), local.ID)
 	got, _, err := provider.subjectPoster(t.Context(), subject.ID, store)
 	if err != nil || got.ID != asset.ID {

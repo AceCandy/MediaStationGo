@@ -13,7 +13,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
 
-func TestSaveTMDbMetadataRecheckOnlyWritesChildDisplayFields(t *testing.T) {
+func TestSaveTMDbMetadataRecheckOnlyWritesChildCheckpoint(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -21,6 +21,7 @@ func TestSaveTMDbMetadataRecheckOnlyWritesChildDisplayFields(t *testing.T) {
 	if err := db.AutoMigrate(&model.MetadataItem{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	repos := New(db)
 	backend := &recordingMetadataSearchBackend{}
 	repos.Media.SetSearchBackend(backend)
@@ -55,7 +56,7 @@ func TestSaveTMDbMetadataRecheckOnlyWritesChildDisplayFields(t *testing.T) {
 		if err := db.First(&stored, "id = ?", item.ID).Error; err != nil {
 			t.Fatal(err)
 		}
-		if stored.Title != "New" || stored.Overview != "Overview" || stored.ReleaseDate != "2026-09-07" || stored.Year != 2026 || stored.Rating != 8 || stored.Source != "local" || stored.SeasonNum != before.SeasonNum || stored.EpisodeNum != before.EpisodeNum {
+		if stored.Title != "" || stored.Overview != "" || stored.ReleaseDate != "" || stored.Year != 0 || stored.Rating != 0 || stored.Source != "local" || stored.SeasonNum != before.SeasonNum || stored.EpisodeNum != before.EpisodeNum {
 			t.Fatalf("unexpected recheck projection: %+v", stored)
 		}
 		checked, other := stored.TMDbSeasonCheckedAt, stored.TMDbEpisodeCheckedAt
@@ -99,9 +100,10 @@ func TestListTMDbEpisodeMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	now := time.Now().UTC()
 	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000001"}, Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}
 	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000002"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"}
@@ -117,6 +119,12 @@ func TestListTMDbEpisodeMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "42"}).Error; err != nil {
 		t.Fatal(err)
 	}
+
+	for _, item := range []model.MetadataItem{series, season, generated, missingDate, complete, noMedia, cooled, onlyGenerated} {
+		if err := testdb.SaveMetadataPresentationFixture(db, item); err != nil {
+			t.Fatal(err)
+		}
+	}
 	asset := model.ArtworkAsset{SHA256: "still", StorageKey: "still.jpg", MimeType: "image/jpeg"}
 	if err := db.Create(&asset).Error; err != nil {
 		t.Fatal(err)
@@ -125,7 +133,7 @@ func TestListTMDbEpisodeMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, episode := range []model.MetadataItem{generated, missingDate, complete, onlyGenerated} {
-		if err := db.Create(&model.MetadataArtwork{MetadataID: episode.ID, AssetID: asset.ID, ArtworkType: model.ArtworkTypeStill, SourceProvider: "tmdb"}).Error; err != nil {
+		if err := testdb.SaveMetadataArtworkFixture(db, episode.ID, model.ArtworkTypeStill, asset.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -156,9 +164,10 @@ func TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	now := time.Now().UTC()
 	old := now.Add(-73 * time.Hour)
 	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}
@@ -203,18 +212,23 @@ func TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		if scenario != "identifier" {
+			if err := testdb.SaveMetadataPresentationFixture(db, season); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if scenario == "ambiguous" {
 			if err := db.Create(&model.MetadataIdentifier{MetadataID: season.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "999"}).Error; err != nil {
 				t.Fatal(err)
 			}
 		}
-		if scenario != "snapshot" && scenario != "identifier" {
-			if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: `{"id":1}`, FetchedAt: now}); err != nil {
+		if scenario != "snapshot" && scenario != "identifier" && scenario != "ambiguous" {
+			if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: fmt.Sprintf(`{"id":%d}`, 100+i), FetchedAt: now}); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if scenario != "poster" {
-			if err := db.Create(&model.MetadataArtwork{MetadataID: season.ID, AssetID: asset.ID, ArtworkType: model.ArtworkTypePoster}).Error; err != nil {
+		if scenario != "poster" && scenario != "identifier" {
+			if err := testdb.SaveMetadataArtworkFixture(db, season.ID, model.ArtworkTypePoster, asset.ID); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -225,7 +239,15 @@ func TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 				if err := db.Create(&episode).Error; err != nil {
 					t.Fatal(err)
 				}
-				if err := db.Create(&model.MetadataArtwork{MetadataID: episode.ID, AssetID: asset.ID, ArtworkType: model.ArtworkTypeStill}).Error; err != nil {
+				// 子集有独立来源，不能因补测试资料替缺失标识的父季自动生成绑定。
+				subject := model.TMDbSubject{Kind: "episode", TMDbID: 10000 + i, Title: episode.Title, Overview: episode.Overview, ReleaseDate: episode.ReleaseDate}
+				if err := db.Create(&subject).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Create(&model.MetadataIdentifier{MetadataID: episode.ID, Provider: "tmdb", EntityKind: "episode", ExternalID: fmt.Sprint(10000 + i)}).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := testdb.SaveMetadataArtworkFixture(db, episode.ID, model.ArtworkTypeStill, asset.ID); err != nil {
 					t.Fatal(err)
 				}
 				metadataID = episode.ID

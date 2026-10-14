@@ -61,6 +61,16 @@ func TestTMDbRecheckSeasonTimingAndPriority(t *testing.T) {
 		if err := db.Create(&seasons[i]).Error; err != nil {
 			t.Fatal(err)
 		}
+		id := 100 + i
+		if i == 1 {
+			id = 22
+		}
+		if err := db.Create(&model.TMDbSubject{Kind: "season", TMDbID: id, ReleaseDate: seasons[i].ReleaseDate, Fields: "{}"}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&model.MetadataIdentifier{MetadataID: seasons[i].ID, Provider: "tmdb", EntityKind: "season", ExternalID: fmt.Sprint(id)}).Error; err != nil {
+			t.Fatal(err)
+		}
 		due := now.Add(time.Duration(i-10) * time.Hour)
 		if i == 4 {
 			due = now.Add(time.Hour)
@@ -106,7 +116,7 @@ func TestTMDbRecheckSeasonTimingAndPriority(t *testing.T) {
 	if err := repo.ReleaseTMDbRecheckSeason(t.Context(), lease); err != nil {
 		t.Fatal(err)
 	}
-	// 错季快照不能改变该季频率，本地分集日期仍然可以。
+	// 错季快照不能改变该季频率，关联分集来源日期仍然可以。
 	snapshot.Payload = `{"id":22,"season_number":99,"episodes":[{"air_date":"2026-09-14"}]}`
 	if err := testdb.SaveProviderDataFixture(db, snapshot); err != nil {
 		t.Fatal(err)
@@ -115,7 +125,10 @@ func TestTMDbRecheckSeasonTimingAndPriority(t *testing.T) {
 	if err != nil || state == nil || state.Cooldown(now) != 20*24*time.Hour {
 		t.Fatalf("wrong-season snapshot: %+v %v", state, err)
 	}
-	if err := db.Model(&episode).Update("release_date", now.Format(time.DateOnly)).Error; err != nil {
+	if err := db.Create(&model.TMDbSubject{Kind: "episode", TMDbID: 200, ReleaseDate: now.Format(time.DateOnly), Fields: "{}"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: episode.ID, Provider: "tmdb", EntityKind: "episode", ExternalID: "200"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	state, err = repo.TMDbRecheckState(t.Context(), seasons[1].ID)

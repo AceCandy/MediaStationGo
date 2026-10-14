@@ -406,7 +406,7 @@ func (e *EmbyService) hongGuoBrowseLegacyPayloads(ctx context.Context, ids []str
 		if err := scope().Where("scope_season.id IN ?", seasonIDs).
 			Select(`scope_season.id, scope_series.id AS series_id, scope_series.title AS series_name,
 				scope_season.season_num, MIN(media.library_id) AS library_id, COUNT(DISTINCT media.metadata_id) AS episode_count`).
-			Group("scope_season.id, scope_series.id").Scan(&rows).Error; err != nil {
+			Group("scope_season.id, scope_series.id, scope_series.title").Scan(&rows).Error; err != nil {
 			return nil, err
 		}
 		seasons := make([]embySeasonGroup, 0, len(rows))

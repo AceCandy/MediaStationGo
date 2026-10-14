@@ -19,7 +19,7 @@ import (
 func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
-	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	metadata := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
 	dir := t.TempDir()
 	mediaPath := filepath.Join(dir, "movie.mkv")
 	if err := os.WriteFile(mediaPath, []byte("media"), 0o600); err != nil {
@@ -126,7 +126,7 @@ func TestEmbyItemsUseScalarStreamsWhileItemUsesCompleteProbeDocument(t *testing.
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
 	dir := t.TempDir()
 	mediaPath := filepath.Join(dir, "movie.mkv")
 	if err := os.WriteFile(mediaPath, []byte("media"), 0o600); err != nil {
@@ -188,7 +188,7 @@ func TestEmbyItemsDoNotScheduleLazyProbe(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
 	path := filepath.Join(t.TempDir(), "movie.mkv")
 	if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
 		t.Fatal(err)

@@ -58,13 +58,15 @@ function scheduleText(definition: TaskDefinition): string {
 
 function taskProgressText(definition: TaskDefinition): string {
   const metrics = (definition.current ?? definition.latest)?.metrics
-  if (definition.key === 'douban_data_refresh' && metrics) {
-    return `待更新 ${metrics.total ?? 0} · 本轮处理 ${metrics.processed ?? 0} / ${metrics.selected ?? 0} · 变化 ${metrics.changed ?? 0} · 未变化 ${metrics.unchanged ?? 0} · 跳过 ${metrics.skipped ?? 0} · 失败 ${metrics.failed ?? 0} · 剩余到期 ${metrics.remaining ?? 0} · 接口请求 ${metrics.requested ?? 0}`
+  if (definition.schedule_config && (definition.key.startsWith('douban_data_') || definition.key.startsWith('tmdb_data_')) && metrics) {
+    const selected = typeof metrics.selected === 'number' ? ` / ${metrics.selected}` : ''
+    const requests = typeof metrics.requested === 'number' ? ` · 接口请求 ${metrics.requested}` : ''
+    return `本轮处理 ${metrics.processed ?? metrics.scanned ?? 0}${selected} · 已更新 ${metrics.updated ?? 0} · 跳过 ${metrics.skipped ?? 0} · 失败 ${metrics.failed ?? 0}${requests}`
   }
   if (definition.system === 'hongguo' && typeof metrics?.processed === 'number') {
     return `已处理 ${metrics.processed}${typeof metrics.failed === 'number' ? ` · 失败待重试 ${metrics.failed}` : ''}`
   }
-  if (definition.key === 'tmdb_episode_metadata_recheck' && typeof metrics?.remaining === 'number') {
+  if (['tmdb_data_season', 'tmdb_data_episode'].includes(definition.key) && typeof metrics?.remaining === 'number') {
     const seasons = typeof metrics.seasons_scanned === 'number' ? `已领取 ${metrics.seasons_scanned} 季 · ` : ''
     return `${seasons}已核对 ${metrics.scanned ?? 0} 条元数据 · 剩余到期 ${metrics.remaining}（30 秒更新） · 失败待重试 ${metrics.failed ?? 0}`
   }
@@ -210,11 +212,11 @@ function TaskActions({ definition, ready, running, libraries, scanLibraryID, onS
 }
 
 function TaskPendingButton({ definition, onPending, pendingCounts }: Pick<TaskRowProps, 'definition' | 'onPending' | 'pendingCounts'>) {
-  const title = definition.key === 'tmdb_episode_metadata_recheck'
+  const title = ['tmdb_data_season', 'tmdb_data_episode'].includes(definition.key)
     ? '查看季/集复查待办'
     : definition.action === 'media_scrape' ? '查看媒体入库刮削待处理' : ''
   if (!title) return null
-  const count = definition.key === 'tmdb_episode_metadata_recheck' ? pendingCounts?.rechecks : pendingCounts?.scrape_issues
+  const count = ['tmdb_data_season', 'tmdb_data_episode'].includes(definition.key) ? pendingCounts?.rechecks : pendingCounts?.scrape_issues
   return <button type="button" className={`icon-btn h-7 min-w-7 gap-1 px-1.5 ${(count ?? 0) > 0 ? 'w-auto border border-gold-500/30 bg-gold-500/10 text-gold-500 shadow-glow-gold' : 'w-7'}`} title={title} aria-label={`${title}${count === undefined ? '，数量未加载' : `，${count} 条`}`} onClick={() => onPending(definition)}><Search size={15} />{count !== undefined && count > 0 && <span className="text-[10px] font-bold">{count > 999 ? '999+' : count}</span>}</button>
 }
 
@@ -279,8 +281,8 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
   const [value, setValue] = useState(String(config.interval_seconds / scheduleUnits[initialUnit].seconds))
   const [saving, setSaving] = useState(false)
   const supplement = definition.key === 'hongguo_download_supplement' || definition.key === 'huangguoai_download_supplement'
-  const refresh = definition.key === 'douban_data_refresh'
-  const tmdb = definition.key === 'tmdb_data_refresh'
+  const refresh = definition.key.startsWith('douban_data_') && config.count !== undefined
+  const tmdb = definition.key.startsWith('tmdb_data_') && definition.key !== 'tmdb_data_images'
   const hasCount = supplement || refresh || tmdb
   const [count, setCount] = useState(String(config.count ?? ((refresh || tmdb) ? 100 : 10)))
   const [error, setError] = useState('')
@@ -311,8 +313,8 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
         <label><span className="mb-1 block text-xs text-ink-50">单位</span><Select className="input-field" value={unit} disabled={saving} onChange={(value) => setUnit(value as ScheduleUnit)}>{Object.entries(scheduleUnits).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</Select></label>
       </div>
       <p className="mt-2 text-xs text-ink-50">支持范围：{formatInterval(config.min_interval_seconds)} 至 {formatInterval(config.max_interval_seconds)}</p>
-      {tmdb && <><label className="mt-4 block text-sm">每轮接口请求预算<input className="input-field mt-2 w-full" type="number" min={1} max={1000} step={1} required value={count} disabled={saving} onChange={event => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">只刷新到期组件；重试和语言补充计入实际请求次数。不会覆盖本地编辑，也不会自动补齐所有摘要。</p></>}
-      {refresh && <><label className="mt-4 block text-sm">每轮最多更新数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">仅更新到期的基础资料与评分，不抓取网页补充。每轮最多处理 1–100 条，剩余条目留到下一轮；代理重试可能增加接口请求次数。</p></>}
+      {tmdb && <><label className="mt-4 block text-sm">每轮接口请求预算<input className="input-field mt-2 w-full" type="number" min={1} max={1000} step={1} required value={count} disabled={saving} onChange={event => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">只处理本任务类型的到期待办；资料齐全后停止补全，活跃季集目录独立检查。语言补充与重试均计入请求预算。</p></>}
+      {refresh && <><label className="mt-4 block text-sm">每轮最多更新数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">资料任务只补缺，评分任务仅更新评分，不覆盖正文。每轮最多处理 1–100 条，剩余待办留到下一轮。</p></>}
       {supplement && <><label className="mt-4 block text-sm">每轮补充数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">每轮新增 1–100 部，不是保持队列数量；已有任务和资料不齐的作品跳过。默认关闭，启用后才周期执行。</p></>}
       {error && <p className="mt-3 text-sm text-red-500" role="alert">{error}</p>}
       <footer className="mt-6 flex justify-end gap-2"><button type="button" className="btn-outline" disabled={saving} onClick={onClose}>取消</button><button type="button" className="btn-primary" disabled={saving || !value} onClick={() => void save()}>{saving ? '保存中...' : '保存'}</button></footer>
@@ -766,7 +768,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
       {ready && supplementDefinition && <DownloadSupplementDialog definition={supplementDefinition} onClose={closeSupplement} onStarted={() => { toast.success('补充下载任务已启动，请查看本轮日志'); void refresh().catch(() => setLoadError(true)) }} />}
       {ready && scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}
-      {pendingDefinition?.key === 'tmdb_episode_metadata_recheck' && <TMDbRecheckPanel onClose={closePending} />}
+      {pendingDefinition && ['tmdb_data_season', 'tmdb_data_episode'].includes(pendingDefinition.key) && <TMDbRecheckPanel onClose={closePending} />}
       {pendingDefinition?.action === 'media_scrape' && <ScrapeIssuesPanel libraries={libraries} onClose={closePending} />}
     </div>
   )

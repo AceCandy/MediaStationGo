@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ func TestEmbyGlobalBatchMixedSourcesRefill(t *testing.T) {
 	e := nfoBrowseFixture(t, 0, 0)
 	db, ctx := e.repo.DB, t.Context()
 	for _, query := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'ordinary-'||n,'movie','Title '||n,'local' FROM generate_series(1,155) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'ordinary-'||n,'movie','Title '||n,'local' FROM generate_series(1,155) n`),
 		`INSERT INTO nfo_items(id,library_id,local_key,kind,title) SELECT 'local-'||n,'library-nfo',n::text,'movie','Title '||n FROM generate_series(1,155) n`,
 		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at) SELECT 'source-'||n,n::text,'series','Title '||n,n::text,1,now() FROM generate_series(1,155) n`,
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'ordinary-file-'||n,'ordinary-'||n,'library-nfo','/ordinary/'||n,TIMESTAMP '2026-01-01'-n*INTERVAL '1 minute' FROM generate_series(1,155) n`,
@@ -118,7 +119,7 @@ func TestWebNFOFilteredBatchRefill(t *testing.T) {
 func TestGlobalLatestUsesWorkTieOrderWithoutNFO(t *testing.T) {
 	e := nfoBrowseFixture(t, 0, 0)
 	for _, query := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('a','movie','A','local'),('b','movie','B','local'),('c','movie','C','local'),('z-series','series','Direct series','local')`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('a','movie','A','local'),('b','movie','B','local'),('c','movie','C','local'),('z-series','series','Direct series','local')`),
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||id,id,'library-nfo','/fixture/'||id,TIMESTAMP '2026-01-01' FROM metadata_items`,
 		`INSERT INTO hongguo_works(id,source_id,kind,title,refreshed_at) VALUES ('source','source','series','Older',now())`,
 		`INSERT INTO media(id,library_id,catalog_source,path,created_at) VALUES ('source-file','library-nfo','hongguo','/source','2020-01-01')`,

@@ -142,10 +142,10 @@ func TestTaskLogStoreRejectsInvalidDefinitionAndDate(t *testing.T) {
 	if err := store.append("../app", "info", "bad"); !errors.Is(err, ErrTaskDefinitionNotFound) {
 		t.Fatalf("append error = %v", err)
 	}
-	if _, _, err := store.read(TaskDefinitionOrganize, "../../app", 32); !errors.Is(err, ErrTaskLogDateNotFound) {
+	if _, _, err := store.read(TaskDefinitionLibraryScan, "../../app", 32); !errors.Is(err, ErrTaskLogDateNotFound) {
 		t.Fatalf("read error = %v", err)
 	}
-	if _, _, err := store.read(TaskDefinitionOrganize, "2026-02-30", 32); !errors.Is(err, ErrTaskLogDateNotFound) {
+	if _, _, err := store.read(TaskDefinitionLibraryScan, "2026-02-30", 32); !errors.Is(err, ErrTaskLogDateNotFound) {
 		t.Fatalf("read error = %v", err)
 	}
 }
@@ -154,10 +154,10 @@ func TestTaskLogStoreUsesConfiguredTimezone(t *testing.T) {
 	location := time.FixedZone("UTC+8", 8*60*60)
 	now := time.Date(2026, 8, 13, 0, 30, 0, 0, location)
 	store := newTaskLogStore(t.TempDir(), func() time.Time { return now })
-	if err := store.append(TaskDefinitionCatalogScrape, "info", "after midnight"); err != nil {
+	if err := store.append(TaskKindTMDbDataSupplement, "info", "after midnight"); err != nil {
 		t.Fatal(err)
 	}
-	dates, err := store.dates(TaskDefinitionCatalogScrape)
+	dates, err := store.dates(TaskKindTMDbDataSupplement)
 	if err != nil || len(dates) != 1 || dates[0] != "2026-08-13" {
 		t.Fatalf("dates = %#v, err = %v", dates, err)
 	}

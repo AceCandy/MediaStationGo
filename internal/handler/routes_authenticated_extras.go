@@ -74,7 +74,6 @@ func registerAuthedFavoriteAndMediaActionRoutes(authed *gin.RouterGroup, svc *se
 	authed.GET("/media/:id/favorite/status", getMediaFavoriteStatusHandler(svc))
 	authed.POST("/media/:id/ai-scrape", requirePermission(svc, "can_rescrape"), aiScrapeMediaHandler(svc))
 	authed.POST("/media/scrape/test", requirePermission(svc, "can_rescrape"), scrapeTestHandler(svc))
-	authed.POST("/media/organize", requirePermission(svc, "can_manage_files"), organizeBulkHandler(svc))
 }
 
 func registerAuthedPlaybackExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {

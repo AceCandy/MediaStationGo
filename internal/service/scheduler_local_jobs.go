@@ -52,6 +52,9 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 			task.Update(TaskUpdate{Stage: "scan", Message: fmt.Sprintf("正在扫描媒体库 %s：%s", l.Name, progress.RootPath), Metrics: current})
 		})
 		if res != nil {
+			for key, value := range res.ScanTimings.Metrics() {
+				metrics[key] += value
+			}
 			metrics["visited"] += int64(res.Visited)
 			metrics["added"] += int64(res.Added)
 			metrics["updated"] += int64(res.Updated)
@@ -159,46 +162,11 @@ func (s *SchedulerService) ensureOrganizePipeline() *OrganizePipelineService {
 	return NewOrganizePipelineService(s.log, s.repo, s.organizer, s.scanner, s.tasks)
 }
 
-func (s *SchedulerService) jobPeopleBackfill(ctx context.Context) error {
-	if s.scraper == nil {
-		return nil
-	}
-	return s.scraper.runPeopleBackfillPass(ctx, schedulerTaskTrigger(ctx))
-}
-
 func (s *SchedulerService) jobPeopleTranslation(ctx context.Context) error {
 	if s.scraper == nil {
 		return nil
 	}
 	return s.scraper.translatePendingPeople(ctx, schedulerTaskTrigger(ctx))
-}
-
-func (s *SchedulerService) jobTMDbArtworkLocalRepair(ctx context.Context) error {
-	if s.scraper == nil {
-		return nil
-	}
-	return s.scraper.runTMDbArtworkLocalRepair(ctx, schedulerTaskTrigger(ctx))
-}
-
-func (s *SchedulerService) jobTMDbArtworkMissingRecheck(ctx context.Context) error {
-	if s.scraper == nil {
-		return nil
-	}
-	return s.scraper.runTMDbArtworkMissingRecheck(ctx, schedulerTaskTrigger(ctx))
-}
-
-func (s *SchedulerService) jobDoubanArtworkLocalRepair(ctx context.Context) error {
-	if s.scraper == nil {
-		return nil
-	}
-	return s.scraper.runDoubanArtworkLocalRepair(ctx, schedulerTaskTrigger(ctx))
-}
-
-func (s *SchedulerService) jobTMDbEpisodeMetadataRecheck(ctx context.Context) error {
-	if s.scraper == nil {
-		return nil
-	}
-	return s.scraper.runTMDbEpisodeMetadataRecheck(ctx, schedulerTaskTrigger(ctx))
 }
 
 func (s *SchedulerService) jobDoubanMovieEnrichment(ctx context.Context) error {

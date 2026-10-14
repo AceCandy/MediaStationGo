@@ -27,7 +27,7 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -195,10 +195,8 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	if rec := request("GET", "/works?source_category=real-drama", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
 		t.Fatalf("source category catalog: %d %s", rec.Code, rec.Body.String())
 	}
-	for _, target := range []any{&model.HongGuoDiscovery{}, &model.HongGuoWork{}} {
-		if err := db.Model(target).Where("source_id = ?", work.SourceID).Update("source_category", "").Error; err != nil {
-			t.Fatal(err)
-		}
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id = ?", work.SourceID).Update("source_category", "").Error; err != nil {
+		t.Fatal(err)
 	}
 	if rec := request("GET", "/works?source_category=other", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
 		t.Fatalf("other category catalog: %d %s", rec.Code, rec.Body.String())
@@ -220,8 +218,8 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 		}
 	}
 	var categoryRows int64
-	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ? AND source_category = ?", work.SourceID, "real-drama").Count(&categoryRows).Error; err != nil || categoryRows != 1 {
-		t.Fatalf("discovery category not updated: count=%d err=%v", categoryRows, err)
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id = ? AND source_category = ?", work.SourceID, "real-drama").Count(&categoryRows).Error; err != nil || categoryRows != 1 {
+		t.Fatalf("work category not updated: count=%d err=%v", categoryRows, err)
 	}
 	if rec := request("GET", "/works?rank=hot-drama", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
 		t.Fatalf("official rank catalog: %d %s", rec.Code, rec.Body.String())

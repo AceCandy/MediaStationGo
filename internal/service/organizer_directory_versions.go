@@ -94,7 +94,7 @@ func (o *OrganizerService) existingByIdentity(ctx context.Context, destRoot, tit
 		return nil
 	}
 	q := o.repo.DB.WithContext(ctx).Table("media AS m").
-		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id").
+		Joins("LEFT JOIN metadata_presentations AS mi ON mi.id = m.metadata_id").
 		Where("LOWER(COALESCE(mi.title, m.scan_title)) = ?", strings.ToLower(title))
 	if season > 0 || episode > 0 {
 		q = q.Where("COALESCE(NULLIF(mi.season_num, 0), m.season_num) = ? AND COALESCE(NULLIF(mi.episode_num, 0), m.episode_num) = ?", season, episode)
@@ -140,7 +140,7 @@ func (o *OrganizerService) existingByExternalIdentity(ctx context.Context, destR
 		return nil
 	}
 	q := o.repo.DB.WithContext(ctx).Table("media AS m").
-		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id").
+		Joins("LEFT JOIN metadata_presentations AS mi ON mi.id = m.metadata_id").
 		Joins("LEFT JOIN metadata_identifiers AS mid ON mid.metadata_id = COALESCE(mi.parent_id, mi.id)").
 		Where("("+strings.Join(conds, " OR ")+")", args...)
 	if season > 0 || episode > 0 {

@@ -83,14 +83,6 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 	}
 	res := &ScanResult{LibraryID: lib.ID, skipAutomaticProbe: librarySupportsSeasons(lib)}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
-	var existingMedia map[string]existingLocalMedia
-	if !libraryUsesNFOOnly(lib) {
-		existingMedia, err = s.existingLocalMediaSnapshot(ctx, lib.ID)
-		if err != nil {
-			s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
-			existingMedia = nil
-		}
-	}
 
 	roots, err := s.localLibraryScanRoots(ctx, lib)
 	if err != nil {
@@ -124,7 +116,7 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 			s.emitScanProgress(progress, ScanProgressRootFailed, &root, i+1, len(roots), scannedRoots, res)
 			continue
 		}
-		seen, walkErr := s.scanLocalLibraryFiles(ctx, lib, &root, existingMedia, writeBatch, res, progress, i+1, len(roots), scannedRoots)
+		walkErr := s.scanLocalLibraryFiles(ctx, lib, &root, writeBatch, res, progress, i+1, len(roots), scannedRoots)
 		writeBatch.Flush()
 		if walkErr != nil {
 			addScanError(res, root.Path, walkErr)
@@ -141,26 +133,17 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 			res.Reconciled += reconciled
 		}
 		scannedRoots++
-		removed, removedPaths, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
+		removed, _, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, nil, res)
+		res.Removed += removed
 		if err != nil {
 			s.log.Warn("prune missing media failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
-		} else {
-			res.Removed += removed
-			for _, path := range removedPaths {
-				res.addChange(ScanChangeRemoved, path, "")
-			}
 		}
 		s.emitScanProgress(progress, ScanProgressRootFinished, &root, i+1, len(roots), scannedRoots, res)
 	}
 	if scanErr != nil && scannedRoots == 0 {
 		return res, scanErr
 	}
-	if changed, err := s.reconcileMediaParts(ctx, lib.ID, "", true, res); err != nil {
-		addScanError(res, "", err)
-		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.Error(err))
-	} else {
-		recordMediaPartScanChanges(res, changed)
-	}
+	s.reconcileScanParts(ctx, lib, res)
 
 	s.finishLocalLibraryScan(ctx, lib, res, autoScrape)
 	return res, scanErr
@@ -181,16 +164,8 @@ func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, l
 		return res, err
 	}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
-	var existingMedia map[string]existingLocalMedia
-	if !libraryUsesNFOOnly(lib) {
-		var err error
-		existingMedia, err = s.existingLocalMediaSnapshot(ctx, lib.ID)
-		if err != nil {
-			s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
-			existingMedia = nil
-		}
-	}
-	seen, walkErr := s.scanLocalLibraryFiles(ctx, lib, root, existingMedia, writeBatch, res, progress, 1, 1, 0)
+
+	walkErr := s.scanLocalLibraryFiles(ctx, lib, root, writeBatch, res, progress, 1, 1, 0)
 	writeBatch.Flush()
 	if walkErr != nil {
 		addScanError(res, root.Path, walkErr)
@@ -203,50 +178,15 @@ func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, l
 	} else {
 		res.Reconciled = reconciled
 	}
-	removed, removedPaths, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
+	removed, _, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, nil, res)
+	res.Removed = removed
 	if err != nil {
 		s.log.Warn("prune missing media failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
-	} else {
-		res.Removed = removed
-		for _, path := range removedPaths {
-			res.addChange(ScanChangeRemoved, path, "")
-		}
 	}
-	if changed, err := s.reconcileMediaParts(ctx, lib.ID, root.Path, true, res); err != nil {
-		addScanError(res, root.Path, err)
-		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
-	} else {
-		recordMediaPartScanChanges(res, changed)
-	}
+	s.reconcileScanParts(ctx, lib, res)
 	s.emitScanProgress(progress, ScanProgressRootFinished, root, 1, 1, 1, res)
 	s.finishLocalLibraryScan(ctx, lib, res, autoScrape)
 	return res, nil
-}
-
-func (s *ScannerService) scanLocalLibraryFiles(ctx context.Context, lib *model.Library, root *model.LibraryRoot, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult, progress ScanProgressFunc, rootIndex, rootTotal, rootsCompleted int) (map[string]struct{}, error) {
-	seen := make(map[string]struct{})
-	seenInodes := existingLocalMediaFileIDs(existingMedia)
-	walkFn := func(path string, info walkInfo) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if info.isDir {
-			return nil
-		}
-		ext := strings.ToLower(filepath.Ext(path))
-		if _, ok := videoExtensions[ext]; !ok {
-			return nil
-		}
-		seen[filepath.Clean(path)] = struct{}{}
-		s.ingestFile(ctx, lib, root, path, info.size, info.modTimeNS, seenInodes, existingMedia, writeBatch, res)
-		if res.Visited%scanProgressEvery == 0 {
-			s.emitScanProgress(progress, ScanProgressRunning, root, rootIndex, rootTotal, rootsCompleted, res)
-		}
-		return nil
-	}
-	return seen, walk(root.Path, walkFn)
 }
 
 func (s *ScannerService) emitScanProgress(progress ScanProgressFunc, phase string, root *model.LibraryRoot, rootIndex, rootTotal, rootsCompleted int, res *ScanResult) {
@@ -254,7 +194,8 @@ func (s *ScannerService) emitScanProgress(progress ScanProgressFunc, phase strin
 		return
 	}
 	item := ScanProgress{
-		Phase: phase, RootIndex: rootIndex, RootTotal: rootTotal, RootsCompleted: rootsCompleted,
+		ScanTimings: res.ScanTimings,
+		Phase:       phase, RootIndex: rootIndex, RootTotal: rootTotal, RootsCompleted: rootsCompleted,
 		Visited: res.Visited, Added: res.Added, Updated: res.Updated, Skipped: res.Skipped,
 		LocalMetadata: res.LocalMetadata, Reconciled: res.Reconciled, Removed: res.Removed, Errors: res.ErrorCount,
 	}
@@ -269,16 +210,6 @@ func (s *ScannerService) WakeProbeBackfill(res *ScanResult) {
 	if s != nil && s.mediaProbe != nil && res != nil && len(res.probeMediaIDs) > 0 {
 		s.mediaProbe.WakeMediaBackfill(res.probeMediaIDs)
 	}
-}
-
-func existingLocalMediaFileIDs(existingMedia map[string]existingLocalMedia) map[string]string {
-	seenInodes := make(map[string]string)
-	for path, existing := range existingMedia {
-		if existing.FileID != "" {
-			seenInodes[existing.FileID] = path
-		}
-	}
-	return seenInodes
 }
 
 func (s *ScannerService) finishLocalLibraryScan(ctx context.Context, lib *model.Library, res *ScanResult, autoScrape bool) {
@@ -353,7 +284,8 @@ func (s *ScannerService) IngestPathResult(ctx context.Context, libraryID, path s
 			return res, err
 		}
 	}
-	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res)
+	fileID, _ := fileIdentityFromInfo(path, fi)
+	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res, fileID)
 	if reconcileParts {
 		changed, reconcileErr := s.reconcileMediaParts(ctx, lib.ID, filepath.Dir(path), false, res)
 		if reconcileErr != nil {

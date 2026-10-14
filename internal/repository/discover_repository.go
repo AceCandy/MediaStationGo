@@ -61,15 +61,15 @@ func (r *MediaViewRepository) FindDiscoverLibraryItems(ctx context.Context, item
 		pairs = append(pairs, []any{item.Kind(), strconv.Itoa(item.TMDbID)})
 	}
 	q := r.db.WithContext(ctx).Table("metadata_identifiers AS ident").
-		Joins("JOIN metadata_items AS work ON work.id = ident.metadata_id AND work.kind = ident.entity_kind").
+		Joins("JOIN metadata_presentations AS work ON work.id = ident.metadata_id AND work.kind = ident.entity_kind").
 		Joins(`JOIN LATERAL (
 			SELECT work.id
-			UNION ALL SELECT s.id FROM metadata_items s WHERE work.kind = 'series' AND s.parent_id = work.id AND s.kind = 'season'
-			UNION ALL SELECT e.id FROM metadata_items s JOIN metadata_items e ON e.parent_id = s.id AND e.kind = 'episode'
+			UNION ALL SELECT s.id FROM metadata_presentations s WHERE work.kind = 'series' AND s.parent_id = work.id AND s.kind = 'season'
+			UNION ALL SELECT e.id FROM metadata_presentations s JOIN metadata_presentations e ON e.parent_id = s.id AND e.kind = 'episode'
 			WHERE work.kind = 'series' AND s.parent_id = work.id AND s.kind = 'season'
 		) AS owned ON TRUE`).
 		Joins("JOIN media AS m ON m.metadata_id = owned.id").
-		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
+		Joins("JOIN metadata_presentations AS mi ON mi.id = m.metadata_id").
 		Joins("JOIN libraries AS lib ON lib.id = m.library_id AND lib.enabled = TRUE AND lib.deleted_at IS NULL").
 		Where("ident.provider = 'tmdb' AND (ident.entity_kind, ident.external_id) IN ?", pairs)
 	err := applyMediaViewFilter(q, filter).

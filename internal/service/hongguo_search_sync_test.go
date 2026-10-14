@@ -31,7 +31,7 @@ func TestHongGuoSearchServiceMutationOwners(t *testing.T) {
 			lib := model.Library{Base: model.Base{ID: "library"}, Name: "source", Type: model.LibraryTypeHongGuo, Path: root}
 			work := model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "work"}, SourceID: "12345678901", Kind: "series", Title: "Target"}
 			file := model.Media{PermanentBase: model.PermanentBase{ID: "file"}, LibraryID: lib.ID, LibraryRootID: "root", CatalogSource: "hongguo", Path: filepath.Join(root, "missing.mkv")}
-			for _, row := range []any{&lib, &work, &file, &model.HongGuoMediaBinding{MediaID: file.ID, WorkID: work.ID}} {
+			for _, row := range []any{&lib, &model.LibraryRoot{Base: model.Base{ID: "root"}, LibraryID: lib.ID, Path: root, Enabled: true}, &work, &file, &model.HongGuoMediaBinding{MediaID: file.ID, WorkID: work.ID}} {
 				if err := db.Create(row).Error; err != nil {
 					t.Fatal(err)
 				}

@@ -63,16 +63,6 @@ func (s *ScraperService) ManualSearch(ctx context.Context, media *model.Media, q
 		})
 	}
 
-	if _, explicitAdult := providers["adult"]; explicitAdult {
-		for _, candidateQuery := range queries {
-			if externalIDHintsFromText(candidateQuery).useful() {
-				continue
-			}
-			for _, match := range s.manualAdultMatches(ctx, media, candidateQuery) {
-				add("adult", "adult", match)
-			}
-		}
-	}
 	if providers.want("tmdb") {
 		for _, candidateQuery := range queries {
 			for _, candidate := range s.manualTMDbCandidates(ctx, candidateQuery, year, mediaType) {
@@ -84,20 +74,6 @@ func (s *ScraperService) ManualSearch(ctx context.Context, media *model.Media, q
 		for _, candidateQuery := range queries {
 			for _, match := range s.manualDoubanMatches(ctx, candidateQuery) {
 				add("douban", normalizeMediaType(mediaType, candidateQuery, ""), match)
-			}
-		}
-	}
-	if providers.want("bangumi") {
-		for _, candidateQuery := range queries {
-			if match := s.manualBangumiMatch(ctx, candidateQuery); match != nil {
-				add("bangumi", "anime", match)
-			}
-		}
-	}
-	if providers.want("thetvdb") {
-		for _, candidateQuery := range queries {
-			if match := s.manualTheTVDBMatch(ctx, candidateQuery); match != nil {
-				add("thetvdb", "tv", match)
 			}
 		}
 	}

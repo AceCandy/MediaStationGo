@@ -20,6 +20,7 @@ func TestHongGuoConcurrentProgressAndRollback(t *testing.T) {
 	if err := db.AutoMigrate(&model.Media{}, &model.MediaProbeMetadata{}, &model.HongGuoUserState{}, &model.HongGuoPlaybackEvent{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	r, ctx := New(db), t.Context()
 	view := model.MediaView{Media: model.Media{PermanentBase: model.PermanentBase{ID: "source-file"}, LibraryID: "source-library", CatalogSource: "hongguo", LookupCatalogID: "900000000000000001", EpisodeNum: 1}}
 	var wg sync.WaitGroup
@@ -60,6 +61,7 @@ func TestHongGuoPlaybackStatistics(t *testing.T) {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	r, ctx := New(db), t.Context()
 	lib := model.Library{Name: "红果", Path: "/hg", Type: model.LibraryTypeHongGuo}
 	if err := db.Create(&lib).Error; err != nil {

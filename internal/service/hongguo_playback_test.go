@@ -25,6 +25,9 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if err := e.repo.DB.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 		t.Fatal(err)
 	}
@@ -301,6 +304,9 @@ func TestHongGuoEmbyResumableGroupsBeforePaging(t *testing.T) {
 	}
 	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	library := model.Library{Name: "红果", Path: "/test/hg-resume", Type: model.LibraryTypeHongGuo}

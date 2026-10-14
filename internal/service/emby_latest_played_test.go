@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func TestEmbyLatestItemsFilterPlayedBeforeLimitAndByUser(t *testing.T) {
 
 	now := time.Now()
 	for i, id := range []string{"newest", "next", "oldest"} {
-		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: "metadata-" + id}, Kind: model.MetadataKindMovie,
 			Title: id, Source: "local",
 		})
@@ -93,15 +94,15 @@ func TestEmbyLatestSeriesFiltersEpisodesBeforeGrouping(t *testing.T) {
 
 	now := time.Now()
 	for i, state := range []string{"played", "unplayed"} {
-		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: "series-" + state}, Kind: model.MetadataKindSeries,
 			Title: state, Source: "local",
 		})
-		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: "season-" + state}, Kind: model.MetadataKindSeason,
 			ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local",
 		})
-		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		episode := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: "episode-" + state}, Kind: model.MetadataKindEpisode,
 			ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "local",
 		})
@@ -136,10 +137,10 @@ func TestEmbyLatestSeriesKeepsPartiallyPlayedWorkInBothLists(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "local"})
+	series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "local"})
 	for n := 1; n <= 2; n++ {
-		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: n, Title: "Season", Source: "local"})
-		ep := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode", Source: "local"})
+		season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: n, Title: "Season", Source: "local"})
+		ep := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode", Source: "local"})
 		for v := 1; v <= 2; v++ {
 			file := model.Media{LibraryID: lib.ID, MetadataID: ep.ID, SeasonNum: n, EpisodeNum: 1, Path: fmt.Sprintf("/fixture/partial/%d-%d.mkv", n, v)}
 			if err := svc.repo.DB.Create(&file).Error; err != nil {
@@ -168,14 +169,14 @@ func TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie(t *testing.T) {
 		t.Fatal(err)
 	}
 	createEpisode := func(seriesID string) string {
-		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: seriesID, Source: "local",
 		})
-		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: seriesID + "-season"}, Kind: model.MetadataKindSeason,
 			ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local",
 		})
-		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		episode := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: seriesID + "-episode"}, Kind: model.MetadataKindEpisode,
 			ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "local",
 		})
@@ -220,7 +221,7 @@ func TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie(t *testing.T) {
 	}
 	// 大量更近的作品属于其它库时，仍须返回当前库完整一页。
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'outside-'||n,'series','Outside','local' FROM generate_series(1,?) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'outside-'||n,'series','Outside','local' FROM generate_series(1,?) n`),
 		`INSERT INTO media(id,path,library_id,metadata_id,created_at) SELECT 'outside-file-'||n,'/other/'||n,'other-library','outside-'||n,TIMESTAMP '2099-01-01' FROM generate_series(1,?) n`,
 	} {
 		if err := svc.repo.DB.Exec(sql, 513).Error; err != nil {

@@ -79,7 +79,7 @@ func (b *localMediaWriteBatch) Flush() {
 	if b == nil {
 		return
 	}
-	// 更新文件不进入新增缓冲，收尾时仍须刷新其已提交的索引变更。
+	// 普通来源更新仍即时写入；退出时刷新所有已提交的索引变更。
 	defer b.flushSearch(b.ctx)
 	b.recognitionUses = 0
 	b.nfoCache = nil
@@ -88,6 +88,45 @@ func (b *localMediaWriteBatch) Flush() {
 	}
 	items := b.items
 	b.items = nil
+	// 红果整批提交失败后沿用逐条路径，保留局部成功及逐文件错误统计。
+	allHongGuo := len(items) <= 100
+	for _, item := range items {
+		if item.media == nil || item.media.CatalogSource != model.TaskSystemHongGuo {
+			allHongGuo = false
+			break
+		}
+	}
+	if allHongGuo {
+		media := make([]*model.Media, 0, len(items))
+		ready := true
+		for _, item := range items {
+			if err := b.scanner.invalidateChangedMediaProbe(b.ctx, item.path, item.updateReason); err != nil {
+				ready = false
+				break
+			}
+			media = append(media, item.media)
+		}
+		var created []bool
+		var batchErr error
+		if ready {
+			created, batchErr = b.mediaRepo.UpsertHongGuoScanBatch(b.ctx, media)
+		}
+		if ready && batchErr == nil {
+			for i, item := range items {
+				b.res.addProbeMedia(item.media)
+				if !created[i] {
+					b.res.Updated++
+					b.res.addChange(ScanChangeUpdated, item.path, item.updateReason)
+				} else {
+					b.res.Added++
+					b.res.addChange(ScanChangeAdded, item.path, "")
+				}
+			}
+			b.publish()
+			return
+		}
+	}
+
 	existingPaths := b.existingPaths(items)
 	createItems := make([]localMediaWriteItem, 0, len(items))
 	for _, item := range items {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -34,10 +35,10 @@ func TestEmbyLatestCandidatePlans(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items (id,kind,title,source) SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,500) n`,
-		`INSERT INTO metadata_items (id,kind,title,source,parent_id,season_num) SELECT 'season-'||s||'-'||n,'season','Season','local','show-'||s,n FROM generate_series(1,500) s CROSS JOIN generate_series(1,2) n`,
-		`INSERT INTO metadata_items (id,kind,title,source,parent_id,episode_num) SELECT 'ep-'||s||'-'||n||'-'||e,'episode','Episode','local','season-'||s||'-'||n,e FROM generate_series(1,500) s CROSS JOIN generate_series(1,2) n CROSS JOIN generate_series(1,20) e`,
-		`INSERT INTO metadata_items (id,kind,title,source) SELECT 'movie-'||n,'movie','Movie','local' FROM generate_series(1,500) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,500) n`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num", `SELECT 'season-'||s||'-'||n,'season','Season','local','show-'||s,n FROM generate_series(1,500) s CROSS JOIN generate_series(1,2) n`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,episode_num", `SELECT 'ep-'||s||'-'||n||'-'||e,'episode','Episode','local','season-'||s||'-'||n,e FROM generate_series(1,500) s CROSS JOIN generate_series(1,2) n CROSS JOIN generate_series(1,20) e`),
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'movie-'||n,'movie','Movie','local' FROM generate_series(1,500) n`),
 		`INSERT INTO media (id,library_id,path,metadata_id,season_num,episode_num,created_at)
 SELECT 'file-'||i.id||'-'||v,'tv','/fixture/'||i.id||'-'||v,i.id,1,i.episode_num,TIMESTAMP '2026-01-01' + i.episode_num * INTERVAL '1 hour'
 FROM metadata_items i CROSS JOIN generate_series(1,2) v WHERE i.kind='episode'`,
@@ -253,9 +254,9 @@ func TestEmbySeriesDenseCountPlan(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,502) n`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id) SELECT 'season-'||n,'season','Season','local','show-'||n FROM generate_series(1,502) n`,
-		`INSERT INTO metadata_items(id,kind,title,source,parent_id,episode_num) SELECT 'ep-'||s||'-'||e,'episode','Episode','local','season-'||s,e FROM generate_series(1,502) s CROSS JOIN generate_series(1,40) e`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,502) n`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id", `SELECT 'season-'||n,'season','Season','local','show-'||n FROM generate_series(1,502) n`),
+		testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,episode_num", `SELECT 'ep-'||s||'-'||e,'episode','Episode','local','season-'||s,e FROM generate_series(1,502) s CROSS JOIN generate_series(1,40) e`),
 		`INSERT INTO media(id,library_id,path,metadata_id,season_num,episode_num,created_at)
 SELECT 'file-'||s||'-'||e||'-'||v,'tv','/fixture/'||s||'-'||e||'-'||v,'ep-'||s||'-'||e,1,e,TIMESTAMP '2026-01-01'
 FROM generate_series(1,500) s CROSS JOIN generate_series(1,40) e CROSS JOIN generate_series(1,2) v`,
@@ -356,13 +357,10 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 	}
 	// 目录包含 2 万集，只有其中 20 部剧的前 100 集各有两个文件版本。
 	for _, sql := range []string{
-		`INSERT INTO metadata_items (id, kind, title, source, season_num, episode_num)
-		 SELECT 'series-' || n, 'series', LPAD(n::text, 3, '0'), 'local', 0, 0 FROM generate_series(1,100) n`,
-		`INSERT INTO metadata_items (id, kind, parent_id, title, source, season_num, episode_num)
-		 SELECT 'season-' || n, 'season', 'series-' || n, 'Season', 'local', 1, 0 FROM generate_series(1,100) n`,
-		`INSERT INTO metadata_items (id, kind, parent_id, title, source, season_num, episode_num)
-		 SELECT 'episode-' || s || '-' || n, 'episode', 'season-' || s, 'Episode', 'local', 0, n
-		 FROM generate_series(1,100) s CROSS JOIN generate_series(1,200) n`,
+		testdb.MetadataFixtureSQL("id, kind, title, source, season_num, episode_num", `SELECT 'series-' || n, 'series', LPAD(n::text, 3, '0'), 'local', 0, 0 FROM generate_series(1,100) n`),
+		testdb.MetadataFixtureSQL("id, kind, parent_id, title, source, season_num, episode_num", `SELECT 'season-' || n, 'season', 'series-' || n, 'Season', 'local', 1, 0 FROM generate_series(1,100) n`),
+		testdb.MetadataFixtureSQL("id, kind, parent_id, title, source, season_num, episode_num", `SELECT 'episode-' || s || '-' || n, 'episode', 'season-' || s, 'Episode', 'local', 0, n
+		 FROM generate_series(1,100) s CROSS JOIN generate_series(1,200) n`),
 	} {
 		if err := db.Exec(sql).Error; err != nil {
 			t.Fatal(err)
@@ -512,6 +510,12 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		&model.PlaybackHistory{UserID: "page-user", MetadataID: "episode-20-1", MediaID: "file-20-1-1", Completed: true},
 		&model.Media{LibraryID: "hidden", MetadataID: "episode-20-101", Path: "/fixture/hidden.mkv", SeasonNum: 1, EpisodeNum: 101},
 	} {
+		if credit, ok := row.(*model.MetadataCredit); ok {
+			if err := testdb.SaveSourceCreditFixture(db, credit); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
 		if err := db.Create(row).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -521,7 +525,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 	}
 	svc.visibilityCache[svc.repo.ReadCacheKey()+"page-user"] = embyVisibilityCacheEntry{
 		visibility: MediaVisibility{AllowedLibraryIDs: []string{lib.ID}, HiddenLibraryIDs: []string{"hidden"}},
-		expiresAt:  time.Now().Add(time.Minute),
+		expiresAt:  time.Now().Add(time.Hour),
 	}
 	p.UserID, p.ParentID, p.StartIndex = "page-user", "", 0
 	p.Filters = []string{"IsFavorite"}
@@ -555,17 +559,42 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 	}
 	p.UserID = "page-user"
 	p.PersonIDs, p.Filters = []string{"page-person"}, []string{"IsFavorite"}
+	plansSQL = nil
 	result, err = svc.Items(t.Context(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	items = result["Items"].([]map[string]any)
-	if result["TotalRecordCount"] != 1 || len(items) != 1 || items[0]["Id"] != "series-20" || items[0]["RecursiveItemCount"] != 99 {
+	if result["TotalRecordCount"] != int64(1) || len(items) != 1 || items[0]["Id"] != "series-20" || items[0]["RecursiveItemCount"] != 99 {
 		t.Fatalf("filtered page changed: %#v", result)
+	}
+	// 人物资格和层级查找不应为两万集逐条装载来源展示。
+	var checkPerson func(planNode)
+	checkPerson = func(node planNode) {
+		if node.Relation == "metadata_identifiers" && node.Loops > 200 {
+			t.Errorf("person work query expanded source lookups: %.0f", node.Loops)
+		}
+		for _, child := range node.Plans {
+			checkPerson(child)
+		}
+	}
+	if len(plansSQL) == 0 {
+		t.Fatal("person work plans were not captured")
+	}
+	for _, query := range plansSQL {
+		var raw string
+		if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+query.sql, query.vars...).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var plans []struct{ Plan planNode }
+		if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
+			t.Fatalf("invalid person plan: %v", err)
+		}
+		checkPerson(plans[0].Plan)
 	}
 	p.PersonIDs = []string{"missing-person"}
 	result, err = svc.Items(t.Context(), p)
-	if err != nil || result["TotalRecordCount"] != 0 || len(result["Items"].([]map[string]any)) != 0 {
+	if err != nil || result["TotalRecordCount"] != int64(0) || len(result["Items"].([]map[string]any)) != 0 {
 		t.Fatalf("person filter ignored: %#v, %v", result, err)
 	}
 	p.PersonIDs = []string{"page-person"}
@@ -573,7 +602,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err = svc.Items(t.Context(), p)
-	if err != nil || result["TotalRecordCount"] != 0 || len(result["Items"].([]map[string]any)) != 0 {
+	if err != nil || result["TotalRecordCount"] != int64(0) || len(result["Items"].([]map[string]any)) != 0 {
 		t.Fatalf("deleted favorite included: %#v, %v", result, err)
 	}
 	items, err = svc.LatestItems(t.Context(), "page-user", lib.ID, 3, true)

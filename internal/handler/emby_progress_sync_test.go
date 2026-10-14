@@ -34,7 +34,7 @@ func TestEmbyProgressSnapshotRoutes(t *testing.T) {
 	}
 	for _, sql := range []string{
 		`INSERT INTO libraries(id,name,path,type,enabled) VALUES ('library','Library','/test','movie',true)`,
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('item','movie','Item','local'),('other','movie','Other','local')`,
+		`INSERT INTO metadata_items(id,kind,source) VALUES ('item','movie','local'),('other','movie','local')`,
 		`INSERT INTO media(id,path,metadata_id,library_id) VALUES ('file','/test/file','item','library'),('wrong','/test/wrong','other','library')`,
 		`INSERT INTO media_probe_metadata(media_id,duration_ms,probe_json,schema_version,probed_at) VALUES ('file',120000,'',0,now()),('wrong',120000,'',0,now())`,
 	} {

@@ -21,13 +21,13 @@ func TestSeriesSeasonPostersWithoutLoadingOtherEpisodes(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"})
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 	wantFiles := map[int]string{}
 	wantPosters := map[int]string{}
 	for _, number := range []int{0, 1, 2} {
-		season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: number, Title: fmt.Sprintf("Season %d", number)})
-		episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode"})
+		season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: number, Title: fmt.Sprintf("Season %d", number)})
+		episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode"})
 		wantPosters[number] = createServiceTestArtwork(t, db, season.ID, model.ArtworkTypePoster, fmt.Sprintf("poster-%d", number))
 		media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: fmt.Sprintf("%s/%d.mkv", lib.Path, number)}
 		if err := db.Create(&media).Error; err != nil {
@@ -68,9 +68,9 @@ func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "以吾之名", Overview: "整剧简介", Year: 2021, Rating: 8.3})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
-	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "复仇", Overview: "单集简介", Rating: 9.1})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "以吾之名", Overview: "整剧简介", Year: 2021, Rating: 8.3})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
+	episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "复仇", Overview: "单集简介", Rating: 9.1})
 	poster := createServiceTestArtwork(t, db, series.ID, model.ArtworkTypePoster, "series-card-poster")
 	media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: lib.Path + "/以吾之名/Season 1/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1, ScrapeStatus: "matched"}
 	if err := db.Create(&media).Error; err != nil {
@@ -105,7 +105,7 @@ func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.
 			t.Fatalf("hidden library leaked: %+v %v", cards, err)
 		}
 	}
-	if err := db.Where("metadata_id = ?", series.ID).Delete(&model.MetadataArtwork{}).Error; err != nil {
+	if err := db.Where("subject_id IN (SELECT subject.id FROM tmdb_subjects subject JOIN metadata_identifiers binding ON binding.provider='tmdb' AND binding.entity_kind=subject.kind AND binding.external_id=subject.tmdb_id::text WHERE binding.metadata_id=?)", series.ID).Delete(&model.TMDbArtwork{}).Error; err != nil {
 		t.Fatal(err)
 	}
 	createServiceTestArtwork(t, db, episode.ID, model.ArtworkTypePoster, "episode-card-poster")
@@ -122,9 +122,9 @@ func TestMediaSeasonDetailUsesCanonicalArtworkAndVisibility(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "123"})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "第二季", Overview: "季介绍", Rating: 8.5}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "season", ExternalID: "456"})
-	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "第一集"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "123"})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "第二季", Overview: "季介绍", Rating: 8.5}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "season", ExternalID: "456"})
+	episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "第一集"})
 	poster := createServiceTestArtwork(t, db, season.ID, model.ArtworkTypePoster, "season-poster")
 	createServiceTestArtwork(t, db, series.ID, model.ArtworkTypePoster, "series-poster")
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
@@ -167,16 +167,9 @@ func TestMediaSeasonDetailUsesCanonicalArtworkAndVisibility(t *testing.T) {
 	if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: season.ID, Provider: "tmdb", Payload: `{"id":456}`, FetchedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	for _, status := range []string{providerStatusPartial, providerStatusComplete} {
-		if status == providerStatusComplete {
-			if err := db.Model(&model.MetadataArtwork{}).Where("metadata_id = ?", season.ID).Update("source_provider", "tmdb").Error; err != nil {
-				t.Fatal(err)
-			}
-		}
-		got, err := svc.GetMediaSeasonVisible(t.Context(), episodeMediaID, MediaVisibility{})
-		if err != nil || got == nil || !got.TMDbSnapshot || got.TMDbStatus != status {
-			t.Fatalf("season status %s: %+v %v", status, got, err)
-		}
+	got, err = svc.GetMediaSeasonVisible(t.Context(), episodeMediaID, MediaVisibility{})
+	if err != nil || got == nil || !got.TMDbSnapshot || got.TMDbStatus != providerStatusComplete {
+		t.Fatalf("season source status: %+v %v", got, err)
 	}
 }
 
@@ -187,14 +180,14 @@ func TestSeriesDisplayFallbacksStayInsideTheSeriesHierarchy(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
-	otherSeason := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "第二季"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
+	otherSeason := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "第二季"})
 	wantPoster := createServiceTestArtwork(t, db, series.ID, model.ArtworkTypePoster, "display-fallback-poster")
 	wantBackdrop := createServiceTestArtwork(t, db, series.ID, model.ArtworkTypeBackdrop, "display-fallback-backdrop")
 	createEpisode := func(parentID string, number int, releaseDate string) model.Media {
 		t.Helper()
-		episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &parentID, EpisodeNum: number, Title: fmt.Sprintf("第%d集", number), ReleaseDate: releaseDate})
+		episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &parentID, EpisodeNum: number, Title: fmt.Sprintf("第%d集", number), ReleaseDate: releaseDate})
 		media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: fmt.Sprintf("%s/%s-E%02d.mkv", lib.Path, parentID, number), EpisodeNum: number}
 		if err := db.Create(&media).Error; err != nil {
 			t.Fatal(err)
@@ -235,7 +228,7 @@ func TestMediaSeriesDetailSupportsEveryAttachmentLevel(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧", Overview: "整剧简介"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧", Overview: "整剧简介"})
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 	check := func(target *model.MetadataItem) {
 		t.Helper()
@@ -255,9 +248,9 @@ func TestMediaSeriesDetailSupportsEveryAttachmentLevel(t *testing.T) {
 		}
 	}
 	check(series) // 尚无季、集时，也必须能读取整剧。
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
 	check(season)
-	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "第一集"})
+	episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "第一集"})
 	check(episode)
 	got, err := svc.GetMediaSeriesVisible(t.Context(), series.ID, MediaVisibility{IncludeNSFW: true})
 	if err != nil || got != nil {
@@ -272,9 +265,9 @@ func TestMediaSeriesDetailOwnsMetadataAndUserScope(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧标题", Overview: "整剧简介", Source: "test"})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, Title: "特别篇", ParentID: &series.ID, SeasonNum: 0, Source: "test"})
-	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "单集标题", Overview: "单集简介", ParentID: &season.ID, EpisodeNum: 1, Source: "test"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧标题", Overview: "整剧简介", Source: "test"})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, Title: "特别篇", ParentID: &series.ID, SeasonNum: 0, Source: "test"})
+	episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "单集标题", Overview: "单集简介", ParentID: &season.ID, EpisodeNum: 1, Source: "test"})
 	media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: lib.Path + "/S00E01.mkv"}
 	if err := db.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -298,26 +291,20 @@ func TestMediaSeriesDetailOwnsMetadataAndUserScope(t *testing.T) {
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: series.ID, Provider: "douban", EntityKind: "series", ExternalID: doubanID, DoubanEntityKind: "movie"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 旧客户端提交相同 ID 仍能编辑普通字段，并保留人工类型例外。
-	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "series", Title: &newTitle, DoubanID: &doubanID})
-	if err != nil || updated == nil || updated.Title != newTitle || updated.DoubanID != doubanID {
-		t.Fatalf("Series edit: %#v, %v", updated, err)
-	}
-	identifiers, err := repos.Metadata.ListIdentifiers(t.Context(), series.ID)
-	if err != nil || len(identifiers) != 1 || identifiers[0].DoubanEntityKind != "movie" {
-		t.Fatalf("Series edit lost manual Douban type: %#v, %v", identifiers, err)
+	// 即使绑定不变，普通基础字段也不能手工修改。
+	if _, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "series", Title: &newTitle, DoubanID: &doubanID}); err == nil {
+		t.Fatal("same binding allowed a manual title")
 	}
 	seasonTitle, seasonOverview := "特别篇新标题", "特别篇新简介"
-	updated, err = svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "season", Title: &seasonTitle, Overview: &seasonOverview})
-	if err != nil || updated == nil || updated.MetadataID != season.ID || updated.Title != seasonTitle || updated.Overview != seasonOverview || updated.SeasonNum != 0 {
-		t.Fatalf("Season edit: %#v, %v", updated, err)
+	if _, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "season", Title: &seasonTitle, Overview: &seasonOverview}); err == nil {
+		t.Fatal("manual season fields accepted")
 	}
 	changedSeason := 2
 	if _, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "season", SeasonNum: &changedSeason}); err == nil {
 		t.Fatal("season edit accepted hierarchy change")
 	}
 	seriesAfter, err := repos.Metadata.FindByID(t.Context(), series.ID)
-	if err != nil || seriesAfter.Title != newTitle {
+	if err != nil || seriesAfter.Title != series.Title {
 		t.Fatalf("Season edit changed Series: %#v, %v", seriesAfter, err)
 	}
 	preserved, err := repos.MediaView.FindByID(t.Context(), media.ID)
@@ -365,15 +352,15 @@ func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "史上最强炼体老祖", Source: "test"})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "test"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "史上最强炼体老祖", Source: "test"})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "test"})
 	rows := make([]model.Media, 0, 40)
 	for i := 1; i <= 40; i++ {
 		created := now.Add(-48 * time.Hour)
 		if i > 23 {
 			created = now.Add(time.Duration(i) * time.Minute)
 		}
-		episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: i, Title: fmt.Sprintf("第 %d 集", i), Source: "test"})
+		episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: i, Title: fmt.Sprintf("第 %d 集", i), Source: "test"})
 		rows = append(rows, model.Media{
 			PermanentBase: model.PermanentBase{ID: fmt.Sprintf("recent-ep-%02d", i), CreatedAt: created, UpdatedAt: created},
 			LibraryID:     lib.ID,

@@ -320,13 +320,11 @@ func (s *ScraperService) saveCreditInputs(ctx context.Context, metadataID string
 	if len(loaded) == 0 {
 		return nil
 	}
-	if err := s.repo.Person.ReplaceCredits(ctx, metadataID, loaded, inputs); err != nil {
+	if err := s.repo.Person.SaveCreditPeople(ctx, inputs); err != nil {
 		return err
 	}
 	s.invalidateMediaCache(ctx)
-	if err := s.repo.DB.WithContext(ctx).Model(&model.MetadataItem{}).Where("id = ?", metadataID).Update("people_hydrated_at", time.Now().UTC()).Error; err != nil {
-		return err
-	}
+
 	return nil
 }
 
@@ -363,19 +361,10 @@ func (s *ScraperService) persistMetadataArtwork(ctx context.Context, metadataID,
 
 func (s *ScraperService) persistOneMetadataArtwork(ctx context.Context, metadataID, artworkType, provider, source string) (string, error) {
 	source = strings.TrimSpace(source)
-	if source == "" || s.artwork == nil {
+	if source == "" || s.artwork == nil || provider != "tmdb" {
 		return "", nil
 	}
-	var (
-		asset *model.ArtworkAsset
-		err   error
-	)
-	switch {
-	case isHTTPish(source):
-		asset, err = s.artwork.ImportRemote(ctx, metadataID, artworkType, provider, source)
-	default:
-		asset, err = s.artwork.ImportLocal(ctx, metadataID, artworkType, source)
-	}
+	asset, err := s.artwork.ImportRemote(ctx, metadataID, artworkType, provider, source)
 	if err != nil {
 		return "", err
 	}

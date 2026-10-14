@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -64,7 +65,11 @@ func manualScrapeApplyOneHandler(svc *service.Container) gin.HandlerFunc {
 		mediaID := c.Param("id")
 		_, err := svc.Scraper.ApplyManualMatch(applyCtx, mediaID, req)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrSourceMetadataReadOnly) {
+				status = http.StatusBadRequest
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
 		media, err := svc.Media.GetMedia(applyCtx, mediaID)

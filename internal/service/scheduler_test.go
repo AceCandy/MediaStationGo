@@ -128,7 +128,7 @@ func TestSchedulerRegistersDisabledTMDbArtworkJobs(t *testing.T) {
 		cancel()
 		scheduler.Stop()
 	}()
-	want := map[string]bool{"tmdb_artwork_local_repair": true, "tmdb_artwork_missing_recheck": true, "douban_artwork_local_repair": true, "tmdb_episode_metadata_recheck": true}
+	want := map[string]bool{TaskKindTMDbImages: true, TaskKindDoubanImages: true}
 	for _, status := range scheduler.Status() {
 		if status.Name == "metadata_artwork_backfill" {
 			t.Fatal("retired metadata artwork backfill scheduler job still exists")
@@ -154,7 +154,7 @@ func TestSchedulerRegistersDisabledDoubanMovieEnrichment(t *testing.T) {
 		cancel()
 		scheduler.Stop()
 	}()
-	pending := map[string]bool{"douban_movie_enrichment": true, "douban_data_refresh": true}
+	pending := map[string]bool{TaskKindDoubanMovieSupplement: true, TaskKindDoubanSeriesSupplement: true, TaskKindDoubanMovieRating: true, TaskKindDoubanSeriesRating: true}
 	for _, status := range scheduler.Status() {
 		if !pending[status.Name] {
 			continue
@@ -441,5 +441,24 @@ func TestSchedulerDoubanRefreshCountConfiguration(t *testing.T) {
 	}
 	if scheduler.Status()[0].Count != 23 {
 		t.Fatal("schedule without count reset limit")
+	}
+}
+
+func TestSchedulerDoesNotRegisterRetiredOrganizer(t *testing.T) {
+	db := newServiceTestDB(t, &model.Setting{})
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), "organize.auto", "true"); err != nil {
+		t.Fatal(err)
+	}
+	scheduler := NewSchedulerService(zap.NewNop(), repos, nil, nil, nil)
+	scheduler.Start(t.Context())
+	defer scheduler.Stop()
+	for _, job := range scheduler.Status() {
+		if job.Name == "organize_source" || job.Name == "people_backfill_periodic" {
+			t.Fatal("retired organizer registered despite source-only ingestion")
+		}
+	}
+	if err := scheduler.RunNowAsync(t.Context(), "organize_source"); !errors.Is(err, ErrSchedulerJobNotFound) {
+		t.Fatalf("retired organizer run: %v", err)
 	}
 }

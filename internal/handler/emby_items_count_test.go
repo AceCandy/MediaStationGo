@@ -29,7 +29,7 @@ func TestEmbyItemsOptionalTotal(t *testing.T) {
 	}
 	for _, query := range []string{
 		`INSERT INTO libraries(id,name,type,path) VALUES ('movies','Movies','movie','/fixture/movies')`,
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'movie-'||n,'movie','Movie '||n,'local' FROM generate_series(1,3) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'movie-'||n,'movie','Movie '||n,'local' FROM generate_series(1,3) n`),
 		`INSERT INTO media(id,metadata_id,library_id,path) SELECT 'file-'||n,'movie-'||n,'movies','/fixture/movies/'||n FROM generate_series(1,3) n`,
 	} {
 		if err := db.Exec(query).Error; err != nil {
@@ -125,7 +125,7 @@ func TestEmbyItemsOptionalTotal(t *testing.T) {
 	// 501 条内部前瞻不能被外部 500 条上限误判为无效并重置为 50。
 	for _, sql := range []string{
 		`INSERT INTO libraries(id,name,type,path) VALUES ('movies-2','Movies 2','movie','/fixture/movies-2')`,
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'extra-'||n,'movie','Extra '||n,'local' FROM generate_series(1,501) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'extra-'||n,'movie','Extra '||n,'local' FROM generate_series(1,501) n`),
 		`INSERT INTO media(id,metadata_id,library_id,path,season_num,episode_num) SELECT 'extra-file-'||n,'extra-'||n,'movies','/fixture/movies/more/'||n,0,0 FROM generate_series(1,501) n`,
 		`INSERT INTO people(id,name,original_name,normalized_name,source) SELECT 'person-'||n,'Person '||n,'Person '||n,'person '||n,'local' FROM generate_series(1,501) n`,
 	} {

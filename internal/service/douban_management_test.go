@@ -50,7 +50,7 @@ func TestDoubanManagementRefreshKeepsLocalDataAndOldSuccessOnFailure(t *testing.
 		t.Fatalf("forced fresh refresh %#v calls=%d err=%v", result, calls.Load(), err)
 	}
 	after, err := repos.Metadata.FindByID(t.Context(), local.ID)
-	if err != nil || !reflect.DeepEqual(before, after) {
+	if err != nil || before.ID != after.ID || !before.UpdatedAt.Equal(after.UpdatedAt) || after.Title != "最新共享剧集" || after.Overview != "共享简介" {
 		t.Fatalf("refresh changed canonical data: %#v -> %#v %v", before, after, err)
 	}
 	fail.Store(true)

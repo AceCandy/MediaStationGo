@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,9 +44,9 @@ func newEpisodeProbeTestEnv(t *testing.T, source string) (*EmbyService, *model.M
 ('series','visible','series','series','Series',NULL,0,0),('season1','visible','season1','season','First','series',1,0),('season2','visible','season2','season','Second','series',2,0),
 ('ep1','visible','ep1','episode','First','season1',0,1),('ep2','visible','ep2','episode','Next','season1',0,2),('ep3','visible','ep3','episode','Later','season1',0,3),('other2','visible','other2','episode','Other','season2',0,2)`}
 	default:
-		statements = []string{`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) VALUES
+		statements = []string{testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num,episode_num", `VALUES
 ('series','series','Series','local',NULL,0,0),('season1','season','First','local','series',1,0),('season2','season','Second','local','series',2,0),
-('ep1','episode','First','local','season1',0,1),('ep2','episode','Next','local','season1',0,2),('ep3','episode','Later','local','season1',0,3),('other2','episode','Other','local','season2',0,2)`}
+('ep1','episode','First','local','season1',0,1),('ep2','episode','Next','local','season1',0,2),('ep3','episode','Later','local','season1',0,3),('other2','episode','Other','local','season2',0,2)`)}
 	}
 	for _, sql := range statements {
 		if err := db.Exec(sql).Error; err != nil {

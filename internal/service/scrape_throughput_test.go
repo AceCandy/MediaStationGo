@@ -67,9 +67,6 @@ func TestWakeScrapeWorkerSignalsThreeMediaWorkers(t *testing.T) {
 	if got := len(scraper.mediaScrapeWake); got != autoMediaScrapeWorkerCount {
 		t.Fatalf("media wake signals = %d, want %d", got, autoMediaScrapeWorkerCount)
 	}
-	if got := len(scraper.catalogHydrationWake); got != 1 {
-		t.Fatalf("catalog wake signals = %d, want 1", got)
-	}
 }
 
 func TestKnownTMDbIDReusesLoadedDetails(t *testing.T) {
@@ -206,7 +203,7 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.AutoMigrate(&model.MediaProbeMetadata{}, &model.MetadataArtworkRecheck{}); err != nil {
+	if err := repos.DB.AutoMigrate(&model.MediaProbeMetadata{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,7 +211,6 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 	log := zap.New(core)
 	var activeSearches atomic.Int32
 	var maxSearches atomic.Int32
-	var catalogCalls atomic.Int32
 	allSearchesStarted := make(chan struct{})
 	releaseSearches := make(chan struct{})
 	var startedOnce sync.Once
@@ -242,9 +238,6 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 			id, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/movie/"))
 			name := map[int]string{101: "Alpha", 102: "Bravo", 103: "Charlie"}[id]
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "title": name, "original_title": name})
-		case strings.HasPrefix(r.URL.Path, "/movie/999"):
-			catalogCalls.Add(1)
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": 999, "title": "Catalog Movie"})
 		case strings.HasPrefix(r.URL.Path, "/movie/"):
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"original_language":    "en",
@@ -272,28 +265,19 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 	if err := repos.DB.Create(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Metadata.EnqueueCatalogJob(t.Context(), "tmdb", model.MetadataKindMovie, "999"); err != nil {
-		t.Fatal(err)
-	}
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(func() {
 		cancel()
-		scraper.WaitCatalogHydrationWorker()
+		scraper.WaitBackgroundWorkers()
 	})
-	scraper.StartCatalogHydrationWorker(ctx)
+	scraper.StartMediaScrapeWorkers(ctx)
 	select {
 	case <-allSearchesStarted:
 	case <-time.After(10 * time.Second):
 		t.Fatal("three media workers did not overlap")
 	}
-	var catalogJob model.CatalogHydrationJob
-	if err := repos.DB.Where("external_id = ?", "999").First(&catalogJob).Error; err != nil {
-		t.Fatal(err)
-	}
-	if catalogJob.Status == model.CatalogJobStatusRunning || catalogCalls.Load() != 0 {
-		t.Fatalf("catalog started while media was active: status=%s calls=%d", catalogJob.Status, catalogCalls.Load())
-	}
+
 	close(releaseSearches)
 
 	deadline := time.Now().Add(10 * time.Second)
@@ -311,7 +295,7 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()
-	scraper.WaitCatalogHydrationWorker()
+	scraper.WaitBackgroundWorkers()
 
 	if maxSearches.Load() != autoMediaScrapeWorkerCount {
 		t.Fatalf("max concurrent searches = %d, want %d", maxSearches.Load(), autoMediaScrapeWorkerCount)

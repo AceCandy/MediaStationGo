@@ -20,9 +20,10 @@ func TestDoubanEnrichmentCandidateJSONAndPagination(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
+			if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.TMDbSubject{}, &model.TMDbPersonProfile{}, &model.TMDbPayload{}, &model.TMDbCredit{}, &model.TMDbArtwork{}, &model.TMDbRefreshJob{}, &model.TMDbQueryCache{}, &model.MetadataIdentifier{}, &model.DoubanSubject{}, &model.ArtworkAsset{}); err != nil {
 				t.Fatal(err)
 			}
+			ensureSourcePresentationTestSchema(t, db)
 			cutoff := time.Now().UTC().Add(-24 * time.Hour)
 			cases := []struct {
 				payload   string
@@ -79,10 +80,10 @@ func TestDoubanEnrichmentCandidateJSONAndPagination(t *testing.T) {
 				if err := db.Create(&asset).Error; err != nil {
 					t.Fatal(err)
 				}
-				if err := db.Create(&model.MetadataArtworkCandidate{MetadataID: item.ID, AssetID: asset.ID, ArtworkType: "poster", SourceProvider: "douban"}).Error; err != nil {
+				if err := db.Model(&model.DoubanSubject{}).Where("douban_id=? AND entity_kind=?", fmt.Sprint(i), kind).Update("poster_asset_id", asset.ID).Error; err != nil {
 					t.Fatal(err)
 				}
-				if tc.want {
+				if !tc.recent && !tc.wrongKind && !tc.ambiguous {
 					want = append(want, item.ID)
 				}
 			}

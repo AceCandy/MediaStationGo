@@ -57,7 +57,7 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 		t.Fatal("invalid checkpoint accepted")
 	}
 	var n int64
-	if err := db.Model(&model.HongGuoDiscovery{}).Count(&n).Error; err != nil || n != 0 {
+	if err := db.Model(&model.HongGuoWork{}).Count(&n).Error; err != nil || n != 0 {
 		t.Fatalf("page not rolled back: %d %v", n, err)
 	}
 	cutoff := time.Now()
@@ -67,7 +67,7 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	if ids, err := r.SaveDiscoveryPageWithNew(ctx, works, state); err != nil || len(ids) != 0 {
 		t.Fatalf("repeat category counted as new: %v %v", ids, err)
 	}
-	var discovery model.HongGuoDiscovery
+	var discovery model.HongGuoWork
 	if err := db.First(&discovery, "source_id = ?", "96001").Error; err != nil || discovery.SourceCategory != "real-drama" {
 		t.Fatalf("source category not saved: %+v %v", discovery, err)
 	}
@@ -141,5 +141,62 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	}
 	if ids, err := r.SaveDiscoveryPageWithNew(ctx, []hongguo.Work{{SourceID: "96003", Title: "已有正式作品"}}, state); err != nil || len(ids) != 0 {
 		t.Fatalf("canonical work counted as new: %v %v", ids, err)
+	}
+}
+
+func TestHongGuoSummaryCannotEnterDetailQueues(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.HongGuoModels()...); err != nil {
+		t.Fatal(err)
+	}
+	r, ctx := New(db).HongGuo, t.Context()
+	if err := r.SaveDiscoveryPage(ctx, []hongguo.Work{{SourceID: "97001", Title: "摘要", EpisodeCount: 80}}, model.HongGuoSyncState{Category: "real-drama"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.FindBySourceID(ctx, "97001"); err != gorm.ErrRecordNotFound {
+		t.Fatalf("summary admitted as detail: %v", err)
+	}
+	if rows, err := r.WorksAfter(ctx, "", 100); err != nil || len(rows) != 0 {
+		t.Fatalf("summary entered ordinary refresh: %+v %v", rows, err)
+	}
+	if rows, err := r.PendingAlbums(ctx, "", time.Now()); err != nil || len(rows) != 0 {
+		t.Fatalf("summary entered album queue: %+v %v", rows, err)
+	}
+	if err := r.SaveAlbum(ctx, "97001", hongguo.Album{ID: "97001", Season: 1}); err != gorm.ErrRecordNotFound {
+		t.Fatalf("summary acquired album: %v", err)
+	}
+	if _, err := r.SaveDetail(ctx, hongguo.Work{SourceID: "97001", Title: "失败详情", EpisodeCount: 1, People: []hongguo.Person{{SourceID: "bad", Name: "无效"}}, Snapshot: []byte(`{}`)}); err == nil {
+		t.Fatal("invalid detail accepted")
+	}
+	rows, err := r.PendingDiscoveries(ctx, "", time.Now())
+	if err != nil || len(rows) != 1 || rows[0].Title != "摘要" {
+		t.Fatalf("failed upgrade lost summary: %+v %v", rows, err)
+	}
+	var n int64
+	if err := db.Model(&model.HongGuoEpisode{}).Count(&n).Error; err != nil || n != 0 {
+		t.Fatalf("failed upgrade leaked episodes: %d %v", n, err)
+	}
+	if _, err := r.SaveDetail(ctx, hongguo.Work{SourceID: "97002", Title: "完整详情", Snapshot: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SaveDiscoveryPage(ctx, []hongguo.Work{{SourceID: "97002", Title: "旧摘要", EpisodeCount: 99}}, model.HongGuoSyncState{Category: "real-drama"}); err != nil {
+		t.Fatal(err)
+	}
+	work, err := r.FindBySourceID(ctx, "97002")
+	if err != nil || work.Title != "完整详情" || work.EpisodeCount != 0 || work.SourceCategory != "real-drama" {
+		t.Fatalf("detail priority lost: %+v %v", work, err)
+	}
+	if err := r.SetSourceCategory(ctx, "97002", "ai-drama"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ReplaceRank(ctx, "hot-real-drama", "real-drama", []hongguo.Work{{SourceID: "97002", Title: "旧榜单"}}); err != nil {
+		t.Fatal(err)
+	}
+	work, err = r.FindBySourceID(ctx, "97002")
+	if err != nil || work.SourceCategory != "ai-drama" || work.Title != "完整详情" {
+		t.Fatalf("rank replaced detail: %+v %v", work, err)
 	}
 }

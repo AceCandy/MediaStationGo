@@ -2,29 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronUp, Home } from 'lucide-react'
 
 import { filesAPI, type FileEntry, type FileListing } from '../api/files'
-import { libraryAPI } from '../api/library'
-import type { Library } from '../types'
-import { AutoOrganizeSettingsPanel } from './AutoOrganizeSettingsPanel'
 import { FileBrowserRoots } from './FileBrowserRoots'
 import { FileEntriesTable } from './FileEntriesTable'
 import { FileManagerToolbar } from './FileManagerToolbar'
 import { FileOperationsPanel } from './FileOperationsPanel'
-import { ManualOrganizePanel } from './ManualOrganizePanel'
-import { useAutoOrganizeSettings } from './useAutoOrganizeSettings'
 import { useFileOperations } from './useFileOperations'
-import { useManualOrganize } from './useManualOrganize'
 
 // FileManagerPage provides a focused local storage view:
 // browse allowed roots, optionally recurse, and perform safe local operations.
 export function FileManagerPage() {
-  const [libraries, setLibraries] = useState<Library[]>([])
   const [path, setPath] = useState('')
   const [data, setData] = useState<FileListing | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [recursive, setRecursive] = useState(false)
-  const [scrapeAfter, setScrapeAfter] = useState(true)
-  const autoOrganize = useAutoOrganizeSettings({ onScrapeAfterChange: setScrapeAfter })
 
   const currentDir = useMemo(() => {
     if (data?.path) return data.path
@@ -49,22 +40,7 @@ export function FileManagerPage() {
     refresh()
   }, [refresh])
 
-  useEffect(() => {
-    libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => undefined)
-  }, [])
-
   const fileOperations = useFileOperations({ currentDir, path, refresh })
-  const manualOrganize = useManualOrganize({
-    currentDir,
-    localLibraries: libraries,
-    selectedPath: fileOperations.selected?.path,
-    selectedPaths: fileOperations.selectedPaths,
-    scrapeAfter,
-    onScrapeAfterChange: setScrapeAfter,
-    onClearSelected: () => fileOperations.setSelectedPaths([]),
-    refresh,
-  })
-
   const enter = (e: FileEntry) => {
     if (e.is_dir) setPath(e.path)
   }
@@ -77,47 +53,6 @@ export function FileManagerPage() {
         onRefresh={refresh}
         onRecursiveChange={setRecursive}
       />
-
-      <AutoOrganizeSettingsPanel
-        config={autoOrganize.config}
-        currentDir={currentDir}
-        activeTab={autoOrganize.activeTab}
-        dirty={autoOrganize.dirty}
-        loading={autoOrganize.loading}
-        saving={autoOrganize.saving}
-        running={autoOrganize.running}
-        onRefresh={autoOrganize.refresh}
-        onSave={() => void autoOrganize.save()}
-        onRunNow={autoOrganize.runNow}
-        onTabChange={autoOrganize.setActiveTab}
-        onConfigChange={autoOrganize.changeConfig}
-      />
-
-      {data?.path && (
-        <ManualOrganizePanel
-          organizeSource={manualOrganize.organizeSource}
-          selectedCount={fileOperations.selectedPaths.length}
-          localLibraries={libraries}
-          organizeLibraryID={manualOrganize.organizeLibraryID}
-          organizeDestPath={manualOrganize.organizeDestPath}
-          organizeMediaType={manualOrganize.organizeMediaType}
-          organizeTransferMode={manualOrganize.organizeTransferMode}
-          scanAfter={manualOrganize.scanAfter}
-          scrapeAfter={scrapeAfter}
-          organizeReady={manualOrganize.organizeReady}
-          organizeBusy={manualOrganize.organizeBusy}
-          previewItems={manualOrganize.previewItems}
-          onClearSelected={() => fileOperations.setSelectedPaths([])}
-          onLibraryChange={manualOrganize.setOrganizeLibraryID}
-          onDestPathChange={manualOrganize.setOrganizeDestPath}
-          onMediaTypeChange={manualOrganize.setOrganizeMediaType}
-          onTransferModeChange={manualOrganize.setOrganizeTransferMode}
-          onScanAfterChange={manualOrganize.setScanAfter}
-          onScrapeAfterChange={manualOrganize.onScrapeAfterChange}
-          onPreview={manualOrganize.preview}
-          onRun={manualOrganize.run}
-        />
-      )}
 
       {data?.path && (
         <FileOperationsPanel

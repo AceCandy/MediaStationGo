@@ -47,7 +47,7 @@ func TestEmbyMovieLibrarySeasonNumbersStayMovies(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		PermanentBase: model.PermanentBase{ID: "metadata-movie-with-episode-numbers"}, Kind: model.MetadataKindMovie,
 		Title: "Movie Mistaken S01E01", Source: "tmdb",
 	})
@@ -278,11 +278,11 @@ func TestEmbyMovieLibraryGroupsEpisodicContentIntoSeries(t *testing.T) {
 	// 原混合候选保留作排序/总数对照，包含越界空页。
 	db := svc.repo.DB
 	movies := filterLikelyEpisodicPathsFromMovieQuery(svc.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}), "").Where("media.library_id=?", lib.ID)).
-		Select("media.metadata_id AS id,'movie' AS kind," + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("media.metadata_id")
+		Joins("JOIN metadata_presentations release_metadata ON release_metadata.id=media.metadata_id").Select("media.metadata_id AS id,'movie' AS kind," + embyReleaseOrderSQL("release_metadata") + " AS sort_at").Group("media.metadata_id")
 	clause, args := embyLikelyEpisodicPathSQL()
 	episodes := seriesScopeQuery(svc.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}), "").Where("media.library_id=?", lib.ID)).
 		Where("(media.season_num>0 OR media.episode_num>0) AND ("+clause+")", args...).
-		Select("scope_series.id AS id,'series' AS kind," + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("scope_series.id")
+		Joins("JOIN metadata_presentations release_metadata ON release_metadata.id=media.metadata_id").Select("scope_series.id AS id,'series' AS kind," + embyReleaseOrderSQL("release_metadata") + " AS sort_at").Group("scope_series.id")
 	var expected []struct{ ID, Kind string }
 	if err := db.Table("(?) works", db.Raw("? UNION ALL ?", movies, episodes)).Order("sort_at DESC,kind DESC,id DESC").Scan(&expected).Error; err != nil {
 		t.Fatal(err)

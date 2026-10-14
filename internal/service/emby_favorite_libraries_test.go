@@ -32,10 +32,10 @@ func TestFavoriteLibraryMembershipSourcesAndVisibility(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	movie := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "Movie", Source: "local"})
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "Series", Source: "local"})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", Title: "Season", Source: "local", ParentID: &series.ID})
-	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", Title: "Episode", Source: "local", ParentID: &season.ID, EpisodeNum: 1})
+	movie := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "Movie", Source: "local"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "Series", Source: "local"})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "season", Title: "Season", Source: "local", ParentID: &series.ID})
+	episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: "episode", Title: "Episode", Source: "local", ParentID: &season.ID, EpisodeNum: 1})
 	for _, id := range []string{movie.ID, episode.ID} {
 		for _, lib := range libs {
 			for version := 0; version < 2; version++ {

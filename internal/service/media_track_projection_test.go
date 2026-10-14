@@ -55,7 +55,7 @@ func TestGetMediaAddsCompleteTracksButListsStayScalar(t *testing.T) {
 }
 
 func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.ArtworkAsset{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Series", Path: "/media/series", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -69,10 +69,17 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err := db.Create(&model.MetadataIdentifier{MetadataID: episode.ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "200"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: episode.ID, Provider: "tmdb", Payload: `{"id":200}`, FetchedAt: time.Now().UTC()}); err != nil {
+	if err := testdb.SaveProviderDataFixture(db, model.ProviderData{MetadataID: episode.ID, Provider: "tmdb", Payload: `{"id":200,"still_path":"/still.jpg"}`, FetchedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repos.Artwork.SaveSelection(t.Context(), episode.ID, model.ArtworkTypeStill, "tmdb", "https://image.test/still.jpg", &model.ArtworkAsset{SHA256: "tmdb-still", StorageKey: "tmdb/still.jpg", MimeType: "image/jpeg"}); err != nil {
+	var subject model.TMDbSubject
+	if err := db.Where("kind='episode' AND tmdb_id=200").First(&subject).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.TMDbArtwork{SubjectID: subject.ID, Type: "still", SourcePath: "/still.jpg", Status: "pending"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repos.Artwork.SaveSourceArtwork(t.Context(), episode.ID, model.ArtworkTypeStill, "https://image.test/still.jpg", &model.ArtworkAsset{SHA256: "tmdb-still", StorageKey: "tmdb/still.jpg", MimeType: "image/jpeg"}); err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{PermanentBase: model.PermanentBase{ID: "media-provider-detail"}, MetadataID: episode.ID, LibraryID: lib.ID, Title: "Episode", Path: "/media/series/s01e02.mkv"}
@@ -94,9 +101,14 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err := repos.Metadata.SaveProviderData(t.Context(), movie.ID, "douban", []byte(`{"subject":{}}`), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := repos.Artwork.SaveCandidate(t.Context(), movie.ID, model.ArtworkTypePoster, "douban", "https://image.test/poster.jpg", &model.ArtworkAsset{SHA256: "douban-poster", StorageKey: "douban/poster.jpg", MimeType: "image/jpeg"}); err != nil {
+	poster, err := repos.Artwork.SaveAsset(t.Context(), &model.ArtworkAsset{SHA256: "douban-poster", StorageKey: "douban/poster.jpg", MimeType: "image/jpeg"})
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Model(&model.DoubanSubject{}).Where("douban_id=? AND entity_kind='movie'", "1295644").Update("poster_asset_id", poster.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	movieMedia := model.Media{PermanentBase: model.PermanentBase{ID: "movie-provider-detail"}, MetadataID: movie.ID, LibraryID: lib.ID, Title: "Movie", Path: "/media/movie.mkv"}
 	if err := db.Create(&movieMedia).Error; err != nil {
 		t.Fatal(err)

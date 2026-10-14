@@ -83,6 +83,9 @@ func TestHongGuoLibraryPagingAndLatest(t *testing.T) {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 		t.Fatal(err)
 	}
@@ -260,6 +263,9 @@ func TestHongGuoLibraryDateCreatedPlan(t *testing.T) {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 		t.Fatal(err)
 	}
@@ -380,6 +386,9 @@ func TestHongGuoLibraryPagePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
@@ -813,6 +822,9 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureMetadataPresentationSchema(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {

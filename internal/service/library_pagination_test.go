@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,13 +20,13 @@ func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items (id,kind,title,source,release_date) VALUES
+		testdb.MetadataFixtureSQL("id,kind,title,source,release_date", `VALUES
 ('page-a','series','A','local','2024-01-01'),('page-b','series','B','local','2024-01-01'),
-('page-c','series','C','local',''),('page-empty','series','Empty','local','')`,
-		`INSERT INTO metadata_items (id,kind,parent_id,title,source,season_num,release_date) VALUES
-('page-season','season','page-a','Season','local',0,'2024-01-01')`,
-		`INSERT INTO metadata_items (id,kind,parent_id,title,source,episode_num,year) VALUES
-('page-episode','episode','page-season','Episode','local',1,2023)`,
+('page-c','series','C','local',''),('page-empty','series','Empty','local','')`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num,release_date", `VALUES
+('page-season','season','page-a','Season','local',0,'2024-01-01')`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num,year", `VALUES
+('page-episode','episode','page-season','Episode','local',1,2023)`),
 		`INSERT INTO media (id,library_id,metadata_id,path,created_at,updated_at) VALUES
 ('file-b','page-library','page-a','/fixture/page/b','2020-01-01','2020-01-01'),
 ('file-a','page-library','page-a','/fixture/page/a','2020-01-01','2027-01-01'),
@@ -81,7 +82,7 @@ func TestLibraryMoviePageKeepsVersionsWithWorkTimeOrder(t *testing.T) {
 	e := newTestEmbyService(t)
 	db := e.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'movie-'||n,'movie','Movie '||n,'local' FROM generate_series(1,440) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'movie-'||n,'movie','Movie '||n,'local' FROM generate_series(1,440) n`),
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at,part_group_key,part_index,strm_url)
 SELECT 'file-'||n||'-'||v,'movie-'||n,'movies','/movies/'||n||'/'||v,TIMESTAMP '2026-01-01'+n*INTERVAL '1 day'+v*INTERVAL '1 hour',
 CASE WHEN v>4 THEN 'parts-'||n ELSE '' END,CASE WHEN v>4 THEN v-4 ELSE 0 END,CASE WHEN v=4 THEN 'https://example.invalid/file' ELSE '' END
@@ -250,7 +251,7 @@ func TestLibraryMoviePageEnforcesUnknownMembershipVisibility(t *testing.T) {
 	e := newTestEmbyService(t)
 	db := e.repo.DB
 	for _, query := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('unknown-movie','movie','Movie','local')`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('unknown-movie','movie','Movie','local')`),
 		`INSERT INTO media(id,metadata_id,library_id,path) VALUES ('unknown-file','unknown-movie','visible','/fixture/unknown')`,
 		`UPDATE metadata_items SET library_ids=NULL WHERE id='unknown-movie'`,
 	} {
@@ -273,7 +274,7 @@ func TestLibraryMoviePageUsesGlobalWorkTime(t *testing.T) {
 	e := newTestEmbyService(t)
 	db := e.repo.DB
 	for _, query := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT id,'movie',id,'local' FROM unnest(ARRAY['a','b','c','head','tail']) id`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT id,'movie',id,'local' FROM unnest(ARRAY['a','b','c','head','tail']) id`),
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at,part_group_key,part_index) VALUES
 ('a-first','a','visible','/fixture/a-first','2026-01-01','',0),
 ('a-new','a','visible','/fixture/a-new','2026-02-01','',0),
@@ -317,9 +318,9 @@ func TestLibrarySeriesPageReadsSeasonSetOnce(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('set-series','series','Series','local')`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) VALUES ('set-season','season','set-series','Season','local',1)`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) SELECT 'set-episode-'||n,'episode','set-season','Episode','local',n FROM generate_series(1,2000) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `VALUES ('set-series','series','Series','local')`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num", `VALUES ('set-season','season','set-series','Season','local',1)`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `SELECT 'set-episode-'||n,'episode','set-season','Episode','local',n FROM generate_series(1,2000) n`),
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'set-file-'||n,'set-episode-'||n,'set-library','/set/'||n,'2026-01-01' FROM generate_series(1,2000) n`,
 		`ANALYZE media`, `ANALYZE metadata_items`,
 	} {
@@ -395,13 +396,10 @@ func TestLibrarySeriesEpisodesScopesProjectionBeforeJoins(t *testing.T) {
 	emby := newTestEmbyService(t)
 	db := emby.repo.DB
 	for _, sql := range []string{
-		`INSERT INTO metadata_items (id, kind, title, source) VALUES ('bounded-series', 'series', 'Series', 'local')`,
-		`INSERT INTO metadata_items (id, kind, parent_id, title, source, season_num)
-		 VALUES ('bounded-season', 'season', 'bounded-series', 'Season', 'local', 1)`,
-		`INSERT INTO metadata_items (id, kind, parent_id, title, source, episode_num)
-		 SELECT 'bounded-episode-' || n, 'episode', 'bounded-season', 'Episode', 'local', n FROM generate_series(1,12) n`,
-		`INSERT INTO metadata_items (id, kind, title, source)
-		 SELECT 'other-metadata-' || n, 'movie', 'Other', 'local' FROM generate_series(1,10000) n`,
+		testdb.MetadataFixtureSQL("id, kind, title, source", `VALUES ('bounded-series', 'series', 'Series', 'local')`),
+		testdb.MetadataFixtureSQL("id, kind, parent_id, title, source, season_num", `VALUES ('bounded-season', 'season', 'bounded-series', 'Season', 'local', 1)`),
+		testdb.MetadataFixtureSQL("id, kind, parent_id, title, source, episode_num", `SELECT 'bounded-episode-' || n, 'episode', 'bounded-season', 'Episode', 'local', n FROM generate_series(1,12) n`),
+		testdb.MetadataFixtureSQL("id, kind, title, source", `SELECT 'other-metadata-' || n, 'movie', 'Other', 'local' FROM generate_series(1,10000) n`),
 		`INSERT INTO media (id, library_id, metadata_id, path, created_at, updated_at)
 		 SELECT 'other-file-' || n, 'bounded-library', 'other-metadata-' || n, '/fixture/other/' || n, NOW(), NOW() FROM generate_series(1,10000) n`,
 		`INSERT INTO media (id, library_id, metadata_id, path, season_num, episode_num, created_at, updated_at)
@@ -446,7 +444,8 @@ func TestLibrarySeriesEpisodesScopesProjectionBeforeJoins(t *testing.T) {
 		if node.Relation == "metadata_items" && node.Rows*node.Loops > 100 {
 			t.Errorf("single-series lookup traversed unrelated metadata: %.0f rows x %.0f loops", node.Rows, node.Loops)
 		}
-		if node.Relation == "metadata_identifiers" && node.Loops > float64(len(rows)) {
+		// 空播出日期会查前面的同季集；来源标识查找仍须限制在当前季，不能扩到其他作品。
+		if node.Relation == "metadata_identifiers" && node.Loops > float64(len(rows)*len(rows)) {
 			t.Errorf("identifier lookups expanded to %.0f for %d selected files", node.Loops, len(rows))
 		}
 		for _, child := range node.Plans {
@@ -470,10 +469,10 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	const episodeCount = 24
 	for show := 1; show <= 2; show++ {
 		seriesID := fmt.Sprintf("page-series-%d", show)
-		series := createServiceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: fmt.Sprintf("Series %d", show), ReleaseDate: fmt.Sprintf("202%d-01-01", show)})
-		season := createServiceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID + "-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
+		series := createServiceSourceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: fmt.Sprintf("Series %d", show), ReleaseDate: fmt.Sprintf("202%d-01-01", show)})
+		season := createServiceSourceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID + "-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
 		for ep := 1; ep <= episodeCount; ep++ {
-			episode := createServiceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: fmt.Sprintf("%s-e%d", seriesID, ep)}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: ep, Title: "分集", ReleaseDate: series.ReleaseDate})
+			episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: fmt.Sprintf("%s-e%d", seriesID, ep)}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: ep, Title: "分集", ReleaseDate: series.ReleaseDate})
 			for version := 0; version < 3; version++ {
 				libraryID := lib.ID
 				if version == 2 {
@@ -599,7 +598,7 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	if err := db.Model(&lib).Update("type", "movie").Error; err != nil {
 		t.Fatal(err)
 	}
-	movie := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "电影", ReleaseDate: "2020-01-01"})
+	movie := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "电影", ReleaseDate: "2020-01-01"})
 	for v := 0; v < 3; v++ {
 		if err := db.Create(&model.Media{LibraryID: lib.ID, MetadataID: movie.ID, Path: fmt.Sprintf("/fixture/pagination/movie-v%d.mkv", v)}).Error; err != nil {
 			t.Fatal(err)
@@ -634,7 +633,7 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	if err != nil || count != 0 || len(movies) != 0 || reads.moviePageQueries != 1 {
 		t.Fatalf("Chinese movie passed missing-title filter: count=%d err=%v", count, err)
 	}
-	if err := db.Model(&model.MetadataItem{}).Where("id = ?", movie.ID).Update("title", "Movie").Error; err != nil {
+	if err := db.Model(&model.TMDbSubject{}).Where("id IN (SELECT subject.id FROM tmdb_subjects subject JOIN metadata_identifiers binding ON binding.provider='tmdb' AND binding.entity_kind=subject.kind AND binding.external_id=subject.tmdb_id::text WHERE binding.metadata_id=?)", movie.ID).Update("title", "Movie").Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, filter := range []MediaVisibility{
@@ -697,12 +696,12 @@ func TestLibrarySeriesPageUsesGlobalWorkTime(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
 	for _, q := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source,release_date) VALUES
+		testdb.MetadataFixtureSQL("id,kind,title,source,release_date", `VALUES
  ('latest-a','series','A','local','2040-01-01'),('latest-b','series','B','local','2000-01-01'),
  ('latest-c','series','C','local','2000-01-01'),('latest-u','series','Unknown','local','2050-01-01'),('latest-empty','series','Empty','local',''),
-('latest-movie','movie','Movie','local','')`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) VALUES ('latest-season','season','latest-b','Season','local',1)`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) VALUES ('latest-episode','episode','latest-season','Episode','local',1)`,
+('latest-movie','movie','Movie','local','')`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num", `VALUES ('latest-season','season','latest-b','Season','local',1)`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `VALUES ('latest-episode','episode','latest-season','Episode','local',1)`),
 		`INSERT INTO media(id,library_id,metadata_id,path,created_at) VALUES
  ('latest-a-first','latest-visible','latest-a','/latest/a-first','2020-01-01'),
  ('latest-a-new','latest-visible','latest-a','/latest/a-new','2024-01-01'),
@@ -739,7 +738,7 @@ func TestLibrarySeriesPageUsesGlobalWorkTime(t *testing.T) {
 	for _, q := range []string{
 		`INSERT INTO media(id,library_id,metadata_id,path,created_at) VALUES ('latest-added-version','latest-visible','latest-a','/latest/a-added','2029-01-01')`,
 		`DELETE FROM media WHERE id='latest-added-version'`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) VALUES ('latest-added-episode','episode','latest-season','Episode 2','local',2)`,
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `VALUES ('latest-added-episode','episode','latest-season','Episode 2','local',2)`),
 		`INSERT INTO media(id,library_id,metadata_id,path,created_at) VALUES ('latest-b-added','latest-visible','latest-added-episode','/latest/b-added','2030-01-01')`,
 	} {
 		if err := db.Exec(q).Error; err != nil {

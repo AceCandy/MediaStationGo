@@ -182,49 +182,6 @@ func cloneLocalMetadata(src *LocalMetadata) *LocalMetadata {
 	return &copy
 }
 
-func (s *ScraperService) applyLocalMetadataMatch(ctx context.Context, m *model.Media, local *LocalMetadata) error {
-	next := *m
-	applyLocalMetadata(&next, local)
-	lib, err := s.repo.Library.FindByID(ctx, m.LibraryID)
-	if err != nil {
-		return err
-	}
-	persisted, err := s.persistLocalMetadata(ctx, &next, lib, local)
-	if err != nil {
-		return s.markScrapeError(ctx, m.ID, err)
-	}
-	updates := map[string]any{
-		"metadata_id":         persisted.Target.ID,
-		"scrape_status":       "matched",
-		"scrape_error":        "",
-		"local_metadata_hint": "",
-	}
-	if m.SeasonNum > 0 || m.EpisodeNum > 0 {
-		updates["season_num"] = m.SeasonNum
-	}
-	if m.EpisodeNum > 0 {
-		updates["episode_num"] = m.EpisodeNum
-	}
-	if next.SeasonNum > 0 || next.EpisodeNum > 0 {
-		updates["season_num"] = next.SeasonNum
-	}
-	if next.EpisodeNum > 0 {
-		updates["episode_num"] = next.EpisodeNum
-	}
-	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("id = ?", m.ID).Updates(updates).Error; err != nil {
-		return err
-	}
-	s.repo.MediaView.RefreshMetadataIDs(ctx, m.MetadataID, persisted.Target.ID)
-	s.invalidateMediaCache(ctx)
-	s.hub.Publish("scrape", map[string]any{
-		"media_id": m.ID,
-		"title":    persisted.Target.Title,
-		"source":   "local_nfo",
-	})
-	return nil
-}
-
 func (s *ScraperService) invalidateMediaCache(ctx context.Context) {
 	if s != nil && s.cache != nil {
 		s.cache.DeletePrefix(ctx, "media:")

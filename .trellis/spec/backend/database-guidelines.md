@@ -113,7 +113,7 @@ a primary-key conflict still fails and preserves the existing row.
 
 ### Concurrent Artwork Asset Reuse
 
-`ArtworkRepository`'s five asset writers and `NFORepository.Ingest` share
+TMDb, Douban and NFO asset writers share
 `artwork_assets`, whose source/category-scoped `storage_key` is unique. Use
 `clause.OnConflict{DoNothing: true}` without a conflict target, then reload
 the asset by storage key AND SHA-256 in the same transaction before saving any
@@ -124,9 +124,9 @@ existence check.
 Identical content reuses one asset within a source/category; different sources
 keep separate assets. A conflict without a matching SHA-256 must remain an error and
 roll back the association, never select an asset by storage key alone.
-`TestArtworkAssetConcurrentReuse` exercises all six writers with independent
+`TestArtworkAssetConcurrentReuse` exercises the active writers with independent
 PostgreSQL connections over repeated synchronized starts, checking shared IDs,
-selection/candidate/NFO links, unchanged asset attributes, and invalid-conflict
+source artwork and NFO links, unchanged asset attributes, and invalid-conflict
 rollback. Configure each connection's isolated schema explicitly; the default
 test connection pool of one cannot exercise concurrent database writes.
 
@@ -295,49 +295,23 @@ cancellation without activating the incomplete index.
 
 ### Background Translation Candidate Queries
 
-`idx_people_pending_translation` indexes `people(id)` only for live rows with
-non-empty, unchanged, non-Chinese original names. Its predicate must match
-`ListPendingPeopleTranslations`; cache language/version remain runtime filters.
-Verify index use with a generic parameterized LIMIT and a mostly ineligible
-population. Startup creation is idempotent and may briefly block people writes.
+People candidates read `person_presentations`: current TMDb profile names and
+source-matched translations, with independent local people retaining their own
+names. Filter Chinese names and active negative caches before LIMIT; Chinese
+matching uses U+4E00 through U+9FFF.
 
-Filter untranslated names/roles and active negative translation caches in SQL
-before applying limits. Chinese detection must match `containsChinese` exactly
-(U+4E00 through U+9FFF), not the broader title-localization regex. Cache matching
-includes kind, context, source, target language and prompt version; deleted
-caches do not suppress work and positive caches remain eligible for write-back.
+Role candidates read `tmdb_credits` directly, including subjects without local
+media. Keyset pagination uses `(subject_id,id)` and hydrates only page-local
+TMDb subjects and parents. Translation context and positive/negative caches use
+the source subject ID and current original text. Do not write translated roles
+into relationship copies or depend on metadata bindings.
 
-People are selected first, up to 1,000 groups. Roles keyset-page by
-`(metadata_id, id)` with only page-local metadata context hydration. The limit
-counts groups, not rows: keep collecting targets for selected season-role groups
-after the group limit, including later episodes/pages. This still scans the
-eligible role set; bounded result hydration does not guarantee bounded table
-scanning without a matching index.
-
-Role context hydration must include the current metadata and at most two parent
-levels. Season and episode roles send `series title / season title` to both the
-translation request and task detail, while their cache context remains the season
-ID. Missing parents fall back to the current metadata title. Regression coverage
-must include credits attached directly to a season and through an episode.
-
-Startup `ensurePerformanceIndexes` creates
-`idx_metadata_credits_type_pending_translation` on `(type, metadata_id, id)` where
-`original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`.
-Do not put parameterized Actor/GuestStar values in the index predicate: generic
-prepared plans cannot prove that bound values imply that predicate. Do not add
-unbounded role text to B-tree keys or INCLUDE columns. Creation is idempotent;
-the initial non-concurrent startup build can delay startup and block concurrent
-credit writes. `TestEnsurePerformanceIndexesCreatesHotPathIndexes` verifies
-repeat migration and actual index use with `force_generic_plan`.
-Create the type-leading index before dropping the superseded
-`idx_metadata_credits_pending_translation`. Keep the mixed Actor/GuestStar/
-Director/Writer fixture: omitting type from the index key scans unrelated crew
-roles even when the partial index is used. The generic plan must use an index
-condition, not scan all entries and discard Director/Writer via a filter.
-
-`TestPendingPeopleTranslationsFiltersBeforeLimit` and
-`TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit` must run on
-PostgreSQL. Do not replace group-aware collection with a raw row LIMIT.
+`idx_tmdb_credits_pending_roles` indexes `(subject_id,id)` for subject-origin
+cast rows with nonempty non-Chinese characters. Keep role text out of B-tree
+keys. `TestUnboundSourceRoleTranslationCandidates` verifies source-only subjects,
+translation suppression and an actual plan over 30,010 relationships.
+`TestPendingPeopleTranslationsFiltersBeforeLimit` and role grouping/page tests
+must run against PostgreSQL. The limit counts translation groups, not rows.
 
 ### Douban Enrichment Snapshot Reuse
 

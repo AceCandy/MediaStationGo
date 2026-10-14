@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"reflect"
 	"strings"
 	"testing"
@@ -40,15 +41,15 @@ func TestEmbyWorkBatchContinuesAndCounts(t *testing.T) {
 			switch source {
 			case "movie", "series":
 				setup = []string{
-					`INSERT INTO metadata_items(id,kind,title,source) SELECT 'work-'||n,'movie','Title '||n,'local' FROM generate_series(1,155) n`,
+					testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'work-'||n,'movie','Title '||n,'local' FROM generate_series(1,155) n`),
 					`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||n,'work-'||n,'batch-library','/fixture/batch/'||n,TIMESTAMP '2026-01-01'-n*INTERVAL '1 minute' FROM generate_series(1,155) n`,
 					`INSERT INTO playback_histories(id,user_id,metadata_id,media_id,completed) SELECT 'state-'||n,'viewer','work-'||n,'file-'||n,TRUE FROM generate_series(1,155) n WHERE n NOT IN (51,103,155)`,
 				}
 				if source == "series" {
 					prefix = "show-"
 					setup = append(setup,
-						`INSERT INTO metadata_items(id,kind,title,source) SELECT 'show-'||n,'series','Show '||n,'local' FROM generate_series(1,155) n`,
-						`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num) SELECT 'season-'||n,'season','Season','local','show-'||n,1 FROM generate_series(1,155) n`,
+						testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'show-'||n,'series','Show '||n,'local' FROM generate_series(1,155) n`),
+						testdb.MetadataFixtureSQL("id,kind,title,source,parent_id,season_num", `SELECT 'season-'||n,'season','Season','local','show-'||n,1 FROM generate_series(1,155) n`),
 						`UPDATE metadata_items SET kind='episode',parent_id='season-'||substring(id FROM 6),episode_num=1 WHERE id LIKE 'work-%'`,
 						`UPDATE media SET season_num=1,episode_num=1`)
 				}
@@ -234,7 +235,7 @@ func TestEmbyKnownMovieMembershipSkipsFileQualification(t *testing.T) {
 	e := newTestEmbyService(t)
 	db, ctx := e.repo.DB, t.Context()
 	for _, query := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'movie-'||n,'movie','Movie','local' FROM generate_series(1,3) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'movie-'||n,'movie','Movie','local' FROM generate_series(1,3) n`),
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'file-'||n,'movie-'||n,'movies','/fixture/'||n,TIMESTAMP '2026-01-01'+n*INTERVAL '1 hour' FROM generate_series(1,3) n`,
 	} {
 		if err := db.Exec(query).Error; err != nil {

@@ -486,27 +486,18 @@ if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
   expired query rows. Query responses never become complete subject data.
 - Successful subject writes invalidate Web media and Emby item/content caches.
   Display paths remain batched database reads with no per-item network request.
-- `douban_data_refresh` / “豆瓣资料刷新” is a separate default-off daily job,
-  using settings `metadata.douban_data_refresh_enabled` and
-  `metadata.douban_data_refresh_interval_seconds`. It belongs to Common Tasks with kind `douban_data_refresh` and scans due
-  Movie/Series rows directly in `douban_subjects`, including unbound subjects.
-  It refreshes only shared base details/ratings through the strict Rexxar Movie/TV
-  endpoint, with no subject fallback, HTML, celebrities or image requests.
-  Supplement age/missing data never selects a fresh base row. Count and selection
-  share the same base TTL/quality/retry predicate. Choose one bounded snapshot,
-  ordered by oldest `fetched_at NULLS FIRST`, then Douban ID/kind; default cap 100,
-  configurable 1–100 using `metadata.douban_data_refresh_count`. Preserve enabled
-  and interval keys. A cap is a subject count, not a physical HTTP-attempt cap.
-  Same-value success advances base freshness. Admission rechecks cache/backoff;
-  a concurrent fresh result, deferred retry or rejected late save is a skip.
-  Metrics report total eligible at start, selected, processed, changed, unchanged,
-  skipped, failed, remaining eligible at finish and actual HTTP attempts.
-  Successful base writes preserve all rich JSON/timestamps/retry and image keys.
-  Histories/logs remain independent.
-  A temporary upstream failure stops the batch, returns the original error,
-  records a failed execution/stage with a sanitized error, and increments
-  `failed` and `upstream_paused`; it must not report successful completion.
-  The existing enrichment job/key/cursor/history still performs local completion.
+- 电影/电视剧资料补全分别为 `douban_data_movie` / `douban_data_series`；
+  评分独立为 `douban_data_movie_rating` / `douban_data_series_rating`，均属于豆瓣任务体系。
+  默认关闭、一天周期、每轮最多 100 条（可配 1–100）。完整中文标题、简介、来源海报
+  齐全后不再自动刷新基础详情；沿用基础 TTL/失败退避，网页补充不影响补缺判断。
+- 评分沿用详情 TTL，但有独立 `rating_checked_at/rating_retry_at/rating_payload`；
+  严格使用 Rexxar，复用全局请求准入锁并在锁内重查。只更新评分证据和时间，
+  不修改 payload、基础时间、网页资料、图片。零分/无效分保留旧有效评分；CAS 拒绝迟到写入。
+  基础请求带回的评分不能覆盖更新的独立评分。评分变化失效媒体和 Emby 缓存。
+- `douban_data_images` 单独下载/修复共享海报，失败保留旧资产并退避一小时；
+  来源正文/摘要变化重新登记图片检查，图片失败不请求基础详情。
+- 旧 `douban_data_refresh` 和媒体侧豆瓣补齐/图片任务退出调度与运行入口，保留历史和日志；
+  新任务配置独立，旧配置保留以便回滚，不自动复制旧开关到多个任务。
 
 ### Saved Douban data in Discover
 - `/discover?system=douban` browses saved data. `/api/catalogs/douban/subjects`

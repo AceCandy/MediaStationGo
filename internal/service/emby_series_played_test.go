@@ -31,9 +31,9 @@ func TestEmbySeriesAndSeasonPlayedState(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "local"})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local"})
-	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "local"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "local"})
+	season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local"})
+	episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "local"})
 	// 没有探测时长也必须保留手动标记的完成状态。
 	media := model.Media{MetadataID: episode.ID, LibraryID: lib.ID, Path: "/fixture/shows/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1}
 	if err := db.Create(&media).Error; err != nil {
@@ -109,13 +109,13 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.visibilityCache = map[string]embyVisibilityCacheEntry{svc.repo.ReadCacheKey() + "viewer": {visibility: MediaVisibility{AllowedLibraryIDs: []string{lib.ID}}, expiresAt: time.Now().Add(time.Hour)}}
-	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "local"})
+	series := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "local"})
 	var seasons, episodes []string
 	for s := 0; s < 2; s++ {
-		season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: s, Title: fmt.Sprint("Season ", s), Source: "local"})
+		season := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: s, Title: fmt.Sprint("Season ", s), Source: "local"})
 		seasons = append(seasons, season.ID)
 		for n := 1; n <= 2; n++ {
-			episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: n, Title: "Episode", Source: "local"})
+			episode := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: n, Title: "Episode", Source: "local"})
 			episodes = append(episodes, episode.ID)
 			// 两个文件版本只对应一条作品历史。
 			for v := 0; v < 2; v++ {
@@ -125,12 +125,12 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 			}
 		}
 	}
-	missing := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &seasons[1], EpisodeNum: 3, Title: "Missing", Source: "local"})
+	missing := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &seasons[1], EpisodeNum: 3, Title: "Missing", Source: "local"})
 	event := model.PlaybackEvent{UserID: "viewer", MetadataID: episodes[0], SessionID: "fixture-session", PlayedAt: time.Now()}
 	if err := db.Create(&event).Error; err != nil {
 		t.Fatal(err)
 	}
-	hidden := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &seasons[1], EpisodeNum: 4, Title: "Hidden", Source: "local"})
+	hidden := createServiceSourceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &seasons[1], EpisodeNum: 4, Title: "Hidden", Source: "local"})
 	if err := db.Create(&model.Media{MetadataID: hidden.ID, LibraryID: "hidden-library", Path: "/fixture/hidden.mkv", SeasonNum: 1, EpisodeNum: 4}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -245,8 +245,8 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 		t.Fatalf("manual marks changed playback events: %d, %v", count, err)
 	}
 	// 跨越批量写入边界，在第二批失败时第一批也必须回滚。
-	if err := db.Exec(`INSERT INTO metadata_items (id, kind, parent_id, title, source, season_num, episode_num)
-		SELECT 'bulk-episode-' || n, 'episode', ?, 'Episode', 'local', 0, n
+	if err := db.Exec(`INSERT INTO metadata_items (id, kind, parent_id, source, season_num, episode_num)
+		SELECT 'bulk-episode-' || n, 'episode', ?, 'tmdb', 0, n
 		FROM generate_series(10,210) n`, seasons[1]).Error; err != nil {
 		t.Fatal(err)
 	}

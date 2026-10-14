@@ -54,7 +54,7 @@ export interface TaskDefinition {
   schedule?: string
   current_state: 'idle' | 'running'
   next_run?: string
-  action?: 'scheduler' | 'people_backfill' | 'probe_backfill' | 'media_scrape' | 'series_local_correction'
+  action?: 'scheduler' | 'probe_backfill' | 'media_scrape'
   current?: BackgroundTask
   latest?: BackgroundTask
   schedule_config?: TaskScheduleConfig
@@ -94,11 +94,11 @@ export const tasksAPI = {
   pendingCounts: (refresh = false, signal?: AbortSignal) =>
     api.get<TaskPendingCounts>('/tasks/pending-counts', { params: refresh ? { refresh: 1 } : undefined, signal }).then((r) => r.data),
 	recheckFiles: (id: string, page = 1, signal?: AbortSignal) =>
-		api.get<TMDbRecheckFilesPage>(`/tasks/definitions/tmdb_episode_metadata_recheck/pending/${encodeURIComponent(id)}/files`, { params: { page, page_size: 20 }, signal }).then((r) => r.data),
+		api.get<TMDbRecheckFilesPage>(`/tasks/definitions/tmdb_data_episode/pending/${encodeURIComponent(id)}/files`, { params: { page, page_size: 20 }, signal }).then((r) => r.data),
 	rechecks: (status = '', page = 1, signal?: AbortSignal, keyword = '', pageSize = 20) =>
-		api.get<TMDbRecheckPage>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { view: 'items', status, keyword: keyword || undefined, page, page_size: pageSize }, signal }).then((r) => r.data),
+		api.get<TMDbRecheckPage>('/tasks/definitions/tmdb_data_episode/pending', { params: { view: 'items', status, keyword: keyword || undefined, page, page_size: pageSize }, signal }).then((r) => r.data),
 	recheckSummary: (signal?: AbortSignal) =>
-		api.get<TMDbRecheckSummary>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { view: 'summary' }, signal }).then((r) => r.data),
+		api.get<TMDbRecheckSummary>('/tasks/definitions/tmdb_data_episode/pending', { params: { view: 'summary' }, signal }).then((r) => r.data),
   snapshot: (page = 1, pageSize = 30, system?: TaskSystem, signal?: AbortSignal, definitionsOnly = false) =>
     api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize, system, definitions_only: definitionsOnly ? 1 : undefined }, signal }).then((r) => r.data),
   log: (key: string, date?: string) =>

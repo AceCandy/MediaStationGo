@@ -153,20 +153,25 @@ func mediaMetadataIdentifiers(media *model.Media, entityKind string) []model.Met
 }
 
 func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) (string, error) {
+	previous, _, err := r.upsertWithResult(ctx, m)
+	return previous, err
+}
+
+func (r *MediaRepository) upsertWithResult(ctx context.Context, m *model.Media) (string, bool, error) {
 	existing, created, err := r.findOrCreateMediaByPath(ctx, m)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if created {
-		return "", nil
+		return "", true, nil
 	}
 	// 冲突复用的行可能在来源入口检查之后才插入，更新前必须重验归属。
 	if existing.CatalogSource != m.CatalogSource || (m.CatalogSource == model.CatalogSourceNFO && existing.LibraryID != m.LibraryID) {
-		return "", errors.New("不能把现有文件自动改绑到其他资料体系或本地资料库")
+		return "", false, errors.New("不能把现有文件自动改绑到其他资料体系或本地资料库")
 	}
 
 	updates := mediaUpsertUpdates(existing, *m)
-	return existing.MetadataID, r.applyMediaUpsertUpdates(ctx, m, existing, updates)
+	return existing.MetadataID, false, r.applyMediaUpsertUpdates(ctx, m, existing, updates)
 }
 
 func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.Media) (model.Media, bool, error) {

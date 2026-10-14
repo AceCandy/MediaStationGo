@@ -19,7 +19,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestManualRequestMatchFallsBackToCandidatePayload(t *testing.T) {
+func TestManualRequestMatchRejectsUnverifiedCandidatePayload(t *testing.T) {
 	scraper := &ScraperService{}
 	match, err := scraper.manualRequestMatch(t.Context(), ManualScrapeRequest{
 		Source:   "douban",
@@ -27,12 +27,10 @@ func TestManualRequestMatchFallsBackToCandidatePayload(t *testing.T) {
 		DoubanID: "1234567",
 		Year:     2026,
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || match != nil {
+		t.Fatalf("unverified manual payload accepted: %#v %v", match, err)
 	}
-	if match.Title != "手动选择的电影" || match.DoubanID != "1234567" || match.Year != 2026 {
-		t.Fatalf("fallback match = %#v", match)
-	}
+
 }
 
 func TestParsePositiveIDStringAcceptsProviderPrefixes(t *testing.T) {

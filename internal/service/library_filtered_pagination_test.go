@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -15,13 +16,10 @@ func TestLibraryFilteredSeriesPageWithStaleStatistics(t *testing.T) {
 	// 先统计旧库，再加入新库，复现新库文件数被低估；未关联文件和无文件目录均不得进入卡片。
 	for _, sql := range []string{
 		`ALTER TABLE media SET (autovacuum_enabled = false)`,
-		`INSERT INTO metadata_items (id,kind,title,source)
-SELECT 'series-' || n,'series','Series ' || n,'local' FROM generate_series(1,100) n`,
-		`INSERT INTO metadata_items (id,kind,parent_id,title,source,season_num)
-SELECT 'season-' || n,'season','series-' || n,'Season','local',1 FROM generate_series(1,100) n`,
-		`INSERT INTO metadata_items (id,kind,parent_id,title,source,episode_num)
-SELECT 'episode-' || s || '-' || n,'episode','season-' || s,'Episode','local',n
-FROM generate_series(1,100) s CROSS JOIN generate_series(1,200) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'series-' || n,'series','Series ' || n,'local' FROM generate_series(1,100) n`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num", `SELECT 'season-' || n,'season','series-' || n,'Season','local',1 FROM generate_series(1,100) n`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `SELECT 'episode-' || s || '-' || n,'episode','season-' || s,'Episode','local',n
+FROM generate_series(1,100) s CROSS JOIN generate_series(1,200) n`),
 		`INSERT INTO media (id,library_id,metadata_id,path,created_at,updated_at)
 SELECT 'old-' || n,'old-library','episode-1-1','/fixture/old/' || n,NOW(),NOW() FROM generate_series(1,10000) n`,
 		`ANALYZE media`,
@@ -98,9 +96,9 @@ func TestLibrarySeriesWorkFiltersBeforeFiles(t *testing.T) {
 	svc := newTestEmbyService(t)
 	db := svc.repo.DB
 	for _, query := range []string{
-		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'work-first-'||n,'series','Show '||n,'local' FROM generate_series(1,4) n`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) SELECT 'work-season-'||n,'season','work-first-'||n,'Season','local',1 FROM generate_series(1,4) n`,
-		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) SELECT 'work-episode-'||s||'-'||n,'episode','work-season-'||s,'Episode','local',n FROM generate_series(1,4) s CROSS JOIN generate_series(1,100) n`,
+		testdb.MetadataFixtureSQL("id,kind,title,source", `SELECT 'work-first-'||n,'series','Show '||n,'local' FROM generate_series(1,4) n`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,season_num", `SELECT 'work-season-'||n,'season','work-first-'||n,'Season','local',1 FROM generate_series(1,4) n`),
+		testdb.MetadataFixtureSQL("id,kind,parent_id,title,source,episode_num", `SELECT 'work-episode-'||s||'-'||n,'episode','work-season-'||s,'Episode','local',n FROM generate_series(1,4) s CROSS JOIN generate_series(1,100) n`),
 		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'work-file-'||s||'-'||n||'-'||v,'work-episode-'||s||'-'||n,'work-library','/fixture/work/'||s||'/'||n||'/'||v,NOW() FROM generate_series(1,4) s CROSS JOIN generate_series(1,100) n CROSS JOIN generate_series(1,3) v`,
 		`UPDATE metadata_items SET library_ids=NULL WHERE id='work-first-2'`,
 	} {

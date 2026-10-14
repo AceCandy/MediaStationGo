@@ -214,7 +214,7 @@ func TestEmbySetFavoriteInvalidatesItemsCache(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "收藏电影", Source: "local",
 	})
 	media := model.Media{
@@ -323,11 +323,11 @@ func TestContinueWatchingGroupsSeriesBeforePaging(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &library); err != nil {
 		t.Fatal(err)
 	}
-	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-series"}, Kind: model.MetadataKindSeries, Title: "测试剧", Source: "test"})
-	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季", Source: "test"})
-	episode6 := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-episode-6"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 6, Title: "第六集", Source: "test"})
-	episode7 := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-episode-7"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 7, Title: "第七集", Source: "test"})
-	movie := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-movie"}, Kind: model.MetadataKindMovie, Title: "测试电影", Source: "test"})
+	series := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-series"}, Kind: model.MetadataKindSeries, Title: "测试剧", Source: "test"})
+	season := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季", Source: "test"})
+	episode6 := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-episode-6"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 6, Title: "第六集", Source: "test"})
+	episode7 := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-episode-7"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 7, Title: "第七集", Source: "test"})
+	movie := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-movie"}, Kind: model.MetadataKindMovie, Title: "测试电影", Source: "test"})
 	media := []model.Media{
 		{PermanentBase: model.PermanentBase{ID: "resume-media-6"}, LibraryID: library.ID, MetadataID: episode6.ID, Path: "/media/shows/s01e06.mkv", SeasonNum: 1, EpisodeNum: 6},
 		{PermanentBase: model.PermanentBase{ID: "resume-media-7"}, LibraryID: library.ID, MetadataID: episode7.ID, Path: "/media/shows/s01e07.mkv", SeasonNum: 1, EpisodeNum: 7},
@@ -492,7 +492,7 @@ func TestEmbyPlaybackInfoUsesSourceNameAndSharedVisibility(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "共享标题", Source: "tmdb",
 	})
 	if err := svc.repo.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+lib.ID+`"]`); err != nil {
@@ -529,7 +529,7 @@ func TestEmbyPlaybackInfoReusesVersionProbeAndSubtitleData(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "多版本电影", Source: "local",
 	})
 	dir := t.TempDir()
@@ -617,7 +617,7 @@ func TestEmbyPlayableMediaSkipsGroupQueriesForConcreteID(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "普通电影", Source: "local",
 	})
 	media := model.Media{PermanentBase: model.PermanentBase{ID: "concrete-playable"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/movie.mkv"}
@@ -887,7 +887,7 @@ func TestEmbyPlaybackInfoProbesAllLocalSTRMVersions(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "Multi STRM", Source: "local",
 	})
 	dir := t.TempDir()
@@ -967,7 +967,7 @@ func TestEmbyItemUsesLocalSTRMMediaSourceContainerAndPath(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+	metadata := createServiceSourceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "Local STRM", Source: "local",
 	})
 	dir := t.TempDir()

@@ -18,6 +18,7 @@ func newMediaMetadataRepositoryTest(t *testing.T) *Container {
 	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.Media{}); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	return New(db)
 }
 
@@ -56,6 +57,9 @@ func TestMediaUpsertReusesCanonicalMetadataWithoutOverwritingIt(t *testing.T) {
 	if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{
 		Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "408",
 	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := testdb.SaveMetadataPresentationFixture(repos.DB, metadata); err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{

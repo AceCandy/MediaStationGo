@@ -20,6 +20,7 @@ func TestContinuationLongWatchedSeriesLookup(t *testing.T) {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	ensureSourcePresentationTestSchema(t, db)
 	// 当前用户看过九部长剧的前 239 集；另有大量无关作品及其他用户状态。
 	for _, sql := range []string{
 		`INSERT INTO hongguo_works(id,source_id,kind,title,related_album_id,season_index,refreshed_at)

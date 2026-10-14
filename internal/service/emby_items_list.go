@@ -19,9 +19,9 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, p.ParentID))
 	}
 	if len(p.PersonIDs) > 0 {
-		credits := e.repo.DB.WithContext(ctx).Table("metadata_items AS work").Select("work.id").
-			Joins("LEFT JOIN metadata_items AS season ON season.id = work.parent_id AND season.kind = 'season'").
-			Joins("JOIN metadata_credits AS credit ON credit.metadata_id = CASE WHEN work.kind = 'episode' THEN season.id ELSE work.id END").
+		credits := e.repo.DB.WithContext(ctx).Table("metadata_presentations AS work").Select("work.id").
+			Joins("LEFT JOIN metadata_presentations AS season ON season.id = work.parent_id AND season.kind = 'season'").
+			Joins("JOIN metadata_credit_presentations AS credit ON credit.metadata_id = CASE WHEN work.kind = 'episode' THEN season.id ELSE work.id END").
 			Where("credit.person_id = ANY(?)", &p.PersonIDs)
 		q = q.Where("media.metadata_id IN (?)", credits)
 	}
@@ -61,7 +61,7 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if resumeFilter {
 		groupKey := "COALESCE(resume_season.parent_id, media.metadata_id)"
 		candidates := q.Session(&gorm.Session{}).
-			Joins("LEFT JOIN metadata_items AS resume_season ON resume_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND resume_season.kind = 'season'").
+			Joins("LEFT JOIN metadata_presentations AS resume_season ON resume_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND resume_season.kind = 'season'").
 			Select("media.metadata_id, " + groupKey + " AS resume_group_id, MAX(resume.watched_at) AS watched_at").
 			Group("media.metadata_id, " + groupKey)
 		selected := e.repo.DB.WithContext(ctx).Table("(?) AS resume_candidates", candidates).

@@ -139,7 +139,7 @@ func (r *PlaybackEventRepository) playbackStatsQueries(ctx context.Context, filt
 func (r *PlaybackEventRepository) playbackStatsQuery(ctx context.Context, filter PlaybackStatsFilter) *gorm.DB {
 	q := r.db.WithContext(ctx).
 		Table("playback_events AS pe").
-		Joins("LEFT JOIN metadata_items AS mi ON mi.id = pe.metadata_id").
+		Joins("LEFT JOIN metadata_presentations AS mi ON mi.id = pe.metadata_id").
 		Where("pe.deleted_at IS NULL AND pe.played_at >= ? AND pe.played_at < ?", filter.From, filter.To)
 	if filter.UserID != "" {
 		q = q.Where("pe.user_id = ?", filter.UserID)
@@ -161,12 +161,9 @@ func playbackStatsDisplayQuery(q *gorm.DB) *gorm.DB {
 		Joins("LEFT JOIN users AS u ON u.id = pe.user_id AND u.deleted_at IS NULL").
 		Joins("LEFT JOIN libraries AS l ON l.id = pe.library_id AND l.deleted_at IS NULL").
 		Joins("LEFT JOIN media AS m ON m.id = pe.media_id").
-		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = CASE WHEN mi.kind = 'episode' THEN mi.parent_id WHEN mi.kind = 'season' THEN mi.id ELSE NULL END AND season_metadata.kind = 'season'").
-		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id WHEN mi.kind = 'series' THEN mi.id ELSE NULL END AND series_metadata.kind = 'series'").
-		Joins("LEFT JOIN metadata_artworks AS item_poster ON item_poster.metadata_id = mi.id AND item_poster.artwork_type = 'poster'").
-		Joins("LEFT JOIN artwork_assets AS item_poster_asset ON item_poster_asset.id = item_poster.asset_id").
-		Joins("LEFT JOIN metadata_artworks AS season_poster ON season_poster.metadata_id = season_metadata.id AND season_poster.artwork_type = 'poster'").
-		Joins("LEFT JOIN artwork_assets AS season_poster_asset ON season_poster_asset.id = season_poster.asset_id").
-		Joins("LEFT JOIN metadata_artworks AS series_poster ON series_poster.metadata_id = series_metadata.id AND series_poster.artwork_type = 'poster'").
-		Joins("LEFT JOIN artwork_assets AS series_poster_asset ON series_poster_asset.id = series_poster.asset_id")
+		Joins("LEFT JOIN metadata_presentations AS season_metadata ON season_metadata.id = CASE WHEN mi.kind = 'episode' THEN mi.parent_id WHEN mi.kind = 'season' THEN mi.id ELSE NULL END AND season_metadata.kind = 'season'").
+		Joins("LEFT JOIN metadata_presentations AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id WHEN mi.kind = 'series' THEN mi.id ELSE NULL END AND series_metadata.kind = 'series'").
+		Joins("LEFT JOIN artwork_assets AS item_poster_asset ON item_poster_asset.id = mi.poster_asset_id").
+		Joins("LEFT JOIN artwork_assets AS season_poster_asset ON season_poster_asset.id = season_metadata.poster_asset_id").
+		Joins("LEFT JOIN artwork_assets AS series_poster_asset ON series_poster_asset.id = series_metadata.poster_asset_id")
 }
