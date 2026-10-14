@@ -438,6 +438,9 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]string), no
 // refreshRanks 独立更新榜单，每个榜单完整拉取成功后才替换旧数据。
 func (s *HongGuoService) refreshRanks(ctx context.Context, report func([]string), notice func(string)) error {
 	for _, rank := range hongguo.Ranks {
+		if selected, _ := ctx.Value(catalogRankKey{}).(string); selected != "" && selected != rank.Key {
+			continue
+		}
 		works := []hongguo.Work{}
 		seen := map[string]bool{}
 		for page := 1; ; page++ {

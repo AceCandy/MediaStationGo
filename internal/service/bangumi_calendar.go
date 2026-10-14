@@ -48,6 +48,10 @@ type bangumiCalendarState struct {
 
 // WeeklyCalendar 先读持久快照；到期只刷新来源数据，不阻塞已有内容展示。
 func (b *BangumiProvider) WeeklyCalendar(ctx context.Context) (WeeklyCalendar, error) {
+	return b.weeklyCalendar(ctx, false)
+}
+
+func (b *BangumiProvider) weeklyCalendar(ctx context.Context, refresh bool) (WeeklyCalendar, error) {
 	b.calendar.mu.Lock()
 	if b.calendar.closed {
 		b.calendar.mu.Unlock()
@@ -67,7 +71,7 @@ func (b *BangumiProvider) WeeklyCalendar(ctx context.Context) (WeeklyCalendar, e
 				return WeeklyCalendar{}, errors.New("日历快照损坏")
 			}
 			saved = &WeeklyCalendar{Items: items, UpdatedAt: row.FetchedAt, Stale: time.Since(row.FetchedAt) >= calendarTTL}
-			if !saved.Stale {
+			if !saved.Stale && !refresh {
 				b.calendar.mu.Unlock()
 				return *saved, nil
 			}
@@ -77,6 +81,9 @@ func (b *BangumiProvider) WeeklyCalendar(ctx context.Context) (WeeklyCalendar, e
 	if flight == nil && time.Now().Before(b.calendar.retryAt) {
 		b.calendar.mu.Unlock()
 		if saved != nil {
+			if refresh {
+				saved.Stale = true
+			}
 			return *saved, nil
 		}
 		return WeeklyCalendar{}, errors.New("日历来源暂时不可用，请稍后重试")
@@ -106,13 +113,17 @@ func (b *BangumiProvider) WeeklyCalendar(ctx context.Context) (WeeklyCalendar, e
 		}()
 	}
 	b.calendar.mu.Unlock()
-	if saved != nil {
+	if saved != nil && !refresh {
 		return *saved, nil
 	}
 	select {
 	case <-ctx.Done():
 		return WeeklyCalendar{}, ctx.Err()
 	case <-flight.done:
+		if flight.err != nil && saved != nil {
+			saved.Stale = true
+			return *saved, flight.err
+		}
 		return flight.result, flight.err
 	}
 }
@@ -193,10 +204,13 @@ func (b *BangumiProvider) fetchWeeklyCalendar(ctx context.Context) (WeeklyCalend
 
 // Calendar 保留发现页推荐行的大小；完整周历由同一来源快照提供。
 func (b *BangumiProvider) Calendar(ctx context.Context) ([]ExternalMediaResult, error) {
-	calendar, err := b.WeeklyCalendar(ctx)
-	if err != nil {
-		return nil, err
-	}
+	items, _, _, err := b.RankingCalendar(ctx, false)
+	return items, err
+}
+
+// RankingCalendar 暴露来源快照时间，手动刷新等待来源结果，不把旧周历计为新成功。
+func (b *BangumiProvider) RankingCalendar(ctx context.Context, refresh bool) ([]ExternalMediaResult, time.Time, bool, error) {
+	calendar, err := b.weeklyCalendar(ctx, refresh)
 	out := []ExternalMediaResult{}
 	seen := map[int]bool{}
 	for _, item := range calendar.Items {
@@ -209,5 +223,5 @@ func (b *BangumiProvider) Calendar(ctx context.Context) ([]ExternalMediaResult, 
 			break
 		}
 	}
-	return out, nil
+	return out, calendar.UpdatedAt, calendar.Stale, err
 }

@@ -177,3 +177,39 @@ func TestExtensionCalendarValidationAndCancellation(t *testing.T) {
 		t.Fatalf("shutdown accepted request: %v", err)
 	}
 }
+
+func TestDiscoverBangumiManualRefreshKeepsSourceTimestamp(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.AutoMigrate(&model.BangumiCalendarSnapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) > 2 {
+			w.WriteHeader(503)
+			return
+		}
+		fmt.Fprint(w, `[{"weekday":{"id":1},"items":[{"id":1,"name_cn":"日历作品"}]}]`)
+	}))
+	defer server.Close()
+	b := NewBangumiProvider(&config.Config{}, zap.NewNop())
+	b.base = server.URL
+	b.client = server.Client()
+	b.calendar.repo = repository.New(db).BangumiCalendar
+	defer b.closeCalendar()
+	_, first, _, err := b.RankingCalendar(t.Context(), false)
+	if err != nil || calls.Load() != 1 {
+		t.Fatal(err, calls.Load())
+	}
+	_, second, _, err := b.RankingCalendar(t.Context(), true)
+	if err != nil || !second.After(first) || calls.Load() != 2 {
+		t.Fatal("manual refresh reused source cache", err, calls.Load())
+	}
+	items, third, stale, err := b.RankingCalendar(t.Context(), true)
+	if err == nil || !stale || len(items) != 1 || third.UnixMicro() != second.UnixMicro() {
+		t.Fatal("failed refresh changed source time", third, second, stale, err)
+	}
+}

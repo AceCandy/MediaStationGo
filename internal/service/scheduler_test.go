@@ -462,3 +462,28 @@ func TestSchedulerDoesNotRegisterRetiredOrganizer(t *testing.T) {
 		t.Fatalf("retired organizer run: %v", err)
 	}
 }
+
+func TestSchedulerRegistersSourceRankings(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	scheduler.Start(t.Context())
+	defer scheduler.Stop()
+	want := map[string]bool{TaskKindTMDbRank: true, TaskKindDoubanRank: true}
+	for _, job := range scheduler.jobs {
+		if !want[job.name] {
+			continue
+		}
+		if !job.enabled || job.interval != 24*time.Hour || job.enabledKey != "metadata."+job.name+"_enabled" {
+			t.Fatalf("rank schedule mismatch: %+v", job)
+		}
+		if key, ok := TaskDefinitionSchedulerJob(job.name); !ok || key != job.name {
+			t.Fatal("missing rank action")
+		}
+		if system := model.TaskSystemForKind(job.name); system != model.TaskSystemTMDb && system != model.TaskSystemDouban {
+			t.Fatal("wrong rank task system", system)
+		}
+		delete(want, job.name)
+	}
+	if len(want) != 0 {
+		t.Fatal("missing rankings", want)
+	}
+}

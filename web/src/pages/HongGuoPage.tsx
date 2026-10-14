@@ -1,3 +1,4 @@
+import { useRankingRefresh } from '../hooks/useRankingRefresh'
 import { CatalogSearchForm } from '../components/CatalogSearchForm'
 import { CatalogLoadMore } from '../components/CatalogLoadMore'
 import { useEffect, useRef, useState } from 'react'
@@ -36,9 +37,9 @@ type HongGuoSourceCategory = typeof hongGuoSourceCategories[number]['value']
 export function HongGuoPage() {
   const accessKey = useMediaAccessKey()
   const [params, setParams] = useSearchParams()
-  const keyword = params.get('keyword') ?? ''
   const sourceID = params.get('id') ?? ''
   const section = params.get('section') === 'rank' ? 'rank' : 'category'
+  const keyword = section === 'rank' ? '' : params.get('keyword') ?? ''
   const rawSourceCategory = params.get('source') ?? ''
   const sourceCategory = hongGuoSourceCategories.some((item) => item.value === rawSourceCategory) ? rawSourceCategory as HongGuoSourceCategory : ''
   const rawCategory = params.get('category') ?? ''
@@ -59,7 +60,7 @@ export function HongGuoPage() {
     if (rawSourceCategory !== sourceCategory) next.delete('source')
     if (rawCategory !== category) next.delete('category')
     if (rawRank !== rank) next.delete('rank')
-    if (section === 'rank') { next.delete('source'); next.delete('category') }
+    if (section === 'rank') { next.delete('source'); next.delete('category'); next.delete('keyword') }
     else next.delete('rank')
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
   }, [params, setParams, rawPage, page, section, rawSourceCategory, sourceCategory, rawCategory, category, rawRank, rank])
@@ -77,6 +78,7 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
   const [batchBusy, setBatchBusy] = useState(false)
   const [rows, setRows] = useState<HongGuoListWork[]>([])
   const [total, setTotal] = useState(0)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [revision, setRevision] = useState(0)
@@ -93,6 +95,11 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
   const [catalogPage, setCatalogPage] = useState(firstPage)
   const [hasMore, setHasMore] = useState(false)
   const loadMoreRef = useRef<HTMLDivElement>(null)
+  const { refreshing, refreshError, refreshRank } = useRankingRefresh(signal => hongguoAPI.refreshRank(rank, signal), at => {
+    setUpdatedAt(at)
+    setLoading(true)
+    setCatalogPage(firstPage); setRevision(value => value + 1)
+  })
   useEffect(() => {
     const controller = new AbortController()
     const load = async () => {
@@ -101,7 +108,7 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
         const data = await hongguoAPI.list(keyword, keyword ? '' : sourceCategory, keyword ? '' : category, keyword ? '' : rank, catalogPage, controller.signal, pageSize)
         if (!controller.signal.aborted) {
           setRows((current) => catalogPage === firstPage ? data.items : Array.from(new Map([...current, ...data.items].map((item) => [item.source_id, item])).values()))
-          setTotal(data.total); setHasMore(catalogPage * pageSize < data.total && (!ranking || data.items.length === pageSize))
+          setTotal(data.total); setUpdatedAt(data.updated_at ?? null); setHasMore(catalogPage * pageSize < data.total && (!ranking || data.items.length === pageSize))
         }
       } catch { if (!controller.signal.aborted) setError(true) }
       finally { if (!controller.signal.aborted) setLoading(false) }
@@ -121,13 +128,13 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
   }, [keyword, revision, remoteRetry])
   useEffect(() => {
     const target = loadMoreRef.current
-    if (!target || sourceID || loading || error || !hasMore) return
+    if (!target || sourceID || loading || refreshing || error || !hasMore) return
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) { observer.disconnect(); setLoading(true); setCatalogPage((current) => current + 1) }
     }, { rootMargin: ranking ? '0px' : '320px' })
     observer.observe(target)
     return () => observer.disconnect()
-  }, [hasMore, loading, error, sourceID, ranking])
+  }, [hasMore, loading, refreshing, error, sourceID, ranking])
   useEffect(() => { let active = true; void hongguoAPI.status().then((s) => { if (active) setEnabled(s.enabled) }).catch(() => undefined); return () => { active = false } }, [])
 
   const merged = new Map<string, HongGuoListWork>()
@@ -138,6 +145,8 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
   // 成功写入优先于更早发出、稍后才返回的列表请求；显式刷新再以服务端关系为准。
   const visibleRows = Array.from(merged.values())
   const refresh = () => { setRows([]); setRemoteRows([]); setLoading(true); setHasMore(false); setCatalogPage(firstPage); setRevision((value) => value + 1) }
+
+
 
   return <div className="space-y-6">
     {<><div className="flex flex-wrap items-center justify-between gap-3">
@@ -152,8 +161,9 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
         {section === 'category' && sourceCategory && sourceCategory !== 'other' ? <div className="tab-list flex-wrap">{hongGuoCategories[sourceCategory].map((item) => <button key={item || 'all'} type="button" aria-pressed={category === item} className="tab-item" onClick={() => navigate({ section: '', category: item, rank: '', page: '1' })}>{item || '全部'}</button>)}</div> : null}
         {!ranking && <p className="text-sm text-ink-50">{section === 'category' && `${hongGuoSourceCategories.find((item) => item.value === sourceCategory)?.label} · ${category || '全部'}分类 · `}<span className="font-semibold text-ink-600">{loading && rows.length === 0 ? '…' : total}</span></p>}
       </div>}</>}
-    <CatalogSearchForm label="搜索红果资料" placeholder="搜索官网标题或作品 ID…" value={query} onChange={setQuery} maxLength={100} loading={loading || remoteLoading} refreshLabel="刷新红果目录" onRefresh={refresh} onSearch={() => { if(query.trim() === keyword) { refresh(); return }; navigate({keyword:query.trim(),source:'',category:'',section:'',rank:'',page:'1'}) }} />
-    {ranking && <CatalogRankingHeader source="红果" title={hongGuoRanks.find(item => item.value === rank)?.label || '排行榜'} total={total} options={hongGuoRanks} value={rank} onChange={value => navigate({ rank: value, page: '1', id: '' })} />}
+    {!ranking && <CatalogSearchForm label="搜索红果资料" placeholder="搜索官网标题或作品 ID…" value={query} onChange={setQuery} maxLength={100} loading={loading || remoteLoading} refreshLabel="刷新红果目录" onRefresh={refresh} onSearch={() => { if(query.trim() === keyword) { refresh(); return }; navigate({keyword:query.trim(),source:'',category:'',section:'',rank:'',page:'1'}) }} />}
+    {ranking && <CatalogRankingHeader updatedAt={updatedAt} onRefresh={refreshRank} refreshing={refreshing} refreshDisabled={loading} source="红果" title={hongGuoRanks.find(item => item.value === rank)?.label || '排行榜'} total={total} options={hongGuoRanks} value={rank} onChange={value => navigate({ rank: value, page: '1', id: '' })} />}
+    {refreshError && <p role="alert" className="text-sm text-red-500">{refreshError}</p>}
     {admin && !ranking && <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="btn-outline" aria-pressed={selecting} disabled={batchBusy} onClick={() => { setSelecting((value) => !value); setSelected([]) }}>{selecting ? '退出多选' : '多选'}</button>
@@ -170,7 +180,7 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
       }} />)}</div>}
       {visibleRows.length === 0 && !error && !remoteError && <p className="py-12 text-center text-ink-50">{keyword ? '没有找到匹配的作品，试试其他标题或作品 ID。' : '暂无完整资料。管理员可按 ID 导入，或先运行作品发现，再运行资料刷新。'}</p>}
       <div ref={loadMoreRef} data-testid="hongguo-load-more" className="h-px" aria-hidden="true" />
-      {ranking ? <CatalogLoadMore loading={loading} hasMore={hasMore} hasItems={visibleRows.length > 0} failed={!!error} onLoadMore={() => {setLoading(true);setCatalogPage(value => value + 1)}} /> : loading && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
+      {ranking ? <CatalogLoadMore loading={loading || refreshing} hasMore={hasMore} hasItems={visibleRows.length > 0} failed={!!error} onLoadMore={() => {if (refreshing) return;setLoading(true);setCatalogPage(value => value + 1)}} /> : loading && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
       {keyword && !loading && !error && !hasMore && <p className="py-3 text-center text-xs text-ink-50">本地匹配已加载完，官网仅展示首屏结果。</p>}
     </>}
     {sourceID && <HongGuoDetailModal key={sourceID} sourceID={sourceID} summary={visibleRows.find((work) => work.source_id === sourceID)} enabled={enabled === true} onClose={() => navigate({ id: '', media_page: '' })} onCategorySaved={(value) => {

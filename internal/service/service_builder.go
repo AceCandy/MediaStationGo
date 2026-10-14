@@ -114,6 +114,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Organizer.SetProbe(b.c.FFprobe)
 	b.c.Organizer.SetScraper(b.c.Scraper)
 	b.c.Discover = NewDiscoverService(b.log, b.c.TMDb)
+	b.c.Discover.rankingRepo = b.repos.DiscoverRanking
 	b.c.Scan = NewScannerService(b.cfg, b.log, b.repos, b.c.WSHub, b.c.FFprobe, b.c.Scraper)
 	b.c.Scan.SetRuntimeCache(b.c.Cache)
 	b.c.OrganizePipeline = NewOrganizePipelineService(b.log, b.repos, b.c.Organizer, b.c.Scan, b.c.Tasks)
@@ -157,6 +158,7 @@ func (b *serviceContainerBuilder) initAccessAndStorageServices() {
 	)
 	b.c.Scheduler.SetTaskTracker(b.c.Tasks)
 	b.c.Scheduler.tmdbCenter = b.c.TMDbCenter
+	b.c.Scheduler.discover = b.c.Discover
 	b.c.Scheduler.SetOrganizePipeline(b.c.OrganizePipeline)
 }
 

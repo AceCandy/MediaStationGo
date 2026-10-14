@@ -29,14 +29,15 @@ loadDiscoverSections(parent context.Context, svc *service.Container, keys []stri
 - `refresh=1` bypasses only the pre-request cache fast path. Provider failure still resolves in this order: section cache -> configured Provider fallback -> per-section error.
 - Responses keep `items[sectionKey]` and `_meta[sectionKey]`; metadata includes `page` and `has_next`, with `stale`, `fallback`, `warning`, `error`, or `disabled` only when applicable.
 - Same-Provider jobs remain serial; different Provider groups use the existing bounded worker count. Cache hits do not alter input ordering.
-- Douban cache entries, cloned responses, and preheat inputs keep the same official large poster URL. The image proxy applies the current configured CDN only during an image-cache miss, so changing that configuration never mutates feed URLs or requires section-cache invalidation.
+- Douban cache entries and cloned responses keep the same official large poster URL. Discover feed does not prefetch artwork; source image tasks own downloads. The image proxy applies the current configured CDN only during an image-cache miss, so changing that configuration never mutates feed URLs or requires section-cache invalidation.
 - Discover mounts only the selected source. TMDb/Douban rankings are under
   `system=tmdb|douban&section=rank`; Bangumi uses `system=bangumi`.
   Filter section definitions by provider before choosing the URL-owned `rank`.
   Keep selected-key identity stable during replace normalization so the first
   page is not requested twice. Rank changes restart at page one; refresh and
-  continuation request only the selected section. TMDb search is mounted only
-  in the TMDb rankings branch.
+  continuation request only the selected section. Rankings never mount search;
+  category pages retain search. Clear legacy ranking search parameters before
+  they can select a search result branch.
 - Starting a new feed batch aborts the previous controller. Aborted batches must not update rows, errors, loading state, or localStorage cache.
 - Commit the continuation cursor only after its page succeeds without a section
   error. Keep prior rows, pause observers on failure and retry the same failed
@@ -58,7 +59,8 @@ loadDiscoverSections(parent context.Context, svc *service.Container, keys []stri
 | `refresh=1`, Provider succeeds | Return fresh items and replace the section cache when non-empty. |
 | `refresh=1`, Provider fails, cache exists | Return cache with `stale=true`, correct `has_next`, and do not call fallback. |
 | Provider fails without cache | Try configured fallback, then return a per-section error. |
-| Provider succeeds with empty items | Return empty items and do not cache them. |
+| TMDb/Douban first page is empty | Treat as failure; retain the previous snapshot and success time. |
+| Continuation succeeds with empty items | Return empty items and do not cache them. |
 | Browser aborts an old batch | Do not display a request error or clear the active batch's loading state. |
 
 ## 5. Good / Base / Bad Cases
@@ -142,9 +144,9 @@ Keep ordinary poster URLs stable and use `refresh=1` only for explicit recommend
   and deduplicates by work kind plus TMDb ID. The response contains `items`,
   `page`, and upstream-derived `has_next`, even when filtering leaves a page empty.
 - TMDb search/feeds persist summaries in the independent TMDb center. They do not
-  enqueue canonical hydration, create local Metadata/Media, fetch result details,
-  or recursively download images. Full local hydration remains an explicit
-  ingestion/maintenance action.
+  enqueue explicit hydration, create local Metadata/Media, fetch result details,
+  or recursively download images. Existing periodic source maintenance naturally
+  selects incomplete summaries; no additional discovery-to-refresh queue is needed.
 - URL-owned `tmdb_query` and `tmdb_kind` are independent from HongGuo query keys.
   Abort old requests on search change/unmount; retain accumulated rows on page
   failure and retry that page. Reuse `ContentRow` badges and `DiscoverDetailModal`.
@@ -559,3 +561,45 @@ useLayoutEffect after commit; loading=true→false may otherwise batch to no cha
 - Verify `check-catalog-continuation.mjs`, `check-discover-centers.mjs`, and
   `check-douban-data-center.mjs`, including literal search, retry, filter abort,
   people, detail preservation and responsive themes.
+
+
+## Scenario: Ranking refresh and success time
+
+### 1. Scope / Trigger
+Shared ranking headers, source scheduling and persistent discovery snapshots.
+
+### 2. Signatures
+- `DiscoverService.RankingPage(ctx,key,page,refresh,load)` returns items, success time and an optional error with the old items.
+- `discover_ranking_pages(key,page,payload,fetched_at)` persists TMDb/Douban pages.
+- Feed `_meta[key].updated_at` is emitted for page one only.
+- `POST /catalogs/hongguo|huangguoai/ranks/:rank/refresh` returns `{updated_at}`; source list responses carry the same field.
+- `tmdb_data_rank` / `douban_data_rank`: daily by default, settings `metadata.<kind>_enabled/_interval_seconds`, configurable through existing task definitions.
+
+### 3. Contracts
+- Manual refresh reloads the selected first page; periodic jobs visit each source's first pages. Continuations remain user-driven. No fabricated top-100 cap or full-catalog traversal.
+- Preserve source summaries and existing quality precedence. TMDb query persistence already saves quality-1 subjects; Douban saves partial summaries. Existing periodic maintenance selects these records, without explicit supplement jobs or local media creation.
+- Fresh snapshot and timestamp are saved together; microsecond timestamps round-trip through PostgreSQL. Successful first-page replacement invalidates older continuation snapshots. Persistent absence must not resurrect a deleted page from process memory.
+- Same-source work is serial with cancellable admission; different sources retain existing bounded concurrency. Failed/empty first pages retain prior data/time; fallback results never count as success.
+- HongGuo/HuangGuo manual selection reuses source Run mutual exclusion, shutdown and task history. Timestamps come from committed rank entries. Their existing discovery behavior remains intact.
+- Bangumi reads its own persistent weekly-calendar success time, waits for explicit refresh and marks failed/stale results honestly; it does not create a duplicate discovery snapshot.
+- Refresh endpoints require discovery permission; HuangGuo retains adult/profile visibility. Task configuration remains administrator-owned.
+- The shared header displays refresh state and local formatted success time, or no successful update. Disable duplicate refresh; abort obsolete requests, pause continuation while refreshing and keep rows when the subsequent list read fails. A successful POST may advance time even if rereading the list fails, with an explicit read error.
+
+### 4. Validation & Error Matrix
+- Invalid source rank -> 400; active source rank task / disabled source -> 409.
+- Provider or persistence failure -> old data/time plus visible warning/error, never a false new success.
+- Partial scheduled failure -> failed execution with per-rank metrics, retaining successful ranks.
+- Continuation/end-of-list -> does not advance displayed first-page timestamp.
+
+### 5. Good/Base/Bad Cases
+Good: scheduled ranking writes summary placeholders, then the enabled source maintenance task fills missing basics on its own cadence.
+Base: repeating a ranking reuses source identities and does not downgrade complete details.
+Bad: treating every existing placeholder as complete, or immediately enqueueing details/images from each ranking response.
+
+### 6. Tests Required
+`TestDiscoverRankingPersistenceFailureAndPagination`, `TestDiscoverRankingCanceledLockWait`, `TestDiscoverRankTasksKeepSummariesForPeriodicMaintenance`, `TestDoubanRankSummariesArePeriodicCandidates`, `TestSchedulerRegistersSourceRankings`, source manual-rank tests and `TestDiscoverBangumiManualRefreshKeepsSourceTimestamp` cover persistence, cancellation, candidate selection and source time.
+`web/scripts/check-ranking-refresh.mjs` covers all four source UIs, stale URLs, failure/success, repeated clicks, canceled navigation, post-refresh list failure and responsive themes. `check-catalog-rankings.mjs` retains pagination and category regression coverage.
+
+### 7. Wrong vs Correct
+Wrong: label cache-read time as a successful ranking refresh, or discard displayed rows immediately after a successful refresh POST.
+Correct: display persisted source success time and replace rows only after their reread succeeds.

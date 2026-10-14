@@ -22,6 +22,7 @@ import (
 
 // SchedulerService runs the periodic jobs.
 type SchedulerService struct {
+	discover          *DiscoverService
 	tmdbCenter        *TMDbDataCenter
 	log               *zap.Logger
 	repo              *repository.Container
@@ -143,6 +144,10 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		s.configuredJob(ctx, "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, 24*time.Hour, s.jobScanLibraries),
 		s.configuredJob(ctx, "people_translation_periodic", "people.translation_periodic_enabled", "people.translation_interval_seconds", true, 10*time.Minute, s.jobPeopleTranslation),
 		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
+	}
+	for _, spec := range discoverRankTasks {
+		prefix := "metadata." + spec.key
+		s.jobs = append(s.jobs, s.configuredJob(ctx, spec.key, prefix+"_enabled", prefix+"_interval_seconds", true, 24*time.Hour, func(ctx context.Context) error { return s.runDiscoverRanks(ctx, spec.key, spec.name, spec.provider) }))
 	}
 	for _, spec := range catalogMaintenanceTasks {
 		prefix := "metadata." + spec.key

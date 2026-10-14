@@ -153,6 +153,9 @@ func (s *HuangGuoAIService) Run(ctx context.Context, kind, id string) error {
 		err = s.discover(ctx, report)
 	case TaskKindHuangGuoAIRank:
 		for _, key := range huangguoai.Ranks {
+			if selected, _ := ctx.Value(catalogRankKey{}).(string); selected != "" && selected != key {
+				continue
+			}
 			rows, e := s.client.Rank(ctx, key)
 			if e == nil {
 				_, e = s.repo.HuangGuoAI.ReplaceRank(ctx, key, rows)

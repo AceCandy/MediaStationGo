@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -488,6 +489,30 @@ func TestHongGuoRanksRunIndependentlyAndPreserveFailedRank(t *testing.T) {
 	page, err = tasks.ListSystem(model.TaskSystemHongGuo, 1, 1)
 	if err != nil || len(page.Items) != 1 || page.Items[0].Metrics["new"] != 0 {
 		t.Fatalf("repeat rank counted old summaries: %+v %v", page, err)
+	}
+	before, err := repos.HongGuo.RankUpdatedAt(ctx, "hot-drama")
+	if err != nil || before == nil {
+		t.Fatal("missing rank timestamp", err)
+	}
+	previousRequests := requests
+	s.runMu.Lock()
+	err = s.RefreshRank(ctx, "hot-drama")
+	s.mu.Lock()
+	s.refreshRequested = false
+	s.mu.Unlock()
+	s.runMu.Unlock()
+	if err != nil || requests != previousRequests+1 {
+		t.Fatal("manual refresh touched other rankings", requests, err)
+	}
+	after, err := repos.HongGuo.RankUpdatedAt(ctx, "hot-drama")
+	if err != nil || after == nil || !after.After(*before) {
+		t.Fatal("success time not advanced", err)
+	}
+	s.rankMu.Lock()
+	err = s.RefreshRank(ctx, "hot-drama")
+	s.rankMu.Unlock()
+	if !errors.Is(err, ErrHongGuoRunning) {
+		t.Fatal("manual refresh bypassed shared rank lock", err)
 	}
 	fail = true
 	if _, err := runHongGuoSummaryOnly(ctx, s, TaskKindHongGuoRank); err == nil {

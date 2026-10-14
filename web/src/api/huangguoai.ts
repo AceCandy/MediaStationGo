@@ -18,8 +18,9 @@ export interface HuangGuoAIDownloadConfig { root: string; temporary_dir: string;
 export interface HuangGuoAIDownloadWork { source_id: string; title: string; kind: 'movie' | 'series' | ''; total: number; completed: number; failed: number; pending_review: number; active: number; downloading: number; waiting_verify: number; verifying: number; publishing: number; queued: number; cancelled: number; bytes: number }
 const root = '/catalogs/huangguoai'
 export const huangguoaiAPI = {
-  list: (params: { keyword: string; category: string; tag: string; rank: string; page: number; page_size?: number }, signal?: AbortSignal) => api.get<{ items: HuangGuoAIWork[]; total: number }>(`${root}/works`, { params: { ...params, page_size: params.page_size ?? 50 }, signal }).then(r => r.data),
+  list: (params: { keyword: string; category: string; tag: string; rank: string; page: number; page_size?: number }, signal?: AbortSignal) => api.get<{ items: HuangGuoAIWork[]; total: number; updated_at?: string | null }>(`${root}/works`, { params: { ...params, page_size: params.page_size ?? 50 }, signal }).then(r => r.data),
   search: (keyword: string, page: number, signal?: AbortSignal) => api.get<{ items: HuangGuoAIWork[]; has_more: boolean }>(`${root}/search`, { params: { keyword, page }, signal }).then(r => r.data),
+  refreshRank: (rank: string, signal?: AbortSignal) => api.post<{ updated_at: string | null }>(`/catalogs/huangguoai/ranks/${encodeURIComponent(rank)}/refresh`, undefined, { signal, timeout: LONG_REQUEST_TIMEOUT }).then(r => r.data),
   detail: (id: string, signal?: AbortSignal) => api.get<HuangGuoAIWork>(`${root}/works/${encodeURIComponent(id)}`, { signal }).then(r => r.data),
   episodes: (id: string, page: number, signal?: AbortSignal) => api.get<{ items: { id: string; number: number }[]; total: number }>(`${root}/works/${encodeURIComponent(id)}/episodes`, { params: { page }, signal }).then(r => r.data),
   media: (id: string, page: number, signal?: AbortSignal) => api.get<{ items: Media[]; total: number }>(`${root}/works/${encodeURIComponent(id)}/media`, { params: { page }, signal }).then(r => r.data),

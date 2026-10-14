@@ -9,10 +9,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -25,6 +27,8 @@ type DiscoverService struct {
 	client       *http.Client
 	images       *ImageProxy
 	sectionCache *DiscoverSectionCache
+	rankingRepo  *repository.DiscoverRankingRepository
+	rankLocks    sync.Map
 }
 
 // NewDiscoverService is the constructor.

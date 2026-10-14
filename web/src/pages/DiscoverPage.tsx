@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { discoverAPI, type DiscoverItem, type DiscoverSection } from '../api/discover'
 import { DiscoverSkeleton } from './DiscoverContentRow'
 import { DiscoverDetailModal } from './DiscoverDetailModal'
-import { DiscoverSearchPanel } from './DiscoverSearchPanel'
 import { useSearchParams } from 'react-router-dom'
 import { DiscoverEmptySelection, DiscoverHeader, DiscoverResults } from './DiscoverPageSections'
 import {
@@ -17,8 +16,7 @@ import {
 
 type Provider = 'tmdb' | 'douban' | 'bangumi'
 export function DiscoverPage({ provider }: { provider: Provider }) {
-  const feed = <DiscoverFeed provider={provider} />
-  return provider === 'tmdb' ? <DiscoverSearchPanel>{feed}</DiscoverSearchPanel> : feed
+  return <DiscoverFeed provider={provider} />
 }
 
 function DiscoverFeed({ provider }: { provider: Provider }) {
@@ -35,6 +33,7 @@ function DiscoverFeed({ provider }: { provider: Provider }) {
   const [rows, setRows] = useState<Record<string, DiscoverItem[]>>({})
   const [rowCanNext, setRowCanNext] = useState<Record<string, boolean>>({})
   const [rowLoading, setRowLoading] = useState<Record<string, boolean>>({})
+  const [rowUpdatedAt, setRowUpdatedAt] = useState<Record<string, string>>({})
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
   const [sectionsReady, setSectionsReady] = useState(false)
   const [sectionsError, setSectionsError] = useState(false)
@@ -71,6 +70,7 @@ function DiscoverFeed({ provider }: { provider: Provider }) {
   useEffect(() => {
     if (!sectionsReady || sectionsError) return
     const next = new URLSearchParams(params)
+    next.delete('tmdb_query'); next.delete('tmdb_kind')
     if (selected[0]) next.set('rank', selected[0]); else next.delete('rank')
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
   }, [params, setParams, selected, sectionsReady, sectionsError])
@@ -99,6 +99,14 @@ function DiscoverFeed({ provider }: { provider: Provider }) {
       try {
         const feed = await discoverAPI.feed(keys, page, refresh, controller.signal)
         if (controller.signal.aborted || activeFeedRef.current !== controller) return
+        if (page === 1) setRowUpdatedAt(current => {
+          const next = { ...current }
+          for (const key of keys) {
+            if (feed.meta[key]?.updated_at) next[key] = feed.meta[key].updated_at!
+            else if (!feed.meta[key]?.error && !feed.meta[key]?.warning) delete next[key]
+          }
+          return next
+        })
         setRows((current) => {
           const next = { ...current }
           for (const key of keys) {
@@ -124,12 +132,12 @@ function DiscoverFeed({ provider }: { provider: Provider }) {
         setRowErrors((current) => {
           let next = current
           for (const key of keys) {
-            next = updateDiscoverRowError(next, key, feed.meta[key]?.error)
+            next = updateDiscoverRowError(next, key, feed.meta[key]?.error || feed.meta[key]?.warning)
           }
           return next
         })
         for (const key of keys) {
-          if (!feed.meta[key]?.error) {
+          if (!feed.meta[key]?.error && !feed.meta[key]?.warning) {
             rowPagesRef.current[key] = page
             delete failedPagesRef.current[key]
             writeCachedDiscoverRow(
@@ -244,7 +252,7 @@ function DiscoverFeed({ provider }: { provider: Provider }) {
 
   const refreshDiscover = () => {
     const key = selected[0]
-    if (!key) return
+    if (!key || activeFeedRef.current) return
     const nextPages = { [key]: 1 }
     loadRows(nextPages, true)
   }
@@ -252,6 +260,7 @@ function DiscoverFeed({ provider }: { provider: Provider }) {
   return (
     <div className="space-y-8 py-6">
       <DiscoverHeader
+        updatedAt={rowUpdatedAt[selectedKey]}
         sections={sections}
         selected={selected}
         sectionsReady={sectionsReady}
@@ -279,7 +288,7 @@ function DiscoverFeed({ provider }: { provider: Provider }) {
           hasContent={hasContent}
           sectionLabel={sectionLabel}
           onLoadMore={loadMore}
-          onRetry={(key) => { if (!activeFeedRef.current) loadRows({ [key]: failedPagesRef.current[key] ?? 1 }) }}
+          onRetry={(key) => { if (!activeFeedRef.current) loadRows({ [key]: failedPagesRef.current[key] ?? 1 }, true) }}
           onSelect={setActiveItem}
         />
       )}

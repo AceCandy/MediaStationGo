@@ -1086,3 +1086,17 @@ or enqueue explicit work. Logs report processed/updated/failed/requested counts.
 metadata hydration workers and metadata artwork workers are retired. No aliases
 or old setting can run them. Scanning still owns local season/episode bindings;
 source image workers continue to download and recover pending images/avatars.
+
+
+## Discover ranking schedules
+
+`tmdb_data_rank` and `douban_data_rank` are source-owned scheduled definitions,
+separate from source basics and image maintenance. They refresh each configured
+source ranking's first page, default daily/enabled, using
+`metadata.<kind>_enabled/_interval_seconds`. Source disable and missing TMDb
+credentials do not count as a successful refresh. Partial failures retain
+successful snapshots and finish the execution as failed. See the
+[ranking refresh contract](../frontend/discover-feed-loading.md#scenario-ranking-refresh-and-success-time)
+for storage, API, cancellation and candidate-selection tests. Ranking summaries
+are already periodic source-maintenance candidates; never add a second explicit
+supplement queue merely because a ranking discovered a work.

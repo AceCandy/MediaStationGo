@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
@@ -50,7 +51,41 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 			c.JSON(500, gin.H{"error": "红果资料读取失败"})
 			return
 		}
-		c.JSON(200, gin.H{"items": rows, "total": total, "page": page, "page_size": size})
+		var updatedAt *time.Time
+		if rank != "" {
+			updatedAt, err = svc.Repo.HongGuo.RankUpdatedAt(c.Request.Context(), rank)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "榜单更新时间读取失败"})
+				return
+			}
+		}
+		c.JSON(200, gin.H{"items": rows, "total": total, "page": page, "page_size": size, "updated_at": updatedAt})
+	})
+	group.POST("/ranks/:rank/refresh", requirePermission(svc, "can_view_discover"), func(c *gin.Context) {
+		key := c.Param("rank")
+		if !hongguo.ValidRank(key) {
+			c.JSON(400, gin.H{"error": "榜单无效"})
+			return
+		}
+		err := svc.HongGuo.RefreshRank(c.Request.Context(), key)
+		if errors.Is(err, service.ErrHongGuoRunning) {
+			c.JSON(409, gin.H{"error": "榜单正在刷新，请稍后重试"})
+			return
+		}
+		if errors.Is(err, service.ErrHongGuoDisabled) {
+			c.JSON(409, gin.H{"error": "来源已停用"})
+			return
+		}
+		if err != nil {
+			c.JSON(502, gin.H{"error": "榜单刷新失败，已保留原榜单"})
+			return
+		}
+		at, err := svc.Repo.HongGuo.RankUpdatedAt(c.Request.Context(), key)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "榜单更新时间读取失败"})
+			return
+		}
+		c.JSON(200, gin.H{"updated_at": at})
 	})
 	group.GET("/search", requirePermission(svc, "can_view_discover"), func(c *gin.Context) {
 		keyword := strings.TrimSpace(c.Query("keyword"))

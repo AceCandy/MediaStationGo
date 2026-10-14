@@ -1,4 +1,4 @@
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 
 import type { DiscoverItem, DiscoverSection } from '../api/discover'
 import { CatalogRankingHeader, CatalogRankingSkeleton } from '../components/CatalogRanking'
@@ -12,27 +12,20 @@ export function DiscoverHeader({
   sectionsReady,
   loading,
   onRefresh,
+  updatedAt,
   onSelectSection,
 }: {
   sections: DiscoverSection[]
   selected: string[]
   sectionsReady: boolean
   loading: boolean
+  updatedAt?: string
   onRefresh: () => void
   onSelectSection: (key: string) => void
 }) {
   return (
     <header className="space-y-3">
-      <CatalogRankingHeader source={sections.find(s => s.key === selected[0])?.provider || ''} title={sections.find(s => s.key === selected[0])?.label || '榜单'} options={sections.map(s => ({value:s.key, label:s.label}))} value={selected[0] || ''} onChange={onSelectSection} />
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={!sectionsReady || selected.length === 0}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-ink-600 transition hover:border-primary-300 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          刷新
-        </button>
+      <CatalogRankingHeader source={sections.find(s => s.key === selected[0])?.provider || ''} title={sections.find(s => s.key === selected[0])?.label || '榜单'} options={sections.map(s => ({value:s.key, label:s.label}))} value={selected[0] || ''} onChange={onSelectSection} onRefresh={onRefresh} refreshing={loading} refreshDisabled={!sectionsReady || selected.length === 0} updatedAt={updatedAt} />
     </header>
   )
 }
@@ -115,7 +108,7 @@ function DiscoverRowErrors({
   onRetry: (key: string) => void
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+    <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
       <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
       <div className="space-y-1 text-xs">
         <p className="font-semibold">部分推荐源暂不可用，其他已加载内容不受影响。</p>

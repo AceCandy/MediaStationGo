@@ -475,3 +475,10 @@ func (r *HuangGuoAIRepository) SearchResults(ctx context.Context, remote []huang
 	}
 	return rows, hydrateHuangGuoAIList(r.db.WithContext(ctx), rows)
 }
+
+// RankUpdatedAt 读取最近一次原子替换的成功时间，空榜返回 nil。
+func (r *HuangGuoAIRepository) RankUpdatedAt(ctx context.Context, key string) (*time.Time, error) {
+	var result struct{ UpdatedAt *time.Time }
+	err := r.db.WithContext(ctx).Model(&model.HuangGuoAIRankEntry{}).Select("MAX(updated_at) AS updated_at").Where("rank_key = ?", key).Scan(&result).Error
+	return result.UpdatedAt, err
+}

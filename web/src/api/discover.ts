@@ -49,6 +49,7 @@ export function discoverTMDbIdentity(item: DiscoverItem): DiscoverIdentity | nul
 export function discoverIdentityKey(item: DiscoverIdentity): string { return `${item.media_type}:${item.tmdb_id}` }
 
 export interface DiscoverFeedMeta {
+  updated_at?: string
   page: number
   has_next: boolean
   duration_ms?: number

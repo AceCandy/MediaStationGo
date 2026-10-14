@@ -1,3 +1,4 @@
+import { useRankingRefresh } from '../hooks/useRankingRefresh'
 import { CatalogSearchForm } from '../components/CatalogSearchForm'
 import { CatalogLoadMore } from '../components/CatalogLoadMore'
 import { useEffect, useRef, useState } from 'react'
@@ -15,7 +16,7 @@ export function HuangGuoAIPage() {
   const category = huangGuoCategories.some(([key]) => key === params.get('category')) ? params.get('category')! : ''
   const rank = huangGuoRanks.some(([key]) => key === params.get('rank')) ? params.get('rank')! : ''
   const section = rank || params.get('section') === 'rank' ? 'rank' : 'category'
-  const keyword = (params.get('keyword') ?? '').slice(0, 200)
+  const keyword = section === 'rank' ? '' : (params.get('keyword') ?? '').slice(0, 200)
   const rawPage = Number(params.get('page') ?? 1)
   const page = !keyword && section !== 'rank' && Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 10000 ? rawPage : 1
   const id = /^\d+$/.test(params.get('id') ?? '') ? params.get('id')! : ''
@@ -34,6 +35,7 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
   const pageSize = ranking ? 10 : 50
   const [rows, setRows] = useState<HuangGuoAIWork[]>([])
   const [total, setTotal] = useState(0)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
   const [localHasMore, setLocalHasMore] = useState(false)
   const [localLoading, setLocalLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -56,6 +58,11 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
     setLocalLoading(true); setRemoteLoading(Boolean(keyword)); setCatalogPage(page); setRemotePage(1)
     setRetry(v => v + 1); setRemoteRetry(v => v + 1)
   }
+  const { refreshing, refreshError, refreshRank } = useRankingRefresh(signal => huangguoaiAPI.refreshRank(rank, signal), at => {
+    setUpdatedAt(at)
+    setLocalLoading(true)
+    setCatalogPage(page); setRetry(value => value + 1)
+  })
   useEffect(() => {
     const controller = new AbortController()
     const load = async () => {
@@ -63,7 +70,7 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
         const data = await huangguoaiAPI.list({ keyword, category: keyword ? '' : category, tag: '', rank: keyword ? '' : rank, page: catalogPage, page_size: pageSize }, controller.signal)
         if (!controller.signal.aborted) {
           setRows(current => mergeWorks(catalogPage === page ? [] : current, data.items))
-          setTotal(data.total)
+          setTotal(data.total); setUpdatedAt(data.updated_at ?? null)
           setLocalHasMore(catalogPage * pageSize < data.total && (!ranking || data.items.length === pageSize))
         }
       } catch { if (!controller.signal.aborted) setError(true) }
@@ -86,12 +93,13 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
     return () => controller.abort()
   }, [keyword, remotePage, remoteRetry])
   const loadMore = () => {
+    if (refreshing) return
     if (localHasMore && !localLoading && !error && catalogPage < 10000) { setLocalLoading(true); setCatalogPage(v => v + 1) }
     if (remoteHasMore && !remoteLoading && !remoteError && remotePage < 10000) { setRemoteLoading(true); setRemotePage(v => v + 1) }
   }
   useEffect(() => {
     const target = loadMoreRef.current
-    if (!target || id || loading || !canLoadMore) return
+    if (!target || id || loading || refreshing || !canLoadMore) return
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) {
         observer.disconnect()
@@ -101,7 +109,7 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
     }, { rootMargin: ranking ? '0px' : '320px' })
     observer.observe(target)
     return () => observer.disconnect()
-  }, [id, loading, error, remoteError, hasMore, catalogPage, remotePage, localHasMore, remoteHasMore, ranking, canLoadMore])
+  }, [id, loading, refreshing, error, remoteError, hasMore, catalogPage, remotePage, localHasMore, remoteHasMore, ranking, canLoadMore])
   return <section className="space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <nav className="tab-list" aria-label="黄果AI发现模式">
@@ -111,15 +119,16 @@ function HuangGuoAIContent({ category, rank, section, keyword, page, id, navigat
 
     </div>
     {!keyword && section === 'category' && <nav className="tab-list flex-wrap" aria-label="黄果AI分类">{[['', '全部'], ...huangGuoCategories].map(([key, label]) => <button key={key} className="tab-item" aria-pressed={category === key} onClick={() => navigate({ category: key, page: '1', id: '' })}>{label}</button>)}</nav>}
-    <CatalogSearchForm label="搜索黄果AI标题或ID" placeholder="搜索标题或作品 ID…" value={query} onChange={setQuery} loading={loading} refreshLabel="刷新黄果AI目录" onRefresh={refresh} onSearch={() => { if(query.trim() === keyword) { refresh(); return }; navigate({keyword:query.trim(),category:'',rank:'',section:'',page:'1',id:''}) }} />
-    {ranking && <CatalogRankingHeader source="黄果 AI" title={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} total={total} options={huangGuoRanks.map(([value, label]) => ({ value, label }))} value={rank} onChange={value => navigate({ rank: value, page: '1', id: '' })} />}
+    {!ranking && <CatalogSearchForm label="搜索黄果AI标题或ID" placeholder="搜索标题或作品 ID…" value={query} onChange={setQuery} loading={loading} refreshLabel="刷新黄果AI目录" onRefresh={refresh} onSearch={() => { if(query.trim() === keyword) { refresh(); return }; navigate({keyword:query.trim(),category:'',rank:'',section:'',page:'1',id:''}) }} />}
+    {ranking && <CatalogRankingHeader updatedAt={updatedAt} onRefresh={refreshRank} refreshing={refreshing} refreshDisabled={loading} source="黄果 AI" title={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} total={total} options={huangGuoRanks.map(([value, label]) => ({ value, label }))} value={rank} onChange={value => navigate({ rank: value, page: '1', id: '' })} />}
+    {refreshError && <p role="alert" className="text-sm text-red-500">{refreshError}</p>}
     {!ranking && <p className="text-sm text-ink-50">{keyword ? `官网 + 本地资料 · 已显示 ${visibleRows.length} 部（去重）` : `本地目录 · 共 ${total} 部 · 已显示 ${visibleRows.length} 部`}</p>}
     {remoteError && <p role="alert" className="text-sm text-red-500">官网搜索失败，已保留本地和已加载结果。<button className="btn-outline ml-2" onClick={() => setRemoteRetry(v => v + 1)}>重试官网搜索</button></p>}
     {error && <p role="alert" className="text-sm text-red-500">资料读取失败，已保留现有结果。<button className="btn-outline ml-2" onClick={() => setRetry(v => v + 1)}>重试加载</button></p>}
     {loading && visibleRows.length === 0 ? ranking ? <CatalogRankingSkeleton /> : <p role="status">加载黄果 AI 资料…</p> : ranking ? <ol className="space-y-3" aria-label="黄果AI排行榜">{visibleRows.map((work, index) => <CatalogRankingRow key={`${work.source_id}:${work.artwork_id}`} work={work} position={index + 1} artworkURL={work.artwork_id ? imageURL(huangguoaiAPI.artwork(work.artwork_id)) : ''} metadata={[huangGuoCategories.find(([key]) => key === work.source_category)?.[1], ...(work.tags ?? []), work.kind === 'movie' ? '电影' : work.hydrated ? `确认 ${work.confirmed_episode_count} 集` : '集数待确认'].filter(Boolean).join(' · ')} rankLabel={huangGuoRanks.find(([key]) => key === rank)?.[1] || '热播榜'} onOpen={() => navigate({ id: work.source_id })} />)}</ol> : <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map(work => <HuangGuoAICard key={`${work.source_id}:${work.artwork_id}`} work={work} onOpen={() => navigate({ id: work.source_id })} />)}</div>}
     {!loading && !error && !remoteError && visibleRows.length === 0 && <p className="py-12 text-center text-ink-50">暂无作品。管理员可在任务中心运行作品发现、资料刷新和榜单刷新。</p>}
     <div ref={loadMoreRef} data-testid="huangguoai-load-more" className="h-px" aria-hidden="true" />
-    <CatalogLoadMore loading={loading} hasMore={canLoadMore} hasItems={visibleRows.length > 0} failed={!canLoadMore && (!!error || !!remoteError)} onLoadMore={loadMore} endLabel={ranking ? '榜单已加载完' : '当前结果已加载完'} />
+    <CatalogLoadMore loading={loading || refreshing} hasMore={canLoadMore} hasItems={visibleRows.length > 0} failed={!canLoadMore && (!!error || !!remoteError)} onLoadMore={loadMore} endLabel={ranking ? '榜单已加载完' : '当前结果已加载完'} />
     {id && <HuangGuoAIDetailModal key={id} sourceID={id} summary={visibleRows.find(row => row.source_id === id)} onClose={() => navigate({ id: '' })} />}
   </section>
 }

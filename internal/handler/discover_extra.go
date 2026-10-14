@@ -22,26 +22,9 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
-type discoverSectionDef struct {
-	Key      string
-	Label    string
-	Provider string
-}
+type discoverSectionDef = service.DiscoverSectionDef
 
-var discoverSectionCatalog = []discoverSectionDef{
-	{Key: "tmdb_trending_day", Label: "TMDb 今日趋势", Provider: "tmdb"},
-	{Key: "tmdb_trending_week", Label: "TMDb 本周热门", Provider: "tmdb"},
-	{Key: "tmdb_latest_movie", Label: "TMDb 最新电影", Provider: "tmdb"},
-	{Key: "tmdb_latest_tv", Label: "TMDb 最新剧集", Provider: "tmdb"},
-	{Key: "tmdb_popular_movie", Label: "TMDb 热门电影", Provider: "tmdb"},
-	{Key: "tmdb_popular_tv", Label: "TMDb 热门剧集", Provider: "tmdb"},
-	{Key: "tmdb_top_rated_movie", Label: "TMDb 高分电影", Provider: "tmdb"},
-	{Key: "tmdb_upcoming_movie", Label: "TMDb 即将上映", Provider: "tmdb"},
-	{Key: "douban_hot_movie", Label: "豆瓣热门电影", Provider: "douban"},
-	{Key: "douban_hot_tv", Label: "豆瓣热门剧集", Provider: "douban"},
-	{Key: "douban_top_movie", Label: "豆瓣高分电影", Provider: "douban"},
-	{Key: "bangumi_calendar", Label: "Bangumi 每日放送", Provider: "bangumi"},
-}
+var discoverSectionCatalog = service.DiscoverSections
 
 const discoverFeedSectionTimeout = 20 * time.Second
 const discoverFeedBangumiTimeout = 30 * time.Second
@@ -96,7 +79,6 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		keys := strings.Split(rawSections, ",")
 		out := gin.H{}
 		meta := gin.H{}
-		artworkItems := []service.ExternalMediaResult{}
 		for _, result := range loadDiscoverSections(c.Request.Context(), svc, keys, page, refresh) {
 			if svc != nil && svc.Douban != nil {
 				for i := range result.items {
@@ -107,12 +89,8 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 			}
 			out[result.key] = result.items
 			meta[result.key] = result.meta
-			artworkItems = append(artworkItems, result.items...)
 		}
 		out["_meta"] = meta
-		if svc != nil && svc.Discover != nil {
-			svc.Discover.WarmExternalArtwork(artworkItems)
-		}
 
 		c.JSON(http.StatusOK, out)
 	}
@@ -213,65 +191,51 @@ func runDiscoverProviderGroups(
 
 func loadDiscoverSection(parent context.Context, svc *service.Container, job discoverSectionJob) discoverSectionResult {
 	started := time.Now()
-	if !job.refresh {
-		if items, ok := cachedDiscoverSection(svc, job.key, job.page); ok {
-			return discoverSectionResult{
-				index: job.index,
-				key:   job.key,
-				items: items,
-				meta: gin.H{
-					"page":        job.page,
-					"has_next":    discoverSectionHasNext(job.key, len(items)),
-					"duration_ms": time.Since(started).Milliseconds(),
-				},
-			}
-		}
-	}
 	sectionTimeout := discoverSectionTimeout(job.key)
 	sectionCtx, cancel := context.WithTimeout(parent, sectionTimeout)
-	if job.refresh {
-		sectionCtx = service.WithDoubanFresh(sectionCtx)
-		sectionCtx = service.WithTMDbFresh(sectionCtx)
+	var items []service.ExternalMediaResult
+	var updatedAt time.Time
+	var err error
+	load := func(ctx context.Context) ([]service.ExternalMediaResult, error) {
+		return loadDiscoverSectionItems(ctx, svc, job.provider, job.key, job.page)
 	}
-	items, err := loadDiscoverSectionItems(sectionCtx, svc, job.provider, job.key, job.page)
+	if job.key == "bangumi_calendar" && job.page > 1 {
+		items = []service.ExternalMediaResult{}
+	} else if job.key == "bangumi_calendar" && svc.Bangumi != nil {
+		var stale bool
+		items, updatedAt, stale, err = svc.Bangumi.RankingCalendar(sectionCtx, job.refresh)
+		if stale && err == nil {
+			err = errors.New("日历来源暂未更新")
+		}
+	} else if svc.Discover != nil {
+		items, updatedAt, err = svc.Discover.RankingPage(sectionCtx, job.key, job.page, job.refresh, load)
+	} else {
+		items, err = load(sectionCtx)
+	}
 	elapsed := time.Since(started)
 	cancel()
 	metaEntry := gin.H{"page": job.page, "has_next": false, "duration_ms": elapsed.Milliseconds()}
 	if err != nil {
 		logDiscoverFetchFailed(svc, job.key, job.page, elapsed, sectionTimeout, err)
-		if cached, ok := cachedDiscoverSection(svc, job.key, job.page); ok {
-			items = cached
+		if len(items) > 0 {
 			metaEntry["stale"] = true
 			metaEntry["warning"] = discoverFeedStaleMessage(err)
 		} else if fallbackItems, fallbackKey, ok := fallbackDiscoverSectionItems(parent, svc, job.key, job.page); ok {
 			items = fallbackItems
 			metaEntry["fallback"] = fallbackKey
 			metaEntry["warning"] = discoverFeedFallbackMessage(fallbackKey, err)
-			rememberDiscoverSection(svc, job.key, job.page, items)
 		} else {
 			metaEntry["error"] = discoverFeedErrorMessage(err)
 			items = nil
 		}
 	} else {
 		logDiscoverFetchSlow(svc, job.key, job.page, elapsed, len(items))
-		rememberDiscoverSection(svc, job.key, job.page, items)
+	}
+	if job.page == 1 && !updatedAt.IsZero() {
+		metaEntry["updated_at"] = updatedAt
 	}
 	metaEntry["has_next"] = discoverSectionHasNext(job.key, len(items))
 	return discoverSectionResult{index: job.index, key: job.key, items: items, meta: metaEntry}
-}
-
-func cachedDiscoverSection(svc *service.Container, key string, page int) ([]service.ExternalMediaResult, bool) {
-	if svc == nil || svc.Discover == nil {
-		return nil, false
-	}
-	return svc.Discover.CachedSection(key, page)
-}
-
-func rememberDiscoverSection(svc *service.Container, key string, page int, items []service.ExternalMediaResult) {
-	if svc == nil || svc.Discover == nil {
-		return
-	}
-	svc.Discover.RememberSection(key, page, items)
 }
 
 func fallbackDiscoverSectionItems(parent context.Context, svc *service.Container, key string, page int) ([]service.ExternalMediaResult, string, bool) {

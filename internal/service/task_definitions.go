@@ -82,6 +82,10 @@ var taskDefinitionSpecs = []taskDefinitionSpec{
 }
 
 func init() {
+	for _, spec := range discoverRankTasks {
+		taskDefinitionSpecs = append(taskDefinitionSpecs, taskDefinitionSpec{TaskDefinition: TaskDefinition{Key: spec.key, Name: spec.name, Description: "刷新各榜首页并保存摘要占位，缺项由现有资料定时任务补齐，图片独立下载", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: spec.key}, schedulerJob: spec.key})
+	}
+
 	for _, spec := range catalogMaintenanceTasks {
 		description := "补全到期且基础资料不全的来源条目，齐全后停止；手动运行仍只处理补缺候选"
 		if spec.people {

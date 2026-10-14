@@ -125,3 +125,10 @@ func (r *HongGuoRepository) PendingDiscoveries(ctx context.Context, after string
 		Order("source_id").Limit(100).Find(&rows).Error
 	return rows, err
 }
+
+// RankUpdatedAt 读取最近一次原子替换的成功时间，空榜返回 nil。
+func (r *HongGuoRepository) RankUpdatedAt(ctx context.Context, key string) (*time.Time, error) {
+	var result struct{ UpdatedAt *time.Time }
+	err := r.db.WithContext(ctx).Model(&model.HongGuoRankEntry{}).Select("MAX(updated_at) AS updated_at").Where("rank_key = ?", key).Scan(&result).Error
+	return result.UpdatedAt, err
+}

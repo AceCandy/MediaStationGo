@@ -42,6 +42,7 @@ type Container struct {
 	TaskExecution *TaskExecutionRepository
 	PlayerLog     *PlayerRequestLogRepository
 
+	DiscoverRanking *DiscoverRankingRepository
 	BangumiCalendar *BangumiCalendarRepository
 }
 
@@ -84,6 +85,7 @@ func New(db *gorm.DB) *Container {
 		TaskExecution: &TaskExecutionRepository{db: db},
 		PlayerLog:     &PlayerRequestLogRepository{db: db},
 
+		DiscoverRanking: &DiscoverRankingRepository{db: db},
 		BangumiCalendar: &BangumiCalendarRepository{db: db},
 	}
 }

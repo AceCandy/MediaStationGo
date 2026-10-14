@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { Film, Flame } from 'lucide-react'
+import { Film, Flame, RefreshCw } from 'lucide-react'
 import './CatalogRanking.css'
 
-export function CatalogRankingHeader({ source, title, total, options, value, onChange }: { source: string; title: string; total?: number; options: readonly { value: string; label: string }[]; value: string; onChange: (value: string) => void }) {
+export function CatalogRankingHeader({ source, title, total, options, value, onChange, onRefresh, refreshing = false, refreshDisabled = false, updatedAt }: { source: string; title: string; total?: number; options: readonly { value: string; label: string }[]; value: string; onChange: (value: string) => void; onRefresh?: () => void; refreshing?: boolean; refreshDisabled?: boolean; updatedAt?: string | null }) {
   const headerRef = useRef<HTMLElement>(null)
   useEffect(() => { headerRef.current?.scrollIntoView({ block: 'start' }) }, [])
   return <header ref={headerRef} className="ranking-header card flex flex-wrap items-center justify-between gap-6 p-5 sm:p-8">
     <div className="w-full min-w-0 lg:w-auto lg:min-w-[280px] lg:flex-1">
-      <h2 className="flex items-center gap-3 text-2xl font-bold text-ink-600"><span className="rounded-xl bg-gold-500/10 p-3 text-gold-500"><Flame size={24} aria-hidden="true" /></span>{title}</h2>
+      <div className="flex flex-wrap items-center gap-3"><h2 className="flex items-center gap-3 text-2xl font-bold text-ink-600"><span className="rounded-xl bg-gold-500/10 p-3 text-gold-500"><Flame size={24} aria-hidden="true" /></span>{title}</h2>
+      {onRefresh && <button type="button" className="btn-outline inline-flex items-center gap-2 text-sm" aria-label="刷新当前榜单" disabled={refreshing || refreshDisabled} onClick={onRefresh}><RefreshCw size={16} aria-hidden="true" className={refreshing ? 'motion-safe:animate-spin' : ''} />{refreshing ? '刷新中…' : '刷新榜单'}</button>}</div>
       <p className="mt-3 text-sm text-ink-50"><span className="font-semibold text-gold-500">{source}榜单</span>{total != null ? ` · 共 ${total} 部` : ' · 按来源顺序展示'}</p>
+      <p className="mt-2 text-xs text-ink-50" aria-live="polite">最近更新：{updatedAt && !Number.isNaN(Date.parse(updatedAt)) ? <time dateTime={updatedAt}>{new Date(updatedAt).toLocaleString('zh-CN', { hour12: false })}</time> : '暂无成功更新记录'}</p>
       <p className="mt-3 text-sm leading-relaxed text-ink-50">按来源榜单顺序展示作品，探索热门内容与推荐佳作。</p>
     </div>
     <nav className="tab-list max-w-full flex-wrap" aria-label={`${source}榜单切换`}>{options.map(option => <button key={option.value} type="button" className="tab-item" aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</button>)}</nav>
