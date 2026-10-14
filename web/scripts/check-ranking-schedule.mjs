@@ -55,5 +55,23 @@ try {
   const progress = evaluate(`[...document.querySelectorAll('tr')].map(row=>row.innerText)`)
   assert.ok(progress.some(text=>text.includes('图片下载测试')&&text.includes('本轮处理 8')&&!text.includes('已更新')))
   assert.ok(progress.some(text=>text.includes('季资料测试')&&text.includes('本轮处理 3 / 3')&&text.includes('已核对 7 条元数据')&&text.includes('已更新 9')&&text.includes('接口请求 12')))
-  console.log('通过：榜单周期、资料预算保存；图片不显示虚假更新数；季资料补全与复查计数同时显示。')
+  evaluate(`window.scheduleDefinitions=[
+    {key:'scheduled',name:'定时开启测试',schedule_config:{enabled:true}},
+    {key:'disabled',name:'定时关闭测试',schedule_config:{enabled:false}},
+    {key:'event',name:'事件自动测试',automatic:true,schedule_config:{enabled:false}},
+    {key:'manual',name:'手动测试',current_state:'running'}
+  ].map(d=>({system:'tmdb',trigger:'测试',current_state:'idle',...d}));history.pushState(null,'','/admin/tasks?system=douban');dispatchEvent(new PopStateEvent('popstate'));true`)
+  wait(`!document.body.innerText.includes('季资料测试')`)
+  evaluate(`history.pushState(null,'','/admin/tasks?system=tmdb');dispatchEvent(new PopStateEvent('popstate'));true`)
+  wait(`document.body.innerText.includes('定时开启测试')`)
+  for (const width of [390, 1440]) {
+    browser('set','viewport',String(width),'900')
+    for (const theme of ['light','dark']) {
+      evaluate(`document.documentElement.dataset.theme='${theme}'`)
+      const dots = evaluate(`[...document.querySelectorAll('[role="img"][aria-label]')].filter(n=>n.getClientRects().length).map(n=>n.getAttribute('aria-label'))`)
+      assert.deepEqual(dots.sort(),['已启用定时执行','支持事件自动执行'].sort())
+      assert.ok(evaluate(`document.documentElement.scrollWidth<=innerWidth`))
+    }
+  }
+  console.log('通过：周期保存、进度指标、自动执行绿点；定时关闭/手动运行不亮，事件任务亮，桌面手机双主题无溢出。')
 } finally { browser('close') }

@@ -1110,3 +1110,10 @@ Task progress must not synthesize an updated count for image tasks, whose
 metrics only report processed/failed. Season maintenance may report both
 processed (source candidates) and scanned (metadata rechecks); display both
 without treating either as a fallback that hides the other.
+
+Task definitions expose `automatic` for event-triggered execution independent
+of the schedule switch. The name's green dot uses `automatic ||
+schedule_config.enabled`, on desktop and mobile, with an accessible explanation.
+It indicates automatic execution eligibility, not running state or health;
+manual-only running tasks must not light it. Never infer this flag from names
+or translated trigger text. Source configuration and event prerequisites still apply.

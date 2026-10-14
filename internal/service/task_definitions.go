@@ -29,6 +29,8 @@ const (
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
 
 type TaskDefinition struct {
+	// Automatic 表示存在独立于定时开关的事件触发入口，不代表执行健康状态。
+	Automatic      bool                `json:"automatic"`
 	System         string              `json:"system"`
 	Key            string              `json:"key"`
 	Name           string              `json:"name"`
@@ -58,12 +60,12 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
-	{TaskDefinition: TaskDefinition{Key: TaskKindTMDbDataSupplement, Name: "TMDb 资料补全", Description: "处理发现页提交的缺失来源资料；共享缓存、限速及失败退避，与媒体项无关", Trigger: "浏览详情后自动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindTMDbDataSupplement}},
-	{TaskDefinition: TaskDefinition{Key: TaskKindDoubanDataSupplement, Name: "豆瓣资料补全", Description: "补齐缺失基础资料和全量演职员，仅调用 API；共享缓存、限速及失败退避", Trigger: "浏览详情后自动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindDoubanDataSupplement}},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskKindTMDbDataSupplement, Name: "TMDb 资料补全", Description: "处理发现页提交的缺失来源资料；共享缓存、限速及失败退避，与媒体项无关", Trigger: "浏览详情后自动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindTMDbDataSupplement}},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskKindDoubanDataSupplement, Name: "豆瓣资料补全", Description: "补齐缺失基础资料和全量演职员，仅调用 API；共享缓存、限速及失败退避", Trigger: "浏览详情后自动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindDoubanDataSupplement}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISupplement, Name: "黄果 AI 补充下载", Description: "按本地发现时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISupplement}, schedulerJob: TaskKindHuangGuoAISupplement},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIDownload, Name: "黄果 AI 视频下载", Description: "完整校验后发布到下载目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIDownload}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAISync, Name: "黄果 AI 作品发现", Description: "分页扫描四类作品，保存摘要与断点", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAISync}, schedulerJob: TaskKindHuangGuoAISync},
-	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIRefresh, Name: "黄果 AI 资料刷新", Description: "补齐新作品，重试失败资料，刷新未完结作品", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIRefresh}, schedulerJob: TaskKindHuangGuoAIRefresh},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskKindHuangGuoAIRefresh, Name: "黄果 AI 资料刷新", Description: "补齐新作品，重试失败资料，刷新未完结作品", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIRefresh}, schedulerJob: TaskKindHuangGuoAIRefresh},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIArtwork, Name: "黄果 AI 图片下载", Description: "保存本地海报，失败保留旧图并独立重试", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIArtwork}, schedulerJob: TaskKindHuangGuoAIArtwork},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHuangGuoAIRank, Name: "黄果 AI 排行榜刷新", Description: "原子替换热播、推荐与潜力榜，保留官网顺序", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHuangGuoAIRank}, schedulerJob: TaskKindHuangGuoAIRank},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoAlbum, Name: "红果官方合集补充", Description: "分批补充历史作品的官方合集和季号；已检查项跳过，失败冷却后重试，可取消后续跑", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoAlbum}, schedulerJob: TaskKindHongGuoAlbum},
@@ -71,12 +73,12 @@ var taskDefinitionSpecs = []taskDefinitionSpec{
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSupplement, Name: "红果补充下载", Description: "按上线时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSupplement}, schedulerJob: TaskKindHongGuoSupplement},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSync, Name: "红果作品发现", Description: "扫描分类，只统计真正新发现的作品；详情交由资料刷新补齐", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSync}, schedulerJob: TaskKindHongGuoSync},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoRank, Name: "红果排行榜刷新", Description: "独立更新四类官方榜单，完整拉取后原子替换并保留官网顺序", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoRank}, schedulerJob: TaskKindHongGuoRank},
-	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoRefresh, Name: "红果资料刷新", Description: "补齐新作品并重试失败项；仅定期刷新超过 24 小时仍未完结的作品", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoRefresh}, schedulerJob: TaskKindHongGuoRefresh},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskKindHongGuoRefresh, Name: "红果资料刷新", Description: "补齐新作品并重试失败项；仅定期刷新超过 24 小时仍未完结的作品", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoRefresh}, schedulerJob: TaskKindHongGuoRefresh},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoArtwork, Name: "红果图片下载", Description: "下载海报和人物头像，失败保留独立重试状态", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoArtwork}, schedulerJob: TaskKindHongGuoArtwork},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryScan, Name: "媒体库扫描", Description: "扫描媒体库并同步入库变化", Trigger: "定时 / 手动 / 新增后自动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScan}, schedulerJob: "library_scan"},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryWatch, Name: "媒体库变更监听", Description: "监听本地媒体文件变化并增量同步入库", Trigger: "文件事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindWatch}},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionProbeBackfill, Name: "媒体轨道回填", Description: "补充缺少完整探测信息的媒体轨道，剧集仅手动回填", Trigger: "入库后自动（剧集除外） / 手动", Action: "probe_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindProbe}},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionMediaScrape, Name: "媒体入库刮削", Description: "处理已入库但尚未成功刮削的媒体", Trigger: "事件 / 手动", Action: "media_scrape"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, ExcludeNamePrefix: "发现目录刮削："}},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskDefinitionLibraryScan, Name: "媒体库扫描", Description: "扫描媒体库并同步入库变化", Trigger: "定时 / 手动 / 新增后自动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScan}, schedulerJob: "library_scan"},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskDefinitionLibraryWatch, Name: "媒体库变更监听", Description: "监听本地媒体文件变化并增量同步入库", Trigger: "文件事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindWatch}},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskDefinitionProbeBackfill, Name: "媒体轨道回填", Description: "补充缺少完整探测信息的媒体轨道，剧集仅手动回填", Trigger: "入库后自动（剧集除外） / 手动", Action: "probe_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindProbe}},
+	{TaskDefinition: TaskDefinition{Automatic: true, Key: TaskDefinitionMediaScrape, Name: "媒体入库刮削", Description: "处理已入库但尚未成功刮削的媒体", Trigger: "事件 / 手动", Action: "media_scrape"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, ExcludeNamePrefix: "发现目录刮削："}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleTranslation, Name: "人物翻译", Description: "逐步翻译尚无中文名称和角色名的人物", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物翻译"}, schedulerJob: "people_translation_periodic"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionAccountCleanup, Name: "账号清理巡检", Description: "按保号规则检查并清理不符合条件的账号", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindCleanup, Name: "账号清理巡检"}, schedulerJob: "account_cleanup"},
 }
@@ -100,7 +102,7 @@ func init() {
 		taskDefinitionSpecs = append(taskDefinitionSpecs, taskDefinitionSpec{TaskDefinition: TaskDefinition{Key: spec.key, Name: spec.name, Description: description, Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: spec.key}, schedulerJob: spec.key})
 	}
 	for _, spec := range []struct{ key, name string }{{TaskKindTMDbImages, "TMDb 图片下载与修复"}, {TaskKindDoubanImages, "豆瓣图片下载与修复"}} {
-		taskDefinitionSpecs = append(taskDefinitionSpecs, taskDefinitionSpec{TaskDefinition: TaskDefinition{Key: spec.key, Name: spec.name, Description: "维护资料中心图片资产；下载失败独立重试，不刷新完整详情", Trigger: "资料入库后自动 / 定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: spec.key}, schedulerJob: spec.key})
+		taskDefinitionSpecs = append(taskDefinitionSpecs, taskDefinitionSpec{TaskDefinition: TaskDefinition{Key: spec.key, Name: spec.name, Description: "维护资料中心图片资产；下载失败独立重试，不刷新完整详情", Automatic: true, Trigger: "资料入库后自动 / 定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: spec.key}, schedulerJob: spec.key})
 	}
 }
 

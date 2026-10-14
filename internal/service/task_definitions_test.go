@@ -273,3 +273,26 @@ func TestSourcePresentationTaskSurfaces(t *testing.T) {
 		t.Fatal("retired organizer can still run")
 	}
 }
+
+func TestTaskDefinitionAutomaticTriggers(t *testing.T) {
+	definitions, err := NewTaskTrackerService(nil, nil).Definitions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]bool{
+		TaskKindTMDbDataSupplement: true, TaskKindDoubanDataSupplement: true,
+		TaskKindTMDbImages: true, TaskKindDoubanImages: true,
+		TaskKindHongGuoRefresh: true, TaskKindHuangGuoAIRefresh: true,
+		TaskDefinitionLibraryScan: true, TaskDefinitionLibraryWatch: true,
+		TaskDefinitionProbeBackfill: true, TaskDefinitionMediaScrape: true,
+	}
+	for _, d := range definitions {
+		if d.Automatic != expected[d.Key] {
+			t.Errorf("%s automatic=%v", d.Key, d.Automatic)
+		}
+		delete(expected, d.Key)
+	}
+	if len(expected) > 0 {
+		t.Fatalf("missing automatic definitions: %v", expected)
+	}
+}

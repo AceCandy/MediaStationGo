@@ -46,6 +46,7 @@ export interface TasksSnapshot {
 }
 
 export interface TaskDefinition {
+  automatic?: boolean
 	system: TaskSystem
   key: string
   name: string

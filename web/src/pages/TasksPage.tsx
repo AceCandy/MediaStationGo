@@ -56,6 +56,12 @@ function scheduleText(definition: TaskDefinition): string {
   return `${config.enabled ? '已启用' : '已关闭'} · 每 ${formatInterval(config.interval_seconds)}`
 }
 
+function TaskAutomaticDot({ definition }: { definition: TaskDefinition }) {
+  if (!definition.schedule_config?.enabled && !definition.automatic) return null
+  const label = definition.schedule_config?.enabled ? '已启用定时执行' : '支持事件自动执行'
+  return <span role="img" aria-label={label} title={label} className="absolute -left-3 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+}
+
 function taskProgressText(definition: TaskDefinition): string {
   const metrics = (definition.current ?? definition.latest)?.metrics
   if (definition.schedule_config && (definition.key.startsWith('douban_data_') || definition.key.startsWith('tmdb_data_')) && metrics) {
@@ -233,7 +239,7 @@ function DefinitionTable(props: { ready: boolean; definitions: TaskDefinition[];
           <tbody>
             {props.definitions.map((definition) => (
               <tr key={definition.key} className="align-top">
-                <td className="max-w-xs"><div className="flex items-center gap-1"><div className="font-medium text-ink-600">{definition.name}</div><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
+                <td className="max-w-xs"><div className="flex items-center gap-1"><div className="relative font-medium text-ink-600"><TaskAutomaticDot definition={definition} />{definition.name}</div><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
 				<td className="text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
                 <td><CurrentState state={definition.current_state} task={definition.current} ready={props.ready} /></td>
                 <td><LatestResult task={definition.latest} /></td>
@@ -247,7 +253,7 @@ function DefinitionTable(props: { ready: boolean; definitions: TaskDefinition[];
 		<div className="divide-y divide-gray-200 lg:hidden">
         {props.definitions.map((definition) => (
           <section key={definition.key} className="py-4 first:pt-0 last:pb-0">
-            <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-1"><h2 className="font-medium text-ink-600">{definition.name}</h2><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p>{taskProgressText(definition) && <p className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</p>}</div><TaskActions {...props} definition={definition} /></div>
+            <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-1"><h2 className="relative ml-3 font-medium text-ink-600"><TaskAutomaticDot definition={definition} />{definition.name}</h2><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p>{taskProgressText(definition) && <p className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</p>}</div><TaskActions {...props} definition={definition} /></div>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
 			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{scheduleText(definition) ? ` · ${scheduleText(definition)}` : ''}</dd></div>
 			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} task={definition.current} ready={props.ready} /></dd></div>
