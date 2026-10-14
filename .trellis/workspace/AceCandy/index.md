@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 246
+- **Total Sessions**: 247
 - **Last Active**: 2026-10-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~371 | Active |
+| `journal-4.md` | ~406 | Active |
 | `journal-3.md` | ~1991 | Archived |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 247 | 2026-10-14 | 修复红果合并状态筛选性能并归档 | `f5974c6` | `main` |
 | 246 | 2026-10-14 | TMDB 列表与入库标记性能修复 | `101ecdb` | `main` |
 | 245 | 2026-10-14 | 下载空间状态合并并归档 | `286d0c4` | `main` |
 | 244 | 2026-10-14 | 媒体来源展示、补全任务与大库扫描交付 | `751b3e3` | `main` |
