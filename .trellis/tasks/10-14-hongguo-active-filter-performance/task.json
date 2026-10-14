@@ -1,0 +1,30 @@
+{
+  "id": "hongguo-active-filter-performance",
+  "name": "hongguo-active-filter-performance",
+  "title": "修复红果合并状态筛选加载缓慢",
+  "description": "修正下载空间合并状态筛选在实际大库上反复扫描活动任务的问题，并覆盖大数据量及空活动状态的执行计划。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-14",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/service/hongguo_download_works.go",
+    "internal/service/hongguo_download_works_performance_test.go",
+    ".trellis/spec/backend/hongguo-catalog.md"
+  ],
+  "notes": "大库执行计划、语义回归和独立复核通过；未重启用户运行的后端，尚未验证重启后的实际页面。",
+  "meta": {}
+}

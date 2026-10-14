@@ -30,11 +30,14 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 	rows := []HongGuoDownloadSummary{}
 	filter := ""
 	args := []any{}
-	if status != "" {
+	if status == "active" {
+		// 先去重活动作品，避免统计过时后多状态探测按每部作品重复扫描状态索引。
+		filter = `WHERE w.source_id COLLATE "C" IN (
+		SELECT d.source_id COLLATE "C" FROM hongguo_downloads d
+		WHERE d.status IN ('downloading','waiting_verify','verifying','publishing') GROUP BY d.source_id COLLATE "C")`
+	} else if status != "" {
 		condition := "d.status = ?"
 		switch status {
-		case "active":
-			condition = "d.status IN ('downloading','waiting_verify','verifying','publishing')"
 		case "queued", "downloading", "waiting_verify", "verifying", "publishing", "completed", "failed", "cancelled":
 			// 仅固定白名单写入 SQL，使通用预编译计划也能区分常见、稀少和空状态。
 			condition = "d.status = '" + status + "'"

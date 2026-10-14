@@ -40,11 +40,13 @@ func TestHongGuoDownloadWorkCandidatesPreserveResults(t *testing.T) {
 	}
 	compare := func() {
 		t.Helper()
-		for _, status := range append([]string{"", "absent"}, statuses...) {
+		for _, status := range append([]string{"", "absent", "active"}, statuses...) {
 			for _, page := range []int{1, 2, 3} {
 				// 原分集驱动查询作为对照，覆盖计数、排序、分页与筛选后的完整统计。
 				base := s.repo.DB.Model(&model.HongGuoDownload{})
-				if status != "" {
+				if status == "active" {
+					base = base.Where("status IN ?", []string{"downloading", "waiting_verify", "verifying", "publishing"})
+				} else if status != "" {
 					base = base.Where("status = ?", status)
 				}
 				var wantTotal int64
@@ -52,7 +54,9 @@ func TestHongGuoDownloadWorkCandidatesPreserveResults(t *testing.T) {
 					t.Fatal(err)
 				}
 				candidates := s.repo.DB.Model(&model.HongGuoDownload{}).Select("source_id").Group("source_id")
-				if status != "" {
+				if status == "active" {
+					candidates = candidates.Having("BOOL_OR(status IN ?)", []string{"downloading", "waiting_verify", "verifying", "publishing"})
+				} else if status != "" {
 					candidates = candidates.Having("BOOL_OR(status = ?)", status)
 				}
 				candidates = candidates.Order("MIN(created_at) DESC, source_id").Limit(50).Offset((page - 1) * 50)
@@ -110,6 +114,7 @@ func TestHongGuoDownloadWorkPagePlan(t *testing.T) {
 		FROM generate_series(1,3000) n CROSS JOIN generate_series(1,100) e`,
 		`CREATE INDEX idx_hg_download_work_created_c ON hongguo_downloads(source_id COLLATE "C",created_at)`,
 		`CREATE INDEX idx_hg_download_status_work_c ON hongguo_downloads(status,source_id COLLATE "C")`,
+		`ALTER TABLE hongguo_downloads SET (autovacuum_enabled = false)`,
 		`ANALYZE hongguo_downloads`,
 		`ANALYZE hongguo_download_works`,
 	} {
@@ -131,17 +136,37 @@ func TestHongGuoDownloadWorkPagePlan(t *testing.T) {
 	if err := db.Callback().Row().After("gorm:row").Register("test:download-work-plan", capture); err != nil {
 		t.Fatal(err)
 	}
-	for _, status := range []string{"", "completed", "failed", "cancelled", "queued", "downloading", "verifying", "waiting_verify", "publishing", "queued-empty"} {
+	for _, status := range []string{"", "completed", "failed", "cancelled", "queued", "downloading", "verifying", "waiting_verify", "publishing", "queued-empty", "active", "active-stale", "active-empty"} {
 		t.Run(status, func(t *testing.T) {
-			empty := status == "queued-empty"
-			if empty {
+			empty := status == "queued-empty" || status == "active-empty"
+			if status == "queued-empty" {
 				status = "queued"
 				if err := db.Model(&model.HongGuoDownload{}).Where("status = ?", status).Update("status", "completed").Error; err != nil {
 					t.Fatal(err)
 				}
 			}
+			if status == "active-stale" || status == "active-empty" {
+				// 模拟统计仍无活动任务，但队列已切换状态且旧索引项尚未被清理。
+				for _, sql := range []string{
+					`UPDATE hongguo_downloads SET status='completed' WHERE status IN ('downloading','waiting_verify','verifying','publishing')`,
+					`ANALYZE hongguo_downloads`,
+					`UPDATE hongguo_downloads SET status=CASE episode WHEN 97 THEN 'downloading' WHEN 98 THEN 'verifying' WHEN 99 THEN 'waiting_verify' ELSE 'publishing' END WHERE episode>=97`,
+				} {
+					if err := db.Exec(sql).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				if empty {
+					if err := db.Exec(`UPDATE hongguo_downloads SET status='completed' WHERE episode>=97`).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				status = "active"
+			}
 			queries = nil
-			rows, total, err := s.ListWorks(t.Context(), 1, status, "")
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			rows, total, err := s.ListWorks(ctx, 1, status, "")
 			wantTotal, wantRows := int64(3000), 50
 			if empty {
 				wantTotal, wantRows = 0, 0
@@ -195,6 +220,9 @@ func TestHongGuoDownloadWorkPagePlan(t *testing.T) {
 							usesCreatedIndex = true
 						}
 						if n.Relation == "hongguo_downloads" {
+							if status == "active" && (n.Index == "idx_hg_download_status_work_c" || n.Index == "idx_hg_download_due") && n.Loops > 1 {
+								t.Fatalf("active status scan repeated per work: %s", raw)
+							}
 							visits += (n.Rows + n.Removed) * n.Loops
 							if n.Type == "Seq Scan" && n.Loops > 0 {
 								t.Fatalf("episode full scan: %s", raw)
