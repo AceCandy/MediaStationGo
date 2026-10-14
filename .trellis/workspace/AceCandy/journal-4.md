@@ -339,3 +339,33 @@
 ### Next Steps
 
 - 其他窗口的发现与 TMDb 修改及既有 core 文件留在工作区。
+
+
+## Session 246: TMDB 列表与入库标记性能修复
+<!-- trellis-session: v=2 fp=2e0f19656409891f -->
+
+**Date**: 2026-10-14
+**Task**: TMDB 列表与入库标记性能修复
+**Branch**: `main`
+
+### Summary
+
+列表异步补入库标记；后端按页内身份和 EXISTS 检查可见文件，移除展示视图关联。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `101ecdb` | perf(discover): 优化 TMDB 列表加载与入库状态查询 |
+
+### Testing
+
+- [OK] 前端 lint/build、目录续载浏览器回归、隔离 PostgreSQL 入库状态回归及独立复核通过；实际库 30 电影 SQL 执行约 59ms。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 后端重启后验证完整接口耗时；榜单/搜索续载重复查询已展示身份尚未优化。
