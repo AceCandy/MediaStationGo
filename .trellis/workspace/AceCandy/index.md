@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 243
-- **Last Active**: 2026-10-13
+- **Total Sessions**: 244
+- **Last Active**: 2026-10-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~271 | Active |
+| `journal-4.md` | ~306 | Active |
 | `journal-3.md` | ~1991 | Archived |
 | `journal-2.md` | ~1994 | Archived |
 | `journal-1.md` | ~1981 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 244 | 2026-10-14 | 媒体来源展示、补全任务与大库扫描交付 | `751b3e3` | `main` |
 | 243 | 2026-10-13 | 豆瓣目录提速与资料列表交互统一 | `90dacc3` | `main` |
 | 242 | 2026-10-13 | 服务器弹幕能力接入提交 | `6226796` | `main` |
 | 241 | 2026-10-13 | 完成 Emby 扩展发现接口 | `04dfe02` | `main` |
