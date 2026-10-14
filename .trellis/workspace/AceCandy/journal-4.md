@@ -304,3 +304,38 @@
 ### Next Steps
 
 - 完整 200 万文件扫描压测及独立红果人物搜索问题后续跟踪，未宣称全量测试全绿。
+
+
+## Session 245: 下载空间状态合并并归档
+<!-- trellis-session: v=2 fp=b06cf8cfedb7a51c -->
+
+**Date**: 2026-10-14
+**Task**: 下载空间状态合并并归档
+**Branch**: `main`
+
+### Summary
+
+合并下载、等待校验、校验和发布的展示与筛选，统一两个来源的状态顺序，补齐回归并提交归档。
+
+### Main Changes
+
+- 下载中统一计数、分集标签及作品筛选；旧筛选链接自动归一。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `286d0c4` | feat(downloads): 合并下载空间状态展示与筛选 |
+
+### Testing
+
+- [OK] 前端 lint/build、专项浏览器检查、两来源隔离 PostgreSQL 筛选回归及独立复核通过。
+- [OK] 真实下载全流程未验证；完整页面回归在设置弹窗 Escape 检查处失败，保留待排查。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 其他窗口的发现与 TMDb 修改及既有 core 文件留在工作区。
