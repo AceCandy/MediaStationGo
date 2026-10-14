@@ -1100,3 +1100,8 @@ successful snapshots and finish the execution as failed. See the
 for storage, API, cancellation and candidate-selection tests. Ranking summaries
 are already periodic source-maintenance candidates; never add a second explicit
 supplement queue merely because a ranking discovered a work.
+
+Ranking schedule dialogs expose only enablement and interval. Render and submit
+TMDb request budgets only when `schedule_config.count` is present; a
+`tmdb_data_` prefix alone does not imply count support. Browser regression must
+cover saving ranking schedules without `count` and preserving metadata budgets.

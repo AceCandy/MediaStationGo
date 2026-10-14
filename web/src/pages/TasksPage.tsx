@@ -282,7 +282,7 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
   const [saving, setSaving] = useState(false)
   const supplement = definition.key === 'hongguo_download_supplement' || definition.key === 'huangguoai_download_supplement'
   const refresh = definition.key.startsWith('douban_data_') && config.count !== undefined
-  const tmdb = definition.key.startsWith('tmdb_data_') && definition.key !== 'tmdb_data_images'
+  const tmdb = definition.key.startsWith('tmdb_data_') && config.count !== undefined
   const hasCount = supplement || refresh || tmdb
   const [count, setCount] = useState(String(config.count ?? ((refresh || tmdb) ? 100 : 10)))
   const [error, setError] = useState('')
