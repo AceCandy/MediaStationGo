@@ -31,16 +31,32 @@ func TestDiscoverLibraryItemsUseVisibleFilesAndExactKind(t *testing.T) {
 	series := makeWork("series", "101")
 	makeWork("movie", "102") // 同标题、只有元数据，不能算入库。
 	private := makeWork("movie", "103")
+	directSeries := makeWork("series", "104")
+	seasonSeries := makeWork("series", "105")
+	directSeason := createTestMetadata(t, repos, model.MetadataItem{Kind: "season", ParentID: &seasonSeries.ID, SeasonNum: 0, Source: "tmdb"})
 	season := createTestMetadata(t, repos, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1, Title: "季", Source: "tmdb"})
 	episode := createTestMetadata(t, repos, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 7, Title: "第七集", Source: "tmdb"})
 	for _, row := range []model.Media{
 		{MetadataID: movie.ID, LibraryID: lib.ID, Path: "/visible/movie.mkv"},
 		{MetadataID: episode.ID, LibraryID: lib.ID, Path: "/visible/show.strm", STRMURL: "https://example.com/video.mp4"},
 		{MetadataID: private.ID, LibraryID: hidden.ID, Path: "/hidden/private.mkv"},
+		{MetadataID: directSeries.ID, LibraryID: lib.ID, Path: "/visible/series.mkv"},
+		{MetadataID: directSeason.ID, LibraryID: lib.ID, Path: "/visible/season.mkv"},
+		{MetadataID: movie.ID, LibraryID: lib.ID, Path: "/visible/movie-copy.mkv"},
 		{LibraryID: lib.ID, Path: "/visible/unresolved.mkv", TMDbID: 102},
 	} {
 		if err := db.Create(&row).Error; err != nil {
 			t.Fatal(err)
+		}
+	}
+	// 身份及文件存在性检查不应依赖来源展示视图。
+	if err := db.Exec("DROP VIEW metadata_presentations CASCADE").Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []DiscoverIdentity{{104, "tv"}, {105, "tv"}} {
+		rows, err := repos.MediaView.FindDiscoverLibraryItems(t.Context(), []DiscoverIdentity{id, id}, MediaQueryFilter{})
+		if err != nil || len(rows) != 1 || rows[0] != id {
+			t.Fatalf("direct hierarchy ownership: got %#v, error %v", rows, err)
 		}
 	}
 	items := []DiscoverIdentity{{101, "movie"}, {101, "tv"}, {102, "movie"}, {103, "movie"}}
@@ -57,6 +73,9 @@ func TestDiscoverLibraryItemsUseVisibleFilesAndExactKind(t *testing.T) {
 		}
 		if len(found) != len(want) {
 			t.Fatalf("got %#v want %#v", rows, want)
+		}
+		if len(rows) != len(found) {
+			t.Fatalf("duplicate ownership results: %#v", rows)
 		}
 		for _, id := range want {
 			if !found[id] {
@@ -79,6 +98,10 @@ func TestDiscoverLibraryItemsUseVisibleFilesAndExactKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFound(items[3])
+	if err := db.Delete(&hidden).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertFound()
 	if _, err := repos.MediaView.FindDiscoverLibraryItems(t.Context(), []DiscoverIdentity{{1, "season"}}, filter); err == nil {
 		t.Fatal("accepted season")
 	}

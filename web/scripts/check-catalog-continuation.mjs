@@ -20,7 +20,7 @@ try {
   browser('set', 'media', 'dark', 'reduced-motion')
   evaluate(`(async()=>{
     const {api}=await import('/src/api/client.ts'); const {useAuthStore}=await import('/src/stores/auth.ts');
-    const p=window.catalogProbe={calls:[],fail:true,hold:false,releases:[]};
+    const p=window.catalogProbe={calls:[],fail:true,hold:false,releases:[],holdOwnership:true,ownershipReleases:[]};
     api.defaults.adapter=async config=>{
       const path=config.url;const q=config.params||{};let data={};
       if(path==='/auth/permissions') data={permissions:{can_view_discover:true},role:'admin',is_super:true};
@@ -36,7 +36,13 @@ try {
         });
         const rows=all.slice((page-1)*30,page*30);if(page===2) rows[0]=all[29];
         data={data:rows,total:65,page,page_size:30};
-      } else if(path==='/discover/library-status'){p.calls.push({path,size:q?.items?.length});data={items:[]}}
+      } else if(path==='/discover/library-status'){
+        const body=typeof config.data==='string'?JSON.parse(config.data):config.data;
+        const call={path,size:body.items.length,aborted:false};p.calls.push(call);
+        config.signal?.addEventListener('abort',()=>{call.aborted=true},{once:true});
+        if(p.holdOwnership) await new Promise(resolve=>p.ownershipReleases.push(resolve));
+        data={items:body.items};
+      }
       else if(path.endsWith('/credits')) data={data:[],total:0,page:1,page_size:20};
       else if(path.includes('/douban/subjects/')) data={data:{id:path.split('/').pop(),douban_id:'1',title:'详情',entity_kind:'movie',has_payload:true,credits:[]}};
       else if(path.includes('/subjects/')) data={data:{subject:{id:path.split('/').pop(),kind:'movie',title:'详情',fields:{}},components:[],parents:[],jobs:[],missing_scopes:[],credits:[]}};
@@ -48,6 +54,20 @@ try {
     evaluate('window.catalogProbe.calls=[];window.catalogProbe.fail=true;window.scrollTo(0,0);true')
     navigate(`/discover?system=${source}&page=9`)
     wait(`${cards}.length===30 && window.catalogProbe.calls.some(c=>c.path==='/admin/${source}/subjects'&&c.page===1) && !new URLSearchParams(location.search).has('page')`)
+    if(source==='tmdb') {
+      wait('window.catalogProbe.ownershipReleases.length===1')
+      assert.equal(evaluate(`document.querySelector('main').innerText.includes('正在读取资料')`),false)
+      assert.equal(evaluate('window.catalogProbe.calls.find(c=>c.path==="/discover/library-status").size'),30)
+      click('恐怖');wait(`${cards}.length===30 && ${cards}[0].textContent.includes('恐怖') && window.catalogProbe.ownershipReleases.length===2`)
+      assert.ok(evaluate('window.catalogProbe.calls.find(c=>c.path==="/discover/library-status").aborted'))
+      evaluate('window.catalogProbe.ownershipReleases.shift()();true')
+      browser('wait','250')
+      assert.equal(evaluate(`${cards}[0].textContent.includes('已有本地媒体')`),false)
+      evaluate('window.catalogProbe.holdOwnership=false;window.catalogProbe.ownershipReleases.splice(0).forEach(r=>r());true')
+      wait(`${cards}[0].textContent.includes('已有本地媒体')`)
+      click('全部');wait(`${cards}.length===30 && !${cards}[0].textContent.includes('恐怖')`)
+      evaluate('window.catalogProbe.calls=window.catalogProbe.calls.filter(c=>!c.page||c===window.catalogProbe.calls.filter(v=>v.page).at(-1));true')
+    }
     assert.equal(evaluate('new URLSearchParams(location.search).has("page")'), false)
     assert.equal(evaluate(`document.querySelector('[aria-label="来源内容"]').getBoundingClientRect().width < 300`), true)
     assert.equal(evaluate(`document.querySelector('main').innerText.includes('下一页')`), false)

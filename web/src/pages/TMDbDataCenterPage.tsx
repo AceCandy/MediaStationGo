@@ -34,20 +34,27 @@ export function TMDbDataCenterPage() {
   const quality = isAdmin && ['0', '1', '2', '3'].includes(params.get('quality') || '') ? params.get('quality')! : ''
   const state = isAdmin && ['pending', 'error'].includes(params.get('state') || '') ? params.get('state')! : ''
   const [owned, setOwned] = useState<number[]>([])
+  const ownership = useRef<AbortController | null>(null)
+  useEffect(() => () => ownership.current?.abort(), [])
   const [draft, setDraft] = useState(keyword)
   const [revision, setRevision] = useState(0)
   const [add, setAdd] = useState(false)
   const trigger = useRef<HTMLElement | null>(null)
   const subjectID = params.get('subject') || '', personID = params.get('person') || ''
   const fetchPage = useCallback(async (page: number, signal: AbortSignal) => {
-    if (page === 1) setOwned([])
+    if (page === 1) {
+      ownership.current?.abort()
+      ownership.current = new AbortController()
+      setOwned([])
+    }
+    const ownershipSignal = ownership.current!.signal
     const query = { keyword, kind, page, page_size: 30, state, [kind === 'person' ? 'department' : 'genre']: category, ...(quality ? { quality } : {}) }
     const result = await (kind === 'person' ? api.people(query, signal) : api.subjects(query, signal))
     if (kind !== 'person' && result.data.length && !signal.aborted) {
-      try {
-        const status = await discoverAPI.libraryStatus(result.data.map(v => ({ tmdb_id: v.tmdb_id, media_type: kind as 'movie' | 'tv' })), signal)
-        if (!signal.aborted) setOwned(previous => Array.from(new Set([...previous, ...status.map(v => v.tmdb_id)])))
-      } catch { /* 入库标记失败不阻塞来源资料。 */ }
+      // 入库标记独立加载；重置列表时取消所有旧分页的标记请求。
+      void discoverAPI.libraryStatus(result.data.map(v => ({ tmdb_id: v.tmdb_id, media_type: kind as 'movie' | 'tv' })), ownershipSignal).then(status => {
+        if (!ownershipSignal.aborted && !signal.aborted) setOwned(previous => Array.from(new Set([...previous, ...status.map(v => v.tmdb_id)])))
+      }).catch(() => { /* 入库标记失败不阻塞来源资料。 */ })
     }
     return { items: result.data as (TMDbSubject | TMDbPerson)[], total: result.total, page_size: result.page_size }
   }, [keyword, kind, state, category, quality])

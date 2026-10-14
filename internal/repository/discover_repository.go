@@ -60,19 +60,20 @@ func (r *MediaViewRepository) FindDiscoverLibraryItems(ctx context.Context, item
 		}
 		pairs = append(pairs, []any{item.Kind(), strconv.Itoa(item.TMDbID)})
 	}
-	q := r.db.WithContext(ctx).Table("metadata_identifiers AS ident").
-		Joins("JOIN metadata_presentations AS work ON work.id = ident.metadata_id AND work.kind = ident.entity_kind").
-		Joins(`JOIN LATERAL (
-			SELECT work.id
-			UNION ALL SELECT s.id FROM metadata_presentations s WHERE work.kind = 'series' AND s.parent_id = work.id AND s.kind = 'season'
-			UNION ALL SELECT e.id FROM metadata_presentations s JOIN metadata_presentations e ON e.parent_id = s.id AND e.kind = 'episode'
-			WHERE work.kind = 'series' AND s.parent_id = work.id AND s.kind = 'season'
-		) AS owned ON TRUE`).
+	// 只检查当前身份对应的文件，不展开来源展示资料或聚合全部媒体版本。
+	files := r.db.WithContext(ctx).Table(`(
+		SELECT work.id
+		UNION ALL SELECT s.id FROM metadata_items s WHERE work.kind = 'series' AND s.parent_id = work.id AND s.kind = 'season'
+		UNION ALL SELECT e.id FROM metadata_items s JOIN metadata_items e ON e.parent_id = s.id AND e.kind = 'episode'
+		WHERE work.kind = 'series' AND s.parent_id = work.id AND s.kind = 'season'
+	) AS owned`).
+		Select("1").
 		Joins("JOIN media AS m ON m.metadata_id = owned.id").
-		Joins("JOIN metadata_presentations AS mi ON mi.id = m.metadata_id").
-		Joins("JOIN libraries AS lib ON lib.id = m.library_id AND lib.enabled = TRUE AND lib.deleted_at IS NULL").
-		Where("ident.provider = 'tmdb' AND (ident.entity_kind, ident.external_id) IN ?", pairs)
-	err := applyMediaViewFilter(q, filter).
-		Select("DISTINCT ident.external_id::bigint AS tm_db_id, CASE WHEN work.kind = 'series' THEN 'tv' ELSE 'movie' END AS media_type").Scan(&out).Error
+		Joins("JOIN libraries AS lib ON lib.id = m.library_id AND lib.enabled = TRUE AND lib.deleted_at IS NULL")
+	q := r.db.WithContext(ctx).Table("metadata_identifiers AS ident").
+		Joins("JOIN metadata_items AS work ON work.id = ident.metadata_id AND work.kind = ident.entity_kind").
+		Where("ident.provider = 'tmdb' AND (ident.entity_kind, ident.external_id) IN ?", pairs).
+		Where("EXISTS (?)", applyMediaViewFilter(files, filter))
+	err := q.Select("DISTINCT ident.external_id::bigint AS tm_db_id, CASE WHEN work.kind = 'series' THEN 'tv' ELSE 'movie' END AS media_type").Scan(&out).Error
 	return out, err
 }
