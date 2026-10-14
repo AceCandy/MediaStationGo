@@ -107,7 +107,7 @@ func registerHongGuoDownloadRoutes(authed *gin.RouterGroup, svc *service.Contain
 		}
 		status := c.Query("status")
 		switch status {
-		case "", "queued", "downloading", "waiting_verify", "verifying", "publishing", "completed", "failed", "cancelled":
+		case "", "active", "queued", "downloading", "waiting_verify", "verifying", "publishing", "completed", "failed", "cancelled":
 		default:
 			c.JSON(400, gin.H{"error": "状态筛选参数无效"})
 			return

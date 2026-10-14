@@ -92,3 +92,70 @@ func TestDownloadWorkSearchBeforePagination(t *testing.T) {
 		})
 	}
 }
+
+func TestDownloadWorkActiveFilter(t *testing.T) {
+	for _, source := range []string{"hongguo", "huangguoai"} {
+		t.Run(source, func(t *testing.T) {
+			db, err := testdb.OpenPostgres(t, &gorm.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.AutoMigrate(&model.HongGuoDownloadWork{}, &model.HongGuoDownload{}, &model.HuangGuoAIWork{}, &model.HuangGuoAIDownloadWork{}, &model.HuangGuoAIDownload{}); err != nil {
+				t.Fatal(err)
+			}
+			for i, status := range []string{"downloading", "waiting_verify", "verifying", "publishing", "queued", "failed", "cancelled", "completed"} {
+				id := fmt.Sprint(i + 1)
+				if source == "hongguo" {
+					err = db.Create(&model.HongGuoDownloadWork{SourceID: id, Title: status}).Error
+					if err == nil {
+						err = db.Create(&[]model.HongGuoDownload{{SourceID: id, Title: status, Episode: 1, Status: status}, {SourceID: id, Title: status, Episode: 2, Status: "completed"}}).Error
+					}
+				} else {
+					err = db.Create(&model.HuangGuoAIDownloadWork{SourceID: id, Title: status}).Error
+					if err == nil {
+						err = db.Create(&[]model.HuangGuoAIDownload{{SourceID: id, Title: status, Episode: 1, Status: status}, {SourceID: id, Title: status, Episode: 2, Status: "completed"}}).Error
+					}
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			repo := repository.New(db)
+			for _, tt := range []struct {
+				status, keyword string
+				page, count     int
+				total           int64
+			}{
+				{"active", "", 1, 4, 4},
+				{"active", "", 2, 0, 4},
+				{"active", "publishing", 1, 1, 1},
+				{"active", "queued", 1, 0, 0},
+				{"downloading", "", 1, 1, 1},
+			} {
+				var totals []int64
+				var total int64
+				if source == "hongguo" {
+					var rows []HongGuoDownloadSummary
+					rows, total, err = NewHongGuoDownloadService(repo, nil, nil).ListWorks(t.Context(), tt.page, tt.status, tt.keyword)
+					for _, row := range rows {
+						totals = append(totals, row.Total)
+					}
+				} else {
+					var rows []HuangGuoAIDownloadWorkSummary
+					rows, total, err = NewHuangGuoAIDownloadService(repo, nil, nil).Works(t.Context(), tt.page, tt.status, tt.keyword)
+					for _, row := range rows {
+						totals = append(totals, row.Total)
+					}
+				}
+				if err != nil || total != tt.total || len(totals) != tt.count {
+					t.Fatalf("%+v: count=%d total=%d err=%v", tt, len(totals), total, err)
+				}
+				for _, count := range totals {
+					if count != 2 {
+						t.Fatalf("summary lost completed episode: %d", count)
+					}
+				}
+			}
+		})
+	}
+}

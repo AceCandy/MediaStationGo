@@ -33,6 +33,8 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status
 	if status != "" {
 		condition := "d.status = ?"
 		switch status {
+		case "active":
+			condition = "d.status IN ('downloading','waiting_verify','verifying','publishing')"
 		case "queued", "downloading", "waiting_verify", "verifying", "publishing", "completed", "failed", "cancelled":
 			// 仅固定白名单写入 SQL，使通用预编译计划也能区分常见、稀少和空状态。
 			condition = "d.status = '" + status + "'"

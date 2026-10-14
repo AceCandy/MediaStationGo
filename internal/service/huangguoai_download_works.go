@@ -31,7 +31,7 @@ type HuangGuoAIDownloadWorkSummary struct {
 
 func validHuangGuoAIDownloadStatus(status string) bool {
 	switch status {
-	case "", "pending_review", "queued", "downloading", "waiting_verify", "verifying", "publishing", "failed", "cancelled", "completed":
+	case "", "active", "pending_review", "queued", "downloading", "waiting_verify", "verifying", "publishing", "failed", "cancelled", "completed":
 		return true
 	}
 	return false
@@ -46,7 +46,9 @@ func (s *HuangGuoAIDownloadService) Works(ctx context.Context, page int, status,
 	}
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		q := tx.Table("huangguoai_download_works w").Where("EXISTS (SELECT 1 FROM huangguoai_downloads d WHERE d.source_id=w.source_id)")
-		if status != "" {
+		if status == "active" {
+			q = q.Where("EXISTS (SELECT 1 FROM huangguoai_downloads d WHERE d.source_id=w.source_id AND d.status IN ('downloading','waiting_verify','verifying','publishing'))")
+		} else if status != "" {
 			q = q.Where("EXISTS (SELECT 1 FROM huangguoai_downloads d WHERE d.source_id=w.source_id AND d.status=?)", status)
 		}
 		if keyword = strings.TrimSpace(keyword); keyword != "" {

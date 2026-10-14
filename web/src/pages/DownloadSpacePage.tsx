@@ -7,13 +7,13 @@ import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
 import { ModalShell } from '../components/ModalShell'
 import { confirmAction } from '../components/confirmAction'
 import { DownloadProgress } from '../components/DownloadProgress'
-import { statusLabels, statusColors } from '../utils/downloadStatus'
+import { statusLabels, statusColors, downloadStatuses, normalizeDownloadStatus, activeDownloadCount } from '../utils/downloadStatus'
 import { Select } from '../components/Select'
 import { HuangGuoAIDownloadSpace } from './HuangGuoAIDownloadSpace'
 import { HongGuoDownloadActions } from './HongGuoDownloadActions'
 
 const sourceLabels: Record<string, string> = { app: 'App 接口', fallback: '备用接口', official: '官方网页', android: 'Android 离线' }
-const statuses = Object.keys(statusLabels) as HongGuoDownload['status'][]
+const statuses = downloadStatuses
 const message = (err: unknown) => (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '操作失败，请重试'
 
 export function DownloadSpacePage() {
@@ -29,7 +29,8 @@ function DownloadSpaceContent() {
   const raw = Number(params.get('page') ?? 1)
   const page = Number.isInteger(raw) && raw >= 1 && raw <= 1000000 ? raw : 1
   const rawStatus = params.get('status') ?? 'downloading'
-  const status = statuses.includes(rawStatus as HongGuoDownload['status']) ? rawStatus as HongGuoDownload['status'] : ''
+  const normalizedStatus = normalizeDownloadStatus(rawStatus)
+  const status = statuses.includes(normalizedStatus as HongGuoDownload['status']) ? normalizedStatus as HongGuoDownload['status'] : ''
   const keyword = (params.get('keyword') ?? '').trim()
   const [search, setSearch] = useState(keyword)
   useEffect(() => { setSearch(keyword) }, [keyword])
@@ -196,7 +197,7 @@ function DownloadWork({ work, refresh, busy, perform }: { work: HongGuoDownloadW
       {work.total > 0 && work.completed === work.total && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600" title="当前已创建的下载任务全部完成">✅ 全部完成</span>}
       {work.failed > 0 && <button className="btn-outline" disabled={!!busy} onClick={() => void perform(work.source_id, 'work')}>重试失败集</button>}
     </div>
-    <div className="flex flex-wrap items-center gap-2 text-xs"><span>完成 {work.completed}/{work.total} 集</span>{(Object.keys(statusLabels) as HongGuoDownload['status'][]).filter((status) => work[status] > 0).map((status) => <span key={status} className={`rounded-full px-2 py-1 ${statusColors[status]}`}>{statusLabels[status]} {work[status]}</span>)}</div>
+    <div className="flex flex-wrap items-center gap-2 text-xs"><span>完成 {work.completed}/{work.total} 集</span>{statuses.map(status => ({ status, count: status === 'downloading' ? activeDownloadCount(work) : work[status] })).filter(({ count }) => count > 0).map(({ status, count }) => <span key={status} className={`rounded-full px-2 py-1 ${statusColors[status]}`}>{statusLabels[status]} {count}</span>)}</div>
     <DownloadProgress label="剧集完成进度" value={work.completed} total={work.total} />
     <div id={`episodes-${work.source_id}`} hidden={!open} className="border-l-2 border-brand-500/30 pl-3">
       {error && <p role="alert">{error}</p>}

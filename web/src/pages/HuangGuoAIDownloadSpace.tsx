@@ -5,7 +5,7 @@ import { Download } from 'lucide-react'
 import { huangguoaiAPI, type HuangGuoAIDownload, type HuangGuoAIDownloadConfig, type HuangGuoAIDownloadWork } from '../api/huangguoai'
 import { ModalShell } from '../components/ModalShell'
 import { DownloadProgress } from '../components/DownloadProgress'
-import { statusLabels as baseStatusLabels, statusColors as baseStatusColors } from '../utils/downloadStatus'
+import { statusLabels as baseStatusLabels, statusColors as baseStatusColors, downloadStatuses, normalizeDownloadStatus, activeDownloadCount } from '../utils/downloadStatus'
 import { Select } from '../components/Select'
 import { confirmAction } from '../components/confirmAction'
 
@@ -13,13 +13,14 @@ import { huangGuoAIReviewURL } from '../api/client'
 
 const statusLabels = { ...baseStatusLabels, pending_review: '⚠ 待人工确认' }
 const statusColors = { ...baseStatusColors, pending_review: 'text-gold-600 bg-gold-500/10' }
-const labels: Record<string, string> = statusLabels
+const statuses: HuangGuoAIDownload['status'][] = [...downloadStatuses.slice(0, 3), 'pending_review', ...downloadStatuses.slice(3)]
 export function HuangGuoAIDownloadSpace() {
   const [params, setParams] = useSearchParams()
   const rawPage = Number(params.get('page') ?? 1)
   const page = Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 1000000 ? rawPage : 1
   const rawStatus = params.get('status') ?? 'downloading'
-  const status = labels[rawStatus] ? rawStatus : ''
+  const normalizedStatus = normalizeDownloadStatus(rawStatus)
+  const status = statuses.includes(normalizedStatus as HuangGuoAIDownload['status']) ? normalizedStatus : ''
   const keyword = (params.get('keyword') ?? '').trim()
   const [search, setSearch] = useState(keyword)
   useEffect(() => { setSearch(keyword) }, [keyword])
@@ -74,7 +75,7 @@ export function HuangGuoAIDownloadSpace() {
         <button className="btn-outline" type="submit">搜索</button>
         {(search || keyword) && <button className="btn-outline" type="button" onClick={() => { setSearch(''); navigate({ keyword: '', page: '1' }) }}>清空搜索</button>}
       </form>
-      <div className="flex items-center gap-2 text-sm"><span>作品状态</span><Select className="input-field min-w-44" aria-label="黄果AI下载状态" value={status} onChange={value => navigate({ status: value, page: '1' })}><option value="">全部状态</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></div>
+      <div className="flex items-center gap-2 text-sm"><span>作品状态</span><Select className="input-field min-w-44" aria-label="黄果AI下载状态" value={status} onChange={value => navigate({ status: value, page: '1' })}><option value="">全部状态</option>{statuses.map(value => <option key={value} value={value}>{statusLabels[value]}</option>)}</Select></div>
       <div className="flex flex-wrap items-center gap-2"><Link className="btn-primary" to="/discover?system=huangguoai">去发现下载</Link><button className="btn-outline" onClick={() => setRetry(v => v + 1)}>刷新</button><button ref={settingsButton} className="btn-outline" onClick={() => setSettings(true)}>设置</button></div>
     </div>
     {config && !config.root && <p className="text-sm text-ink-50">尚未设置下载目录，请点击“设置”配置。</p>}
@@ -162,7 +163,7 @@ function HuangGuoAIDownloadWork({ work, refresh, busy, perform }: { work: HuangG
       {work.failed + work.cancelled > 0 && <button className="btn-outline" disabled={busy} onClick={() => void perform(work.source_id, 'retry', true)}>重试失败及取消任务</button>}
       {work.completed < work.total && <button className="btn-outline" disabled={busy} onClick={() => void perform(work.source_id, 'cancel', true)}>取消未完成</button>}
     </div>
-    <div className="flex flex-wrap items-center gap-2 text-xs"><span>完成 {work.completed}/{work.total} {unit}</span>{(Object.keys(statusLabels) as HuangGuoAIDownload['status'][]).filter(status => work[status] > 0).map(status => <span key={status} className={`rounded-full px-2 py-1 ${statusColors[status]}`}>{statusLabels[status]} {work[status]}</span>)}</div>
+    <div className="flex flex-wrap items-center gap-2 text-xs"><span>完成 {work.completed}/{work.total} {unit}</span>{statuses.map(status => ({ status, count: status === 'downloading' ? activeDownloadCount(work) : work[status] })).filter(({ count }) => count > 0).map(({ status, count }) => <span key={status} className={`rounded-full px-2 py-1 ${statusColors[status]}`}>{statusLabels[status]} {count}</span>)}</div>
     <DownloadProgress label="作品完成进度" value={work.completed} total={work.total} />
     <div id={`hga-episodes-${work.source_id}`} hidden={!open} className="border-l-2 border-brand-500/30 pl-3">
       {error && <p role="alert">{itemLabel}读取失败 <button className="btn-outline" onClick={() => setRetry(v => v + 1)}>重试加载</button></p>}
